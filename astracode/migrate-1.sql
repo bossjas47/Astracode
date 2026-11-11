@@ -1,0 +1,1 @@
+ALTER TABLE models ADD COLUMN vision INTEGER NOT NULL DEFAULT 0; ALTER TABLE models ADD COLUMN effort TEXT NOT NULL DEFAULT 'none'; UPDATE models SET vision=1, effort='anthropic' WHERE provider='anthropic'; INSERT OR IGNORE INTO settings VALUES ('featured_plan','3');

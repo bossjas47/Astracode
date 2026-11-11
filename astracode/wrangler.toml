@@ -1,0 +1,21 @@
+name = "astracode"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true   # ให้ worker ใส่ security headers กับทุกไฟล์
+
+[[d1_databases]]
+binding = "DB"
+database_name = "astracode"
+database_id = "REPLACE_WITH_D1_ID"   # ได้จาก: npx wrangler d1 create astracode
+
+[[r2_buckets]]
+binding = "SLIPS"
+bucket_name = "astracode-slips"
+
+[vars]
+ADMIN_EMAIL = "salisam417@gmail.com"   # อีเมลนี้สมัครแล้วได้สิทธิ์แอดมิน
