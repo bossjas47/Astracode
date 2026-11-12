@@ -550,3 +550,109 @@ a.tk { color: var(--porcelain); padding: 12px 4px; border-top: 1px solid var(--s
 .btn { white-space: nowrap; }
 .card .ed.key { background: var(--obsidian); margin-bottom: 8px; }
 .kset { padding: 0 18px 18px; }
+/* โปรลดราคาในหน้าราคา */
+.pill.sale { background: rgba(255,69,58,.15); color: var(--red); }
+.pc.promo { box-shadow: 0 0 0 1px rgba(255,69,58,.35); }
+.sale-t { color: var(--red); font-size: 13px; margin: 4px 0 0; }
+.pc-rows s { font-weight: 400; font-size: .85em; }
+
+/* ---------- แชตแบบ Codex / Claude Code มือถือ ---------- */
+.chat .bar { gap: 6px; padding: 6px 8px; overflow: visible; }
+.chat .bar .menu-btn { display: none; }
+.ctitle { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding-left: 8px; }
+.ctitle b { font: 600 15px var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctitle small { font-size: 11px; color: var(--ash); }
+.ctitle small:empty { display: none; }
+.lim { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 9999px; border: 1px solid var(--steel); background: transparent; color: var(--ash); font: 500 12px var(--font); cursor: pointer; flex: none; }
+.ring { width: 14px; height: 14px; border-radius: 50%; background: conic-gradient(var(--porcelain) calc(var(--p) * 1%), var(--steel) 0); }
+.ring.hi { background: conic-gradient(var(--yellow) calc(var(--p) * 1%), var(--steel) 0); } .ring.full { background: conic-gradient(var(--red) calc(var(--p) * 1%), var(--steel) 0); }
+.chat .bar .icon-btn.sm { border-color: var(--steel); font-size: 16px; }
+.compose .cbox { display: block; max-width: 760px; margin: 0 auto; background: var(--carbon); border: 1px solid var(--steel); border-radius: 24px; padding: 6px 8px 8px; }
+.compose .cbox:focus-within { border-color: var(--slate); }
+.cbox textarea { display: block; border: 0; background: transparent; padding: 10px 10px 6px; min-height: 44px; max-height: 180px; outline: none; font-size: 16px; }
+.crow { display: flex; align-items: center; gap: 6px; }
+.crow .sp { flex: 1; }
+.cb { min-height: 36px; padding: 0 12px; border-radius: 9999px; border: 1px solid var(--steel); background: var(--obsidian); color: var(--porcelain); font: 500 13px var(--font); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; flex: none; transition: transform .15s, background-color .2s; }
+.cb:active, .lim:active, .flag:active { transform: scale(.96); }
+#plus { width: 36px; padding: 0; justify-content: center; font-size: 18px; }
+.cb.pick { min-width: 0; max-width: 46vw; flex: 0 1 auto; }
+.cb.pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#flags { display: contents; }
+.flag { min-height: 30px; padding: 0 10px; border-radius: 9999px; border: 0; background: rgba(41,151,255,.15); color: var(--link); font: 500 12px var(--font); cursor: pointer; white-space: nowrap; flex: none; }
+.cbox .send { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--porcelain); color: #000; font: 600 18px var(--font); cursor: pointer; flex: none; transition: transform .15s, opacity .2s; }
+.cbox .send.stop { background: var(--red); color: #fff; font-size: 13px; }
+.cbox .send:active { transform: scale(.92); }
+@media (max-width: 760px) {
+  .chat .bar .menu-btn { display: block; width: 40px; height: 40px; }
+  .ctitle { padding-left: 0; }
+  .crow { gap: 4px; } .cb { padding: 0 10px; font-size: 12px; }
+  .cb.pick { max-width: 40vw; }
+}
+/* แผ่นเลือกจากด้านล่าง */
+.sheet-bg { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; animation: fade .2s ease-out both; }
+.sheet { width: 100%; max-width: 520px; max-height: 80dvh; overflow: auto; background: var(--carbon); border-radius: 28px 28px 0 0; padding: 8px 12px calc(16px + env(safe-area-inset-bottom)); animation: up .25s cubic-bezier(.2,.8,.2,1) both; }
+@media (min-width: 761px) { .sheet-bg { align-items: center; } .sheet { border-radius: 28px; } }
+@keyframes up { from { transform: translateY(40px); opacity: 0; } }
+.sheet-h { display: flex; align-items: center; padding: 8px 8px 12px; }
+.sheet-h b { flex: 1; font: 600 17px var(--display); }
+.sheet-h .x { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--steel); color: var(--porcelain); cursor: pointer; }
+.opt { width: 100%; display: grid; grid-template-columns: 1fr auto; text-align: left; gap: 2px 8px; padding: 12px 14px; margin-bottom: 4px; border: 0; border-radius: 16px; background: var(--obsidian); color: var(--porcelain); cursor: pointer; font: inherit; min-height: 52px; }
+.opt.on { box-shadow: 0 0 0 2px var(--porcelain) inset; }
+.opt-t { font: 500 15px var(--font); } .opt-d { grid-column: 1; font-size: 12px; color: var(--ash); }
+.opt i { grid-row: 1 / 3; grid-column: 2; align-self: center; font-style: normal; }
+.opt-more { display: block; text-align: center; padding: 12px; font-size: 14px; }
+.meters.big { flex-direction: column; gap: 14px; } .meters.big .meter { width: 100%; font-size: 13px; } .meters.big .track { height: 6px; }
+/* token ใต้คำตอบ */
+.acts .tok { margin-left: auto; color: var(--ash); font-size: 11px; white-space: nowrap; }
+/* คำถามแบบเลือกตอบ (จาก JSON ของโมเดล) */
+.ask { background: var(--carbon); border: 1px solid var(--steel); border-radius: 20px; padding: 12px 14px; margin: 8px 0; }
+.ask-q { font-weight: 500; margin-bottom: 8px; }
+.ask-o { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-o button { min-height: 36px; padding: 0 14px; border-radius: 9999px; border: 1px solid var(--slate); background: transparent; color: var(--porcelain); font: 400 14px var(--font); cursor: pointer; text-align: left; }
+.ask-o button:disabled { opacity: .5; cursor: default; }
+.btn.loading { opacity: .6; pointer-events: none; }
+.crow { flex-wrap: wrap; row-gap: 6px; } .cb, .flag { white-space: nowrap; }
+.crow .send { margin-left: auto; }
+#app:has(.chat) .ann { top: calc(60px + env(safe-area-inset-top)); bottom: auto; } /* แชต: ช่องพิมพ์สูงขึ้น จึงย้ายประกาศขึ้นบน */
+.side-links { display: grid; grid-template-columns: 1fr 1fr; } .side-links a { padding: 8px 12px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ไอคอน SVG (Lucide) */
+.ic { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; flex: none; }
+.ic.sm { width: .95em; height: .95em; }
+.stat .ic { width: 32px; height: 32px; stroke-width: 1.75; }
+.menu-btn .ic, .icon-btn .ic { width: 20px; height: 20px; }
+.cbox .send .ic { width: 18px; height: 18px; stroke-width: 2.5; vertical-align: middle; }
+.side .item button .ic, .side .folder summary button .ic { width: 16px; height: 16px; }
+.side-links a .ic { margin-right: 4px; color: var(--ash); }
+.opt-t .ic { margin-right: 8px; color: var(--ash); }
+.opt.on .opt-t .ic { color: var(--porcelain); }
+.adm-nav .ai .ic { width: 18px; height: 18px; }
+.flag { display: inline-flex; align-items: center; gap: 4px; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; } .menu-btn .ic { display: block; margin: auto; }
+.ic.f-html, .ic.f-htm { color: #ff8a4c; } .ic.f-css { color: #5ac8fa; } .ic.f-js, .ic.f-mjs, .ic.f-jsx { color: #ffd60a; } .ic.f-ts, .ic.f-tsx { color: #2997ff; } .ic.f-py { color: #30d158; } .ic.f-json { color: #bf5af2; }
+.tool { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0; padding: 4px 10px; border-radius: 9999px; background: var(--carbon); color: var(--ash); font-size: 12px; max-width: 100%; }
+.tool code { background: none !important; padding: 0 !important; color: var(--porcelain); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.think summary::before, .think summary::after { content: none; }
+.think summary .chev { transition: transform .2s; } .think[open] summary .chev { transform: rotate(180deg); }
+/* เทอร์มินัล */
+.term { display: flex; flex-direction: column; flex: 1; min-height: 0; background: #000; }
+.term pre { flex: 1; margin: 0; padding: 12px; overflow: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; color: var(--porcelain); }
+.term pre .err { color: var(--red); } .term pre .cmd { color: var(--link); } .term pre .muted { color: var(--ash); }
+.term form { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--steel); font: 13px ui-monospace, Menlo, monospace; color: var(--green); }
+.term input { min-height: 36px; border: 0; background: transparent; padding: 0; font: 14px ui-monospace, Menlo, monospace; border-radius: 0; }
+.changes.runs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.changes.runs code { background: #000; padding: 4px 8px; border-radius: 8px; font-size: 12px; }
+.changes.runs { flex-direction: row; justify-content: flex-start; text-align: left; }
+/* โหมด Code: แผง AI แบบเดียวกับหน้าแชต */
+.ai-h .sp { flex: 1; }
+.ai-t { display: inline-flex; align-items: center; gap: 6px; font: 600 15px var(--font); }
+.ide-ai .compose .cbox { display: block; }
+.ide-ai .cbox textarea { font-size: 15px; }
+.ide-ai .ctx:empty { display: none; }
+/* ไฟล์ที่ AI ทำให้ดาวน์โหลด */
+.code.file { box-shadow: 0 0 0 1px var(--slate); }
+.code-h .fname { display: inline-flex; align-items: center; gap: 6px; color: var(--porcelain); font-weight: 500; margin-right: auto; }
+.code-h .dl-code.main { background: var(--blue); color: #fff; }
+.code-h .dl-code.main:hover { background: #0077ed; color: #fff; }
+.code-h { justify-content: flex-start; gap: 2px; } .code-h > span:first-child { margin-right: auto; } .code-h .dl-code { display: inline-flex; align-items: center; gap: 4px; }
+.code-h .dl-code { flex: none; width: auto; white-space: nowrap; flex-direction: row; } .code-h .dl-code.main { padding: 6px 14px; border-radius: 9999px; }
+.ed.gift { margin-bottom: 12px; } .ed.gift summary .ic { margin-right: 6px; }

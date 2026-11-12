@@ -18,10 +18,10 @@ async function codeHome() {
   page(nav() + `<div class="wrap"><section class="hero" style="padding:48px 0 24px"><div class="name">AstraCode</div><h1>Code</h1>
     <p>เขียนโค้ดบนมือถือ มี AI ช่วยแก้ไฟล์ รัน HTML, JavaScript และ Python ได้ในเบราว์เซอร์</p></section>
     <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px"><button class="btn blue">+ สร้างโปรเจกต์</button></form>
-    <details class="card clone"><summary><b>⑂ Clone จาก GitHub</b> <span class="muted">ดึง repo มาเป็นโปรเจกต์ใหม่</span></summary>
+    <details class="card clone"><summary><b>${ic('branch')} Clone จาก GitHub</b> <span class="muted">ดึง repo มาเป็นโปรเจกต์ใหม่</span></summary>
       <form id="cf2" class="form2" style="margin-top:12px"><div><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required></div>
       <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">Clone</button></div></form>
-      <p class="muted" id="cmsg">ต้องเชื่อม GitHub ก่อน (ปุ่ม ⑂ Git ในโปรเจกต์ไหนก็ได้)</p></details>
+      <p class="muted" id="cmsg">ต้องเชื่อม GitHub ก่อน (ปุ่ม Git ในโปรเจกต์ไหนก็ได้)</p></details>
     <div class="err" id="e"></div>
     <div class="grid">${list.map(p => `<div class="tile proj"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}</div>
       <div class="muted">${p.files} ไฟล์ · ${kb(p.size)} · แก้ล่าสุด ${when(p.updated_at)}</div></a>
@@ -113,7 +113,7 @@ function closeTab(path) {
 }
 function drawTabs() {
   const t = $('#tabs'); if (!t) return;
-  t.innerHTML = IDE.open.map(p => `<div class="tab ${p === IDE.active ? 'on' : ''}" data-open="${esc(p)}"><span>${IDE.dirty.has(p) ? '● ' : ''}${esc(p.split('/').pop())}</span><button data-close="${esc(p)}" aria-label="ปิด">✕</button></div>`).join('');
+  t.innerHTML = IDE.open.map(p => `<div class="tab ${p === IDE.active ? 'on' : ''}" data-open="${esc(p)}"><span>${IDE.dirty.has(p) ? '● ' : ''}${esc(p.split('/').pop())}</span><button data-close="${esc(p)}" aria-label="ปิด">${ic('x')}</button></div>`).join('');
   t.querySelectorAll('[data-open]').forEach(x => x.onclick = e => { if (!e.target.dataset.close) openFile(x.dataset.open); });
   t.querySelectorAll('[data-close]').forEach(x => x.onclick = () => closeTab(x.dataset.close));
   t.querySelector('.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -126,16 +126,16 @@ function drawTree() {
   const row = (depth, inner) => `<div class="trow" style="padding-left:${8 + depth * 14}px">${inner}</div>`;
   const walk = (n, prefix, depth) => Object.keys(n).filter(k => k !== '__f').sort().map(d => {
     const full = prefix + d + '/', closed = IDE.closed.has(full);
-    return row(depth, `<button class="tname" data-fold="${esc(full)}">${closed ? '▸' : '▾'} 📁 ${esc(d)}</button><button class="tmore" data-dmenu="${esc(full)}" aria-label="ตัวเลือกโฟลเดอร์">⋯</button>`)
+    return row(depth, `<button class="tname" data-fold="${esc(full)}">${ic(closed ? 'right' : 'down', 'sm')}${ic('folder')} ${esc(d)}</button><button class="tmore" data-dmenu="${esc(full)}" aria-label="ตัวเลือกโฟลเดอร์">${ic('more')}</button>`)
       + (closed ? '' : walk(n[d], full, depth + 1));
-  }).join('') + (n.__f || []).map(p => row(depth, `<button class="tname ${p === IDE.active ? 'on' : ''}" data-file="${esc(p)}">${icon(p)} ${esc(p.split('/').pop())}</button><button class="tmore" data-fmenu="${esc(p)}" aria-label="ตัวเลือกไฟล์">⋯</button>`)).join('');
+  }).join('') + (n.__f || []).map(p => row(depth, `<button class="tname ${p === IDE.active ? 'on' : ''}" data-file="${esc(p)}">${icon(p)} ${esc(p.split('/').pop())}</button><button class="tmore" data-fmenu="${esc(p)}" aria-label="ตัวเลือกไฟล์">${ic('more')}</button>`)).join('');
   $('#tree').innerHTML = walk(root, '', 0) || '<p class="muted" style="padding:12px">ยังไม่มีไฟล์</p>';
   $('#tree').querySelectorAll('[data-file]').forEach(b => b.onclick = () => openFile(b.dataset.file));
   $('#tree').querySelectorAll('[data-fold]').forEach(b => b.onclick = () => { const f = b.dataset.fold; IDE.closed.has(f) ? IDE.closed.delete(f) : IDE.closed.add(f); drawTree(); });
   $('#tree').querySelectorAll('[data-fmenu]').forEach(b => b.onclick = () => menu(b, b.dataset.fmenu, false));
   $('#tree').querySelectorAll('[data-dmenu]').forEach(b => b.onclick = () => menu(b, b.dataset.dmenu, true));
 }
-const icon = p => ({ html: '🌐', htm: '🌐', css: '🎨', js: '📜', mjs: '📜', ts: '📘', tsx: '📘', jsx: '📜', py: '🐍', json: '🧩', md: '📝' }[p.split('.').pop().toLowerCase()] || '📄');
+const icon = p => { const e = p.split('.').pop().toLowerCase(), k = { html: 'web', htm: 'web', css: 'palette', js: 'filecode', mjs: 'filecode', ts: 'filecode', tsx: 'filecode', jsx: 'filecode', py: 'py', json: 'braces2', md: 'filetext' }[e] || 'file'; return ic(k, 'f-' + e); };
 function menu(btn, path, folder) {
   document.querySelector('.tmenu')?.remove();
   const m = document.createElement('div'); m.className = 'tmenu';
@@ -292,12 +292,13 @@ function runPython(main) {
   IDE.worker.postMessage({ main, files: [...IDE.files.keys()].map(p => ({ path: p, content: content(p) })) });
 }
 function stopRun() {
+  if (IDE.node?.jobs.size) { for (const j of IDE.node.jobs.values()) j({ code: 130, stdout: '', stderr: 'หยุดแล้ว (ต้องติดตั้งแพ็กเกจใหม่)', files: [] }); IDE.node.f.remove(); IDE.node = null; termOut('■ หยุดแล้ว\n', 'err'); }
   if (IDE.worker && IDE.running) { IDE.worker.terminate(); IDE.worker = null; IDE.running = false; log('warn', '■ หยุดแล้ว'); $('#run-status').textContent = 'หยุดแล้ว'; }
-  if (IDE.frame) { IDE.frame.remove(); IDE.frame = null; $('#out').innerHTML = '<p class="muted" style="padding:16px">หยุดแล้ว กด ▶ เพื่อรันใหม่</p>'; }
+  if (IDE.frame) { IDE.frame.remove(); IDE.frame = null; $('#out').innerHTML = '<p class="muted" style="padding:16px">หยุดแล้ว กด รัน เพื่อรันใหม่</p>'; }
 }
 function badge() { const b = $('[data-rtab=con]'); if (b && IDE.runTab !== 'con') b.classList.add('alert'); }
 function runTab(t) {
-  IDE.runTab = t; $('#out').hidden = t !== 'out'; $('#console').hidden = t !== 'con';
+  IDE.runTab = t; $('#out').hidden = t !== 'out'; $('#console').hidden = t !== 'con'; $('#term').hidden = t !== 'term';
   document.querySelectorAll('[data-rtab]').forEach(b => { b.classList.toggle('on', b.dataset.rtab === t); if (b.dataset.rtab === t) b.classList.remove('alert'); });
 }
 function showRun(on) { $('.ide').dataset.run = on ? '1' : ''; if (on && matchMedia('(max-width: 999px)').matches) setPane('run'); }
@@ -308,12 +309,88 @@ function setPane(p) {
   if (p === 'code') requestAnimationFrame(() => IDE.view?.requestMeasure());
 }
 
+// ---------- เทอร์มินัล Node.js (almostnode ใน iframe sandbox: เข้าถึง cookie / API ของผู้ใช้ไม่ได้) ----------
+const RUN_RE = /^[ \t]*RUN[ \t]+(.+)$/gm;
+const runsOf = text => [...String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(RUN_RE)].map(m => m[1].trim()).slice(0, 3);
+function nodeFrame() {
+  if (IDE.node) return IDE.node.ready;
+  const f = document.createElement('iframe');
+  f.setAttribute('sandbox', 'allow-scripts'); f.hidden = true; f.title = 'เทอร์มินัล';
+  IDE.node = { f, jobs: new Map() };
+  IDE.node.ready = new Promise((ok, no) => {
+    const t = setTimeout(() => no(new Error('เปิดเทอร์มินัลไม่ได้ ลองรีเฟรชหน้า')), 30000);
+    IDE.node.onReady = () => { clearTimeout(t); ok(); };
+  });
+  f.src = '/node-runner'; document.body.append(f);
+  return IDE.node.ready;
+}
+addEventListener('message', e => {
+  const n = IDE.node; if (!n || e.source !== n.f.contentWindow) return;
+  const d = e.data || {};
+  if (d.nodeReady) return n.onReady();
+  const job = n.jobs.get(d.id); if (!job) return;
+  if (d.out || d.err) { job.streamed = true; if (d.out) termOut(d.out); if (d.err) termOut(d.err, 'err'); }
+  if (d.done) { n.jobs.delete(d.id); if (!job.streamed) { termOut(d.stdout || ''); termOut(d.stderr || '', 'err'); } job(d); } // บางคำสั่งไม่ส่งผลระหว่างทาง
+});
+function termOut(text, cls = '') {
+  const t = $('#term-o'); if (!t) return;
+  t.insertAdjacentHTML('beforeend', `<span class="${cls}">${esc(text)}</span>`); t.scrollTop = t.scrollHeight;
+}
+// รันคำสั่ง: ส่งไฟล์โปรเจกต์ไปด้วย ไฟล์ที่คำสั่งสร้าง/แก้ (ยกเว้น node_modules) จะถูกบันทึกกลับเข้าโปรเจกต์
+async function nodeRun(cmd) {
+  if (window.DEMO) { termOut(`$ ${cmd}\nหน้าเดโมรันเทอร์มินัลไม่ได้ บนเว็บจริงใช้ได้\n`, 'err'); return { code: 1, stdout: '', stderr: 'หน้าเดโมรันเทอร์มินัลไม่ได้' }; }
+  await saveNow(); showRun(true); runTab('term');
+  termOut(`$ ${cmd}\n`, 'cmd'); $('#run-status').textContent = 'กำลังรัน...';
+  try { await nodeFrame(); } catch (x) { termOut(x.message + '\n', 'err'); return { code: 1, stdout: '', stderr: x.message }; }
+  const id = Math.random().toString(36).slice(2);
+  const files = [...IDE.files.keys()].map(p => ({ path: p, content: content(p) }));
+  const d = await new Promise(ok => { IDE.node.jobs.set(id, ok); IDE.node.f.contentWindow.postMessage({ id, cmd, files }, '*'); });
+  termOut(`[exit ${d.code}]\n`, d.code ? 'err' : 'muted'); $('#run-status').textContent = '';
+  const changed = (d.files || []).filter(f => PATH_OK(f.path) && content(f.path) !== f.content);
+  if (changed.length) { await writeFiles(changed); termOut(`บันทึกไฟล์ที่เปลี่ยน: ${changed.map(f => f.path).join(', ')}\n`, 'muted'); }
+  return d;
+}
+const PATH_OK = p => p && !p.startsWith('node_modules/') && p.length < 200;
+// AI สั่ง RUN: ใช้การแก้ไขของข้อความนั้นก่อน แล้วรัน แล้วส่งผลกลับให้ AI
+async function runForAI(msg, cmds) {
+  for (const c of changesOf(msg.content)) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c);
+  msg.ran = true; drawAI();
+  const cut = s => s.length > 6000 ? s.slice(0, 2000) + '\n…(ตัดกลาง)…\n' + s.slice(-4000) : s;
+  let text = '[ผลการรันคำสั่ง]';
+  for (const cmd of cmds) { const d = await nodeRun(cmd); text += `\n\n$ ${cmd}\n(exit ${d.code})\n${cut((d.stdout || '') + (d.stderr ? '\n[stderr]\n' + d.stderr : '')) || '(ไม่มีผลลัพธ์)'}`; }
+  IDE.round = (IDE.round ?? 0) + 1; setPane('ai');
+  if (IDE.round <= 5) await codeSend({ text: text + '\n\nดูผลแล้วแก้ต่อถ้ายังมีปัญหา ถ้าผ่านแล้วให้สรุปสั้นๆ' });
+}
+
+// ---------- AI: ปุ่มด้านล่างแบบเดียวกับหน้าแชต ----------
+function cUI() {
+  const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
+  $('#cmdl').innerHTML = `<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
+  $('#ceff').hidden = !m || m.effort === 'none';
+  $('#ceff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
+  $('#cflags').innerHTML = (IDE.autoApply ? `<button type="button" class="flag" data-flag="autoapply" aria-label="ปิด Auto-apply">${ic('check', 'sm')}Auto-apply${ic('x', 'sm')}</button>` : '')
+    + (IDE.autoMode ? `<button type="button" class="flag" data-flag="auto" aria-label="ปิดตรวจผลเอง">${ic('eye', 'sm')}ตรวจผลเอง${ic('x', 'sm')}</button>` : '');
+}
+function setOpt(k, on) { localStorage.setItem(k, on ? '1' : '0'); if (k === 'auto') IDE.autoMode = on; else IDE.autoApply = on; }
+function codeTools() {
+  sheet('เครื่องมือ AI', optHTML('autoapply', ic('check') + 'Auto-apply', 'ใช้การแก้ไฟล์ของ AI ทันที และรันคำสั่งที่ AI ขอ ไม่ต้องกดเอง', IDE.autoApply)
+    + optHTML('auto', ic('eye') + 'ตรวจผลเองอัตโนมัติ', 'ใช้การแก้ไข แล้วรัน + จับภาพหน้าจอให้ AI ดูและแก้ต่อ สูงสุด 3 รอบ', IDE.autoMode)
+    + optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
+    + optHTML('term', ic('terminal') + 'เปิดเทอร์มินัล', 'พิมพ์คำสั่ง npm / node เอง'),
+    (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
+      close(); const v = b.dataset.v;
+      if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
+      if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
+      if (v === 'term') { showRun(true); runTab('term'); setTimeout(() => $('#term-i')?.focus(), 50); }
+    }));
+}
+
 // ---------- AI ----------
 function drawCtx() {
   const box = $('#ctx'); if (!box) return;
   const list = [...new Set([IDE.autoActive && IDE.active, ...IDE.ctx].filter(p => p && has(p)))];
   const total = list.reduce((a, p) => a + content(p).length, 0);
-  box.innerHTML = `<span class="muted">AI เห็น:</span>` + list.map(p => `<span class="fchip">${icon(p)} <span>${esc(p)}</span>${p === IDE.active && IDE.autoActive && !IDE.ctx.has(p) ? '<small>ไฟล์ที่เปิด</small>' : ''}<button data-uctx="${esc(p)}" aria-label="เอาออก">✕</button></span>`).join('')
+  box.innerHTML = `<span class="muted">แนบให้ AI:</span>` + list.map(p => `<span class="fchip">${icon(p)} <span>${esc(p)}</span>${p === IDE.active && IDE.autoActive && !IDE.ctx.has(p) ? '<small>ไฟล์ที่เปิด</small>' : ''}<button data-uctx="${esc(p)}" aria-label="เอาออก">${ic('x')}</button></span>`).join('')
     + `<select id="addctx" aria-label="เพิ่มไฟล์ให้ AI"><option value="">+ เพิ่มไฟล์</option>${[...IDE.files.keys()].filter(p => !list.includes(p)).map(p => `<option>${esc(p)}</option>`).join('')}</select>`
     + `<small class="muted">${tok(total)}</small>`;
   box.querySelectorAll('[data-uctx]').forEach(b => b.onclick = () => { const p = b.dataset.uctx; if (IDE.ctx.has(p)) IDE.ctx.delete(p); else IDE.autoActive = false; drawCtx(); });
@@ -377,18 +454,23 @@ function showDiff(c, label = 'Apply') {
   box.querySelector('#dclose').onclick = () => box.remove();
   box.querySelector('#dapply').onclick = async () => { box.remove(); await apply(c); };
 }
+// บรรทัด READ / GREP / LIST ที่ AI ใช้อ่านไฟล์ → แสดงเป็นป้ายเล็กๆ
+const TOOL_LABEL = { READ: ['filetext', 'อ่าน'], GREP: ['search', 'ค้นหา'], LIST: ['folder', 'ดูไฟล์ใน'], RUN: ['terminal', 'รัน'] };
+const toolsMd = t => md(t.replace(/^[ \t]*(READ|GREP|LIST|RUN)\b[ \t]*(?:path=)?(.*)$/gm, (_, op, a) => `\u0001${op}\u0002${a.trim()}\u0003`))
+  .replace(/\u0001(\w+)\u0002([^\u0003]*)\u0003/g, (_, op, a) => `<span class="tool">${ic(TOOL_LABEL[op][0], 'sm')}${TOOL_LABEL[op][1]} <code>${a || '/'}</code></span>`);
+const runCard = (m, i) => { const r = runsOf(m.content); return r.length ? `<div class="changes runs"><span class="muted">AI ขอรันคำสั่ง</span>${r.map(c => `<code>${esc(c)}</code>`).join('')}${m.ran ? '<span class="muted">รันแล้ว ✓</span>' : `<button class="btn blue sm" data-runai="${i}">${ic('terminal', 'sm')} รันแล้วส่งผลให้ AI</button>`}</div>` : ''; };
 function aiMsgHTML(m, i) {
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
     return `<div class="msg user ${m.auto ? 'auto' : ''}"><div class="b">${m.imgs ? `<div class="mimgs shot">${m.imgs.map(d => `<img src="${d}" alt="ภาพหน้าจอผลลัพธ์">`).join('')}</div>` : ''}${esc(m.content.replace(FILE_RE, '').replace(TREE_RE, '').replace(CHECK_RE, '').replace(/\n\n\[แนบรูป \d+ รูป\]/, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${icon(f[1])} <span>${esc(f[1])}</span></span>`).join('')}</div>` : ''}</div></div>`;
   }
-  return `<div class="msg ai">${thinkHTML(m)}<div class="b">${m.content ? md(m.content) : m.thinking ? '' : DOTS}</div>${m.streaming ? '' : changeCards(m, i)
+  return `<div class="msg ai">${thinkHTML(m)}<div class="b">${m.content ? toolsMd(m.content) : m.thinking ? '' : DOTS}</div>${m.streaming ? '' : changeCards(m, i) + runCard(m, i)
     + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}<button data-copy="${i}">คัดลอก</button></div>`}</div>`;
 }
 function drawAI() {
   const box = $('#cmsgs'); if (!box) return;
   box.innerHTML = IDE.msgs.length ? IDE.msgs.map(aiMsgHTML).join('')
-    : `<div class="empty" style="padding-top:24px"><div class="stat" style="font-size:22px">ให้ AI ช่วยเขียนโค้ด</div><div class="muted">AI เห็นไฟล์ที่เปิดอยู่ และแก้ไฟล์ให้ได้ กด Apply เพื่อใช้การแก้ไข</div>
+    : `<div class="empty" style="padding-top:24px"><div class="stat" style="font-size:22px">ให้ AI ช่วยเขียนโค้ด</div><div class="muted">AI อ่านได้ทุกไฟล์ในโปรเจกต์ และแก้ไฟล์ให้ได้ กด Apply เพื่อใช้การแก้ไข</div>
       <div class="chips">${['อธิบายโค้ดไฟล์นี้', 'หาบั๊กและแก้ให้', 'เพิ่มคอมเมนต์ภาษาไทย', 'ทำให้หน้าเว็บสวยขึ้น'].map(s => `<button data-cs="${s}">${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight;
 }
@@ -408,7 +490,7 @@ async function codeSend(auto) {
   $('#ce').textContent = '';
   IDE.msgs.push({ role: 'user', content: withFiles(full, files), imgs: images.length ? images : null, auto: !!auto });
   const ai = { role: 'assistant', content: '', model: m.name, streaming: true }; IDE.msgs.push(ai); drawAI();
-  IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').textContent = '■'; $('#cgo').classList.add('stop');
+  IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop');
   let raf = 0, started = false;
   try {
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal,
@@ -426,19 +508,21 @@ async function codeSend(auto) {
         if (d.chat_id) IDE.chatId = d.chat_id;
         if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) { const stick = nearBottom(b); paintStreaming(last, ai); if (stick) b.scrollTop = b.scrollHeight; } }); }
         if (d.error) $('#ce').textContent = d.error;
-        if (d.done) { me.usage = d; $('#cmeter').innerHTML = meters(d); }
+        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); }
       }
     }
   } catch (x) {
     if (x.name !== 'AbortError') { $('#ce').textContent = x.message; if (!started) { IDE.msgs.splice(-2, 2); if (!auto) t.value = text; } }
   }
   cancelAnimationFrame(raf); ai.streaming = false; if (!ai.content && !ai.thinking && IDE.msgs.at(-1) === ai) IDE.msgs.pop();
-  IDE.busy = false; $('#cgo').textContent = '↑'; $('#cgo').classList.remove('stop'); drawAI();
+  IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
   // โหมดอัตโนมัติ: ใช้การแก้ไขทันที แล้วให้ AI ดูผลลัพธ์เอง (สูงสุด 3 รอบ)
-  if (IDE.autoMode && ai.content && changesOf(ai.content).length && (IDE.round ?? 0) < 3) {
-    try { for (const c of changesOf(ai.content)) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c); await check(); }
-    catch (x) { $('#ce').textContent = x.message; }
-  }
+  // Auto-apply: ใช้การแก้ไขทันที (และรันคำสั่งที่ AI ขอ) · ตรวจผลเอง: ใช้การแก้ไข แล้วรัน + จับภาพให้ AI ดู (สูงสุด 3 รอบ)
+  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content) : [], autoOn = IDE.autoApply || IDE.autoMode;
+  try {
+    if (autoOn && runs.length && (IDE.round ?? 0) < 5) await runForAI(ai, runs);
+    else if (autoOn && ch.length) { for (const c of ch) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c); if (IDE.autoMode && (IDE.round ?? 0) < 3) await check(); }
+  } catch (x) { $('#ce').textContent = x.message; }
 }
 
 // ---------- AI ดูผลลัพธ์เอง: รัน → จับภาพหน้าจอ + คอนโซล → ส่งให้ AI ตรวจ ----------
@@ -493,7 +577,7 @@ async function versions() {
 async function gitPanel() {
   document.querySelector('.gitbox')?.remove();
   const box = document.createElement('div'); box.className = 'diffbox gitbox';
-  box.innerHTML = `<div class="diff-h"><b>⑂ GitHub</b><span style="flex:1"></span><button class="btn out sm" id="gx">ปิด</button></div><div class="git-b" id="gb"><p class="muted">กำลังโหลด...</p></div>`;
+  box.innerHTML = `<div class="diff-h"><b>${ic('branch')} GitHub</b><span style="flex:1"></span><button class="btn out sm" id="gx">ปิด</button></div><div class="git-b" id="gb"><p class="muted">กำลังโหลด...</p></div>`;
   $('.ide').append(box); box.querySelector('#gx').onclick = () => box.remove();
   const gb = box.querySelector('#gb'), say = (h, bad) => { const m = gb.querySelector('.gmsg'); if (m) m.innerHTML = bad ? `<span class="bad">${esc(h)}</span>` : h; };
   const acct = await api('/github');
@@ -517,11 +601,11 @@ async function gitPanel() {
     return;
   }
   await saveNow();
-  gb.innerHTML = `<p class="gm-repo"><a href="https://github.com/${esc(IDE.gh.repo)}/tree/${encodeURIComponent(IDE.gh.branch)}" target="_blank" rel="noopener">${esc(IDE.gh.repo)}</a> <span class="pill">⑂ ${esc(IDE.gh.branch)}</span> <span class="muted">@${esc(acct.login)}</span></p>
-    <div class="row"><button class="btn out sm" id="gf">↻ Fetch</button><button class="btn out sm" id="gp">↓ Pull</button><button class="btn out sm" id="gun">ยกเลิกการเชื่อม repo</button></div>
+  gb.innerHTML = `<p class="gm-repo"><a href="https://github.com/${esc(IDE.gh.repo)}/tree/${encodeURIComponent(IDE.gh.branch)}" target="_blank" rel="noopener">${esc(IDE.gh.repo)}</a> <span class="pill">${ic('branch', 'sm')} ${esc(IDE.gh.branch)}</span> <span class="muted">@${esc(acct.login)}</span></p>
+    <div class="row"><button class="btn out sm" id="gf">${ic('refresh')} Fetch</button><button class="btn out sm" id="gp">${ic('pull')} Pull</button><button class="btn out sm" id="gun">ยกเลิกการเชื่อม repo</button></div>
     <div class="row gbr"><select id="gbs" aria-label="branch"><option>${esc(IDE.gh.branch)}</option></select><button class="btn out sm" id="gnb">+ branch ใหม่</button><button class="btn out sm" id="gpr">เปิด Pull Request</button></div>
     <div id="gs" class="gstat"><p class="muted">กำลังตรวจสถานะ...</p></div>
-    <form id="gc" class="gcommit"><label>ข้อความคอมมิต</label><input name="message" placeholder="อธิบายสิ่งที่เปลี่ยน" maxlength="500"><button class="btn blue" id="gpush">↑ Commit & Push</button></form><p class="gmsg"></p>`;
+    <form id="gc" class="gcommit"><label>ข้อความคอมมิต</label><input name="message" placeholder="อธิบายสิ่งที่เปลี่ยน" maxlength="500"><button class="btn blue" id="gpush">${ic('push')} Commit & Push</button></form><p class="gmsg"></p>`;
   const list = (t, xs, cls) => xs.length ? `<div class="gl"><b>${t}</b>${xs.map(x => `<div class="${cls}">${esc(x.path || x)}${x.status ? ` <span class="muted">${x.status}</span>` : ''}</div>`).join('')}</div>` : '';
   const status = async () => {
     const g = gb.querySelector('#gs'); g.innerHTML = '<p class="muted">กำลังตรวจสถานะ...</p>';
@@ -549,7 +633,7 @@ async function gitPanel() {
       gb.querySelector('#gr').onclick = () => pull('remote'); gb.querySelector('#gk').onclick = () => pull('local');
     }
   };
-  const setBranch = br => { IDE.gh.branch = br; $('#git').textContent = '⑂ ' + br; };
+  const setBranch = br => { IDE.gh.branch = br; $('#git').innerHTML = ic('branch') + ' ' + esc(br); };
   api(`/projects/${IDE.pid}/github/branches`).then(b => {
     const sel = gb.querySelector('#gbs'); IDE.gh.default = b.default;
     sel.innerHTML = b.branches.map(n => `<option ${n === b.current ? 'selected' : ''}>${esc(n)}</option>`).join('');
@@ -589,44 +673,48 @@ async function gitPanel() {
 async function codeView(id) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   const d = await api('/projects/' + id);
+  IDE.node?.f.remove(); IDE.node = null; // เทอร์มินัลของโปรเจกต์ก่อน
   Object.assign(IDE, { pid: d.id, name: d.name, gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,
     dirty: new Set(), ctx: new Set(), autoActive: true, msgs: [], chatId: null, busy: false, logs: [], frame: null });
   if (IDE.worker) { IDE.worker.terminate(); IDE.worker = null; }
   const saved = localStorage.getItem('model');
   app.innerHTML = `<div class="ide view" data-pane="code">
     <header class="ide-bar"><a class="icon-btn sm" href="/code" aria-label="กลับไปหน้าโปรเจกต์">‹</a><b class="pname">${esc(d.name)}</b><span id="ide-status" class="muted"></span><span style="flex:1"></span>
-      <button class="btn out sm" id="git" aria-label="GitHub">${d.gh ? '⑂ ' + esc(d.gh.branch) : '⑂ Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">▶ รัน</button></header>
+      <button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} รัน</button></header>
     <div class="ide-body">
       <aside class="ide-files"><div class="ftools"><button class="btn out sm" id="nfile">+ ไฟล์</button><button class="btn out sm" id="upl">อัปโหลด</button>
         <button class="btn out sm" id="zin">นำเข้า zip</button><button class="btn out sm" id="zout">ส่งออก zip</button>
         <input type="file" id="uplf" multiple hidden><input type="file" id="zinf" accept=".zip,application/zip" hidden></div><div id="tree" class="tree"></div></aside>
       <section class="ide-main"><div class="ide-tabs" id="tabs"></div>
-        <div class="ide-tools"><button id="undo" aria-label="ย้อนกลับ">↶</button><button id="redo" aria-label="ทำซ้ำ">↷</button><button id="find" aria-label="ค้นหา">ค้นหา</button>
+        <div class="ide-tools"><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
           <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">ประวัติ</button><button id="save" aria-label="บันทึก">บันทึก</button></div>
         <div id="editor" class="ide-editor"></div>
-        <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">ผลลัพธ์</button><button data-rtab="con">คอนโซล</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
-          <button id="stop">■ หยุด</button><button id="clr">ล้าง</button><button id="hiderun" aria-label="ปิดแผงรัน">✕</button></div>
-          <div id="out" class="run-out"><p class="muted" style="padding:16px">กด ▶ รัน เพื่อดูผล</p></div><div id="console" class="console" hidden></div></div></section>
-      <aside class="ide-ai"><div class="ai-h"><select id="cmodel" aria-label="โมเดล">${me.models.map(m => `<option value="${m.id}" ${String(m.id) === saved ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
-        <select id="ceffort" aria-label="ระดับความคิด">${EFFORTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
-        <button class="btn out sm" id="cnew">แชตใหม่</button></div>
-        <div class="ai-h2"><button class="btn out sm" id="ccheck" title="รันโปรเจกต์ จับภาพหน้าจอ แล้วให้ AI ตรวจ">📸 ให้ AI ดูผลลัพธ์</button>
-          <label class="sw-l" title="AI แก้ไฟล์ รัน ดูภาพหน้าจอ แล้วแก้ต่อเองสูงสุด 3 รอบ"><span>อัตโนมัติ</span><span class="sw"><input type="checkbox" id="cauto"><span></span></span></label></div><div id="cmeter" class="meters" style="justify-content:flex-start;padding:0 12px 6px">${meters(me.usage)}</div>
+        <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">ผลลัพธ์</button><button data-rtab="con">คอนโซล</button><button data-rtab="term">เทอร์มินัล</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
+          <button id="stop">${ic('stop')} หยุด</button><button id="clr">ล้าง</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
+          <div id="out" class="run-out"><p class="muted" style="padding:16px">กด รัน เพื่อดูผล</p></div><div id="console" class="console" hidden></div><div id="term" class="term" hidden><pre id="term-o"></pre><form id="term-f"><span>$</span><input id="term-i" placeholder="npm install lodash / npm test / node app.js" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="คำสั่ง"></form></div></div></section>
+      <aside class="ide-ai"><div class="ai-h"><b class="ai-t">${ic('sparkles')} AI</b><span class="sp"></span><button class="lim" id="clim" aria-label="ลิมิตการใช้งาน"></button><button class="icon-btn sm" id="cnew" aria-label="แชตใหม่">${ic('newchat')}</button>
+        <select id="cmodel" hidden>${me.models.map(m => `<option value="${m.id}" ${String(m.id) === saved ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
+        <select id="ceffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></div>
         <div id="cmsgs" class="msgs"></div>
         <div class="compose"><div id="ctx" class="ctx"></div><div class="err" id="ce"></div>
-          <form id="cf"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea><button class="btn blue send" id="cgo" aria-label="ส่ง">↑</button></form></div></aside>
+          <form id="cf" class="cbox"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea>
+            <div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
+              <span id="cflags"></span><button class="send" id="cgo" aria-label="ส่ง">${ic('up')}</button></div></form></div></aside>
     </div>
-    <nav class="ide-nav">${[['files', '📁', 'ไฟล์'], ['code', '✎', 'โค้ด'], ['ai', '✦', 'AI'], ['run', '▶', 'ผลลัพธ์']].map(([k, i, l]) => `<button data-pane-btn="${k}" class="${k === 'code' ? 'on' : ''}"><span>${i}</span>${l}</button>`).join('')}</nav></div>`;
+    <nav class="ide-nav">${[['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['ai', 'sparkles', 'AI'], ['run', 'play', 'ผลลัพธ์']].map(([k, i, l]) => `<button data-pane-btn="${k}" class="${k === 'code' ? 'on' : ''}"><span>${ic(i)}</span>${l}</button>`).join('')}</nav></div>`;
 
   IDE.view = new CM.EditorView({ parent: $('#editor'), state: CM.EditorState.create({ doc: '' }) });
   const first = has('index.html') ? 'index.html' : [...IDE.files.keys()][0];
   if (first) openFile(first); else refresh();
   setStatus('บันทึกแล้ว ✓');
 
-  const ceff = () => { const m = me.models.find(x => x.id === +$('#cmodel').value); $('#ceffort').hidden = !m || m.effort === 'none'; };
-  $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); ceff(); }; ceff();
-  $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => localStorage.setItem('effort', e.target.value);
+  $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); };
+  $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
+  $('#cmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = () => effortSheet('#ceffort'); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools;
+  $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f) { setOpt(f, false); cUI(); } };
+  $('#clim').innerHTML = limHTML(me.usage); cUI();
   document.querySelectorAll('[data-pane-btn]').forEach(b => b.onclick = () => { if (b.dataset.paneBtn === 'run') showRun(true); setPane(b.dataset.paneBtn); });
+  $('#term-f').onsubmit = async e => { e.preventDefault(); const i = $('#term-i'), cmd = i.value.trim(); if (!cmd || IDE.termBusy) return; i.value = ''; IDE.termBusy = true; try { await nodeRun(cmd); } finally { IDE.termBusy = false; i.focus(); } };
   $('#run').onclick = run; $('#git').onclick = () => gitPanel(); $('#stop').onclick = stopRun; $('#clr').onclick = () => { IDE.logs = []; $('#console').innerHTML = ''; };
   $('#hiderun').onclick = () => { showRun(false); setPane('code'); };
   document.querySelectorAll('[data-rtab]').forEach(b => b.onclick = () => runTab(b.dataset.rtab));
@@ -645,9 +733,7 @@ async function codeView(id) {
   $('#zin').onclick = () => $('#zinf').click(); $('#zinf').onchange = async e => { try { await importZip(e.target.files[0]); } catch (x) { setStatus('zip: ' + x.message, true); } e.target.value = ''; };
   $('#zout').onclick = () => exportZip().catch(x => setStatus(x.message, true));
   $('#cnew').onclick = () => { IDE.chatId = null; IDE.msgs = []; drawAI(); };
-  $('#ccheck').onclick = () => { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); };
-  $('#cauto').checked = IDE.autoMode = localStorage.getItem('auto') === '1';
-  $('#cauto').onchange = e => { IDE.autoMode = e.target.checked; localStorage.setItem('auto', e.target.checked ? '1' : '0'); };
+  IDE.autoMode = localStorage.getItem('auto') === '1'; IDE.autoApply = localStorage.getItem('autoapply') === '1';
   const ct = $('#ct');
   ct.oninput = () => { ct.style.height = 'auto'; ct.style.height = ct.scrollHeight + 'px'; };
   ct.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#cf').requestSubmit(); } };
@@ -657,6 +743,7 @@ async function codeView(id) {
     if (b.classList.contains('cp-code')) return copy(b.closest('.code').querySelector('code').textContent, b);
     if (b.dataset.copy) return copy(IDE.msgs[+b.dataset.copy].content, b);
     if (b.dataset.cs) { ct.value = b.dataset.cs; ct.focus(); return; }
+    if (b.dataset.runai) { if (IDE.busy) return; b.disabled = true; const m = IDE.msgs[+b.dataset.runai]; IDE.round = 0; try { await runForAI(m, runsOf(m.content)); } catch (x) { $('#ce').textContent = x.message; } return; }
     const ref = (b.dataset.diff || b.dataset.apply || '').split(':').map(Number);
     const c = ref.length === 2 ? changesOf(IDE.msgs[ref[0]].content)[ref[1]] : null;
     try {

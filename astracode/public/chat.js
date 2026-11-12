@@ -10,57 +10,60 @@ function notice(u) {
   const p = Math.max(u.pct4h, u.pctWeek);
   return p >= 80 ? `<div class="notice hi">ใช้ลิมิตไปแล้ว ${p}% · <a href="/plans">อัปเกรดเพื่อใช้ได้มากขึ้น</a></div>` : '';
 }
-function setUsage(u) { me.usage = u; $('#meters').innerHTML = meters(u); $('#notice').innerHTML = notice(u); }
-const curModel = () => me.models.find(m => m.id === +$('#model')?.value) || me.models[0];
+function setUsage(u) { me.usage = u; $('#lim').innerHTML = limHTML(u); $('#notice').innerHTML = notice(u); }
+// "อัตโนมัติ": เซิร์ฟเวอร์เลือกโมเดลถูกหรือเก่งตามคำถาม (ประหยัดลิมิต)
+const AUTO = () => ({ id: 'auto', name: 'อัตโนมัติ', effort: me.models.some(m => m.effort !== 'none') ? 'auto' : 'none', vision: me.models.some(m => m.vision) });
+const curModel = () => $('#model')?.value === 'auto' ? AUTO() : me.models.find(m => m.id === +$('#model')?.value) || me.models[0];
 
 async function chatView(id) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   chat = { ...chat, id: id ? +id : null, msgs: id ? await api('/chats/' + id).catch(() => []) : [], busy: false, images: [], files: [], compare: false, cmp: [] };
   for (const m of chat.msgs) if (typeof m.sources === 'string') try { m.sources = JSON.parse(m.sources); } catch { m.sources = null; }
-  const saved = localStorage.getItem('model');
+  const saved = localStorage.getItem('model'), opt = sel => me.models.map(m => `<option value="${m.id}" ${String(m.id) === sel ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
   app.innerHTML = `<div class="chat view"><aside class="side" id="side">
       <a class="logo" href="/" style="padding:8px 12px">AstraCode</a>
       <a class="btn out sm" href="/chat" data-chat="">+ แชตใหม่</a>
       <input id="search" placeholder="ค้นหาแชต" aria-label="ค้นหาแชต" style="min-height:36px;font-size:14px">
       <div class="list" id="list"></div>
       <button class="btn out sm" id="newf" style="margin:4px 12px">+ โฟลเดอร์</button>
-      <nav class="side-links"><a href="/code">⌘ Code</a>${me.role === 'admin' ? '<a href="/admin">◔ หลังบ้าน</a>' : ''}</nav>
+      <nav class="side-links"><a href="/code">${ic('code')} Code</a><a href="/pricing">${ic('tag')} ราคา</a><a href="/blog">${ic('news')} บล็อก</a><a href="/developers">${ic('braces')} API</a><a href="/status">${ic('activity')} สถานะระบบ</a><a href="/support">${ic('mail')} ติดต่อเรา</a>${me.role === 'admin' ? `<a href="/admin">${ic('dash')} หลังบ้าน</a>` : ''}</nav>
       <a class="l muted" href="/plans" style="padding:8px 12px">${esc(me.plan.name)} · อัปเกรด</a>
       <a class="l muted" href="/account" style="padding:8px 12px">${esc(me.email)}</a></aside>
-    <div class="main"><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">☰</button>
-      <select id="model" aria-label="โมเดล">${me.models.map(m => `<option value="${m.id}" ${String(m.id) === saved ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
-      <select id="effort" aria-label="ระดับความคิด" title="Low/High/Max ให้ AI คิดก่อนตอบ ยิ่งสูงยิ่งตอบดีแต่ช้าและใช้ลิมิตมากกว่า">${EFFORTS.map(([v, l]) => `<option value="${v}" ${v === (localStorage.getItem('effort') || '') ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <select id="model2" aria-label="โมเดลที่ 2" hidden>${me.models.map(m => `<option value="${m.id}" ${String(m.id) === localStorage.getItem('model2') ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
-      ${site.search ? `<button class="tbtn ${localStorage.getItem('web') === '1' ? 'on' : ''}" id="web" aria-pressed="${localStorage.getItem('web') === '1'}" title="ค้นเว็บก่อนตอบ">🌐 ค้นเว็บ</button>` : ''}
-      <button class="tbtn" id="cmp" aria-pressed="false" title="ถามครั้งเดียว เทียบ 2 โมเดล (ไม่บันทึก)">⇄ เทียบ</button>
-      <button class="tbtn" id="exp" title="ส่งออกแชต">⤓</button>
-      <div class="meters" id="meters">${meters(me.usage)}</div></div>
+    <div class="main"><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
+      <div class="ctitle"><b id="ctl">แชตใหม่</b><small id="ctok"></small></div>
+      <button class="lim" id="lim" aria-label="ลิมิตการใช้งาน"></button>
+      <a class="icon-btn sm" href="/chat" data-new aria-label="แชตใหม่">${ic('newchat')}</a>
+      <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select><select id="model2" hidden>${opt(localStorage.getItem('model2'))}</select>
+      <select id="effort" hidden>${EFFORTS.map(([v]) => `<option value="${v}" ${v === (localStorage.getItem('effort') || '') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="msgs" id="msgs"></div>
       <div class="compose"><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div>
-        <form id="f"><button type="button" class="icon-btn" id="attach" aria-label="แนบไฟล์หรือรูป">＋</button><input type="file" id="file" multiple hidden>
-        ${site.image ? '<button type="button" class="icon-btn" id="img" aria-label="สร้างรูป" title="สร้างรูปจากข้อความ">🎨</button>' : ''}
-        <textarea id="t" rows="1" placeholder="พิมพ์ข้อความ..." aria-label="ข้อความ"></textarea><button class="btn blue send" id="go" aria-label="ส่ง">↑</button></form></div></div></div>`;
+        <form id="f" class="cbox"><input type="file" id="file" multiple hidden>
+          <textarea id="t" rows="1" placeholder="ถามอะไรก็ได้" aria-label="ข้อความ"></textarea>
+          <div class="crow"><button type="button" class="cb" id="plus" aria-label="แนบไฟล์และเครื่องมือ">${ic('plus')}</button>
+            <button type="button" class="cb pick" id="mdl" aria-haspopup="dialog"></button>
+            <button type="button" class="cb pick" id="mdl2" aria-haspopup="dialog" hidden></button>
+            <button type="button" class="cb pick" id="eff" aria-haspopup="dialog"></button>
+            <span id="flags"></span>
+            <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div></div></div>`;
   const side = $('#side');
   side.addEventListener('click', e => { const a = e.target.closest('a[data-chat]'); if (!a) return; e.preventDefault(); openChat(+a.dataset.chat || null); });
   $('#menu').onclick = () => { side.classList.add('open'); const s = document.createElement('div'); s.className = 'shade'; s.onclick = () => { side.classList.remove('open'); s.remove(); }; side.parentElement.append(s); }; // ใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
-  $('#effort').onchange = e => localStorage.setItem('effort', e.target.value);
-  $('#model2').onchange = e => localStorage.setItem('model2', e.target.value);
-  $('#web')?.addEventListener('click', e => { const on = localStorage.getItem('web') !== '1'; localStorage.setItem('web', on ? '1' : '0'); e.target.classList.toggle('on', on); e.target.setAttribute('aria-pressed', on); });
-  $('#cmp').onclick = e => {
-    if (chat.busy) return; chat.compare = !chat.compare;
-    // ตั้งต้นโมเดลที่ 2 ให้ต่างจากตัวแรก
-    const m2 = $('#model2'); if (chat.compare && m2.value === $('#model').value) m2.value = me.models.find(m => String(m.id) !== $('#model').value)?.id ?? m2.value;
-    e.target.classList.toggle('on', chat.compare); e.target.setAttribute('aria-pressed', chat.compare); $('#model2').hidden = !chat.compare; renderAll(); };
-  $('#exp').onclick = exportMenu;
-  $('#img')?.addEventListener('click', genImage);
+  $('#effort').onchange = e => { localStorage.setItem('effort', e.target.value); modelUI(); };
+  $('#model2').onchange = e => { localStorage.setItem('model2', e.target.value); modelUI(); };
+  $('#mdl').onclick = () => modelSheet('#model');
+  $('#mdl2').onclick = () => modelSheet('#model2');
+  $('#eff').onclick = () => effortSheet('#effort');
+  $('#plus').onclick = toolSheet;
+  $('#lim').onclick = limitSheet;
+  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'web') toggleWeb(); if (f === 'cmp') toggleCompare(); };
+  app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
   $('#newf').onclick = async () => { const name = prompt('ชื่อโฟลเดอร์'); if (name?.trim()) { await api('/folders', { method: 'POST', body: { name } }); loadSide(); } };
   $('#search').oninput = drawSide;
   const t = $('#t');
   t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
   t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#f').requestSubmit(); } };
   $('#f').onsubmit = e => { e.preventDefault(); chat.busy ? chat.ctrl?.abort() : send(); };
-  $('#attach').onclick = () => $('#file').click();
   $('#file').onchange = async e => { await addFiles([...e.target.files]); e.target.value = ''; };
   const comp = $('.compose'); // ลากไฟล์มาวาง / วางรูปจากคลิปบอร์ด
   comp.ondragover = e => { e.preventDefault(); comp.classList.add('drop'); };
@@ -75,22 +78,52 @@ async function chatView(id) {
     if (b.dataset.copy) copy(chat.msgs[+b.dataset.copy].content, b);
     if (b.dataset.regen != null) send({ regenerate: true });
     if (b.dataset.s != null) { t.value = SUGGEST[+b.dataset.s]; t.focus(); t.oninput(); }
+    if (b.dataset.ask != null && !chat.busy) { t.value = b.dataset.ask; t.oninput(); send(); }
   };
-  modelUI(); renderAll(); loadSide();
+  $('#lim').innerHTML = limHTML(me.usage); modelUI(); renderAll(); loadSide();
 }
 function modelUI() {
-  const m = curModel();
-  $('#effort').hidden = !m || m.effort === 'none';
-  $('#img')?.toggleAttribute('hidden', chat.compare);
+  const m = curModel(), m2 = me.models.find(x => x.id === +$('#model2').value);
+  $('#mdl').innerHTML = `<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
+  $('#mdl2').hidden = !chat.compare; $('#mdl2').innerHTML = `<span>vs ${esc(m2?.name || '')}</span>${ic('down', 'sm')}`;
+  $('#eff').hidden = !m || m.effort === 'none';
+  $('#eff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#effort').value][0]}${ic('down', 'sm')}`;
+  $('#flags').innerHTML = (localStorage.getItem('web') === '1' && site.search ? `<button type="button" class="flag" data-flag="web" aria-label="ปิดค้นเว็บ">${ic('globe', 'sm')}ค้นเว็บ${ic('x', 'sm')}</button>` : '')
+    + (chat.compare ? `<button type="button" class="flag" data-flag="cmp" aria-label="ปิดโหมดเทียบ">${ic('compare', 'sm')}เทียบ${ic('x', 'sm')}</button>` : '');
   if (!m?.vision && chat.images.length) { chat.images = []; drawThumbs(); showErr('โมเดลนี้อ่านรูปไม่ได้ จึงเอารูปออกแล้ว'); }
 }
-async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api('/chats').catch(() => []), api('/folders').catch(() => [])]); drawSide(); }
+function toolSheet() {
+  const web = localStorage.getItem('web') === '1';
+  sheet('เพิ่ม', optHTML('file', ic('clip') + 'แนบไฟล์หรือรูป', 'PDF, Word, Excel, โค้ด, รูป · สูงสุด 5 ไฟล์')
+    + (site.image ? optHTML('img', ic('image') + 'สร้างรูป', 'พิมพ์สิ่งที่อยากได้ในช่องข้อความก่อน') : '')
+    + (site.search ? optHTML('web', ic('globe') + 'ค้นเว็บก่อนตอบ', 'ได้ข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web) : '')
+    + optHTML('cmp', ic('compare') + 'เทียบ 2 โมเดล', 'ถามครั้งเดียว ดูสองคำตอบคู่กัน · ไม่บันทึกแชต', chat.compare)
+    + optHTML('exp', ic('download') + 'ส่งออกแชต', 'Markdown หรือ PDF'),
+    (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
+      close(); ({ file: () => $('#file').click(), img: genImage, web: toggleWeb, cmp: toggleCompare, exp: exportMenu })[b.dataset.v]();
+    }));
+}
+function toggleWeb() { localStorage.setItem('web', localStorage.getItem('web') === '1' ? '0' : '1'); modelUI(); }
+function toggleCompare() {
+  if (chat.busy) return; chat.compare = !chat.compare;
+  const m2 = $('#model2'); if (chat.compare && $('#model').value === 'auto') $('#model').value = me.models[0].id; if (chat.compare && m2.value === $('#model').value) m2.value = me.models.find(m => String(m.id) !== $('#model').value)?.id ?? m2.value; // ตั้งต้นให้ต่างจากตัวแรก
+  modelUI(); renderAll();
+}
+async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api('/chats').catch(() => []), api('/folders').catch(() => [])]); drawSide(); head(); }
+// หัวแชต: ชื่อ + token รวมของแชตนี้
+function head() {
+  const ctl = $('#ctl'); if (!ctl) return;
+  ctl.textContent = chat.compare ? 'เทียบ 2 โมเดล' : chat.chats.find(c => c.id === chat.id)?.title || 'แชตใหม่';
+  const n = chat.compare ? 0 : chat.msgs.reduce((a, m) => a + (m.tin || 0) + (m.tout || 0), 0);
+  $('#ctok').textContent = n ? `${kTok(n)} token` : '';
+}
+const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 function drawSide() {
   const q = ($('#search')?.value || '').toLowerCase(), list = $('#list'); if (!list) return;
   const item = c => `<div class="item ${c.id === chat.id ? 'on' : ''}" data-id="${c.id}"><a href="/chat?id=${c.id}" data-chat="${c.id}">${esc(c.title)}</a>
-    <button data-mv="${c.id}" aria-label="ย้ายไปโฟลเดอร์">⋯</button><button data-ren="${c.id}" aria-label="เปลี่ยนชื่อ">✎</button><button data-del="${c.id}" aria-label="ลบ">✕</button></div>`;
+    <button data-mv="${c.id}" aria-label="ย้ายไปโฟลเดอร์">${ic('more')}</button><button data-ren="${c.id}" aria-label="เปลี่ยนชื่อ">${ic('pen')}</button><button data-del="${c.id}" aria-label="ลบ">${ic('trash')}</button></div>`;
   const shown = chat.chats.filter(c => c.title.toLowerCase().includes(q)), open = JSON.parse(localStorage.getItem('fopen') || '{}');
-  list.innerHTML = chat.folders.map(f => { const cs = shown.filter(c => c.folder_id === f.id); return q && !cs.length ? '' : `<details class="folder" data-f="${f.id}" ${open[f.id] || q ? 'open' : ''}><summary><span>📁 ${esc(f.name)}</span><small class="muted">${cs.length}</small><button data-fren="${f.id}" aria-label="เปลี่ยนชื่อโฟลเดอร์">✎</button><button data-fdel="${f.id}" aria-label="ลบโฟลเดอร์">✕</button></summary>${cs.map(item).join('') || '<p class="muted" style="padding:4px 12px;font-size:13px">ว่าง</p>'}</details>`; }).join('')
+  list.innerHTML = chat.folders.map(f => { const cs = shown.filter(c => c.folder_id === f.id); return q && !cs.length ? '' : `<details class="folder" data-f="${f.id}" ${open[f.id] || q ? 'open' : ''}><summary><span>${ic('folder')} ${esc(f.name)}</span><small class="muted">${cs.length}</small><button data-fren="${f.id}" aria-label="เปลี่ยนชื่อโฟลเดอร์">${ic('pen')}</button><button data-fdel="${f.id}" aria-label="ลบโฟลเดอร์">${ic('trash')}</button></summary>${cs.map(item).join('') || '<p class="muted" style="padding:4px 12px;font-size:13px">ว่าง</p>'}</details>`; }).join('')
     + (shown.filter(c => !chat.folders.some(f => f.id === c.folder_id)).map(item).join('') || (chat.chats.length ? '' : '<p class="muted" style="padding:8px 12px">ยังไม่มีแชต</p>'));
   list.querySelectorAll('details.folder').forEach(d => d.ontoggle = () => { const o = JSON.parse(localStorage.getItem('fopen') || '{}'); o[d.dataset.f] = d.open; localStorage.setItem('fopen', JSON.stringify(o)); });
   list.onclick = async e => {
@@ -189,8 +222,8 @@ async function addFiles(list) {
 }
 function drawThumbs() {
   const box = $('#thumbs'); if (!box) return;
-  box.innerHTML = chat.images.map((d, i) => `<div class="thumb"><img src="${d}" alt=""><button data-rm="${i}" aria-label="ลบรูป">✕</button></div>`).join('')
-    + chat.files.map((f, i) => `<div class="fchip">📄 <span>${esc(f.name)}</span><small>${f.text == null ? 'กำลังอ่าน...' : tok(f.text.length)}</small><button data-rmf="${i}" aria-label="ลบไฟล์">✕</button></div>`).join('');
+  box.innerHTML = chat.images.map((d, i) => `<div class="thumb"><img src="${d}" alt=""><button data-rm="${i}" aria-label="ลบรูป">${ic('x')}</button></div>`).join('')
+    + chat.files.map((f, i) => `<div class="fchip">${ic('filetext')}<span>${esc(f.name)}</span><small>${f.text == null ? 'กำลังอ่าน...' : tok(f.text.length)}</small><button data-rmf="${i}" aria-label="ลบไฟล์">${ic('x')}</button></div>`).join('');
   box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { chat.images.splice(+b.dataset.rm, 1); drawThumbs(); });
   box.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => { chat.files.splice(+b.dataset.rmf, 1); drawThumbs(); });
 }
@@ -198,26 +231,40 @@ function drawThumbs() {
 function msgHTML(m, i, isNew) {
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
-    return `<div class="msg user ${isNew ? 'new' : ''}"><div class="b">${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}${esc(m.content.replace(FILE_RE, '').trim())}
-      ${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">📄 <span>${esc(f[1])}</span><small>${tok(f[2].length)}</small></span>`).join('')}</div>` : ''}</div>
+    return `<div class="msg user ${isNew ? 'new' : ''}"><div class="b">${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}${m.content.startsWith('🎨 ') ? ic('image') + ' ' : ''}${esc(m.content.replace(FILE_RE, '').replace(/^🎨 /, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${ic('filetext')}<span>${esc(f[1])}</span><small>${tok(f[2].length)}</small></span>`).join('')}</div>` : ''}</div>
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts"><button data-mem="${i}">จำไว้</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  return `<div class="msg ai ${isNew ? 'new' : ''}">${thinkHTML(m)}<div class="b">${m.content ? md(m.content) : m.thinking ? '' : DOTS}</div>${sourcesHTML(m)}
+  const { text, asks } = askSplit(m.content, m.streaming);
+  return `<div class="msg ai ${isNew ? 'new' : ''}">${thinkHTML(m)}<div class="b">${text ? md(text) : m.thinking || asks.length ? '' : DOTS}</div>${askHTML(asks, last && !m.streaming)}${sourcesHTML(m)}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
-    ${m.streaming || i < 0 ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}<button data-copy="${i}">คัดลอก</button>${last && !chat.busy ? '<button data-regen>ตอบใหม่</button>' : ''}</div>`}</div>`;
+    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">คัดลอก</button>${last && !chat.busy ? '<button data-regen>ตอบใหม่</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
+// โมเดลบางตัว (เช่น GLM) พิมพ์คำถามแบบ JSON {"question":..,"options":[..]} ออกมาเป็นข้อความ → แสดงเป็นปุ่มให้เลือกแทน
+function askSplit(content, streaming) {
+  const s = String(content || ''), i = s.search(/(```(?:json)?\s*)?\{\s*"questions?"\s*:/);
+  if (i < 0) return { text: s, asks: [] };
+  const raw = s.slice(i).replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
+  let o; try { o = JSON.parse(raw); } catch { return { text: streaming ? s.slice(0, i) : s, asks: [] }; } // ยังพิมพ์ไม่จบ: ซ่อนไว้ก่อน
+  const list = (Array.isArray(o.questions) ? o.questions : [o]).filter(q => q && typeof q.question === 'string');
+  if (!list.length) return { text: s, asks: [] };
+  const label = x => typeof x === 'string' ? x : x?.label ?? x?.text ?? x?.value ?? x?.title ?? '';
+  return { text: s.slice(0, i).trim(), asks: list.map(q => ({ q: q.question, opts: (q.options || q.choices || q.answers || []).map(label).filter(Boolean).slice(0, 8).map(String) })) };
+}
+const askHTML = (asks, live) => asks.map(a => `<div class="ask"><div class="ask-q">${inline(esc(a.q))}</div>${a.opts.length ? `<div class="ask-o">${a.opts.map(o => `<button data-ask="${esc(o)}" ${live ? '' : 'disabled'}>${esc(o)}</button>`).join('')}</div>` : ''}</div>`).join('');
+// token ที่ใช้ตอบ + ลิมิตที่ใช้ไป (เฉพาะข้อความที่เพิ่งตอบ)
+const tokHTML = m => m.tin || m.tout ? `<span class="tok" title="Input ${num(m.tin)} · Output ${num(m.tout)} token">↑${kTok(m.tin || 0)} ↓${kTok(m.tout || 0)}${m.pct != null ? ` · ลิมิต +${m.pct < 0.1 ? '<0.1' : m.pct.toFixed(1)}%` : ''}</span>` : '';
 const sourcesHTML = m => m.sources?.length ? `<div class="srcs">${m.sources.map((x, k) => `<a href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}"><b>${k + 1}</b>${esc(x.title || new URL(x.url).hostname)}</a>`).join('')}</div>` : '';
 function compareHTML() { // โหมดเทียบ: แต่ละรอบ = คำถาม + คำตอบ 2 คอลัมน์
   return chat.cmp.length ? chat.cmp.map((r, k) => `${msgHTML({ role: 'user', content: r.q }, -1)}<div class="cmp2" data-r="${k}">${r.a.map(m => `<div class="col"><div class="col-h">${esc(m.model)}</div>${msgHTML(m, -1)}</div>`).join('')}</div>`).join('')
-    : `<div class="empty"><div class="stat">เทียบ 2 โมเดล</div><div>เลือกโมเดลสองตัวด้านบน แล้วถามครั้งเดียว · โหมดนี้ไม่บันทึกแชต และใช้ลิมิตของทั้งสองโมเดล</div></div>`;
+    : `<div class="empty"><div class="stat">เทียบ 2 โมเดล</div><div>เลือกโมเดลสองตัวที่ด้านล่าง แล้วถามครั้งเดียว · โหมดนี้ไม่บันทึกแชต และใช้ลิมิตของทั้งสองโมเดล</div></div>`;
 }
 function renderAll() {
   const box = $('#msgs'); if (!box) return;
   box.innerHTML = chat.compare ? compareHTML() : chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
-    : `<div class="empty"><div class="stat">วันนี้ให้ช่วยอะไรดี</div><div>เลือกโมเดลด้านบน แล้วพิมพ์ได้เลย</div>
+    : `<div class="empty"><div class="stat">วันนี้ให้ช่วยอะไรดี</div><div>เลือกโมเดลที่มุมซ้ายล่าง แล้วพิมพ์ได้เลย</div>
        <div class="chips">${['อธิบายให้เข้าใจง่าย', 'ช่วยเขียนโค้ด', 'สรุปข้อความ', 'แปลภาษา'].map((s, i) => `<button data-s="${i}">${s}</button>`).join('')}</div></div>`;
-  box.scrollTop = box.scrollHeight;
+  box.scrollTop = box.scrollHeight; head();
 }
 function appendMsg(m) {
   const box = $('#msgs'); if (!chat.msgs.length || chat.msgs.length === 1) box.innerHTML = '';
@@ -233,7 +280,7 @@ function showErr(msg, retry) {
   $('#e').innerHTML = esc(msg) + (retry ? ' <button class="btn out sm" id="retry">ลองใหม่</button>' : '');
   $('#retry')?.addEventListener('click', () => send({ regenerate: true }));
 }
-function setBusy(b) { chat.busy = b; const g = $('#go'); g.textContent = b ? '■' : '↑'; g.setAttribute('aria-label', b ? 'หยุด' : 'ส่ง'); g.classList.toggle('stop', b); }
+function setBusy(b) { chat.busy = b; const g = $('#go'); g.innerHTML = ic(b ? 'stop' : 'up'); g.setAttribute('aria-label', b ? 'หยุด' : 'ส่ง'); g.classList.toggle('stop', b); }
 
 // อ่าน SSE จาก /api/chat แล้วเรียก onData ทีละ event
 async function stream(body, signal, onData) {
@@ -258,6 +305,7 @@ async function compareSend() {
   const t = $('#t'), text = t.value.trim(), files = chat.files, imgs = chat.images;
   if (files.some(f => f.text == null)) return showErr('รออ่านไฟล์ให้เสร็จก่อน');
   if (!text && !files.length && !imgs.length) return;
+  if ($('#model').value === 'auto') return showErr('โหมดเทียบต้องเลือกโมเดลเอง ไม่ใช่ "อัตโนมัติ"');
   const ids = [+$('#model').value, +$('#model2').value];
   if (ids[0] === ids[1]) return showErr('เลือกโมเดลสองตัวที่ต่างกัน');
   t.value = ''; t.style.height = 'auto'; chat.images = []; chat.files = []; drawThumbs(); $('#e').textContent = '';
@@ -272,6 +320,7 @@ async function compareSend() {
         noteOf(m, d);
         if (d.t || d.th) { onStreamEvent(m, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const e = el(); if (e) paintStreaming(e, m); }); }
         if (d.error) m.content += `\n\n⚠ ${d.error}`;
+        if (d.tok) { m.tin = d.tok.in; m.tout = d.tok.out; }
         if (d.done) setUsage(d);
       });
     } catch (x) { if (x.name !== 'AbortError') m.content += `⚠ ${x.message}`; }
@@ -307,7 +356,8 @@ async function send({ regenerate = false } = {}) {
       noteOf(ai, d); if (d.fallback) ai.model = d.fallback;
       if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateLast(); }); }
       if (d.error) streamErr = d.error;
-      if (d.done) setUsage(d);
+      if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; }
+      if (d.done) { ai.pct = Math.max(0, d.pctWeek - me.usage.pctWeek); setUsage(d); }
     });
   } catch (x) {
     if (x.name === 'AbortError') setTimeout(() => api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {}), 1500);

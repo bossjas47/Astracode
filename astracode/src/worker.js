@@ -1,12 +1,18 @@
 // AstraCode API — Cloudflare Worker + D1 + R2
-const SYSTEM = 'You are AstraCode, a helpful AI assistant. Reply in the user\'s language. Use Markdown.';
+const SYSTEM = 'You are AstraCode, a helpful AI assistant. Reply in the user\'s language. Use Markdown. You have no tools: never output JSON tool calls; if you need to ask the user something, ask in plain text. When the user asks for a file (CSV, Excel, Markdown, HTML, JSON, code, Word…), put the whole file in one fenced code block whose info string is the language then file=<name.ext>, e.g. ```csv file=sales.csv — the page shows a download button. For Excel write CSV content with file=<name>.xlsx. For Word write a full HTML document with file=<name>.doc. For PDF write HTML with file=<name>.html and tell the user to print it to PDF. Write file names in English without spaces.';
 const SYSTEM_CODE = `You are AstraCode, a senior software engineer working inside the user's project. Reply in the user's language and keep explanations short.
 When you create or change a file, output the COMPLETE new content of that file in one fenced code block whose info string is the language followed by path=<relative path>, for example:
 \`\`\`js path=src/app.js
 ...whole file...
 \`\`\`
 One block per changed file. Never put partial files, "..." placeholders or diffs inside path= blocks. To delete a file, write a line: DELETE path=<relative path>
-Code blocks without path= are treated as examples only. Only change files that need changing.`;
+Code blocks without path= are treated as examples only. Only change files that need changing.
+You can see the whole project. The file list is in the message. To look at files, write tool lines on their own and then STOP your reply; the results come back to you:
+READ path=<relative path>   (full content of one file; up to 10 READ lines at once)
+GREP <regex>                (search every file, returns path:line: text)
+LIST <folder/>              (files under a folder, with sizes)
+Read every file you need before editing it. Never guess what a file contains. Do not mix READ/GREP/LIST lines with path= blocks in the same reply.
+To run a terminal command, write a line RUN <command> (up to 3 per reply) and then STOP; the output comes back in the next message. You may put path= blocks before RUN lines in the same reply: they are applied first. Commands run in a browser Node.js emulator (Node 20 APIs): npm install <pkg>, npm test, npm run <script>, node <file>.js, npx-style CLIs from node_modules/.bin, ls, cat, echo. Not available: git, python, pip, sudo, node -e, node -v, native addons. Use RUN to test your changes when the project has tests or runnable scripts.`;
 const HISTORY = 20, HISTORY_CODE = 8; // ข้อความย้อนหลังที่ส่งให้โมเดล (โหมด Code ส่งน้อยกว่าเพราะมีไฟล์ยาว)
 const H4 = 4 * 3600e3, DAY = 864e5, BKK = 7 * 3600e3;
 
@@ -19,13 +25,7 @@ const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')
 const rand = n => hex(crypto.getRandomValues(new Uint8Array(n)));
 
 // ---------- auth ----------
-async function pbkdf2(pass, salt) {
-  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
-  return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 100000 }, k, 256));
-}
-const hashPass = async p => { const s = rand(16); return s + ':' + await pbkdf2(p, s); };
 const same = (a, b) => { const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b); return x.length === y.length && crypto.subtle.timingSafeEqual(x, y); };
-const checkPass = async (p, stored) => { const [s, h] = String(stored).split(':'); return !!h && same(await pbkdf2(p, s), h); };
 const sha = async t => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)));
 // คำขอที่ผ่าน proxy บน Vercel แนบ x-proxy-secret มา จึงเชื่อ IP และโดเมนที่ proxy ส่งต่อได้
 const viaProxy = (req, env) => !!env.PROXY_SECRET && same(req.headers.get('x-proxy-secret') || '', env.PROXY_SECRET);
@@ -56,6 +56,53 @@ async function sessionCookie(env, uid) {
   return `sid=${t}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 86400}`;
 }
 const startSession = async (env, uid) => json({ ok: true }, 200, { 'set-cookie': await sessionCookie(env, uid) });
+
+// ---------- Firebase Auth: เว็บล็อกอินกับ Firebase แล้วส่ง ID token มาแลกเป็น session ของเรา ----------
+let JWKS = null; // { keys, exp } แคชกุญแจของ Google ตาม max-age
+async function fbKey(env, kid) {
+  if (!JWKS || JWKS.exp < Date.now() || !JWKS.keys[kid]) {
+    const r = await fetch(env.FB_JWKS_URL || 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'); // FB_JWKS_URL ใช้ตอนทดสอบเท่านั้น
+    const age = +(r.headers.get('cache-control') || '').match(/max-age=(\d+)/)?.[1] || 3600;
+    JWKS = { keys: Object.fromEntries((await r.json()).keys.map(k => [k.kid, k])), exp: Date.now() + age * 1000 };
+  }
+  const k = JWKS.keys[kid]; if (!k) return null;
+  return crypto.subtle.importKey('jwk', k, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+}
+const b64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function fbVerify(env, token) { // ตรวจตามเอกสาร Firebase "Verify ID tokens using a third-party JWT library"
+  const project = env.FIREBASE_PROJECT_ID || 'astra-892a8', [h, p, sig] = String(token || '').split('.');
+  if (!sig) return null;
+  const head = JSON.parse(new TextDecoder().decode(b64u(h))), c = JSON.parse(new TextDecoder().decode(b64u(p))), now = Date.now() / 1000;
+  if (head.alg !== 'RS256' || c.aud !== project || c.iss !== 'https://securetoken.google.com/' + project || !c.sub || c.exp < now || c.iat > now + 60 || c.auth_time > now + 60) return null;
+  const key = await fbKey(env, head.kid);
+  return key && await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64u(sig), new TextEncoder().encode(h + '.' + p)) ? c : null;
+}
+async function firebaseLogin(req, env, ctx) {
+  const b = await req.json();
+  if (await limited(env, 'fb:' + ip(req, env), 30, 900e3)) return err('ลองหลายครั้งเกินไป รอ 15 นาที', 429);
+  const c = await fbVerify(env, b.token).catch(() => null);
+  if (!c) return err('ล็อกอินไม่สำเร็จ ลองใหม่อีกครั้ง', 401);
+  const email = String(c.email || '').toLowerCase();
+  if (!email || !c.email_verified) return err('ยืนยันอีเมลก่อน', 403); // กันคนสมัครด้วยอีเมลคนอื่นแล้วยึดบัญชีเดิม
+  let u = await env.DB.prepare('SELECT * FROM users WHERE fb_uid=?').bind(c.sub).first()
+    || await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first(); // บัญชีเดิม (สมัครก่อนย้ายมา Firebase) เชื่อมด้วยอีเมลที่ยืนยันแล้ว
+  if (u && u.fb_uid !== c.sub) await env.DB.prepare('UPDATE users SET fb_uid=?, email_verified=1 WHERE id=?').bind(c.sub, u.id).run();
+  if (!u) {
+    if (await limited(env, 'reg:' + ip(req, env), 3, DAY)) return err('สมัครจากเครือข่ายนี้บ่อยเกินไป ลองใหม่พรุ่งนี้', 429);
+    // ได้สิทธิ์แอดมินเฉพาะตอนที่ยังไม่มีแอดมินในระบบ
+    const role = email === String(env.ADMIN_EMAIL || '').toLowerCase() && !await env.DB.prepare("SELECT 1 FROM users WHERE role='admin'").first() ? 'admin' : 'user';
+    const by = b.ref && await env.DB.prepare('SELECT id FROM users WHERE ref_code=?').bind(String(b.ref).toUpperCase()).first();
+    u = await env.DB.prepare('INSERT INTO users (email,pass_hash,role,created_at,ref_code,referred_by,fb_uid,email_verified,has_password) VALUES (?,?,?,?,?,?,?,1,0) RETURNING *')
+      .bind(email, 'x', role, Date.now(), rand(4).toUpperCase(), by?.id || null, c.sub).first();
+  }
+  if (u.banned) return err('บัญชีนี้ถูกระงับ', 403);
+  if (u.totp_on) {
+    if (!b.code) return json({ need2fa: true }, 401);
+    if (await limited(env, 'mfa:' + u.id, 10, 900e3)) return err('ลองผิดหลายครั้ง รอ 15 นาที', 429);
+    if (!await totpOk(env, u, b.code)) return err('รหัส 2FA ไม่ถูกต้อง', 401);
+  }
+  return await startSession(env, u.id);
+}
 
 // ---------- plan + limits ----------
 async function planOf(env, u) {
@@ -102,6 +149,9 @@ async function* sse(res) {
 async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens } = {}) {
   const key = env[m.key_name];
   if (!key) throw new Error('missing key ' + m.key_name);
+  // หมายเหตุ Claude: Anthropic มี code execution tool ของตัวเอง (ส่ง tools: [{ type: 'code_execution_20250825', name: 'code_execution' }])
+  // รัน Python 3.11 + Bash ในเครื่องของ Anthropic, ไม่มีอินเทอร์เน็ต (npm install ไม่ได้), ฟรี 1,550 ชม./เดือน/องค์กร แล้ว $0.05/ชม.
+  // ยังไม่เปิดใช้: โหมด Code ใช้ RUN (เทอร์มินัลในเบราว์เซอร์) ซึ่งใช้ได้ทุกโมเดล ถ้าจะเปิด ต้องรองรับ event server_tool_use / bash_code_execution_tool_result ด้วย
   if (m.provider === 'anthropic') {
     const messages = msgs.map(x => ({ role: x.role, content: x.content }));
     const last = messages.at(-1); // cache ทั้งบทสนทนาถึงข้อความล่าสุด
@@ -132,12 +182,13 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
     const messages = [...(system ? [{ role: 'system', content: system }] : []), ...msgs.map(x => ({ role: x.role, content: x.content }))];
     if (images.length) messages.at(-1).content = [{ type: 'text', text: messages.at(-1).content }, ...images.map(url => ({ type: 'image_url', image_url: { url } }))];
     const body = { model: m.api_model, stream: true, stream_options: { include_usage: true }, messages };
-    if (maxTokens) body.max_tokens = maxTokens;
+    if (maxTokens) body[/api\.openai\.com/.test(m.base_url) ? 'max_completion_tokens' : 'max_tokens'] = maxTokens; // OpenAI รุ่นคิด (GPT-5, o-series) ไม่รับ max_tokens
     if (m.effort === 'openai' && effort) body.reasoning_effort = { low: 'low', high: 'medium', max: 'high' }[effort];
     if (m.effort === 'deepseek') { // DeepSeek เปิดคิดเป็นค่าเริ่มต้น จึงต้องปิดเองเมื่อเลือก "เร็ว"
       body.thinking = { type: effort ? 'enabled' : 'disabled' };
       if (effort) body.reasoning_effort = effort; // DeepSeek รับ low / high / max ตรงๆ
     }
+    if (m.effort === 'kimi') body.thinking = { type: effort ? 'enabled' : 'disabled' }; // Kimi K2.5+: เปิด/ปิดคิดอย่างเดียว ไม่มีระดับ
     const res = await fetch(m.base_url + '/chat/completions', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
@@ -149,11 +200,11 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       const dl = e.choices?.[0]?.delta, th = dl?.reasoning_content || dl?.reasoning; // DeepSeek/Kimi/อื่นๆ ส่งความคิดมาทางนี้
       if (typeof th === 'string' && th) yield { th };
       const t = dl?.content; if (t) yield { t };
-      if (e.usage) usage = e.usage;
+      if (e.usage || e.choices?.[0]?.usage) usage = e.usage || e.choices[0].usage; // Kimi ใส่ usage ไว้ใน choices
     }
-    const p = usage?.prompt_tokens || 0;
-    const read = usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0;
-    yield { usage: { fresh: p - read, read, write: 0, out: usage?.completion_tokens || 0 } };
+    const p = usage?.prompt_tokens || 0, d = usage?.prompt_tokens_details;
+    const read = usage?.prompt_cache_hit_tokens ?? d?.cached_tokens ?? usage?.cached_tokens ?? 0, write = d?.cache_write_tokens || 0;
+    yield { usage: { fresh: p - read - write, read, write, out: usage?.completion_tokens || 0 } };
   }
 }
 
@@ -202,6 +253,7 @@ async function chat(req, env, u, ctx) {
   const effort = ['low', 'high', 'max'].includes(b.effort) ? b.effort : null;
   const ephemeral = !!b.ephemeral; // โหมดเทียบโมเดล: ไม่บันทึกแชต
   const plan = await planOf(env, u);
+  if (b.model_id === 'auto') b.model_id = await autoModel(env, plan.id, { text, images, files, effort, regenerate: b.regenerate });
   const m = await env.DB.prepare('SELECT m.* FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.id=? AND m.active=1').bind(plan.id, b.model_id).first();
   if (!m) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
   if (images.length && !m.vision) return err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น');
@@ -224,7 +276,7 @@ async function chat(req, env, u, ctx) {
   // ไฟล์เก็บในข้อความ โมเดลจึงจำได้ในข้อความถัดไป (รูปแบบเดียวกับฝั่งเว็บ)
   // shortcut: ไม่เก็บรูปไว้ในประวัติ (โมเดลเห็นรูปแค่ข้อความนี้) ถ้าต้องการให้จำรูป ให้เก็บใน R2
   const saved = text + files.map(f => `\n\n[[file:${f.name.replace(/[[\]\r\n]/g, '')}]]\n${f.text}\n[[/file]]`).join('') + (images.length ? `\n\n[แนบรูป ${images.length} รูป]` : '');
-  let hist;
+  let hist, chatRow = null;
   if (ephemeral) hist = [{ role: 'user', content: saved }];
   else {
     if (b.regenerate) { // ตอบใหม่: ลบคำตอบล่าสุด แล้วใช้คำถามเดิม
@@ -235,7 +287,8 @@ async function chat(req, env, u, ctx) {
       if (!cid) cid = (await env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,?) RETURNING id').bind(u.id, text.slice(0, 40), Date.now(), pid, b.folder_id || null).first()).id;
       await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(cid, 'user', saved, m.id, Date.now()).run();
     }
-    hist = (await env.DB.prepare('SELECT role,content FROM messages WHERE chat_id=? ORDER BY id DESC LIMIT ?').bind(cid, pid ? HISTORY_CODE : HISTORY).all()).results.reverse().filter(x => x.content); // ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
+    chatRow = await env.DB.prepare('SELECT summary,summary_upto FROM chats WHERE id=?').bind(cid).first();
+    hist = (await env.DB.prepare('SELECT role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id DESC LIMIT ?').bind(cid, chatRow?.summary_upto || 0, pid ? HISTORY_CODE : HISTORY).all()).results.reverse().filter(x => x.content); // ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
     while (hist.length && hist[0].role !== 'user') hist.shift();
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
@@ -249,38 +302,102 @@ async function chat(req, env, u, ctx) {
     await send({ chat_id: cid, model: m.name, overflow: !!overflow });
     const sources = b.search && !pid ? await webSearch(env, hist.at(-1).content) : [];
     if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
-    const system = await systemFor(env, u, pid ? SYSTEM_CODE : SYSTEM, sources);
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        for await (const e of callModel(env, model, hist, { effort, images, system })) {
-          if (gone) break;
-          if (e.t) { out += e.t; await send({ t: e.t }); }
-          if (e.th) { think += e.th; await send({ th: e.th }); }
-          if (e.usage) usage = e.usage;
+    const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') : SYSTEM, sources)) + (chatRow?.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${chatRow.summary}` : ''); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+    let msgs = hist, imgs = images;
+    for (let round = 0; ; round++) { // โหมด Code: AI ขออ่าน/ค้นไฟล์ได้เอง แล้วตอบต่อ (สูงสุด TOOL_ROUNDS รอบ)
+      let part = '', ru = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          for await (const e of callModel(env, model, msgs, { effort, images: imgs, system })) {
+            if (gone) break;
+            if (e.t) { out += e.t; part += e.t; await send({ t: e.t }); }
+            if (e.th) { think += e.th; await send({ th: e.th }); }
+            if (e.usage) ru = e.usage;
+          }
+          break;
+        } catch (e) {
+          console.log('AI error', model.name, e.message);
+          await event(env, 'error', model.id, e.message.slice(0, 300));
+          const fb = !out && !think && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
+          if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
+          await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
+          break;
         }
-        break;
-      } catch (e) {
-        console.log('AI error', model.name, e.message);
-        await event(env, 'error', model.id, e.message.slice(0, 300));
-        const fb = !out && !think && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
-        if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
-        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
-        break;
       }
+      if (ru) usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : ru;
+      const reqs = pid && !gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
+      if (!reqs.length) break;
+      const result = await runTools(env, pid, reqs);
+      await send({ t: '\n\n' }); out += '\n\n';
+      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: result }]; imgs = [];
+      await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + 180e3, lock).run(); // ยืดล็อกระหว่างทำหลายรอบ
     }
     if (!usage && gone) { // shortcut: กดหยุดก่อนได้ usage จริง จึงประมาณจากจำนวนตัวอักษร ÷ 2
       const chars = hist.reduce((a, x) => a + x.content.length, system.length);
       usage = { fresh: Math.ceil(chars / 2), read: 0, write: 0, out: Math.ceil((out.length + think.length) / 2) };
     }
-    if ((out || think) && cid) await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources) VALUES (?,?,?,?,?,?,?)')
-      .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null).run();
+    const tok = usage && { in: usage.fresh + usage.read + usage.write, out: usage.out };
+    if ((out || think) && cid) await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?)')
+      .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).run();
     if (usage) await logUsage(env, u.id, model, usage, { wallet: overflow });
     await unlimit(env, lock);
-    await send({ done: true, ...(await usageStatus(env, u, plan)) });
+    await send({ done: true, tok, ...(await usageStatus(env, u, plan)) });
     await w.close().catch(() => {});
+    if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
   })());
   return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } });
   } catch (e) { await unlimit(env, lock); throw e; }
+}
+
+// ---------- ลดต้นทุน: เลือกโมเดลอัตโนมัติ + ย่อแชตยาว ----------
+const HARD_RE = /```|\b(debug|bug|error|refactor|algorithm|optimi[sz]e|architecture|prove|proof|regex|sql|typescript|python|javascript|react)\b|โค้ด|เขียนโปรแกรม|แก้บั๊ก|วิเคราะห์|พิสูจน์|คำนวณ|สมการ|ออกแบบระบบ|เปรียบเทียบ|กลยุทธ์|แผนธุรกิจ|เรียงความ|รายงาน/i;
+// shortcut: แยกง่าย/ยากด้วยกฎ (ไม่เสีย token เพิ่ม) ถ้าอยากแม่นขึ้นค่อยให้โมเดลเล็กช่วยจัดประเภท
+async function autoModel(env, planId, { text, images, files, effort, regenerate }) {
+  const ms = await allowedModels(env, planId); if (!ms.length) return null;
+  const s = await getSettings(env, ['auto_cheap_model', 'auto_strong_model']), by = (a, b) => a.multiplier - b.multiplier;
+  const cheap = ms.find(m => m.id === +s.auto_cheap_model) || [...ms].sort(by)[0];
+  const strong = ms.find(m => m.id === +s.auto_strong_model) || [...ms].sort(by).at(-1);
+  let m = regenerate || images.length || files.length || effort === 'high' || effort === 'max' || text.length > 1200 || HARD_RE.test(text) ? strong : cheap;
+  if (images.length && !m.vision) m = ms.find(x => x.vision) || m;
+  return m.id;
+}
+const COMPACT_CHARS = 30000, COMPACT_KEEP = 6;
+async function compact(env, u, cid) {
+  const c = await env.DB.prepare('SELECT summary,summary_upto FROM chats WHERE id=?').bind(cid).first();
+  const rows = (await env.DB.prepare('SELECT id,role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id').bind(cid, c?.summary_upto || 0).all()).results;
+  if (rows.length <= COMPACT_KEEP + 2 || rows.reduce((a, r) => a + r.content.length, 0) < COMPACT_CHARS) return;
+  const old = rows.slice(0, -COMPACT_KEEP);
+  const want = +(await getSetting(env, 'summary_model'));
+  const m = (await env.DB.prepare('SELECT * FROM models WHERE active=1 ORDER BY cost_in+cost_out').all()).results.filter(x => env[x.key_name]).find(x => !want || x.id === want);
+  if (!m) return;
+  const body = (c?.summary ? `Earlier summary:\n${c.summary}\n\n` : '') + old.map(r => `${r.role === 'user' ? 'User' : 'Assistant'}: ${r.content.slice(0, 6000)}`).join('\n\n');
+  let summary = '', usage = null;
+  for await (const e of callModel(env, m, [{ role: 'user', content: body.slice(-80000) }], { effort: null, maxTokens: 1500,
+    system: 'Summarize this conversation so an assistant can continue it. Keep: the user\'s goals and preferences, decisions made, facts, names, numbers, file names, code identifiers and unfinished tasks. Drop small talk and long code (say what it does). Write in the same language as the conversation, at most 350 words, as bullet points.' })) { if (e.t) summary += e.t; if (e.usage) usage = e.usage; }
+  if (usage) await logUsage(env, u.id, m, usage, { units: false }); // ต้นทุนของเรา ไม่หักลิมิตผู้ใช้
+  if (summary.trim()) await env.DB.prepare('UPDATE chats SET summary=?, summary_upto=? WHERE id=?').bind(summary.trim().slice(0, 6000), old.at(-1).id, cid).run();
+}
+
+// ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
+const TOOL_ROUNDS = 6, READ_MAX = 100e3;
+const toolReqs = text => [...text.replace(/```[\s\S]*?```/g, '').matchAll(/^\s*(READ|GREP|LIST)\b[ \t]*(?:path=)?(.*)$/gm)].map(m => ({ op: m[1], arg: m[2].trim().replace(/^`|`$/g, '') })).slice(0, 12);
+async function runTools(env, pid, reqs) {
+  const files = (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all()).results;
+  const out = []; let budget = 200e3;
+  for (const { op, arg } of reqs) {
+    if (op === 'LIST') { out.push(`[LIST]\n${files.filter(f => f.path.startsWith(arg)).map(f => `${f.path} (${f.content.length} chars)`).join('\n') || '(ว่าง)'}`); continue; }
+    if (op === 'READ') {
+      const f = files.find(x => x.path === arg);
+      if (!f) { out.push(`[READ ${arg}]\n(ไม่พบไฟล์นี้)`); continue; }
+      const c = f.content.slice(0, Math.min(READ_MAX, budget)); budget -= c.length;
+      out.push(`[READ ${arg}]\n${c}${c.length < f.content.length ? '\n…(ตัดเหลือ ' + c.length + ' ตัวอักษรแรก)' : ''}`); continue;
+    }
+    let re; try { re = new RegExp(arg, 'i'); } catch { re = { test: l => l.toLowerCase().includes(arg.toLowerCase()) }; }
+    const hits = [];
+    for (const f of files) { const L = f.content.split('\n'); for (let i = 0; i < L.length && hits.length < 200; i++) if (L[i].length < 2000 && re.test(L[i])) hits.push(`${f.path}:${i + 1}: ${L[i].trim().slice(0, 200)}`); }
+    out.push(`[GREP ${arg}]\n${hits.join('\n') || '(ไม่พบ)'}`);
+  }
+  return out.join('\n\n') + '\n\n[ผลจากเครื่องมือ] ทำงานต่อจากเดิม ถ้าต้องอ่านเพิ่มก็สั่งได้อีก ถ้าพร้อมแล้วให้แก้ไฟล์ด้วยบล็อก path= ได้เลย';
 }
 
 // ---------- slip ----------
@@ -290,8 +407,11 @@ async function getSettings(env, keys) {
   return Object.fromEntries(keys.map(k => [k, rows.find(r => r.key === k)?.value || '']));
 }
 const r4 = v => Math.round(v * 10000) / 10000;
-async function priceOf(env, m) { // ราคาขาย/1M token: ตั้งเอง หรือ ทุน + markup
-  const mk = +(await getSetting(env, 'price_markup')) || 0, p = (v, c) => v ?? r4(c * (1 + mk / 100));
+const promoOn = (m, now = Date.now()) => m.promo_pct > 0 && (!m.promo_start || m.promo_start <= now) && (!m.promo_end || now <= m.promo_end);
+// ราคาขาย/1M token: ตั้งเอง หรือ ทุน + markup; base = ก่อนหักโปร
+async function priceOf(env, m, base) {
+  const mk = +(await getSetting(env, 'price_markup')) || 0, off = !base && promoOn(m) ? 1 - Math.min(m.promo_pct, 100) / 100 : 1;
+  const p = (v, c) => r4((v ?? c * (1 + mk / 100)) * off);
   return { in: p(m.price_in, m.cost_in), out: p(m.price_out, m.cost_out), cache: p(m.price_cache, m.cost_cache), write: p(m.price_cache_write, m.cost_cache_write) };
 }
 async function walletAdd(env, uid, amount, kind, ref) {
@@ -721,12 +841,12 @@ async function github(req, env, u, p, sub, now) {
 // ---------- admin ----------
 const TABLES = {
   plans: ['name', 'price', 'price_year', 'limit_4h', 'limit_week', 'description', 'sort', 'active'],
-  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'public', 'note', 'fallback_id', 'vision', 'effort', 'sort', 'active'],
+  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'sort', 'active'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published'],
 };
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
-  'autocomplete_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min'];
+  'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min'];
 
 async function admin(req, env, path, url, me) {
   const M = req.method, DB = env.DB;
@@ -748,6 +868,8 @@ async function admin(req, env, path, url, me) {
     }
     const b = await req.json(), vals = cols.map(c => b[c] ?? null);
     if (t === 'posts' && !/^[a-z0-9-]{1,80}$/.test(b.slug || '')) return err('slug ใช้ได้เฉพาะ a-z 0-9 และ -');
+    if (t === 'models' && b.promo_pct != null && !(b.promo_pct >= 0 && b.promo_pct <= 100)) return err('โปรลดราคาต้องอยู่ระหว่าง 0–100%');
+    if (t === 'models' && b.promo_start && b.promo_end && b.promo_end < b.promo_start) return err('วันจบโปรต้องอยู่หลังวันเริ่ม');
     await ctxAudit((M === 'POST' ? 'create ' : 'update ') + t, { id, name: b.name || b.title });
     let pid = id;
     if (M === 'POST') pid = (t === 'posts' ? await DB.prepare(`INSERT INTO posts (${cols},created_at) VALUES (${cols.map(() => '?')},?) RETURNING id`).bind(...vals, Date.now()).first()
@@ -787,12 +909,9 @@ async function admin(req, env, path, url, me) {
   }
   if ((r = path.match(/^\/api\/admin\/users\/(\d+)$/)) && M === 'PUT') {
     const b = await req.json();
-    await ctxAudit('update user', { id: +r[1], ...b, password: b.password != null ? '***' : undefined });
+    await ctxAudit('update user', { id: +r[1], ...b });
     if (b.credit) { const v = Math.round(+b.credit * 100) / 100; if (!v) return err('จำนวนเงินไม่ถูกต้อง'); await walletAdd(env, +r[1], v, 'admin', String(b.note || '').slice(0, 100) || null); }
-    if (b.password != null) {
-      if (String(b.password).length < 8) return err('รหัสผ่านต้องยาวอย่างน้อย 8 ตัว');
-      await DB.batch([DB.prepare('UPDATE users SET pass_hash=? WHERE id=?').bind(await hashPass(String(b.password)), r[1]), DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1])]);
-    }
+    if (b.logout) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run(); // รหัสผ่านอยู่ใน Firebase ผู้ใช้รีเซ็ตเองที่หน้าเข้าสู่ระบบ
     if (b.reset_usage) await DB.prepare('UPDATE users SET usage_reset_at=? WHERE id=?').bind(Date.now(), r[1]).run();
     if ('banned' in b) await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run();
     if ('plan_id' in b) await DB.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').bind(b.plan_id || null, b.plan_id ? Date.now() + (b.days || 30) * DAY : null, r[1]).run();
@@ -914,6 +1033,20 @@ async function admin(req, env, path, url, me) {
     return json({ ok: r.ok, data: await r.json().catch(() => null) });
   }
   if (path === '/api/admin/notify-test' && M === 'POST') { await notify(env, '✅ ทดสอบแจ้งเตือนจาก AstraCode'); return json({ ok: true }); }
+  if (path === '/api/admin/reset-limits' && M === 'POST') { // แจกรีเซ็ตลิมิต: ทุกคน / ทุกคนในแพลน / คนเดียว
+    const b = await req.json(), now = Date.now();
+    let where = '1=1', args = [];
+    if (b.target === 'email') { where = 'email=?'; args = [String(b.email || '').trim().toLowerCase()]; }
+    else if (b.target === 'plan') {
+      const p = await DB.prepare('SELECT id,price FROM plans WHERE id=?').bind(b.plan_id).first(); if (!p) return err('ไม่พบแพลน');
+      // แพลนฟรีรวมคนที่ไม่มีแพลนหรือแพลนหมดอายุ (ระบบนับเป็นแพลนฟรี)
+      [where, args] = p.price > 0 ? ['plan_id=? AND plan_expires>?', [p.id, now]] : ['(plan_id IS NULL OR plan_expires IS NULL OR plan_expires<=? OR plan_id=?)', [now, p.id]];
+    } else if (b.target !== 'all') return err('เลือกกลุ่มผู้ใช้');
+    const r = await DB.prepare(`UPDATE users SET usage_reset_at=? WHERE banned=0 AND ${where}`).bind(now, ...args).run();
+    if (b.target === 'email' && !r.meta.changes) return err('ไม่พบผู้ใช้อีเมลนี้');
+    await ctxAudit('reset limits', { target: b.target, plan_id: b.plan_id, email: b.email, count: r.meta.changes });
+    return json({ ok: true, count: r.meta.changes });
+  }
   if (path === '/api/admin/audit') return json((await DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all()).results);
   if (path === '/api/admin/events') return json((await DB.prepare('SELECT e.*,m.name model FROM events e LEFT JOIN models m ON m.id=e.model_id ORDER BY e.id DESC LIMIT 200').all()).results);
   if (path === '/api/admin/backups') {
@@ -934,6 +1067,7 @@ export default {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
     // Cloudflare อาจ redirect /preview.html → /preview จึงรับทั้งสองแบบ
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
+    if (path === '/node-runner' || path === '/node-runner.html') return sandboxed(await env.ASSETS.fetch(req), '/preview.html'); // เทอร์มินัล Node: origin แยกเหมือนหน้าแสดงผล
     if (path.startsWith('/v1/')) return v1(req, env, ctx, path); // API สำหรับนักพัฒนา (แบบ OpenAI)
     if (path === '/robots.txt' || path === '/api/robots') return robots(req, env);
     if (path === '/sitemap.xml' || path === '/api/sitemap') return secure(await sitemap(req, env));
@@ -957,7 +1091,7 @@ export default {
 };
 
 // cdn.jsdelivr.net: ตัวอ่าน PDF/Word/Excel (ล็อกเวอร์ชัน + SRI ใน app.js)
-const CSP = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+const CSP = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://apis.google.com; frame-src 'self' https://astra-892a8.firebaseapp.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
 // หน้าแสดงผลโค้ดของผู้ใช้: รันใน iframe sandbox (origin แยก อ่าน cookie / เรียก API ในชื่อผู้ใช้ไม่ได้)
 function sandboxed(res, path) {
   const r = new Response(res.body, res), h = r.headers;
@@ -988,26 +1122,6 @@ async function route(req, env, ctx, url, path, M) {
       if (path.startsWith('/api/blog/')) { const p = await env.DB.prepare('SELECT slug,title,summary,body,cover,created_at FROM posts WHERE slug=? AND published=1').bind(path.slice(10)).first(); return p ? json(p) : err('ไม่พบบทความ', 404); }
       if (path === '/api/status') return json(await status(env));
       if (path.startsWith('/api/oauth/')) return await oauth(req, env, url, path);
-      if (path === '/api/verify') { // ลิงก์ยืนยันอีเมล
-        const uid = await useToken(env, url.searchParams.get('t'), 'verify');
-        if (uid) await env.DB.prepare('UPDATE users SET email_verified=1 WHERE id=?').bind(uid).run();
-        return Response.redirect(origin(req, env) + '/account?verified=' + (uid ? 1 : 0), 302);
-      }
-      if (path === '/api/forgot' && M === 'POST') { // ลืมรหัสผ่าน: ตอบเหมือนกันเสมอ ไม่บอกว่ามีอีเมลนี้ไหม
-        const e = String((await req.json()).email || '').trim().toLowerCase();
-        if (await limited(env, 'forgot:' + ip(req, env), 5, 3600e3)) return err('ขอบ่อยเกินไป รอ 1 ชั่วโมง', 429);
-        const u = await env.DB.prepare('SELECT id,email FROM users WHERE email=? AND banned=0').bind(e).first();
-        if (u) { const t = await newToken(env, u.id, 'reset', 3600e3); await mail(env, u.email, 'AstraCode: ตั้งรหัสผ่านใหม่', mailBox('ตั้งรหัสผ่านใหม่', 'กดปุ่มด้านล่างภายใน 1 ชั่วโมง ถ้าคุณไม่ได้ขอ ไม่ต้องทำอะไร', 'ตั้งรหัสผ่านใหม่', `${origin(req, env)}/login?reset=${t}`)); }
-        return json({ ok: true, mail: !!env.RESEND_KEY });
-      }
-      if (path === '/api/reset' && M === 'POST') {
-        const b = await req.json();
-        if (String(b.password || '').length < 8) return err('รหัสผ่านต้องยาวอย่างน้อย 8 ตัว');
-        const uid = await useToken(env, b.token, 'reset');
-        if (!uid) return err('ลิงก์หมดอายุหรือถูกใช้แล้ว ขอใหม่อีกครั้ง');
-        await env.DB.batch([env.DB.prepare('UPDATE users SET pass_hash=?, has_password=1, email_verified=1 WHERE id=?').bind(await hashPass(String(b.password)), uid), env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(uid)]);
-        return await startSession(env, uid);
-      }
       if (path === '/api/login/mfa' && M === 'POST') { // ขั้นที่ 2 หลังล็อกอิน Google/LINE ของคนที่เปิด 2FA
         const b = await req.json();
         if (await limited(env, 'mfa:' + ip(req, env), 10, 900e3)) return err('ลองผิดหลายครั้ง รอ 15 นาที', 429);
@@ -1016,50 +1130,22 @@ async function route(req, env, ctx, url, path, M) {
         if (!await totpOk(env, u, b.code)) return err('รหัส 2FA ไม่ถูกต้อง', 401);
         return await startSession(env, u.id);
       }
-      if (path === '/api/register' && M === 'POST') {
-        const { email, password, ref } = await req.json();
-        const e = String(email || '').trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return err('อีเมลไม่ถูกต้อง');
-        if (String(password || '').length < 8) return err('รหัสผ่านต้องยาวอย่างน้อย 8 ตัว');
-        if (await env.DB.prepare('SELECT 1 FROM users WHERE email=?').bind(e).first()) return err('อีเมลนี้สมัครแล้ว');
-        if (await limited(env, 'reg:' + ip(req, env), 3, DAY)) return err('สมัครจากเครือข่ายนี้บ่อยเกินไป ลองใหม่พรุ่งนี้', 429);
-        // ได้สิทธิ์แอดมินเฉพาะตอนที่ยังไม่มีแอดมินในระบบ
-        const role = e === String(env.ADMIN_EMAIL || '').toLowerCase() && !await env.DB.prepare("SELECT 1 FROM users WHERE role='admin'").first() ? 'admin' : 'user';
-        const by = ref && await env.DB.prepare('SELECT id FROM users WHERE ref_code=?').bind(String(ref).toUpperCase()).first();
-        const u = await env.DB.prepare('INSERT INTO users (email,pass_hash,role,created_at,ref_code,referred_by) VALUES (?,?,?,?,?,?) RETURNING id').bind(e, await hashPass(password), role, Date.now(), rand(4).toUpperCase(), by?.id || null).first();
-        const t = await newToken(env, u.id, 'verify', 3 * DAY);
-        ctx.waitUntil(mail(env, e, 'AstraCode: ยืนยันอีเมล', mailBox('ยินดีต้อนรับสู่ AstraCode', 'กดปุ่มด้านล่างเพื่อยืนยันอีเมลของคุณ', 'ยืนยันอีเมล', `${origin(req, env)}/api/verify?t=${t}`)));
-        return await startSession(env, u.id);
-      }
-      if (path === '/api/login' && M === 'POST') {
-        const { email, password, code } = await req.json();
-        const e = String(email || '').trim().toLowerCase();
-        if (await limited(env, 'loginip:' + ip(req, env), 30, 900e3) || await limited(env, 'login:' + e, 5, 900e3))
-          return err('ลองผิดหลายครั้งเกินไป รอ 15 นาทีแล้วลองใหม่', 429);
-        const u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(e).first();
-        if (!u || !await checkPass(String(password || ''), u.pass_hash)) return err('อีเมลหรือรหัสผ่านไม่ถูกต้อง', 401);
-        if (u.banned) return err('บัญชีนี้ถูกระงับ', 403);
-        if (u.totp_on) { // 2FA
-          if (!code) return json({ need2fa: true }, 401);
-          if (!await totpOk(env, u, code)) return err('รหัส 2FA ไม่ถูกต้อง', 401);
-        }
-        await unlimit(env, 'login:' + e);
-        return await startSession(env, u.id);
-      }
+      if (path === '/api/firebase' && M === 'POST') return await firebaseLogin(req, env, ctx);
       if (path === '/api/pricing') { // หน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
-        const mk = +(await getSetting(env, 'price_markup')) || 0, r2 = v => Math.round(v * 10000) / 10000;
         const [ms, ps, pm] = await Promise.all([
           env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort,id').all(),
           env.DB.prepare('SELECT id,name,price,limit_week FROM plans WHERE active=1 ORDER BY sort').all(),
           env.DB.prepare('SELECT * FROM plan_models').all(),
         ]);
-        const price = (p, c) => p ?? r2(c * (1 + mk / 100)); // ไม่ได้ตั้งราคา = ทุน + markup
         return json({
           note: await getSetting(env, 'price_note'),
           plans: ps.results,
-          models: ms.results.map(m => ({ id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, note: m.note,
-            in: price(m.price_in, m.cost_in), out: price(m.price_out, m.cost_out), cache: price(m.price_cache, m.cost_cache), cache_write: price(m.price_cache_write, m.cost_cache_write),
-            plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) })),
+          models: await Promise.all(ms.results.map(async m => {
+            const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
+            return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, note: m.note,
+              in: p.in, out: p.out, cache: p.cache, cache_write: p.write, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
+              plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
+          })),
         });
       }
       if (path === '/api/plans') {
@@ -1081,18 +1167,6 @@ async function route(req, env, ctx, url, path, M) {
       if (path === '/api/logout') {
         await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(u.sid).run();
         return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
-      }
-      if (path === '/api/password' && M === 'POST') {
-        const b = await req.json();
-        if (await limited(env, 'login:' + u.email, 5, 900e3)) return err('ลองผิดหลายครั้งเกินไป รอ 15 นาที', 429);
-        if (u.has_password && !await checkPass(String(b.old || ''), u.pass_hash)) return err('รหัสผ่านเดิมไม่ถูกต้อง', 401); // บัญชี Google/LINE ตั้งรหัสครั้งแรกได้เลย
-        if (String(b.new || '').length < 8) return err('รหัสผ่านใหม่ต้องยาวอย่างน้อย 8 ตัว');
-        await env.DB.batch([ // ออกจากระบบทุกเครื่อง ยกเว้นเครื่องนี้
-          env.DB.prepare('UPDATE users SET pass_hash=?, has_password=1 WHERE id=?').bind(await hashPass(String(b.new)), u.id),
-          env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').bind(u.id, u.sid),
-        ]);
-        await unlimit(env, 'login:' + u.email);
-        return json({ ok: true });
       }
       if (path === '/api/me') {
         const plan = await planOf(env, u);
@@ -1133,7 +1207,7 @@ async function route(req, env, ctx, url, path, M) {
           }
           return json({ ok: true });
         }
-        return json((await env.DB.prepare('SELECT m.role,m.content,m.thinking,m.sources,md.name model FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=? ORDER BY m.id').bind(r[1]).all()).results);
+        return json((await env.DB.prepare('SELECT m.role,m.content,m.thinking,m.sources,m.tin,m.tout,md.name model FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=? ORDER BY m.id').bind(r[1]).all()).results);
       }
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if (path === '/api/pay') return json((await env.DB.prepare('SELECT p.id,p.amount,p.status,p.created_at,p.kind,p.period,p.discount,pl.name plan_name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE user_id=? ORDER BY p.id DESC LIMIT 20').bind(u.id).all()).results);
@@ -1220,14 +1294,6 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     await DB.prepare(path.endsWith('enable') ? 'UPDATE users SET totp_on=1 WHERE id=?' : 'UPDATE users SET totp_on=0, totp_secret=NULL WHERE id=?').bind(u.id).run();
     return json({ ok: true });
   }
-  if (path === '/api/verify/send' && M === 'POST') {
-    if (u.email_verified) return json({ ok: true });
-    if (!env.RESEND_KEY) return err('ระบบอีเมลยังไม่เปิดใช้');
-    if (await limited(env, 'verify:' + u.id, 3, 3600e3)) return err('ส่งบ่อยเกินไป รอ 1 ชั่วโมง', 429);
-    const t = await newToken(env, u.id, 'verify', 3 * DAY);
-    await mail(env, u.email, 'AstraCode: ยืนยันอีเมล', mailBox('ยืนยันอีเมล', 'กดปุ่มด้านล่างเพื่อยืนยันอีเมลของคุณ', 'ยืนยันอีเมล', `${origin(req, env)}/api/verify?t=${t}`));
-    return json({ ok: true });
-  }
   if (path === '/api/me/export') { // ดาวน์โหลดข้อมูลของตัวเอง (PDPA)
     const q = (sql, ...a) => DB.prepare(sql).bind(...a).all().then(x => x.results);
     const data = { exported_at: new Date().toISOString(), account: { email: u.email, created_at: u.created_at, plan_id: u.plan_id, plan_expires: u.plan_expires, balance: u.balance, instructions: u.instructions },
@@ -1237,15 +1303,15 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
       payments: await q('SELECT amount,kind,status,created_at FROM payments WHERE user_id=?', u.id), wallet: await q('SELECT amount,kind,created_at FROM wallet_tx WHERE user_id=?', u.id) };
     return new Response(JSON.stringify(data, null, 2), { headers: { 'content-type': 'application/json', 'content-disposition': 'attachment; filename="astracode-data.json"' } });
   }
-  if (path === '/api/me/delete' && M === 'POST') { // ลบบัญชี: ต้องยืนยันรหัสผ่าน (หรือพิมพ์อีเมล ถ้าสมัครด้วย Google/LINE)
+  if (path === '/api/me/delete' && M === 'POST') { // ลบบัญชี: ต้องพิมพ์อีเมลยืนยัน
     const b = await req.json();
     if (u.role === 'admin') return err('บัญชีแอดมินลบเองไม่ได้');
-    if (u.has_password ? !await checkPass(String(b.password || ''), u.pass_hash) : String(b.confirm || '').toLowerCase() !== u.email) return err('ยืนยันไม่ถูกต้อง', 401);
+    if (String(b.confirm || '').trim().toLowerCase() !== u.email) return err('อีเมลไม่ตรง', 401);
     const c = 'SELECT id FROM chats WHERE user_id=?1', pj = 'SELECT id FROM projects WHERE user_id=?1';
     await DB.batch([`DELETE FROM messages WHERE chat_id IN (${c})`, 'DELETE FROM chats WHERE user_id=?1', `DELETE FROM project_files WHERE project_id IN (${pj})`, `DELETE FROM file_versions WHERE project_id IN (${pj})`,
       'DELETE FROM projects WHERE user_id=?1', 'DELETE FROM memories WHERE user_id=?1', 'DELETE FROM folders WHERE user_id=?1', 'DELETE FROM api_keys WHERE user_id=?1', 'DELETE FROM sessions WHERE user_id=?1',
       `DELETE FROM ticket_msgs WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)`, 'DELETE FROM tickets WHERE user_id=?1', 'DELETE FROM tokens WHERE user_id=?1',
-      "UPDATE users SET email='deleted-'||id||'@deleted.local', pass_hash='x', banned=1, gh_token=NULL, totp_secret=NULL, google_id=NULL, line_id=NULL, instructions='' WHERE id=?1", // เก็บแถวผู้ใช้ไว้เพราะประวัติการเงินต้องเก็บตามกฎหมาย
+      "UPDATE users SET email='deleted-'||id||'@deleted.local', pass_hash='x', banned=1, gh_token=NULL, totp_secret=NULL, google_id=NULL, line_id=NULL, fb_uid=NULL, instructions='' WHERE id=?1", // เก็บแถวผู้ใช้ไว้เพราะประวัติการเงินต้องเก็บตามกฎหมาย
     ].map(q => DB.prepare(q).bind(u.id)));
     return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
   }

@@ -6,9 +6,18 @@ const FIELDS = {
   models: [['name', 'ชื่อที่แสดง'], ['provider', 'รูปแบบ API', ['openai', 'anthropic']], ['api_model', 'รหัสโมเดล'], ['base_url', 'Base URL'], ['key_name', 'ชื่อ secret ของ key'], ['multiplier', 'ตัวคูณ', 'n'],
     ['cost_in', 'ทุน input (บาท/1M)', 'n'], ['cost_out', 'ทุน output', 'n'], ['cost_cache', 'ทุน cache read', 'n'], ['cost_cache_write', 'ทุน cache write', 'n'],
     ['price_in', 'ราคาขาย input (บาท/1M)', 'o'], ['price_out', 'ราคาขาย output', 'o'], ['price_cache', 'ราคาขาย cache read', 'o'], ['price_cache_write', 'ราคาขาย cache write', 'o'],
-    ['note', 'คำอธิบายในหน้าราคา', 's'], ['fallback_id', 'โมเดลสำรองเมื่อตัวนี้ล่ม', 'm'],
-    ['effort', 'รองรับ effort', ['none', 'openai', 'anthropic', 'deepseek']], ['vision', 'อ่านรูปได้', 'b'], ['public', 'แสดงในหน้าราคา', 'b'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
+    ['promo_pct', 'โปรลดราคา % (เว้นว่าง = ไม่มีโปร)', 'o'], ['promo_start', 'โปรเริ่ม (เว้นว่าง = ทันที)', 'd'], ['promo_end', 'โปรถึงวันที่ (เว้นว่าง = ไม่มีวันจบ)', 'd'],
+    ['note', 'คำอธิบายในหน้าราคา', 's'], ['code_prompt', 'คำสั่งเพิ่มในโหมด Code (เช่น บังคับให้อ่านไฟล์ก่อนแก้)', 'x'], ['fallback_id', 'โมเดลสำรองเมื่อตัวนี้ล่ม', 'm'],
+    ['effort', 'รองรับ effort', ['none', 'openai', 'anthropic', 'deepseek', 'kimi']], ['vision', 'อ่านรูปได้', 'b'], ['public', 'แสดงในหน้าราคา', 'b'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
   posts: [['title', 'หัวข้อ'], ['slug', 'slug (a-z 0-9 -) ใช้ใน URL'], ['summary', 'สรุปสั้น (แสดงในรายการและ Google)', 's'], ['cover', 'รูปปก (path บนเว็บ เช่น /og.png)', 's'], ['body', 'เนื้อหา (Markdown)', 't'], ['published', 'เผยแพร่', 'b']],
+};
+// เทมเพลตเพิ่มโมเดล: รหัสโมเดลเปลี่ยนบ่อย ตรวจชื่อล่าสุดในเว็บผู้ให้บริการก่อนบันทึก
+const PRESETS = {
+  'OpenAI (GPT)': { name: 'GPT-5.1', provider: 'openai', api_model: 'gpt-5.1', base_url: 'https://api.openai.com/v1', key_name: 'OPENAI_KEY', effort: 'openai', vision: 1 },
+  'Kimi (Moonshot)': { name: 'Kimi K2.6', provider: 'openai', api_model: 'kimi-k2.6', base_url: 'https://api.moonshot.ai/v1', key_name: 'KIMI_KEY', effort: 'kimi', vision: 1 },
+  'DeepSeek': { name: 'DeepSeek', provider: 'openai', api_model: 'deepseek-chat', base_url: 'https://api.deepseek.com/v1', key_name: 'DEEPSEEK_KEY', effort: 'deepseek', vision: 0 },
+  'Claude (Anthropic)': { name: 'Claude Sonnet 5.5', provider: 'anthropic', api_model: 'claude-sonnet-5-5', base_url: 'https://api.anthropic.com/v1', key_name: 'ANTHROPIC_KEY', effort: 'anthropic', vision: 1 },
+  'Gemini (Google)': { name: 'Gemini', provider: 'openai', api_model: '', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', key_name: 'GEMINI_KEY', effort: 'openai', vision: 1 },
 };
 // ผลตรวจสลิปจาก API (Slip2Go ส่ง code มา, byshop ดูจากยอด)
 const SLIP_CODE = { 200000: ['ok', 'พบสลิป'], 200200: ['ok', '✓ ผ่านทุกเงื่อนไข'], 200401: ['bad', '✕ บัญชีผู้รับไม่ตรง'], 200402: ['bad', '✕ ยอดไม่ตรง'], 200403: ['bad', '✕ วันที่ไม่ตรง'], 200404: ['warn', 'ไม่พบสลิปในธนาคาร (อาจรอสักครู่)'], 200500: ['bad', '✕ สลิปปลอม'], 200501: ['bad', '✕ สลิปซ้ำ'], 200502: ['warn', 'ธนาคารขัดข้อง'], 401005: ['warn', 'โทเคน Slip2Go หมด'], 401004: ['warn', 'แพ็กเกจ Slip2Go หมดอายุ'], 401007: ['warn', 'IP ไม่ได้รับอนุญาต (ตั้ง IP Whitelist เป็น *)'] };
@@ -21,7 +30,7 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>' };
-const TABS = [['stats', '◔', 'ภาพรวม'], ['profit', '▲', 'กำไร'], ['payments', '฿', 'ชำระเงิน'], ['users', '◉', 'ผู้ใช้'], ['tickets', '✉', 'ติดต่อ'], ['plans', '▤', 'แพลน'], ['models', '✦', 'โมเดล'], ['coupons', '%', 'คูปอง'], ['posts', '✎', 'บล็อก'], ['system', '⛭', 'ระบบ'], ['settings', '⚙', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -31,7 +40,7 @@ const ago = t => { if (!t) return 'ไม่เคยใช้'; const m = (Date
 async function adminView(tab = 'stats') {
   if (me?.role !== 'admin') return go('/');
   const [pending, open] = await Promise.all([api('/admin/payments').then(p => p.filter(x => x.status === 'pending').length).catch(() => 0), api('/admin/tickets').then(t => t.filter(x => x.status === 'open').length).catch(() => 0)]);
-  page(nav() + `<div class="adm"><aside class="adm-nav">${TABS.map(([k, i, l]) => `<a class="${k === tab ? 'on' : ''}" href="/admin?tab=${k}"><span class="ai">${i}</span>${l}${k === 'payments' && pending ? `<b class="cnt">${pending}</b>` : ''}${k === 'tickets' && open ? `<b class="cnt">${open}</b>` : ''}</a>`).join('')}</aside>
+  page(nav() + `<div class="adm"><aside class="adm-nav">${TABS.map(([k, i, l]) => `<a class="${k === tab ? 'on' : ''}" href="/admin?tab=${k}"><span class="ai">${ic(i)}</span>${l}${k === 'payments' && pending ? `<b class="cnt">${pending}</b>` : ''}${k === 'tickets' && open ? `<b class="cnt">${open}</b>` : ''}</a>`).join('')}</aside>
     <main class="adm-main"><h1 class="adm-h">${TABS.find(t => t[0] === tab)?.[2] || ''}</h1><div id="ad"></div></main></div>`);
   const box = $('#ad'), reload = () => adminView(tab);
   try { await ADMIN[tab]?.(box, reload); } catch (x) { box.innerHTML = `<p class="err">${esc(x.message)}</p>`; }
@@ -159,7 +168,20 @@ const ADMIN = {
   },
 
   async users(box) {
-    box.innerHTML = `<div class="toolbar"><input id="q" placeholder="ค้นหาอีเมล" aria-label="ค้นหาอีเมล"></div><div id="ul"></div>`;
+    const plans = await api('/admin/plans');
+    box.innerHTML = `<details class="ed gift"><summary><b>${ic('refresh')} แจกรีเซ็ตลิมิต</b><span class="muted">ล้างลิมิต 4 ชม. และรายสัปดาห์ให้ใช้ต่อได้ทันที</span></summary>
+      <form id="rlf" class="ed-f"><label>แจกให้</label><select name="who"><option value="all">ผู้ใช้ทุกคน</option>${plans.map(p => `<option value="plan:${p.id}">ทุกคนในแพลน ${esc(p.name)}</option>`).join('')}<option value="email">ผู้ใช้คนเดียว (ใส่อีเมล)</option></select>
+        <input name="email" type="email" placeholder="อีเมลผู้ใช้" hidden>
+        <div class="row" style="margin-top:12px"><button class="btn blue sm">รีเซ็ตลิมิต</button><span class="ok sv"></span></div></form></details>
+      <div class="toolbar"><input id="q" placeholder="ค้นหาอีเมล" aria-label="ค้นหาอีเมล"></div><div id="ul"></div>`;
+    const rf = $('#rlf');
+    rf.who.onchange = () => { rf.email.hidden = rf.who.value !== 'email'; rf.email.required = !rf.email.hidden; };
+    rf.onsubmit = async e => {
+      e.preventDefault(); const t = rf.who.value, label = rf.who.selectedOptions[0].textContent;
+      if (!confirm(`รีเซ็ตลิมิตให้ ${t === 'email' ? rf.email.value : label}?`)) return;
+      try { const r = await api('/admin/reset-limits', { method: 'POST', body: { target: t.split(':')[0], plan_id: +t.split(':')[1] || null, email: rf.email.value } }); rf.querySelector('.sv').textContent = `✓ รีเซ็ตแล้ว ${num(r.count)} คน`; }
+      catch (x) { alert(x.message); }
+    };
     const load = async () => {
       const us = await api('/admin/users?q=' + encodeURIComponent($('#q').value));
       $('#ul').innerHTML = us.map(u => `<button class="urow" data-user="${u.id}"><span class="av">${esc(u.email[0].toUpperCase())}</span>
@@ -308,6 +330,11 @@ const ADMIN = {
       <h2 style="margin-top:28px">Wallet และชวนเพื่อน</h2>
       <label>เติมเงินขั้นต่ำ (บาท)</label><input name="topup_min" type="number" min="1" value="${esc(s.topup_min || '50')}">
       <label>เครดิตชวนเพื่อน (บาท ต่อคน ให้ทั้งคนชวนและคนถูกชวน เมื่อจ่ายเงินจริงครั้งแรก, 0 = ปิด)</label><input name="referral_bonus" type="number" min="0" step="any" value="${esc(s.referral_bonus || '0')}">
+      <h2 style="margin-top:28px">ลดต้นทุน</h2>
+      <p class="muted">"อัตโนมัติ" ในหน้าแชต: คำถามทั่วไปใช้โมเดลถูก คำถามยาก/โค้ด/รูป/ไฟล์ใช้โมเดลเก่ง (เลือกจากโมเดลในแพลนของผู้ใช้) · แชตยาวเกิน ~30,000 ตัวอักษร ระบบจะสรุปข้อความเก่าด้วยโมเดลถูก ไม่หักลิมิตผู้ใช้</p>
+      <label>โมเดลถูกสำหรับคำถามทั่วไป (เว้นว่าง = ตัวคูณต่ำสุดในแพลน)</label><select name="auto_cheap_model"><option value="">อัตโนมัติ</option>${models.map(m => `<option value="${m.id}" ${String(m.id) === s.auto_cheap_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
+      <label>โมเดลเก่งสำหรับคำถามยาก (เว้นว่าง = ตัวคูณสูงสุดในแพลน)</label><select name="auto_strong_model"><option value="">อัตโนมัติ</option>${models.map(m => `<option value="${m.id}" ${String(m.id) === s.auto_strong_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
+      <label>โมเดลสำหรับย่อแชตยาว (เว้นว่าง = ตัวที่ต้นทุนต่ำสุด)</label><select name="summary_model"><option value="">อัตโนมัติ</option>${models.map(m => `<option value="${m.id}" ${String(m.id) === s.summary_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
       <h2 style="margin-top:28px">ฟีเจอร์ AI</h2>
       <label class="sw-row"><span class="sw"><input type="checkbox" data-b="search_enabled" ${s.search_enabled !== '0' ? 'checked' : ''}><span></span></span> ค้นเว็บ (ต้องตั้ง Secret <code>TAVILY_KEY</code> ${s.env.TAVILY_KEY ? '<span class="ok">✓</span>' : '<span class="warn">ยังไม่ตั้ง</span>'})</label>
       <label>โมเดลสำหรับเติมโค้ดอัตโนมัติ (เว้นว่าง = ตัวที่ถูกที่สุดในแพลน)</label><select name="autocomplete_model"><option value="">อัตโนมัติ</option>${models.map(m => `<option value="${m.id}" ${String(m.id) === s.autocomplete_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
@@ -340,11 +367,13 @@ async function editors(tab, box, reload) {
   const summary = r => tab === 'posts' ? `<b>${esc(r.title)}</b><span class="muted">/blog/${esc(r.slug)} · ${r.published ? 'เผยแพร่แล้ว' : 'ฉบับร่าง'} · ${when(r.created_at)}</span>`
     : tab === 'plans'
     ? `<b>${esc(r.name)}</b><span class="muted">${r.price > 0 ? '฿' + baht(r.price) + '/เดือน' : 'ฟรี'} · สัปดาห์ ${compact(r.limit_week)} units · ${r.model_ids.length} โมเดล</span>`
-    : `<b>${esc(r.name)}</b><span class="muted">${esc(r.api_model)} · ×${r.multiplier} · ${r.price_in != null ? `ขาย ${r.price_in}/${r.price_out ?? '-'}` : 'ราคาอัตโนมัติ'}${r.public ? '' : ' · ซ่อนจากหน้าราคา'} · ${r.has_key ? '<span class="ok">key พร้อม</span>' : '<span class="bad">ไม่พบ key</span>'}${r.vision ? ' · อ่านรูป' : ''}${r.effort !== 'none' ? ' · effort' : ''}</span>`;
+    : `<b>${esc(r.name)}</b><span class="muted">${esc(r.api_model)} · ×${r.multiplier} · ${r.price_in != null ? `ขาย ${r.price_in}/${r.price_out ?? '-'}` : 'ราคาอัตโนมัติ'}${r.promo_pct > 0 ? ` · <span class="warn">โปร -${r.promo_pct}%${r.promo_end ? ' ถึง ' + new Date(r.promo_end).toLocaleDateString('th-TH') : ''}</span>` : ''}${r.public ? '' : ' · ซ่อนจากหน้าราคา'} · ${r.has_key ? '<span class="ok">key พร้อม</span>' : '<span class="bad">ไม่พบ key</span>'}${r.vision ? ' · อ่านรูป' : ''}${r.effort !== 'none' ? ' · effort' : ''}</span>`;
   const form = (r = { active: 1, public: 1, model_ids: [] }) => `<form class="ed-f" data-id="${r.id || ''}"><div class="form2 ${tab === 'posts' ? 'one' : ''}">${FIELDS[tab].map(([k, l, t]) => `<div><label>${l}</label>${t === 'b' ? `<label class="sw"><input type="checkbox" name="${k}" ${r[k] ? 'checked' : ''}><span></span></label>`
       : Array.isArray(t) ? `<select name="${k}">${t.map(o => `<option ${r[k] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`
       : t === 'm' ? `<select name="${k}"><option value="">ไม่มี</option>${models.filter(m => m.id !== r.id).map(m => `<option value="${m.id}" ${r[k] === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`
       : t === 't' ? `<textarea name="${k}" rows="12">${esc(r[k] ?? '')}</textarea>`
+      : t === 'x' ? `<textarea name="${k}" rows="3" placeholder="เว้นว่างได้">${esc(r[k] ?? '')}</textarea>`
+      : t === 'd' ? `<input type="date" name="${k}" value="${r[k] ? new Date(r[k] + 7 * 3600e3).toISOString().slice(0, 10) : ''}">`
       : `<input name="${k}" ${t === 'n' || t === 'o' ? 'type="number" step="any" inputmode="decimal"' : ''} value="${esc(r[k] ?? '')}" ${t === 'o' ? 'placeholder="อัตโนมัติ: ทุน + markup"' : t === 's' ? '' : 'required'}>`}</div>`).join('')}</div>
     ${tab === 'plans' ? `<label>โมเดลที่ใช้ได้</label><div class="chips-sel">${models.map(m => `<label><input type="checkbox" name="m" value="${m.id}" ${r.model_ids?.includes(m.id) ? 'checked' : ''}><span>${esc(m.name)} ×${m.multiplier}</span></label>`).join('')}</div>` : ''}
     <div class="row" style="margin-top:16px"><button class="btn blue sm">บันทึก</button>${r.id ? `<button type="button" class="btn red sm" data-del="${r.id}">ลบ</button>` : ''}<span class="ok sv"></span></div></form>`;
@@ -352,10 +381,15 @@ async function editors(tab, box, reload) {
     ? '1 unit = 1 token ของโมเดลตัวคูณ ×1 (cache read นับ 1/10) · ต้นทุนเต็มลิมิต/สัปดาห์ของ DeepSeek ≈ ลิมิต ÷ 1,000,000 × 1.2 บาท'
     : 'key ใส่ที่ Worker → Settings → Variables and Secrets (Type: Secret) · Claude ใช้รูปแบบ anthropic ตัวอื่นใช้ openai'}</p>
     <div class="ed-list">${rows.map(r => `<details class="ed"><summary>${summary(r)}${r.active ? '' : '<span class="pill">ปิดอยู่</span>'}</summary>${form(r)}</details>`).join('')}
-    <details class="ed add"><summary><b>+ เพิ่ม${{ plans: 'แพลน', models: 'โมเดล', posts: 'บทความ' }[tab]}</b></summary>${form(tab === 'posts' ? { published: 0 } : undefined)}</details></div>`;
+    <details class="ed add"><summary><b>+ เพิ่ม${{ plans: 'แพลน', models: 'โมเดล', posts: 'บทความ' }[tab]}</b></summary>${tab === 'models' ? `<label>เริ่มจากเทมเพลต</label><select class="preset"><option value="">— เลือกผู้ให้บริการ —</option>${Object.keys(PRESETS).map(k => `<option>${k}</option>`).join('')}</select>` : ''}${form(tab === 'posts' ? { published: 0 } : undefined)}</details></div>`;
+  box.querySelector('.preset')?.addEventListener('change', e => { // เติมค่าตามผู้ให้บริการ แก้ต่อได้
+    const f = e.target.nextElementSibling, p = PRESETS[e.target.value]; if (!p) return;
+    for (const [k, v] of Object.entries(p)) { const i = f.elements[k]; if (!i) continue; if (i.type === 'checkbox') i.checked = !!v; else i.value = v; }
+  });
   box.querySelectorAll('form').forEach(f => f.onsubmit = async e => {
     e.preventDefault(); const fd = new FormData(f), body = {};
-    FIELDS[tab].forEach(([k, , t]) => body[k] = t === 'b' ? (fd.get(k) ? 1 : 0) : t === 'n' ? +fd.get(k) : t === 'o' || t === 'm' ? (fd.get(k) === '' ? null : +fd.get(k)) : fd.get(k));
+    FIELDS[tab].forEach(([k, , t]) => body[k] = t === 'b' ? (fd.get(k) ? 1 : 0) : t === 'n' ? +fd.get(k) : t === 'o' || t === 'm' ? (fd.get(k) === '' ? null : +fd.get(k))
+      : t === 'd' ? (fd.get(k) ? Date.parse(fd.get(k) + (k.endsWith('end') ? 'T23:59:59.999+07:00' : 'T00:00:00+07:00')) : null) : fd.get(k)); // วันที่ตามเวลาไทย
     if (tab === 'plans') body.model_ids = fd.getAll('m').map(Number);
     try { await api(`/admin/${tab}${f.dataset.id ? '/' + f.dataset.id : ''}`, { method: f.dataset.id ? 'PUT' : 'POST', body }); if (f.dataset.id) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700); } else reload(); }
     catch (x) { alert(x.message); }
@@ -383,7 +417,7 @@ async function userDrawer(id, after) {
     <h3>การชำระเงิน</h3>${u.payments.length ? u.payments.map(p => `<div class="row" style="padding:6px 0">${STATUS[p.status]} ${esc(p.plan_name)} ฿${baht(p.amount)} <span class="muted">${when(p.created_at)}</span></div>`).join('') : '<p class="muted">ยังไม่เคยจ่าย</p>'}
     <h3>จัดการ</h3>
     <label>เปลี่ยนแพลน (30 วันนับจากวันนี้)</label><div class="row"><select id="dp" style="flex:1"><option value="">Free</option>${plans.filter(p => p.price > 0).map(p => `<option value="${p.id}" ${p.id === u.plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn blue sm" id="dps">ใช้แพลนนี้</button></div>
-    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dr">รีเซ็ตลิมิต</button><button class="btn out sm" id="dpw">ตั้งรหัสใหม่</button><button class="btn red sm" id="db">${u.banned ? 'ปลดแบน' : 'แบน'}</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dr">รีเซ็ตลิมิต</button><button class="btn out sm" id="dpw">ออกจากระบบทุกเครื่อง</button><button class="btn red sm" id="db">${u.banned ? 'ปลดแบน' : 'แบน'}</button></div>
     <p class="ok" id="dmsg"></p></aside>`;
   document.body.append(d);
   const close = () => { d.classList.add('out'); setTimeout(() => d.remove(), 200); after?.(); };
@@ -392,6 +426,6 @@ async function userDrawer(id, after) {
   d.querySelector('#dps').onclick = () => put({ plan_id: +d.querySelector('#dp').value || null, days: 30 }, 'เปลี่ยนแพลนแล้ว');
   d.querySelector('#dr').onclick = () => put({ reset_usage: true }, 'รีเซ็ตลิมิตแล้ว');
   d.querySelector('#dcs').onclick = async () => { const v = +d.querySelector('#dcr').value; if (!v || !confirm(`ปรับ Wallet ${v > 0 ? '+' : ''}${v} บาท?`)) return; await put({ credit: v, note: d.querySelector('#dcn').value }, 'ปรับยอดแล้ว'); setTimeout(() => userDrawer(id, after), 500); };
-  d.querySelector('#dpw').onclick = () => { const pw = prompt('รหัสผ่านใหม่ (อย่างน้อย 8 ตัว) ผู้ใช้จะถูกออกจากระบบทุกเครื่อง'); if (pw) put({ password: pw }, 'ตั้งรหัสใหม่แล้ว ส่งรหัสนี้ให้ผู้ใช้'); };
+  d.querySelector('#dpw').onclick = () => { if (confirm('ให้ผู้ใช้นี้ออกจากระบบทุกเครื่อง?')) put({ logout: 1 }, 'ออกจากระบบทุกเครื่องแล้ว'); };
   d.querySelector('#db').onclick = () => confirm(u.banned ? 'ปลดแบนผู้ใช้นี้?' : 'แบนผู้ใช้นี้? จะถูกออกจากระบบทันที') && put({ banned: u.banned ? 0 : 1 }, u.banned ? 'ปลดแบนแล้ว' : 'แบนแล้ว').then(() => setTimeout(() => userDrawer(id, after), 600));
 }

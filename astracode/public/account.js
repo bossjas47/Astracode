@@ -8,10 +8,9 @@ PAGES.account = async function account() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   await loadMe();
   const [w, mems] = await Promise.all([api('/wallet'), api('/memories')]);
-  const u = me.usage, refLink = `${location.origin}/login?ref=${me.ref_code}`, verified = qs().get('verified');
+  const u = me.usage, refLink = `${location.origin}/login?ref=${me.ref_code}`;
   page(nav() + `<div class="wrap" style="max-width:640px"><section class="hero" style="padding:48px 0 16px"><h1>บัญชี</h1>
-    <p>${esc(me.email)} ${me.email_verified ? '<span class="ok">✓ ยืนยันแล้ว</span>' : '<button class="btn out sm" id="verify">ยืนยันอีเมล</button>'}</p>
-    ${verified ? `<p class="${verified === '1' ? 'ok' : 'bad'}">${verified === '1' ? 'ยืนยันอีเมลเรียบร้อย' : 'ลิงก์ยืนยันหมดอายุ กดส่งใหม่'}</p>` : ''}</section>
+    <p>${esc(me.email)}</p></section>
 
     <div class="card"><div class="grid">
       <div class="tile"><div class="muted">แพลน</div><div class="stat">${esc(me.plan.name)}</div><div class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</div></div>
@@ -35,16 +34,13 @@ PAGES.account = async function account() {
       <label>คำสั่งส่วนตัว (ส่งไปกับทุกแชต)</label><textarea id="ins" rows="4" maxlength="3000" placeholder="เช่น ตอบสั้นๆ เป็นภาษาไทย ฉันเป็นนักพัฒนา Python">${esc(me.instructions || '')}</textarea>
       <button class="btn out sm" id="insave">บันทึก</button> <span id="insok"></span>
       <label style="margin-top:16px">ความจำ (${mems.length}/50)</label>
-      <div id="mems">${mems.map(m => `<div class="mem"><span>${esc(m.text)}</span><button data-mem="${m.id}" aria-label="ลบ">✕</button></div>`).join('') || '<p class="muted">ยังไม่มี กด "จำไว้" ใต้ข้อความในแชต หรือเพิ่มเองด้านล่าง</p>'}</div>
+      <div id="mems">${mems.map(m => `<div class="mem"><span>${esc(m.text)}</span><button data-mem="${m.id}" aria-label="ลบ">${ic('x')}</button></div>`).join('') || '<p class="muted">ยังไม่มี กด "จำไว้" ใต้ข้อความในแชต หรือเพิ่มเองด้านล่าง</p>'}</div>
       <form id="memf" class="row" style="flex-wrap:nowrap"><input name="text" maxlength="300" placeholder="เช่น ฉันชื่อแซม ทำงานด้านการตลาด" required><button class="btn out sm">เพิ่ม</button></form></div>
 
     <div class="card">${h3('ความปลอดภัย')}
-      <form id="pw"><label>${me.has_password ? 'เปลี่ยนรหัสผ่าน' : 'ตั้งรหัสผ่าน (ใช้ล็อกอินด้วยอีเมลได้ด้วย)'}</label>
-        ${me.has_password ? '<input name="old" type="password" autocomplete="current-password" placeholder="รหัสผ่านเดิม" required>' : ''}
-        <input name="new" type="password" minlength="8" autocomplete="new-password" placeholder="รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)" required>
-        <div class="err" id="pe"></div><button class="btn out sm">บันทึกรหัสผ่าน</button></form>
+      <div class="row"><button class="btn out sm" id="pw">ส่งลิงก์เปลี่ยนรหัสผ่านไปที่อีเมล</button><span id="pe"></span></div>
       <div id="tfa" style="margin-top:20px"></div>
-      <p class="muted" style="margin:16px 0 0">บัญชีที่เชื่อม: ${[me.google && 'Google', me.line && 'LINE'].filter(Boolean).join(', ') || 'ไม่มี'}</p></div>
+      ${me.line ? '<p class="muted" style="margin:16px 0 0">เชื่อม LINE แล้ว</p>' : ''}</div>
 
     <div class="card">${h3('API สำหรับนักพัฒนา')}<p class="muted">สร้าง API key แล้วเรียกโมเดลทั้งหมดแบบ OpenAI จ่ายจาก Wallet</p><a class="btn out sm" href="/developers">จัดการ API key</a></div>
 
@@ -55,7 +51,6 @@ PAGES.account = async function account() {
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>${footer()}</div>`);
 
   $('#out').onclick = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
-  $('#verify')?.addEventListener('click', async e => { try { await api('/verify/send', { method: 'POST' }); e.target.outerHTML = '<span class="ok">ส่งลิงก์ไปที่อีเมลแล้ว</span>'; } catch (x) { alert(x.message); } });
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; alert(x.message); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew');
   $('#cp').onsubmit = async e => {
@@ -67,16 +62,15 @@ PAGES.account = async function account() {
   $('#insave').onclick = async () => { await api('/me', { method: 'PUT', body: { instructions: $('#ins').value } }); $('#insok').innerHTML = '<span class="ok">บันทึกแล้ว</span>'; };
   $('#mems').onclick = async e => { const b = e.target.closest('[data-mem]'); if (!b) return; await api('/memories/' + b.dataset.mem, { method: 'DELETE' }); b.parentElement.remove(); };
   $('#memf').onsubmit = async e => { e.preventDefault(); try { await api('/memories', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); boot(); } catch (x) { alert(x.message); } };
-  $('#pw').onsubmit = async e => {
-    e.preventDefault(); e.submitter.disabled = true;
-    try { await api('/password', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); e.target.reset(); $('#pe').innerHTML = '<span class="ok">บันทึกแล้ว เครื่องอื่นถูกออกจากระบบ</span>'; }
-    catch (x) { $('#pe').textContent = x.message; }
-    e.submitter.disabled = false;
+  $('#pw').onclick = async e => { // รหัสผ่านอยู่ใน Firebase
+    e.target.disabled = true;
+    try { await lib('fb'); await FB.reset(me.email); $('#pe').innerHTML = '<span class="ok">ส่งแล้ว ดูในอีเมล</span>'; }
+    catch (x) { $('#pe').innerHTML = `<span class="bad">${esc(x.code === 'auth/too-many-requests' ? 'ขอบ่อยเกินไป รอสักครู่' : 'ส่งไม่ได้ ลองใหม่')}</span>`; e.target.disabled = false; }
   };
   $('#del').onclick = async () => {
-    const v = prompt(me.has_password ? 'ลบบัญชีถาวร: แชต โปรเจกต์ ความจำ และ API key จะหายทั้งหมด และเงินใน Wallet จะใช้ไม่ได้อีก\n\nใส่รหัสผ่านเพื่อยืนยัน' : `ลบบัญชีถาวร: ข้อมูลทั้งหมดจะหาย\n\nพิมพ์อีเมล ${me.email} เพื่อยืนยัน`);
+    const v = prompt(`ลบบัญชีถาวร: แชต โปรเจกต์ ความจำ และ API key จะหายทั้งหมด และเงินใน Wallet จะใช้ไม่ได้อีก\n\nพิมพ์อีเมล ${me.email} เพื่อยืนยัน`);
     if (!v) return;
-    try { await api('/me/delete', { method: 'POST', body: me.has_password ? { password: v } : { confirm: v } }); me = null; alert('ลบบัญชีแล้ว'); go('/'); } catch (x) { alert(x.message); }
+    try { await api('/me/delete', { method: 'POST', body: { confirm: v } }); me = null; alert('ลบบัญชีแล้ว'); go('/'); } catch (x) { alert(x.message); }
   };
   tfa();
   bindInstall();

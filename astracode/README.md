@@ -37,6 +37,9 @@ Existing database: run the migrations you haven't run yet, in order, in the D1 C
 5. `migrate-5.sql`
 6. `migrate-6.sql` (wallet, coupons, API keys, 2FA, memory, folders, file history, tickets, blog, audit log)
 7. `migrate-7.sql` (Slip2Go, API key budgets)
+8. `migrate-8.sql` (Firebase login, model price promos, tokens per message)
+9. `migrate-9.sql` (per-model Code mode instructions)
+10. `migrate-10.sql` (long-chat summaries)
 
 If a migration fails with "duplicate column", it was already run. Skip to the next one.
 
@@ -65,14 +68,28 @@ If a migration fails with "duplicate column", it was already run. Skip to the ne
 | `SLIP_API_KEY` | Secret | byshop slip check (optional) |
 | `SLIP2GO_KEY` | Secret | Slip2Go Secret Key. Set the API URL and receiver account in Admin → Settings. Set Slip2Go's IP whitelist to `*`. |
 | `PUBLIC_URL` | Text | Your main domain, e.g. `https://astracode.panderx.xyz`. Used in email links and OAuth callbacks. |
-| `RESEND_KEY` | Secret | Email (verify, reset password, receipts, reminders). Also set sender in Admin → Settings. |
+| `RESEND_KEY` | Secret | Email (receipts, reminders, ticket replies). Also set sender in Admin → Settings. Sign-up, verify and reset emails come from Firebase. |
 | `TAVILY_KEY` | Secret | Web search in chat |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Secret | Google login. Redirect URI: `<PUBLIC_URL>/api/oauth/google/callback` |
+| `FIREBASE_PROJECT_ID` | Text | Optional. Defaults to `astra-892a8`. Set only if you change Firebase project (also edit `tools/fb-entry.js`). |
 | `LINE_CHANNEL_ID`, `LINE_CHANNEL_SECRET` | Secret | LINE Login. Callback URL: `<PUBLIC_URL>/api/oauth/line/callback`. Enable the email permission to link accounts by email. |
 | `LINE_ALERT_TOKEN` | Secret | LINE Messaging API channel access token for admin alerts (LINE Notify was shut down). Set the target ID in Admin → System. |
 | `OPENAI_KEY` | Secret | Image generation (name configurable in Admin → Settings) |
 
 `SECRET_KEY` is now also used for 2FA secrets. Changing it disables everyone's 2FA and GitHub link.
+
+## Firebase (login)
+
+Sign-up, login, Google login, email verification and password reset use Firebase Auth. The Worker only checks the Firebase ID token and then makes its own session cookie.
+
+In the Firebase console (project `astra-892a8`):
+
+1. Authentication → Sign-in method: enable **Email/Password** and **Google**.
+2. Authentication → Settings → Authorized domains: add `astracode.panderx.xyz` (and your `workers.dev` domain if you use it).
+3. Authentication → Templates: set the language to Thai.
+
+Users must verify their email before the first login. An existing account (from before Firebase) links automatically when the user signs up or logs in with Google using the same email. LINE login still uses its own OAuth (Firebase has no LINE provider).
+
+`public/fb.js` is a bundle of the Firebase SDK. To rebuild it: `npm i firebase@11 esbuild` then `npx esbuild tools/fb-entry.js --bundle --minify --format=iife --outfile=public/fb.js`.
 
 ## 2. Vercel (optional, e.g. `astracode.panderx.xyz`)
 
@@ -107,6 +124,18 @@ Users connect GitHub with a fine-grained Personal Access Token that has the **Co
 
 - Binary files and files over 500KB in the repo are skipped. They stay on GitHub untouched.
 - Each GitHub action uses at most 5 subrequests, so it fits the Workers Free plan.
+
+## Terminal (Code mode)
+
+The Code page has a Terminal tab, and the AI can write `RUN <command>` to run commands. Commands run in the user's browser with [almostnode](https://github.com/macaly/almostnode) (MIT), inside `/node-runner` (a sandboxed iframe on a separate origin, so it cannot use the user's session). It supports `npm install`, `npm test`, `npm run`, `node file.js`, CLIs in `node_modules/.bin`, `ls`, `cat`, `echo`. It does not support git, python, `node -e`, or native addons. Files a command creates or changes (except `node_modules`) are saved back to the project.
+
+It downloads packages from `registry.npmjs.org` and esbuild-wasm from `esm.sh` and `unpkg.com` in the user's browser. Nothing runs on your server.
+
+Rebuild `public/node-runner.js`: `npm i almostnode pako` then `npx esbuild tools/node-runner-entry.js --bundle --minify --format=iife --platform=browser --target=es2022 --alias:node:zlib=./tools/zlib-shim.js --outfile=public/node-runner.js`.
+
+### Claude's own code execution tool (not used)
+
+The Claude API has a built-in code execution tool. It runs Python 3.11 and Bash on Anthropic's servers, has no internet (so no `npm install`), and has 1,550 free hours a month per organization, then $0.05 per container-hour. It only works with Claude. AstraCode does not use it: the `RUN` terminal above works with every model. See the comment above `callModel` in `src/worker.js` if you want to add it for Python/data tasks.
 
 ## Local development
 

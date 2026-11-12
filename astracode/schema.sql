@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   balance REAL NOT NULL DEFAULT 0, ref_code TEXT, referred_by INTEGER, ref_rewarded INTEGER NOT NULL DEFAULT 0,
   email_verified INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_on INTEGER NOT NULL DEFAULT 0, google_id TEXT, line_id TEXT,
   instructions TEXT NOT NULL DEFAULT '', wallet_overflow INTEGER NOT NULL DEFAULT 0, auto_renew INTEGER NOT NULL DEFAULT 0,
-  plan_period TEXT NOT NULL DEFAULT 'month', reminded_at INTEGER, has_password INTEGER NOT NULL DEFAULT 1,
+  plan_period TEXT NOT NULL DEFAULT 'month', reminded_at INTEGER, has_password INTEGER NOT NULL DEFAULT 1, fb_uid TEXT UNIQUE,
   created_at INTEGER NOT NULL
 );
 
@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS models (
   public INTEGER NOT NULL DEFAULT 1,        -- แสดงในหน้าราคา
   note TEXT NOT NULL DEFAULT '',            -- คำอธิบายในหน้าราคา
   fallback_id INTEGER,                      -- โมเดลสำรองเมื่อตัวนี้ล่ม
+  promo_pct REAL, promo_start INTEGER, promo_end INTEGER, -- โปรลดราคา % ช่วงเวลา (unix ms)
+  code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
   effort TEXT NOT NULL DEFAULT 'none',      -- none | openai | anthropic | deepseek (รูปแบบพารามิเตอร์ effort)
   sort INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS chats (
   created_at INTEGER NOT NULL,
   project_id INTEGER                        -- แชตของโปรเจกต์ (โหมด Code)
   , folder_id INTEGER
+  , summary TEXT, summary_upto INTEGER       -- สรุปข้อความเก่า (ย่อแชตยาว) ถึงข้อความ id นี้
 );
 CREATE INDEX IF NOT EXISTS chats_user ON chats(user_id, created_at);
 
@@ -82,6 +85,7 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at INTEGER NOT NULL,
   thinking TEXT                             -- เหตุผลที่ AI คิดก่อนตอบ
   , sources TEXT                            -- แหล่งข้อมูลจากการค้นเว็บ (JSON)
+  , tin INTEGER, tout INTEGER               -- token ที่ใช้ตอบข้อความนี้
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 

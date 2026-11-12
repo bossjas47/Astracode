@@ -6,6 +6,9 @@ const baht = n => ((Math.round(Number(n || 0) * 100) / 100) || 0).toLocaleString
 const num = n => Number(n || 0).toLocaleString('th-TH');
 const when = t => t ? new Date(t).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
 const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
+// ไอคอนจาก Lucide (ISC license) — ic('name')
+const ICONS = {"menu":"<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","check":"<path d=\"M20 6 9 17l-5-5\"/>","plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>","up":"<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>","stop":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/>","down":"<path d=\"m6 9 6 6 6-6\"/>","right":"<path d=\"m9 18 6-6-6-6\"/>","newchat":"<path d=\"M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7\"/><path d=\"M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z\"/>","pen":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>","trash":"<path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/>","more":"<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>","folder":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>","file":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/>","filetext":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>","filecode":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12.5 8 15l2 2.5\"/><path d=\"m14 12.5 2 2.5-2 2.5\"/>","clip":"<path d=\"m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551\"/>","image":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/><circle cx=\"9\" cy=\"9\" r=\"2\"/><path d=\"m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21\"/>","globe":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>","compare":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>","download":"<path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/>","code":"<path d=\"m16 18 6-6-6-6\"/><path d=\"m8 6-6 6 6 6\"/>","tag":"<path d=\"M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z\"/><circle cx=\"7.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>","news":"<path d=\"M15 18h-5\"/><path d=\"M18 14h-8\"/><path d=\"M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0v-9a2 2 0 0 1 2-2h2\"/><rect width=\"8\" height=\"4\" x=\"10\" y=\"6\" rx=\"1\"/>","braces":"<path d=\"M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1\"/><path d=\"M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1\"/>","activity":"<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>","mail":"<path d=\"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7\"/><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/>","dash":"<rect width=\"7\" height=\"9\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"9\" x=\"14\" y=\"12\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\"/>","pie":"<path d=\"M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z\"/><path d=\"M21.21 15.89A10 10 0 1 1 8 2.83\"/>","trend":"<path d=\"M16 7h6v6\"/><path d=\"m22 7-8.5 8.5-5-5L2 17\"/>","bank":"<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>","users":"<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><path d=\"M16 3.128a4 4 0 0 1 0 7.744\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/>","inbox":"<polyline points=\"22 12 16 12 14 15 10 15 8 12 2 12\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/>","layers":"<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\"/><path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\"/><path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\"/>","cpu":"<path d=\"M12 20v2\"/><path d=\"M12 2v2\"/><path d=\"M17 20v2\"/><path d=\"M17 2v2\"/><path d=\"M2 12h2\"/><path d=\"M2 17h2\"/><path d=\"M2 7h2\"/><path d=\"M20 12h2\"/><path d=\"M20 17h2\"/><path d=\"M20 7h2\"/><path d=\"M7 20v2\"/><path d=\"M7 2v2\"/><rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\"/><rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" rx=\"1\"/>","coupon":"<path d=\"M2 9a3 3 0 1 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 1 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z\"/><path d=\"M9 9h.01\"/><path d=\"m15 9-6 6\"/><path d=\"M15 15h.01\"/>","settings":"<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","server":"<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>","play":"<path d=\"M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z\"/>","refresh":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>","undo":"<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>","redo":"<path d=\"m15 14 5-5-5-5\"/><path d=\"M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13\"/>","camera":"<path d=\"M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z\"/><circle cx=\"12\" cy=\"13\" r=\"3\"/>","search":"<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","sparkles":"<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>","branch":"<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>","pull":"<path d=\"M12 17V3\"/><path d=\"m6 11 6 6 6-6\"/><path d=\"M19 21H5\"/>","push":"<path d=\"m18 9-6-6-6 6\"/><path d=\"M12 3v14\"/><path d=\"M5 21h14\"/>","palette":"<path d=\"M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z\"/><circle cx=\"13.5\" cy=\"6.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"17.5\" cy=\"10.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"6.5\" cy=\"12.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"8.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>","braces2":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1\"/><path d=\"M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1\"/>","py":"<path d=\"M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"m5 16-3 3 3 3\"/><path d=\"m9 22 3-3-3-3\"/>","web":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M11 18h2\"/><path d=\"M12 12v6\"/><path d=\"M9 13v-.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v.5\"/>","smartphone":"<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>","percent":"<line x1=\"19\" x2=\"5\" y1=\"5\" y2=\"19\"/><circle cx=\"6.5\" cy=\"6.5\" r=\"2.5\"/><circle cx=\"17.5\" cy=\"17.5\" r=\"2.5\"/>","wallet":"<path d=\"M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1\"/><path d=\"M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4\"/>","eye":"<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>","circle":"<circle cx=\"12\" cy=\"12\" r=\"10\"/>","terminal":"<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>"};
+const ic = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 const EFFORTS = [['', 'Instant'], ['low', 'Low'], ['high', 'High'], ['max', 'Max']];
 const SUGGEST = ['อธิบายเรื่องนี้ให้เข้าใจง่าย: ', 'ช่วยเขียนโค้ด Python ที่', 'สรุปข้อความนี้ให้สั้นลง:\n', 'แปลเป็นภาษาอังกฤษ:\n'];
 let me = null, installEvt = null, site = {};
@@ -65,13 +68,14 @@ const blocks_ = lines => blocks(lines.join('\n').replace(/&amp;/g, '&').replace(
 function md(s) {
   return String(s).split(/```/).map((part, i) => {
     if (!(i % 2)) return blocks(part);
-    const nl = part.indexOf('\n'), lang = nl >= 0 ? part.slice(0, nl).trim() : '';
-    return `<div class="code"><div class="code-h"><span>${esc(lang || 'code')}</span>${/^(html|svg|xml)$/i.test(lang) ? '<button class="run-code">▶ แสดงผล</button>' : ''}<button class="cp-code">คัดลอก</button></div><pre><code>${esc(nl >= 0 ? part.slice(nl + 1) : part)}</code></pre></div>`;
+    const nl = part.indexOf('\n'), info = nl >= 0 ? part.slice(0, nl).trim() : '', lang = info.split(/\s/)[0];
+    const file = info.match(/\bfile=(\S+)/)?.[1]; // AI ทำเป็นไฟล์ให้ดาวน์โหลด: ```csv file=data.csv
+    return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} แสดงผล</button>` : ''}<button class="cp-code">คัดลอก</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' ดาวน์โหลด' : ''}</button></div><pre><code>${esc(nl >= 0 ? part.slice(nl + 1) : part)}</code></pre></div>`;
   }).join('');
 }
 // ---------- Thinking: กล่องเหตุผลที่ AI คิด (กดเพื่อขยาย) ----------
 const thinkLabel = m => m.streaming && !m.content ? '<span class="shimmer">กำลังคิด…</span>' : `Thinking${m.thinkSec ? ` · ${m.thinkSec} วินาที` : ''}`;
-const thinkHTML = m => m.thinking ? `<details class="think"><summary><span class="think-s">${thinkLabel(m)}</span></summary><div class="think-b">${esc(m.thinking)}</div></details>` : '';
+const thinkHTML = m => m.thinking ? `<details class="think"><summary>${ic('sparkles', 'sm')}<span class="think-s">${thinkLabel(m)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${esc(m.thinking)}</div></details>` : '';
 // อัปเดตข้อความ AI ที่กำลังพิมพ์ โดยไม่ปิดกล่อง Thinking ที่ผู้ใช้เปิดไว้
 function paintStreaming(el, m) {
   let th = el.querySelector('.think');
@@ -95,7 +99,7 @@ async function copy(text, btn) {
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
 const nav = () => `<nav class="nav"><a class="logo" href="/">AstraCode</a><span class="sp"></span>
-  ${me ? `<a class="l" href="/chat">แชต</a><a class="l" href="/code">Code</a><a class="l" href="/plans">แพลน</a><a class="l" href="/account">บัญชี</a>${me.role === 'admin' ? '<a class="l" href="/admin">หลังบ้าน</a>' : ''}`
+  ${me ? `<a class="l" href="/chat">แชต</a><a class="l" href="/code">Code</a><a class="l" href="/plans">แพลน</a><a class="l" href="/pricing">ราคา</a><a class="l" href="/blog">บล็อก</a><a class="l" href="/account">บัญชี</a>${me.role === 'admin' ? '<a class="l" href="/admin">หลังบ้าน</a>' : ''}`
        : `<a class="l" href="/plans">แพลน</a><a class="l" href="/pricing">ราคา</a><a class="l" href="/blog">บล็อก</a><a class="btn blue sm" href="/login">เริ่มใช้ฟรี</a>`}</nav>`;
 const page = html => { app.innerHTML = `<div class="view">${html}</div>`; };
 
@@ -149,10 +153,10 @@ async function landing() {
       <div class="tile"><div class="stat">฿</div><div class="muted">จ่ายผ่าน PromptPay เริ่มต้นหลักสิบบาท</div></div>
     </div></div>
     <div class="band"><h2>ทำได้มากกว่าแชต</h2><div class="grid">
-      <a class="tile link" href="/code"><div class="stat">⌘</div><div style="font:600 19px var(--display)">Code</div><div class="muted">เขียนโค้ดคล้าย VS Code บนเว็บ ให้ AI แก้ไฟล์ รันผล แล้ว push ขึ้น GitHub</div></a>
-      <div class="tile"><div class="stat">⇄</div><div style="font:600 19px var(--display)">เทียบ 2 โมเดล</div><div class="muted">ถามครั้งเดียว ดูคำตอบสองโมเดลคู่กัน</div></div>
-      <div class="tile"><div class="stat">🌐</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
-      <a class="tile link" href="/developers"><div class="stat">{ }</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
+      <a class="tile link" href="/code"><div class="stat">${ic('code')}</div><div style="font:600 19px var(--display)">Code</div><div class="muted">เขียนโค้ดคล้าย VS Code บนเว็บ ให้ AI แก้ไฟล์ รันผล แล้ว push ขึ้น GitHub</div></a>
+      <div class="tile"><div class="stat">${ic('compare')}</div><div style="font:600 19px var(--display)">เทียบ 2 โมเดล</div><div class="muted">ถามครั้งเดียว ดูคำตอบสองโมเดลคู่กัน</div></div>
+      <div class="tile"><div class="stat">${ic('globe')}</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
+      <a class="tile link" href="/developers"><div class="stat">${ic('braces')}</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
     </div></div>
     <div class="band" id="plans"><h2>แพลน</h2>${planTiles(plans)}</div>
     <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
@@ -168,48 +172,75 @@ async function landing() {
 function auth() {
   const q = qs();
   if (q.get('ref')) localStorage.setItem('ref', q.get('ref'));
-  let mode = q.get('reset') ? 'reset' : q.get('mfa') ? 'mfa' : 'login', need2fa = false, msg = q.get('error') || '';
   const ref = localStorage.getItem('ref') || '';
-  const social = () => site.google || site.line ? `<div class="social">${site.google ? `<a class="btn out" href="/api/oauth/google${ref ? '?ref=' + encodeURIComponent(ref) : ''}">ดำเนินการต่อด้วย Google</a>` : ''}
-    ${site.line ? `<a class="btn out line" href="/api/oauth/line${ref ? '?ref=' + encodeURIComponent(ref) : ''}">ดำเนินการต่อด้วย LINE</a>` : ''}<div class="or"><span>หรือ</span></div></div>` : '';
+  // mfa = LINE ล็อกอินแล้วรอรหัส 2FA, code = Firebase ล็อกอินแล้วรอรหัส 2FA, verify = รอยืนยันอีเมล
+  let mode = q.get('mfa') ? 'mfa' : 'login', msg = q.get('error') || '', fbUser = null, sent = false;
+  const fb = () => window.FB ? Promise.resolve(window.FB) : lib('fb').then(() => window.FB);
+  const FB_ERR = { 'auth/invalid-credential': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'auth/wrong-password': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'auth/user-not-found': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
+    'auth/email-already-in-use': 'อีเมลนี้สมัครแล้ว กด "เข้าสู่ระบบ"', 'auth/weak-password': 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัว', 'auth/invalid-email': 'อีเมลไม่ถูกต้อง',
+    'auth/too-many-requests': 'ลองหลายครั้งเกินไป รอสักครู่แล้วลองใหม่', 'auth/network-request-failed': 'เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่',
+    'auth/account-exists-with-different-credential': 'อีเมลนี้สมัครด้วยวิธีอื่น ลองเข้าด้วยรหัสผ่าน', 'auth/unauthorized-domain': 'โดเมนนี้ยังไม่ได้เพิ่มใน Firebase (แจ้งแอดมิน)',
+    'auth/operation-not-allowed': 'ยังไม่ได้เปิดวิธีล็อกอินนี้ (แจ้งแอดมิน)', 'auth/web-storage-unsupported': 'เบราว์เซอร์นี้ปิดคุกกี้ไว้ ลองเปิดใน Chrome หรือ Safari' };
+  const fbErr = x => x.code === 'auth/popup-closed-by-user' || x.code === 'auth/cancelled-popup-request' ? '' : FB_ERR[x.code] || x.message || 'ผิดพลาด';
   const forms = {
     login: () => `<label>อีเมล</label><input name="email" type="email" autocomplete="email" required>
-      <label>รหัสผ่าน</label><input name="password" type="password" autocomplete="current-password" required>
-      ${need2fa ? '<label>รหัส 2FA จากแอป (6 หลัก)</label><input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" required autofocus>' : ''}`,
+      <label>รหัสผ่าน</label><input name="password" type="password" autocomplete="current-password" required>`,
     register: () => `<label>อีเมล</label><input name="email" type="email" autocomplete="email" required>
       <label>รหัสผ่าน (อย่างน้อย 8 ตัว)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required>
       ${ref ? `<p class="muted">ชวนโดยโค้ด <b>${esc(ref)}</b> · จ่ายครั้งแรกได้เครดิตทั้งคู่</p>` : ''}`,
     forgot: () => `<p class="muted">ใส่อีเมลที่สมัครไว้ เราจะส่งลิงก์ตั้งรหัสผ่านใหม่ให้</p><label>อีเมล</label><input name="email" type="email" autocomplete="email" required>`,
-    reset: () => `<label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required autofocus>`,
-    mfa: () => `<p class="muted">บัญชีนี้เปิด 2FA ไว้ ใส่รหัส 6 หลักจากแอป Authenticator</p><label>รหัส 2FA</label><input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus>`,
+    verify: () => `<p>เราส่งลิงก์ยืนยันไปที่ <b>${esc(fbUser?.email)}</b> แล้ว กดลิงก์ในอีเมล แล้วกลับมากดปุ่มด้านล่าง</p><p class="muted">ไม่เห็นอีเมล? ดูในจดหมายขยะ</p>`,
+    code: () => `<p class="muted">บัญชีนี้เปิด 2FA ไว้ ใส่รหัส 6 หลักจากแอป Authenticator</p><label>รหัส 2FA</label><input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus>`,
   };
-  const title = { login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ลืมรหัสผ่าน', reset: 'ตั้งรหัสผ่านใหม่', mfa: 'ยืนยันตัวตน 2 ขั้น' };
+  forms.mfa = forms.code;
+  const title = { login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ลืมรหัสผ่าน', verify: 'ยืนยันอีเมล', code: 'ยืนยันตัวตน 2 ขั้น', mfa: 'ยืนยันตัวตน 2 ขั้น' };
+  const btn = { login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ส่งลิงก์', verify: 'ยืนยันแล้ว เข้าสู่ระบบ', code: 'ยืนยัน', mfa: 'ยืนยัน' };
+  const done = async () => { localStorage.removeItem('ref'); window.FB?.out().catch(() => {}); await loadMe(); go(q.get('next') || '/chat'); };
+  // ได้ผู้ใช้จาก Firebase แล้ว: ยังไม่ยืนยันอีเมล → ส่งลิงก์ / ยืนยันแล้ว → แลกเป็น session ของเรา
+  const finish = async (user, code) => {
+    if (!user) return;
+    fbUser = user;
+    if (!user.emailVerified) { if (!sent) { sent = true; await (await fb()).verify(user).catch(() => {}); } mode = 'verify'; msg = ''; return draw(); }
+    try { await api('/firebase', { method: 'POST', body: { token: await user.getIdToken(), ref, code } }); await done(); }
+    catch (x) { if (x.data?.need2fa) { mode = 'code'; msg = ''; return draw(); } throw x; }
+  };
   const draw = () => {
     const tabs = mode === 'login' || mode === 'register';
     page(nav() + `<div class="auth wrap"><h1>${title[mode]}</h1>
       ${tabs ? `<div class="tabs"><button class="${mode === 'login' ? 'on' : ''}" data-m="login">เข้าสู่ระบบ</button><button class="${mode === 'register' ? 'on' : ''}" data-m="register">สมัคร</button></div>` : ''}
-      <form class="card" id="f">${tabs ? social() : ''}${forms[mode]()}
-      <div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${{ login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ส่งลิงก์', reset: 'ตั้งรหัสผ่าน', mfa: 'ยืนยัน' }[mode]}</button>
+      <form class="card" id="f">${tabs ? `<div class="social"><button type="button" class="btn out" id="gg">ดำเนินการต่อด้วย Google</button>
+        ${site.line ? `<a class="btn out line" href="/api/oauth/line${ref ? '?ref=' + encodeURIComponent(ref) : ''}">ดำเนินการต่อด้วย LINE</a>` : ''}<div class="or"><span>หรือ</span></div></div>` : ''}
+      ${forms[mode]()}
+      <div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${btn[mode]}</button>
+      ${mode === 'verify' ? '<div class="row" style="justify-content:center;margin-top:12px"><button type="button" class="btn out sm" id="resend">ส่งลิงก์อีกครั้ง</button><a href="#" data-m="login">ใช้อีเมลอื่น</a></div>' : ''}
       ${mode === 'login' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="forgot">ลืมรหัสผ่าน?</a></p>' : ''}
-      ${!tabs ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="login">กลับไปเข้าสู่ระบบ</a></p>' : ''}
+      ${!tabs && mode !== 'verify' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="login">กลับไปเข้าสู่ระบบ</a></p>' : ''}
       <p class="muted" style="text-align:center;margin:12px 0 0">การ${mode === 'register' ? 'สมัคร' : 'ใช้งาน'}ถือว่ายอมรับ<a href="/terms">เงื่อนไขและนโยบายความเป็นส่วนตัว</a></p></form></div>`);
-    app.querySelectorAll('[data-m]').forEach(b => b.onclick = e => { e.preventDefault(); mode = b.dataset.m; need2fa = false; msg = ''; draw(); });
+    app.querySelectorAll('[data-m]').forEach(b => b.onclick = e => { e.preventDefault(); if (mode === 'verify') window.FB?.out(); mode = b.dataset.m; msg = ''; sent = false; draw(); });
+    const busy = (b, on) => { b.disabled = on; b.classList.toggle('loading', on); };
+    $('#gg')?.addEventListener('click', async e => {
+      busy(e.target, true); $('#e').textContent = '';
+      try { await finish(await (window.FB || await fb()).google()); } /* เรียกทันทีในคลิก ไม่งั้น Safari บล็อก popup */ catch (x) { $('#e').textContent = x.code ? fbErr(x) : x.message; busy(e.target, false); }
+    });
+    $('#resend')?.addEventListener('click', async e => {
+      busy(e.target, true);
+      try { await (await fb()).verify(fbUser); e.target.textContent = 'ส่งแล้ว ✓'; } catch (x) { $('#e').textContent = fbErr(x); busy(e.target, false); }
+    });
     $('#f').onsubmit = async e => {
-      e.preventDefault(); e.submitter.disabled = true;
+      e.preventDefault(); const b = e.submitter || $('#f .btn.blue'); busy(b, true); $('#e').textContent = '';
       const body = Object.fromEntries(new FormData(e.target));
       try {
-        if (mode === 'forgot') { const r = await api('/forgot', { method: 'POST', body }); $('#e').innerHTML = `<span class="ok">${r.mail ? 'ถ้ามีบัญชีนี้ เราส่งลิงก์ไปที่อีเมลแล้ว (ดูในจดหมายขยะด้วย)' : 'ระบบอีเมลยังไม่เปิดใช้ ติดต่อแอดมินที่หน้า "ติดต่อเรา"'}</span>`; e.submitter.disabled = false; return; }
-        if (mode === 'reset') await api('/reset', { method: 'POST', body: { ...body, token: q.get('reset') } });
-        else if (mode === 'mfa') await api('/login/mfa', { method: 'POST', body: { ...body, token: q.get('mfa') } });
-        else await api('/' + mode, { method: 'POST', body: mode === 'register' ? { ...body, ref } : body });
-        localStorage.removeItem('ref'); await loadMe(); go(q.get('next') || '/chat');
-      } catch (x) {
-        if (x.data?.need2fa) { need2fa = true; msg = ''; draw(); for (const [k, v] of Object.entries(body)) { const i = $(`#f [name=${k}]`); if (i) i.value = v; } $('#f [name=code]').focus(); return; }
-        $('#e').textContent = x.message; e.submitter.disabled = false;
-      }
+        if (mode === 'mfa') { await api('/login/mfa', { method: 'POST', body: { ...body, token: q.get('mfa') } }); return await done(); }
+        const F = await fb();
+        if (mode === 'forgot') { await F.reset(body.email); $('#e').innerHTML = '<span class="ok">ถ้ามีบัญชีนี้ เราส่งลิงก์ไปที่อีเมลแล้ว (ดูในจดหมายขยะด้วย)</span>'; return busy(b, false); }
+        if (mode === 'verify') { const u = await F.reload(fbUser); if (!u?.emailVerified) { $('#e').textContent = 'ยังไม่ได้ยืนยัน กดลิงก์ในอีเมลก่อน'; return busy(b, false); } return await finish(u); }
+        if (mode === 'code') return await finish(fbUser, body.code);
+        await finish(await (mode === 'register' ? F.register(body.email, body.password) : F.login(body.email, body.password)));
+      } catch (x) { $('#e').textContent = x.code ? fbErr(x) : x.message; busy(b, false); }
     };
   };
   draw();
+  if (!window.DEMO) fb().then(F => F.redirected()).then(u => u && finish(u)).catch(x => { if (x.code) { msg = fbErr(x); draw(); } }); // กลับมาจาก Google แบบ redirect
 }
 const loadMe = async () => { me = await api('/me').catch(() => null); };
 
@@ -224,6 +255,7 @@ const LIBS = { // ล็อกเวอร์ชัน + SRI: ถ้าไฟล
   pdfWorker: [PDFJS + 'build/pdf.worker.min.js', 'sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2'],
   mammoth: [CDN + 'mammoth@1.8.0/mammoth.browser.min.js', 'sha384-/cXAMbzovUIKbBERjPmR3SnPTh8siWr5lsvFYj1Uq4XP0yaJUZJmsh0YXyGv5P0y'],
   jszip: [CDN + 'jszip@3.10.1/dist/jszip.min.js', 'sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG'],
+  fb: ['/fb.js', ''], // Firebase Auth (bundle เองจาก tools/fb-entry.js)
   xlsx: [CDN + 'xlsx@0.18.5/dist/xlsx.full.min.js', 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw'],
 };
 const FILE_MAX = 200000, FILES_MAX = 5, RAW_MAX = 20e6; // ตัวอักษรต่อไฟล์, จำนวนไฟล์, ขนาดไฟล์ดิบ
@@ -231,7 +263,7 @@ const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonc|xml|ya?ml|toml|ini|env|l
 const loading = {};
 const lib = k => loading[k] ||= new Promise((ok, no) => {
   const s = document.createElement('script');
-  s.src = LIBS[k][0]; s.integrity = LIBS[k][1]; s.crossOrigin = 'anonymous';
+  s.src = LIBS[k][0]; if (LIBS[k][1]) { s.integrity = LIBS[k][1]; s.crossOrigin = 'anonymous'; }
   s.onload = ok; s.onerror = () => { delete loading[k]; no(new Error('โหลดตัวอ่านไฟล์ไม่ได้ ลองใหม่อีกครั้ง')); };
   document.head.append(s);
 });
@@ -355,13 +387,17 @@ async function pricing() {
   let per = localStorage.getItem('per') || 'M';
   const unit = () => per === 'M' ? 'ต่อ 1M token' : 'ต่อ 1K token', f = v => money(per === 'M' ? v : v / 1000);
   const planName = id => d.plans.find(p => p.id === id)?.name;
-  const card = m => `<div class="pc"><div class="pc-h"><b>${esc(m.name)}</b><span class="pc-tags">${m.vision ? '<span class="pill">อ่านรูป</span>' : ''}${m.effort ? '<span class="pill">Thinking</span>' : ''}</span></div>
+  const day = t => new Date(t).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+  const period = p => 'โปรโมชั่น' + (p.start && p.end ? ` ${day(p.start)} – ${day(p.end)}` : p.end ? 'ถึง ' + day(p.end) : p.start ? 'ตั้งแต่ ' + day(p.start) : '');
+  const cell = (m, k) => `<b>${m.promo ? `<s class="muted">฿${f(m.promo[k])}</s> ` : ''}฿${f(m[k])}</b>`;
+  const card = m => `<div class="pc ${m.promo ? 'promo' : ''}"><div class="pc-h"><b>${esc(m.name)}</b><span class="pc-tags">${m.promo ? `<span class="pill sale">ลด ${m.promo.pct}%</span>` : ''}${m.vision ? '<span class="pill">อ่านรูป</span>' : ''}${m.effort ? '<span class="pill">Thinking</span>' : ''}</span></div>
+    ${m.promo ? `<p class="sale-t">${period(m.promo)}</p>` : ''}
     ${m.note ? `<p class="muted">${esc(m.note)}</p>` : ''}
     <div class="pc-rows">
-      <div><span>Input</span><b>฿${f(m.in)}</b></div>
-      <div><span>Output</span><b>฿${f(m.out)}</b></div>
-      <div><span>Cache read</span><b>฿${f(m.cache)}</b></div>
-      ${m.cache_write ? `<div><span>Cache write</span><b>฿${f(m.cache_write)}</b></div>` : ''}
+      <div><span>Input</span>${cell(m, 'in')}</div>
+      <div><span>Output</span>${cell(m, 'out')}</div>
+      <div><span>Cache read</span>${cell(m, 'cache')}</div>
+      ${m.cache_write ? `<div><span>Cache write</span>${cell(m, 'cache_write')}</div>` : ''}
     </div>
     <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
   const draw = () => {
@@ -401,6 +437,53 @@ async function pricing() {
   draw();
 }
 
+
+// ดาวน์โหลดโค้ด/ไฟล์จากคำตอบ AI (.xlsx แปลงจาก CSV, .doc เปิดใน Word จาก HTML)
+const EXT = { javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', python: 'py', py: 'py', html: 'html', css: 'css', json: 'json', markdown: 'md', md: 'md', csv: 'csv', sql: 'sql', bash: 'sh', sh: 'sh', xml: 'xml', yaml: 'yml', yml: 'yml', lua: 'lua', java: 'java', go: 'go', rust: 'rs', php: 'php', svg: 'svg', txt: 'txt', text: 'txt' };
+const MIME = { csv: 'text/csv', html: 'text/html', json: 'application/json', md: 'text/markdown', svg: 'image/svg+xml', doc: 'application/msword', js: 'text/javascript' };
+async function downloadCode(b) {
+  const text = b.closest('.code').querySelector('code').textContent;
+  const name = (b.dataset.name || `code.${EXT[b.dataset.lang?.toLowerCase()] || 'txt'}`).replace(/[\\/:*?"<>|]+/g, '_'), ext = name.split('.').pop().toLowerCase();
+  if (ext === 'xlsx') { await lib('xlsx'); return XLSX.writeFile(XLSX.read(text, { type: 'string' }), name); }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([ext === 'csv' ? '﻿' + text : text], { type: (MIME[ext] || 'text/plain') + ';charset=utf-8' })); // BOM: Excel อ่าน CSV ภาษาไทยได้
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+document.addEventListener('click', e => { const b = e.target.closest('.dl-code'); if (b) downloadCode(b).catch(x => alert('ดาวน์โหลดไม่ได้: ' + x.message)); });
+
+// ---------- ส่วนเลือกแบบแอปมือถือ (แชต + โหมด Code) ----------
+const limHTML = u => { const p = Math.max(u.pct4h, u.pctWeek); return `<i class="ring ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"></i>${Math.round(p)}%`; };
+const EFFORT_INFO = { '': ['Instant', 'ตอบทันที ไม่คิดก่อน · เร็วและประหยัดลิมิตที่สุด'], low: ['Low', 'คิดสั้นๆ ก่อนตอบ · เหมาะกับงานทั่วไป'], high: ['High', 'คิดละเอียด · โจทย์ยาก โค้ด คณิต'], max: ['Max', 'คิดเต็มที่ · ช้าสุด ใช้ลิมิตมากสุด'] };
+// แผ่นเลือกจากด้านล่าง (สไตล์แอปมือถือ)
+function sheet(title, html, bind) {
+  document.querySelector('.sheet-bg')?.remove();
+  const d = document.createElement('div'); d.className = 'sheet-bg';
+  d.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="sheet-h"><b>${esc(title)}</b><button class="x" aria-label="ปิด">${ic('x')}</button></div><div class="sheet-b">${html}</div></div>`;
+  const close = () => d.remove();
+  d.onclick = e => { if (e.target === d || e.target.closest('.x')) close(); };
+  d.onkeydown = e => { if (e.key === 'Escape') close(); };
+  document.body.append(d); (d.querySelector('.opt.on') || d.querySelector('.sheet-b button, .sheet-b a'))?.focus();
+  bind?.(d, close);
+}
+const optHTML = (v, title, desc, on) => `<button class="opt ${on ? 'on' : ''}" data-v="${esc(v)}"><span class="opt-t">${title}</span><span class="opt-d">${desc}</span>${on ? `<i>${ic('check')}</i>` : ''}</button>`;
+const pickTo = sel => (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { const s = $(sel); s.value = b.dataset.v; s.dispatchEvent(new Event('change')); close(); });
+function modelSheet(which) {
+  const cur = $(which).value, auto = $(which).querySelector('option[value="auto"]');
+  sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', (auto ? optHTML('auto', ic('sparkles') + 'อัตโนมัติ', 'ระบบเลือกให้: คำถามทั่วไปใช้โมเดลประหยัด คำถามยาก โค้ด รูป หรือไฟล์ใช้โมเดลเก่ง · ประหยัดลิมิต', cur === 'auto') : '')
+    + me.models.map(m => optHTML(m.id, esc(m.name), [m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking', `ใช้ลิมิต ×${m.multiplier}`].filter(Boolean).join(' · '), String(m.id) === cur)).join('')
+    + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', pickTo(which));
+}
+function effortSheet(sel) {
+  const cur = $(sel).value;
+  sheet('ระดับความคิด', Object.entries(EFFORT_INFO).map(([v, [n, d]]) => optHTML(v, n, d, v === cur)).join('') + '<p class="muted" style="font-size:13px;margin:8px 4px 0">ยิ่งคิดมาก คำตอบยิ่งดีกับโจทย์ยาก แต่ช้าขึ้นและใช้ลิมิตมากขึ้น</p>', pickTo(sel));
+}
+function limitSheet() {
+  const u = me.usage;
+  sheet('ลิมิตการใช้งาน', `<p class="muted" style="margin:0 0 12px">แพลน ${esc(me.plan.name)}</p><div class="meters big">${meters(u)}</div>
+    <p class="muted" style="font-size:13px">ลิมิต 4 ชม. รีเซ็ต ${u.reset4h ? when(u.reset4h) : 'เมื่อเริ่มใช้'} · ลิมิตสัปดาห์รีเซ็ต ${when(u.resetWeek)}</p>
+    <a class="btn blue" href="/plans" style="width:100%">อัปเกรดแพลน</a>`);
+}
+
 // ---------- หลายหน้า: แต่ละไฟล์ .html บอกชื่อหน้าใน <body data-page> ----------
 // เดโม (ไฟล์เดียว) จำลอง URL ไว้ใน window.DEMO_URL แทนการเปลี่ยนหน้าจริง
 const curl = () => window.DEMO ? (window.DEMO_URL ||= new URL('/', location.origin === 'null' ? 'http://demo' : location.origin)) : location;
@@ -421,7 +504,7 @@ const OPEN_IN_MAINTENANCE = ['home', 'login', 'terms', 'status', 'blog', 'pricin
 function banner() { // ประกาศจากแอดมิน: ปิดได้ จำไว้ว่าปิดข้อความไหน
   const t = site.announcement; if (!t || localStorage.getItem('ann') === t || ['admin', 'code', 'receipt'].includes(pageName())) return;
   const b = document.createElement('div'); b.className = 'ann ' + (site.announcement_level || 'info');
-  b.innerHTML = `<span>${inline(esc(t))}</span><button aria-label="ปิดประกาศ">✕</button>`;
+  b.innerHTML = `<span>${inline(esc(t))}</span><button aria-label="ปิดประกาศ">${ic('x')}</button>`;
   b.querySelector('button').onclick = () => { localStorage.setItem('ann', t); b.remove(); };
   app.prepend(b);
 }

@@ -5,7 +5,7 @@
     logged: false, email: '', planId: 3, expires: now() + 20 * DAY, u4: 0, uw: 0,
     settings: { promptpay_id: '', slip_api_url: '', slip_amount_field: 'data.amount', featured_plan: '3' },
     models: [
-      { id: 1, name: 'DeepSeek', provider: 'openai', api_model: 'deepseek-flash', base_url: 'https://api.deepseek.com', key_name: 'DEEPSEEK_KEY', multiplier: 1, cost_in: 0.97, cost_out: 3.87, cost_cache: 0.02, cost_cache_write: 0.97, vision: 0, effort: 'deepseek', sort: 0, active: 1, has_key: true },
+      { id: 1, name: 'DeepSeek', promo_pct: 20, promo_start: now() - 2 * DAY, promo_end: now() + 12 * DAY, provider: 'openai', api_model: 'deepseek-flash', base_url: 'https://api.deepseek.com', key_name: 'DEEPSEEK_KEY', multiplier: 1, cost_in: 0.97, cost_out: 3.87, cost_cache: 0.02, cost_cache_write: 0.97, vision: 0, effort: 'deepseek', sort: 0, active: 1, has_key: true },
       { id: 2, name: 'Claude Sonnet 5.5', provider: 'anthropic', api_model: 'claude-sonnet-5-5', base_url: 'https://api.anthropic.com/v1', key_name: 'ANTHROPIC_KEY', multiplier: 35, cost_in: 24.9, cost_out: 124.6, cost_cache: 2.5, cost_cache_write: 31.2, vision: 1, effort: 'anthropic', sort: 1, active: 1, has_key: true },
     ],
     plans: [
@@ -63,7 +63,8 @@
   let ai = 0;
 
   function chatStream(body, signal) {
-    const p = plan(), m = allowed(p).find(x => x.id === body.model_id);
+    const p = plan(); if (body.model_id === 'auto') { const ms = [...allowed(p)].sort((a, b) => a.multiplier - b.multiplier); body.model_id = (/โค้ด|code|วิเคราะห์|```/i.test(body.text || '') || body.images?.length || body.files?.length ? ms.at(-1) : ms[0]).id; }
+    const m = allowed(p).find(x => x.id === body.model_id);
     if (!m) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
     const u = usage();
     if (u.pct4h >= 100 || u.pctWeek >= 100) return res({ error: 'ลิมิตเต็มแล้ว', ...u }, 429);
@@ -81,9 +82,11 @@
       c.msgs.push({ role: 'user', content: text + files.map(f => `\n\n[[file:${f.name}]]\n${f.text}\n[[/file]]`).join('') + (body.images?.length ? `\n\n[แนบรูป ${body.images.length} รูป]` : '') });
     }
     if (body.project_id) { // โหมด Code: ตอบเป็นการแก้ไฟล์
-      const code = `แก้ให้แล้วครับ (เดโม) เพิ่มตัวนับจำนวนครั้งที่กด และไฟล์ CSS ใหม่\n\n\`\`\`js path=script.js\nlet n = 0;\ndocument.getElementById('btn').onclick = () => {\n  n++;\n  console.log('กดครั้งที่', n);\n  document.querySelector('h1').textContent = 'กดแล้ว ' + n + ' ครั้ง';\n};\n\`\`\`\n\n\`\`\`css path=css/extra.css\nh1 { color: #2997ff; }\n\`\`\`\n\nกด **ดู diff** เพื่อดูว่าเปลี่ยนอะไร แล้วกด **Apply** เพื่อใช้`;
+      const code = `READ path=index.html\nGREP btn\n\nแก้ให้แล้วครับ (เดโม) เพิ่มตัวนับจำนวนครั้งที่กด และไฟล์ CSS ใหม่\n\n\`\`\`js path=script.js\nlet n = 0;\ndocument.getElementById('btn').onclick = () => {\n  n++;\n  console.log('กดครั้งที่', n);\n  document.querySelector('h1').textContent = 'กดแล้ว ' + n + ' ครั้ง';\n};\n\`\`\`\n\n\`\`\`css path=css/extra.css\nh1 { color: #2997ff; }\n\`\`\`\n\nกด **ดู diff** เพื่อดูว่าเปลี่ยนอะไร แล้วกด **Apply** เพื่อใช้`;
       return streamReply(c, m, text, code, body, signal);
     }
+    if (/ไฟล์|excel|csv/i.test(text)) return streamReply(c, m, text, 'ทำไฟล์ให้แล้วครับ\n\n```csv file=sales.xlsx\nเดือน,ยอดขาย\nม.ค.,1200\nก.พ.,1500\n```\n\nกดดาวน์โหลดได้เลย', body, signal);
+    if (/landing|เว็บ/i.test(text)) return streamReply(c, m, text, 'ได้เลยครับ ขอวางแผนก่อน:\n\n1. **Landing Page** — Hero, จุดเด่น, ฟอร์มติดต่อ\n2. **Catalog** — รายการพร้อมฟิลเตอร์\n3. **หลังบ้าน** — เพิ่ม/แก้ข้อมูล\n\n{"question":"ต้องการให้เริ่มจากส่วนไหนก่อน","options":["Landing Page ก่อน","ทำครบทุกส่วน",{"label":"ขอดูตัวอย่างดีไซน์ก่อน"}]}', body, signal);
     const think = body.effort ? `_(โหมดคิด: ${body.effort})_ ` : '';
     const fileNote = files.length ? `อ่านไฟล์แล้ว ${files.length} ไฟล์ (เดโม: ไม่ได้ส่งให้ AI จริง)\n\n${files.map(f => `- **${f.name}** ${f.text.length.toLocaleString()} ตัวอักษร: "${f.text.replace(/\s+/g, ' ').slice(0, 60)}…"`).join('\n')}\n\n` : '';
     const reply = fileNote + (body.images?.length ? `เห็นรูป ${body.images.length} รูปแล้วครับ (เดโม: ไม่ได้ส่งให้ AI จริง)\n\n` : '') + think + ANSWERS[ai++ % ANSWERS.length](text);
@@ -92,9 +95,10 @@
   function streamReply(c, m, text, reply, body, signal) {
     const enc = new TextEncoder(), cid = c.id;
     let out = '';
-    let think = ''; // ถูกตั้งค่าใน start()
+    let think = '', tk = null; // ถูกตั้งค่าใน start()
     const finish = () => {
-      if (out) c.msgs.push({ role: 'assistant', content: out, model: m.name, thinking: think || null });
+      tk = { in: Math.ceil(c.msgs.reduce((a, x) => a + x.content.length, 0) / 2) + 400, out: Math.ceil((out.length + think.length) / 2) };
+      if (out) c.msgs.push({ role: 'assistant', content: out, model: m.name, thinking: think || null, tin: tk.in, tout: tk.out });
       const units = (text.length * 2 + out.length) * m.multiplier * 40 * (body.effort ? 2 : 1); // เดโม: คิดลิมิตเร็วกว่าจริงให้เห็นแถบขยับ
       S.u4 += units; S.uw += units / 3;
       S.usageLog.push({ model: m.name, tin: text.length * 2, tout: out.length, cost: units / 1e6 * 1.2 });
@@ -112,7 +116,7 @@
           if (signal?.aborted) { finish(); ctl.error(new DOMException('Aborted', 'AbortError')); return; }
           out += ch; send({ t: ch }); await wait(25);
         }
-        finish(); send({ done: true, ...usage() }); ctl.close();
+        finish(); send({ done: true, tok: tk, ...usage() }); ctl.close();
       },
     });
     return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
@@ -152,7 +156,6 @@
     if (path === '/api/blog') return res(S.posts.filter(p => p.published));
     if ((r = path.match(/^\/api\/blog\/(.+)$/))) { const p = S.posts.find(x => x.slug === decodeURIComponent(r[1]) && x.published); return p ? res(p) : err('ไม่พบบทความ', 404); }
     if (path === '/api/status') { const today = Math.floor(now() / DAY); return res({ updated: now(), models: S.models.map((m, k) => ({ name: m.name, uptime: k ? 99.2 : 100, down: false, days: Array.from({ length: 30 }, (_, i) => ({ d: (today - 29 + i) * DAY, ok: 50 + i, err: k && i % 9 === 4 ? 2 : 0 })) })) }); }
-    if (path === '/api/forgot') return res({ ok: true, mail: true });
     if (S.logged) {
       const u0 = S.users[0];
       if (path === '/api/me' && M === 'PUT') { if ('instructions' in body) S.instructions = body.instructions; if ('wallet_overflow' in body) S.overflow = body.wallet_overflow; if ('auto_renew' in body) S.renew = body.auto_renew; return res({ ok: true }); }
@@ -167,7 +170,6 @@
       if (path === '/api/coupon/redeem') { const c = S.coupons.find(x => x.code === String(body.code).toUpperCase() && x.kind === 'credit'); if (!c) return err('คูปองใช้ไม่ได้ ลอง GIFT50'); S.balance += c.value; S.tx.push({ amount: c.value, balance_after: S.balance, kind: 'coupon', ref: c.code, created_at: now() }); return res({ ok: true, amount: c.value, balance: S.balance }); }
       if (path === '/api/2fa/setup') return res({ secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', uri: 'otpauth://totp/AstraCode:' + encodeURIComponent(S.email) + '?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=AstraCode' });
       if (path === '/api/2fa/enable' || path === '/api/2fa/disable') { if (!/^\d{6}$/.test(String(body.code || '').trim())) return err('ใส่รหัส 6 หลัก (เดโม: เลขอะไรก็ได้)'); S.totp = path.endsWith('enable'); return res({ ok: true }); }
-      if (path === '/api/verify/send') return res({ ok: true });
       if (path === '/api/me/delete') return err('หน้าเดโมลบบัญชีไม่ได้');
       if ((r = path.match(/^\/api\/receipt\/(\d+)$/))) { const p = S.payments.find(x => x.id === +r[1] && x.status === 'approved') || { id: +r[1], amount: 299, created_at: now(), plan_name: 'Sonnet Plus' }; return res({ id: p.id, no: 'AC' + String(p.id).padStart(6, '0'), date: p.created_at, email: S.email, amount: p.amount, discount: 0, item: p.kind === 'topup' ? 'เติมเงิน Wallet' : `แพลน ${p.plan_name} (30 วัน)`, business: { business_name: 'AstraCode', business_address: 'กรุงเทพฯ', business_tax_id: '' } }); }
       if (path === '/api/tickets') { if (M === 'POST') { const t = { id: Date.now(), user_id: 1, subject: body.subject, status: 'open', created_at: now(), updated_at: now(), msgs: [{ admin: 0, body: body.body, created_at: now() }] }; S.tickets.unshift(t); return res({ ok: true, id: t.id }); } return res(S.tickets); }
@@ -181,6 +183,7 @@
       if (path === '/api/admin/events') return res([{ kind: 'error', model: 'Claude Sonnet 5.5', detail: 'HTTP 529 overloaded', created_at: now() - 5 * 3600e3 }]);
       if (path === '/api/admin/backups') return M === 'POST' ? res({ ok: true }) : res([{ key: 'backup/2026-11-12T03-00-00-000Z.json', size: 184320, at: now() - 5 * 3600e3 }]);
       if (path === '/api/admin/notify-test') return res({ ok: true });
+      if (path === '/api/admin/reset-limits') { S.u4 = 0; S.uw = 0; return res({ ok: true, count: body.target === 'email' ? 1 : body.target === 'plan' ? 2 : S.users.length }); }
       if (path === '/api/admin/slip-test') return res({ ok: true, data: { code: '200001', data: { shopName: 'AstraCode (เดโม)', tokens: 412 } } });
       if (path === '/api/admin/profit') return res({ days: 30, total: { rev: 4120, cost: 1385.4, profit: 2734.6 }, losers: 1,
         plans: [{ id: 1, name: 'Free', price: 0, subs: 120, rev: 0, cost: 96.2 }, { id: 2, name: 'DeepSeek Lite', price: 59, subs: 24, rev: 1416, cost: 210.5 }, { id: 3, name: 'Sonnet Plus', price: 299, subs: 7, rev: 2093, cost: 980.1 }, { id: 4, name: 'Pro', price: 499, subs: 1, rev: 499, cost: 61.3 }],
@@ -191,16 +194,12 @@
     if (path === '/api/pricing') { const mk = 1 + (+S.settings.price_markup || 30) / 100, r = v => Math.round(v * mk * 10000) / 10000;
       return res({ note: S.settings.price_note || 'หน้าเดโม: ราคาคำนวณจากทุน + markup 30%', plans: S.plans.map(({ id, name, price, limit_week }) => ({ id, name, price, limit_week })),
         models: S.models.filter(m => m.active).map(m => ({ id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, note: m.note || '',
-          in: m.price_in ?? r(m.cost_in), out: m.price_out ?? r(m.cost_out), cache: m.price_cache ?? r(m.cost_cache), cache_write: m.price_cache_write ?? r(m.cost_cache_write), plans: S.plans.filter(p => p.model_ids.includes(m.id)).map(p => p.id) })) }); }
+          ...(() => { const b = { in: m.price_in ?? r(m.cost_in), out: m.price_out ?? r(m.cost_out), cache: m.price_cache ?? r(m.cost_cache), cache_write: m.price_cache_write ?? r(m.cost_cache_write) }, off = m.promo_pct > 0 ? 1 - m.promo_pct / 100 : 1; return { ...Object.fromEntries(Object.entries(b).map(([k, v]) => [k, Math.round(v * off * 10000) / 10000])), promo: off < 1 ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, ...b } : null }; })(), plans: S.plans.filter(p => p.model_ids.includes(m.id)).map(p => p.id) })) }); }
     if (path === '/api/plans') return res(S.plans.filter(p => p.active).sort((a, b) => a.sort - b.sort).map(p => ({ id: p.id, name: p.name, price: p.price, price_year: p.price_year, description: p.description, models: est(p), featured: String(p.id) === S.settings.featured_plan })));
-    if (path === '/api/register' || path === '/api/login') {
-      if (!/^[^\s@]+@[^\s@]+$/.test(body.email || '') || String(body.password || '').length < 8) return err('ใส่อีเมล และรหัสผ่านอย่างน้อย 8 ตัว (เดโม: อะไรก็ได้)');
-      S.logged = true; S.email = body.email; S.users[0].email = body.email; return res({ ok: true });
-    }
+    if (path === '/api/firebase') { S.logged = true; S.email = String(body.token).slice(5); S.users[0].email = S.email; return res({ ok: true }); }
     if (!S.logged) return err('กรุณาเข้าสู่ระบบ', 401);
     if (path === '/api/logout') { S.logged = false; return res({ ok: true }); }
     if (path === '/api/me') { const p = plan(); return res({ email: S.email, role: 'admin', balance: S.balance, ref_code: 'DEMO1234', email_verified: false, totp_on: S.totp, google: false, line: false, has_password: true, instructions: S.instructions, wallet_overflow: S.overflow, auto_renew: S.renew, plan: { id: p.id, name: p.name, expires: p.price > 0 ? S.expires : null }, usage: usage(), models: allowed(p).map(({ id, name, multiplier, vision, effort }) => ({ id, name, multiplier, vision, effort })), promptpay_id: S.settings.promptpay_id }); }
-    if (path === '/api/password') return body.old ? res({ ok: true }) : err('รหัสผ่านเดิมไม่ถูกต้อง', 401);
     if (path === '/api/chat') return chatStream(body, opt.signal);
     if (path === '/api/chats') { const pj = +q.searchParams.get('project') || null; return res(S.chats.filter(c => (c.project_id || null) === pj).map(c => ({ id: c.id, title: c.title, folder_id: c.folder_id || null }))); }
     if (path === '/api/github') return M === 'GET' ? res({ connected: false, secret: true }) : err('หน้าเดโมเชื่อม GitHub ไม่ได้ ใช้ได้บนเว็บจริง');
@@ -273,6 +272,13 @@
     return err('not found', 404);
   }
 
+  // Firebase จำลอง: ล็อกอินด้วยอีเมลอะไรก็ได้
+  const fbUser = email => ({ email, emailVerified: true, getIdToken: async () => 'demo:' + email });
+  window.FB = {
+    login: async (e, p) => { if (!/^[^\s@]+@[^\s@]+$/.test(e) || String(p).length < 8) throw Object.assign(new Error('ใส่อีเมล และรหัสผ่านอย่างน้อย 8 ตัว (เดโม: อะไรก็ได้)'), {}); return fbUser(e); },
+    google: async () => fbUser('you@gmail.com'), reset: async () => {}, verify: async () => {}, reload: async u => u, redirected: async () => null, out: async () => {},
+  };
+  window.FB.register = window.FB.login;
   const realFetch = window.fetch.bind(window);
   window.fetch = async (url, opt = {}) => {
     const u = String(url);
