@@ -2,8 +2,8 @@
 PAGES.admin = () => adminView(qs().get('tab') || 'stats');
 
 const FIELDS = {
-  plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['limit_4h', 'ลิมิต 4 ชม. (units)', 'n'], ['limit_week', 'ลิมิตสัปดาห์ (units)', 'n'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
-  models: [['name', 'ชื่อที่แสดง'], ['provider', 'รูปแบบ API', ['openai', 'anthropic']], ['api_model', 'รหัสโมเดล'], ['base_url', 'Base URL'], ['key_name', 'ชื่อ secret ของ key'], ['multiplier', 'ตัวคูณ', 'n'],
+  plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['limit_4h', 'งบรอบ 4 ชม. (บาท ต้นทุนจริง)', 'n'], ['limit_week', 'งบรอบสัปดาห์ (บาท ต้นทุนจริง)', 'n'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
+  models: [['name', 'ชื่อที่แสดง'], ['provider', 'รูปแบบ API', ['openai', 'anthropic']], ['api_model', 'รหัสโมเดล'], ['base_url', 'Base URL'], ['key_name', 'ชื่อ secret ของ key'], ['multiplier', 'ความหนักสัมพัทธ์ (ใช้เรียง/แสดง ไม่ใช่ตัวหักลิมิต)', 'n'], ['cap_pct', 'เพดาน % ของงบสัปดาห์ (0 = ไม่จำกัด เช่น Opus 50)', 'n'],
     ['cost_in', 'ทุน input (บาท/1M)', 'n'], ['cost_out', 'ทุน output', 'n'], ['cost_cache', 'ทุน cache read', 'n'], ['cost_cache_write', 'ทุน cache write', 'n'],
     ['price_in', 'ราคาขาย input (บาท/1M)', 'o'], ['price_out', 'ราคาขาย output', 'o'], ['price_cache', 'ราคาขาย cache read', 'o'], ['price_cache_write', 'ราคาขาย cache write', 'o'],
     ['promo_pct', 'โปรลดราคา % (เว้นว่าง = ไม่มีโปร)', 'o'], ['promo_start', 'โปรเริ่ม (เว้นว่าง = ทันที)', 'd'], ['promo_end', 'โปรถึงวันที่ (เว้นว่าง = ไม่มีวันจบ)', 'd'],
@@ -346,8 +346,8 @@ const ADMIN = {
       <label>โมเดลสำหรับเติมโค้ดอัตโนมัติ (เว้นว่าง = ตัวที่ถูกที่สุดในแพลน)</label><select name="autocomplete_model"><option value="">อัตโนมัติ</option>${models.map(m => `<option value="${m.id}" ${String(m.id) === s.autocomplete_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
       <label class="sw-row"><span class="sw"><input type="checkbox" data-b="image_enabled" ${s.image_enabled === '1' ? 'checked' : ''}><span></span></span> สร้างรูป (API แบบ OpenAI images)</label>
       <div class="form2"><div><label>Base URL</label><input name="image_base_url" value="${esc(s.image_base_url)}"></div><div><label>โมเดล</label><input name="image_model" value="${esc(s.image_model)}"></div>
-        <div><label>ชื่อ Secret ของ key</label><input name="image_key_name" value="${esc(s.image_key_name)}"></div><div><label>ใช้ลิมิตต่อรูป (units)</label><input name="image_units" type="number" min="0" value="${esc(s.image_units)}"></div>
-        <div><label>ต้นทุนต่อรูป (บาท, ใช้ในสถิติ)</label><input name="image_cost" type="number" min="0" step="any" value="${esc(s.image_cost)}"></div></div>
+        <div><label>ชื่อ Secret ของ key</label><input name="image_key_name" value="${esc(s.image_key_name)}"></div>
+        <div><label>ต้นทุนต่อรูป (บาท, หักจากลิมิตและใช้ในสถิติ)</label><input name="image_cost" type="number" min="0" step="any" value="${esc(s.image_cost)}"></div></div>
       <h2 style="margin-top:28px">อีเมล</h2>
       <p class="muted">ใช้ Resend ตั้ง Secret <code>RESEND_KEY</code> ${s.env.RESEND_KEY ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'} และยืนยันโดเมนผู้ส่งใน Resend</p>
       <label>ผู้ส่ง (เช่น AstraCode &lt;no-reply@panderx.xyz&gt;)</label><input name="mail_from" value="${esc(s.mail_from)}">
@@ -372,8 +372,8 @@ async function editors(tab, box, reload) {
   const rows = await api('/admin/' + tab), models = tab === 'posts' ? [] : tab === 'models' ? rows : await api('/admin/models');
   const summary = r => tab === 'posts' ? `<b>${esc(r.title)}</b><span class="muted">/blog/${esc(r.slug)} · ${r.published ? 'เผยแพร่แล้ว' : 'ฉบับร่าง'} · ${when(r.created_at)}</span>`
     : tab === 'plans'
-    ? `<b>${esc(r.name)}</b><span class="muted">${r.price > 0 ? '฿' + baht(r.price) + '/เดือน' : 'ฟรี'} · สัปดาห์ ${compact(r.limit_week)} units · ${r.model_ids.length} โมเดล</span>`
-    : `<b>${esc(r.name)}</b><span class="muted">${esc(r.api_model)} · ×${r.multiplier} · ${r.price_in != null ? `ขาย ${r.price_in}/${r.price_out ?? '-'}` : 'ราคาอัตโนมัติ'}${r.promo_pct > 0 ? ` · <span class="warn">โปร -${r.promo_pct}%${r.promo_end ? ' ถึง ' + new Date(r.promo_end).toLocaleDateString('th-TH') : ''}</span>` : ''}${r.public ? '' : ' · ซ่อนจากหน้าราคา'} · ${r.has_key ? '<span class="ok">key พร้อม</span>' : '<span class="bad">ไม่พบ key</span>'}${r.vision ? ' · อ่านรูป' : ''}${r.effort !== 'none' ? ' · effort' : ''}</span>`;
+    ? `<b>${esc(r.name)}</b><span class="muted">${r.price > 0 ? '฿' + baht(r.price) + '/เดือน' : 'ฟรี'} · ฿${+r.limit_week.toFixed(2)}/สัปดาห์ · ฿${+r.limit_4h.toFixed(2)}/4 ชม. · ต้นทุนสูงสุด ฿${Math.round(r.limit_week * 4.33)}/เดือน${r.price > 0 ? ` (${Math.round(r.limit_week * 4.33 / r.price * 100)}% ของราคา)` : ''} · ${r.model_ids.length} โมเดล</span>`
+    : `<b>${esc(r.name)}</b><span class="muted">${esc(r.api_model)} · ×${r.multiplier}${r.cap_pct > 0 ? ` · เพดาน ${r.cap_pct}%` : ''} · ${r.price_in != null ? `ขาย ${r.price_in}/${r.price_out ?? '-'}` : 'ราคาอัตโนมัติ'}${r.promo_pct > 0 ? ` · <span class="warn">โปร -${r.promo_pct}%${r.promo_end ? ' ถึง ' + new Date(r.promo_end).toLocaleDateString('th-TH') : ''}</span>` : ''}${r.public ? '' : ' · ซ่อนจากหน้าราคา'} · ${r.has_key ? '<span class="ok">key พร้อม</span>' : '<span class="bad">ไม่พบ key</span>'}${r.vision ? ' · อ่านรูป' : ''}${r.effort !== 'none' ? ' · effort' : ''}</span>`;
   const form = (r = { active: 1, public: 1, model_ids: [] }) => `<form class="ed-f" data-id="${r.id || ''}"><div class="form2 ${tab === 'posts' ? 'one' : ''}">${FIELDS[tab].map(([k, l, t]) => `<div><label>${l}</label>${t === 'b' ? `<label class="sw"><input type="checkbox" name="${k}" ${r[k] ? 'checked' : ''}><span></span></label>`
       : Array.isArray(t) ? `<select name="${k}">${t.map(o => `<option ${r[k] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`
       : t === 'm' ? `<select name="${k}"><option value="">ไม่มี</option>${models.filter(m => m.id !== r.id).map(m => `<option value="${m.id}" ${r[k] === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`
@@ -384,7 +384,7 @@ async function editors(tab, box, reload) {
     ${tab === 'plans' ? `<label>โมเดลที่ใช้ได้</label><div class="chips-sel">${models.map(m => `<label><input type="checkbox" name="m" value="${m.id}" ${r.model_ids?.includes(m.id) ? 'checked' : ''}><span>${esc(m.name)} ×${m.multiplier}</span></label>`).join('')}</div>` : ''}
     <div class="row" style="margin-top:16px"><button class="btn blue sm">บันทึก</button>${r.id ? `<button type="button" class="btn red sm" data-del="${r.id}">ลบ</button>` : ''}<span class="ok sv"></span></div></form>`;
   box.innerHTML = `<p class="muted hint">${tab === 'posts' ? 'เขียนด้วย Markdown · บทความที่เผยแพร่จะขึ้นที่ /blog, หน้าแรก และ sitemap.xml' : tab === 'plans'
-    ? '1 unit = 1 token ของโมเดลตัวคูณ ×1 (cache read นับ 1/10) · ต้นทุนเต็มลิมิต/สัปดาห์ของ DeepSeek ≈ ลิมิต ÷ 1,000,000 × 1.2 บาท'
+    ? 'ลิมิตหักตามต้นทุนจริงของแต่ละข้อความ (ราคาทุนของโมเดล) แล้วแสดงเป็น % · งบเป็นบาท: รอบ 4 ชม. เริ่มนับตอนส่งข้อความแรก, รอบสัปดาห์เริ่มตอนใช้ครั้งแรกแล้วรีเซ็ตหลัง 7 วัน · ต้นทุนสูงสุด/เดือน = งบสัปดาห์ × 4.33 (กรณีผู้ใช้ใช้เต็มทุกสัปดาห์)'
     : 'key ใส่ที่ Worker → Settings → Variables and Secrets (Type: Secret) · Claude ใช้รูปแบบ anthropic ตัวอื่นใช้ openai'}</p>
     <div class="ed-list">${rows.map(r => `<details class="ed"><summary>${summary(r)}${r.active ? '' : '<span class="pill">ปิดอยู่</span>'}</summary>${form(r)}</details>`).join('')}
     <details class="ed add"><summary><b>+ เพิ่ม${{ plans: 'แพลน', models: 'โมเดล', posts: 'บทความ' }[tab]}</b></summary>${tab === 'models' ? `<label>เริ่มจากเทมเพลต</label><select class="preset"><option value="">— เลือกผู้ให้บริการ —</option>${Object.keys(PRESETS).map(k => `<option>${k}</option>`).join('')}</select>` : ''}${form(tab === 'posts' ? { published: 0 } : undefined)}</details></div>`;

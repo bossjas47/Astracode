@@ -118,26 +118,35 @@ async function planOf(env, u) {
   }
   return env.DB.prepare('SELECT * FROM plans WHERE price=0 AND active=1 ORDER BY sort LIMIT 1').first();
 }
-function weekStart(now) { // จันทร์ 00:00 เวลาไทย
-  const d = new Date(now + BKK);
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - ((d.getUTCDay() + 6) % 7) * DAY - BKK;
-}
+// ลิมิตหักตามต้นทุนจริง (บาท) แบบเดียวกับ Claude: รอบสั้นเริ่มนับตอนส่งข้อความแรกและยาว 4 ชม. · รอบสัปดาห์เริ่มตอนใช้ครั้งแรกแล้วรีเซ็ตหลัง 7 วัน
+// sess_start/week_start เป็น NULL = ยังไม่มีรอบที่กำลังนับ (ใช้ 0%)
 async function usageStatus(env, u, plan) {
-  const now = Date.now(), r0 = u.usage_reset_at || 0, ws = weekStart(now);
-  const s4 = Math.max(now - H4, r0), sw = Math.max(ws, r0);
-  const r = await env.DB.prepare(`SELECT
+  const now = Date.now(), r0 = u.usage_reset_at || 0;
+  const w = await env.DB.prepare('SELECT sess_start,week_start FROM users WHERE id=?').bind(u.id).first() || {}; // อ่านใหม่เสมอ เพราะเพิ่งอาจเริ่มรอบตอนบันทึกการใช้งาน
+  const s4 = w.sess_start && now < w.sess_start + H4 && w.sess_start >= r0 ? w.sess_start : null, sw = w.week_start && now < w.week_start + 7 * DAY && w.week_start >= r0 ? w.week_start : null;
+  const r = s4 || sw ? await env.DB.prepare(`SELECT
       COALESCE(SUM(CASE WHEN created_at>=?1 THEN units END),0) u4,
-      COALESCE(SUM(CASE WHEN created_at>=?2 THEN units END),0) uw,
-      MIN(CASE WHEN created_at>=?1 THEN created_at END) first4
-    FROM usage WHERE user_id=?3 AND created_at>=?4`).bind(s4, sw, u.id, Math.min(s4, sw)).first();
+      COALESCE(SUM(CASE WHEN created_at>=?2 THEN units END),0) uw
+    FROM usage WHERE user_id=?3 AND created_at>=?4`).bind(s4 || 1e18, sw || 1e18, u.id, Math.min(s4 || 1e18, sw || 1e18)).first() : { u4: 0, uw: 0 };
   const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 1000) / 10) : 100;
-  return {
-    pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week),
-    reset4h: r.first4 ? r.first4 + H4 : null, resetWeek: ws + 7 * DAY,
-  };
+  return { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY };
 }
+// ข้อความแรกหลังรอบเก่าจบ = เริ่มรอบใหม่
+const touchWindows = (env, uid, now = Date.now()) => env.DB.prepare(`UPDATE users SET
+  sess_start=CASE WHEN sess_start IS NULL OR sess_start+?2<=?1 OR sess_start<usage_reset_at THEN ?1 ELSE sess_start END,
+  week_start=CASE WHEN week_start IS NULL OR week_start+?3<=?1 OR week_start<usage_reset_at THEN ?1 ELSE week_start END WHERE id=?4`).bind(now, H4, 7 * DAY, uid).run();
+// เพดานโมเดลระดับบน: ใช้ได้ไม่เกิน cap_pct % ของงบสัปดาห์ (เช่น Opus 50%)
+async function capHit(env, u, plan, m) {
+  if (!(m.cap_pct > 0) || !(plan.limit_week > 0)) return false;
+  const w = await env.DB.prepare('SELECT week_start FROM users WHERE id=?').bind(u.id).first();
+  if (!w?.week_start || Date.now() >= w.week_start + 7 * DAY) return false;
+  const r = await env.DB.prepare('SELECT COALESCE(SUM(units),0) x FROM usage WHERE user_id=? AND model_id=? AND created_at>=?').bind(u.id, m.id, Math.max(w.week_start, u.usage_reset_at || 0)).first();
+  return r.x >= plan.limit_week * m.cap_pct / 100;
+}
+// ต้นทุนโดยประมาณของ 1 ข้อความทั่วไป (context 20K อยู่ใน cache, ส่งใหม่ 1K, ตอบ 1K) ใช้ประมาณจำนวนข้อความต่อสัปดาห์
+const msgCost = m => (20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6;
 const allowedModels = (env, planId) => env.DB.prepare(
-  'SELECT m.id,m.name,m.multiplier,m.vision,m.effort FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 ORDER BY m.sort').bind(planId).all().then(r => r.results);
+  'SELECT m.id,m.name,m.multiplier,m.vision,m.effort,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 ORDER BY m.sort').bind(planId).all().then(r => r.results);
 
 // ---------- AI providers ----------
 // คืน async generator: {t:text} ระหว่างทาง, {usage:{fresh,read,write,out}} ตอนจบ
@@ -235,9 +244,11 @@ async function webSearch(env, q) { // Tavily
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
 async function logUsage(env, uid, m, usage, { units = true, wallet = null } = {}) {
   const cost = (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6;
-  const un = units ? (usage.fresh + usage.write + usage.read / 10 + usage.out) * m.multiplier : 0; // cache read นับ 1/10
+  const un = units ? Math.max(cost, 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) · 0 = ไม่หักลิมิตผู้ใช้
+  const now = Date.now();
+  if (units) await touchWindows(env, uid, now); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)')
-    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, Date.now()).run();
+    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now).run();
   let charge = 0;
   if (wallet) {
     const p = await priceOf(env, m); charge = Math.round((usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6 * 10000) / 10000;
@@ -263,6 +274,7 @@ async function chat(req, env, u, ctx) {
   const m = await env.DB.prepare('SELECT m.* FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.id=? AND m.active=1').bind(plan.id, b.model_id).first();
   if (!m) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
   if (images.length && !m.vision) return err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น');
+  if (await capHit(env, u, plan, m)) return json({ error: `${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว ลองโมเดลอื่นได้เลย`, cap: true }, 429);
   const st = await usageStatus(env, u, plan);
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
   const overflow = (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance > 0 ? 'overflow' : null) : null;
@@ -847,7 +859,7 @@ async function github(req, env, u, p, sub, now) {
 // ---------- admin ----------
 const TABLES = {
   plans: ['name', 'price', 'price_year', 'limit_4h', 'limit_week', 'description', 'sort', 'active'],
-  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'sort', 'active'],
+  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'sort', 'active'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published'],
 };
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
@@ -918,7 +930,7 @@ async function admin(req, env, path, url, me) {
     await ctxAudit('update user', { id: +r[1], ...b });
     if (b.credit) { const v = Math.round(+b.credit * 100) / 100; if (!v) return err('จำนวนเงินไม่ถูกต้อง'); await walletAdd(env, +r[1], v, 'admin', String(b.note || '').slice(0, 100) || null); }
     if (b.logout) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run(); // รหัสผ่านอยู่ใน Firebase ผู้ใช้รีเซ็ตเองที่หน้าเข้าสู่ระบบ
-    if (b.reset_usage) await DB.prepare('UPDATE users SET usage_reset_at=? WHERE id=?').bind(Date.now(), r[1]).run();
+    if (b.reset_usage) await DB.prepare('UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE id=?').bind(Date.now(), r[1]).run();
     if ('banned' in b) await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run();
     if ('plan_id' in b) await DB.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').bind(b.plan_id || null, b.plan_id ? Date.now() + (b.days || 30) * DAY : null, r[1]).run();
     if (b.banned) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run();
@@ -947,7 +959,7 @@ async function admin(req, env, path, url, me) {
     return json({ days, cur, prev: old, daily, models: models.results, top: top.results, users, pending: pending.n });
   }
   if ((r = path.match(/^\/api\/admin\/users\/(\d+)$/)) && M === 'GET') { // รายละเอียดผู้ใช้ 30 วันล่าสุด
-    const u = await DB.prepare('SELECT u.id,u.email,u.role,u.plan_id,u.plan_expires,u.banned,u.created_at,u.usage_reset_at,u.balance,u.email_verified,u.totp_on,u.google_id,u.line_id,u.plan_period,p.name plan_name FROM users u LEFT JOIN plans p ON p.id=u.plan_id WHERE u.id=?').bind(r[1]).first();
+    const u = await DB.prepare('SELECT u.id,u.email,u.role,u.plan_id,u.plan_expires,u.banned,u.created_at,u.usage_reset_at,u.sess_start,u.week_start,u.balance,u.email_verified,u.totp_on,u.google_id,u.line_id,u.plan_period,p.name plan_name FROM users u LEFT JOIN plans p ON p.id=u.plan_id WHERE u.id=?').bind(r[1]).first();
     if (!u) return err('ไม่พบผู้ใช้', 404);
     const since = Date.now() - 30 * DAY;
     const [models, pays, chats] = await Promise.all([
@@ -1048,7 +1060,7 @@ async function admin(req, env, path, url, me) {
       // แพลนฟรีรวมคนที่ไม่มีแพลนหรือแพลนหมดอายุ (ระบบนับเป็นแพลนฟรี)
       [where, args] = p.price > 0 ? ['plan_id=? AND plan_expires>?', [p.id, now]] : ['(plan_id IS NULL OR plan_expires IS NULL OR plan_expires<=? OR plan_id=?)', [now, p.id]];
     } else if (b.target !== 'all') return err('เลือกกลุ่มผู้ใช้');
-    const r = await DB.prepare(`UPDATE users SET usage_reset_at=? WHERE banned=0 AND ${where}`).bind(now, ...args).run();
+    const r = await DB.prepare(`UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE banned=0 AND ${where}`).bind(now, ...args).run();
     if (b.target === 'email' && !r.meta.changes) return err('ไม่พบผู้ใช้อีเมลนี้');
     await ctxAudit('reset limits', { target: b.target, plan_id: b.plan_id, email: b.email, count: r.meta.changes });
     return json({ ok: true, count: r.meta.changes });
@@ -1145,11 +1157,11 @@ async function route(req, env, ctx, url, path, M) {
         ]);
         return json({
           note: await getSetting(env, 'price_note'),
-          plans: ps.results,
+          plans: ps.results, // limit_week = งบต้นทุนต่อสัปดาห์ (บาท) ใช้คำนวณ % ในเครื่องคิดเลข
           models: await Promise.all(ms.results.map(async m => {
             const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
             return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, note: m.note,
-              in: p.in, out: p.out, cache: p.cache, cache_write: p.write, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
+              in: p.in, out: p.out, cache: p.cache, cache_write: p.write, lw: { in: m.cost_in, out: m.cost_out, cache: m.cost_cache }, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
               plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
           })),
         });
@@ -1157,8 +1169,8 @@ async function route(req, env, ctx, url, path, M) {
       if (path === '/api/plans') {
         const plans = (await env.DB.prepare('SELECT id,name,price,price_year,description,limit_week FROM plans WHERE active=1 ORDER BY sort').all()).results;
         const featured = +await getSetting(env, 'featured_plan');
-        for (const p of plans) { // ประมาณจำนวนข้อความ/สัปดาห์ (1 ข้อความ ≈ 2,500 token)
-          p.models = (await allowedModels(env, p.id)).map(m => ({ name: m.name, week: Math.floor(p.limit_week / (2500 * m.multiplier)) }));
+        for (const p of plans) { // ประมาณจำนวนข้อความ/สัปดาห์ ตามต้นทุนจริงของ 1 ข้อความทั่วไป
+          p.models = (await allowedModels(env, p.id)).map(m => ({ name: m.name, week: Math.floor(p.limit_week / Math.max(msgCost(m), 1e-6)) }));
           p.featured = p.id === featured;
           delete p.limit_week;
         }
@@ -1254,6 +1266,12 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     if (M === 'DELETE') { await DB.batch([DB.prepare('UPDATE chats SET folder_id=NULL WHERE folder_id=?').bind(r[1]), DB.prepare('DELETE FROM folders WHERE id=?').bind(r[1])]); return json({ ok: true }); }
     const name = String((await req.json()).name || '').trim().slice(0, 40); if (!name) return err('ชื่อว่าง');
     await DB.prepare('UPDATE folders SET name=? WHERE id=?').bind(name, r[1]).run(); return json({ ok: true });
+  }
+  if (path === '/api/usage/daily') { // ใช้ไปเท่าไรต่อวัน 30 วันล่าสุด (นับวันตามเวลาไทย)
+    const plan = await planOf(env, u), from = Date.now() - 30 * DAY;
+    const days = (await DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, SUM(tokens_in) tin, SUM(tokens_out) tout, SUM(units) units FROM usage WHERE user_id=? AND created_at>=? GROUP BY d ORDER BY d").bind(u.id, from).all()).results;
+    const models = (await DB.prepare('SELECT m.name, COUNT(*) n, SUM(x.tokens_in+x.tokens_out) tok FROM usage x LEFT JOIN models m ON m.id=x.model_id WHERE x.user_id=? AND x.created_at>=? GROUP BY x.model_id ORDER BY tok DESC LIMIT 8').bind(u.id, from).all()).results;
+    return json({ days: days.map(r => ({ ...r, pct: plan.limit_week > 0 ? Math.round(r.units / plan.limit_week * 1000) / 10 : 0 })), models }); // pct = สัดส่วนของลิมิตสัปดาห์
   }
   if (path === '/api/wallet') {
     const ref = await DB.prepare('SELECT COUNT(*) n, SUM(ref_rewarded) paid FROM users WHERE referred_by=?').bind(u.id).first();
@@ -1415,7 +1433,7 @@ async function oauth(req, env, url, path) {
 
 // ---------- สร้างรูป (API แบบ OpenAI images) ----------
 async function imageGen(req, env, u) {
-  const s = await getSettings(env, ['image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost']);
+  const s = await getSettings(env, ['image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_cost']);
   if (s.image_enabled !== '1' || !env[s.image_key_name]) return err('ระบบสร้างรูปยังไม่เปิดใช้');
   const b = await req.json(), prompt = String(b.prompt || '').trim().slice(0, 2000);
   if (!prompt) return err('บอกว่าอยากได้รูปแบบไหน');
@@ -1428,7 +1446,8 @@ async function imageGen(req, env, u) {
   if (!r.ok) { await event(env, 'error', null, 'image: ' + (d.error?.message || r.status)); return err(u.role === 'admin' ? 'แอดมิน: ' + (d.error?.message || r.status) : 'สร้างรูปไม่สำเร็จ ลองใหม่อีกครั้ง', 502); }
   const item = d.data?.[0]; let bytes;
   if (item?.b64_json) bytes = unb64(item.b64_json); else if (item?.url) bytes = new Uint8Array(await (await fetch(item.url)).arrayBuffer()); else return err('ไม่ได้รูปกลับมา', 502);
-  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,0,0,0,0,?,?,?)').bind(u.id, +s.image_units || 0, +s.image_cost || 0, Date.now()).run();
+  const now = Date.now(); await touchWindows(env, u.id, now);
+  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,0,0,0,0,?,?,?)').bind(u.id, Math.max(+s.image_cost || 0, 1e-9), +s.image_cost || 0, now).run();
   let src;
   if (env.SLIPS) { const name = rand(12) + '.png'; await env.SLIPS.put(`img/${u.id}/${name}`, bytes, { httpMetadata: { contentType: 'image/png' } }); src = `/api/img/${u.id}/${name}`; }
   else src = 'data:image/png;base64,' + b64(bytes); // ไม่มี R2: ส่งกลับอย่างเดียว ไม่เก็บ

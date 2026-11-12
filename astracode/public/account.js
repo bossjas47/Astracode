@@ -4,10 +4,23 @@ const TX_KIND = { topup: 'เติมเงิน', coupon: 'คูปอง', 
 const h3 = t => `<div style="font:600 19px var(--display);margin-bottom:8px">${t}</div>`;
 const sw = (id, on, label, hint) => `<label class="tg"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span><b>${label}</b><small class="muted">${hint}</small></span></label>`;
 
+const kfmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n || 0);
+function usageHTML(d) {
+  if (!d.days.length) return '<p class="muted">ยังไม่มีการใช้งาน</p>';
+  const by = Object.fromEntries(d.days.map(r => [r.d, r])), list = [], bkk = Date.now() + 7 * 3600e3;
+  for (let i = 13; i >= 0; i--) { const k = new Date(bkk - i * 864e5).toISOString().slice(0, 10); list.push(by[k] || { d: k, n: 0, tin: 0, tout: 0, pct: 0 }); }
+  const max = Math.max(...list.map(r => r.tin + r.tout), 1), tot = d.days.reduce((a, r) => ({ n: a.n + r.n, t: a.t + r.tin + r.tout }), { n: 0, t: 0 });
+  return `<p class="muted" style="margin:0 0 12px">รวม ${tot.n.toLocaleString('th-TH')} ข้อความ · ${kfmt(tot.t)} token</p>
+    <div class="ubars">${list.map(r => `<div class="ubar" title="${r.d}: ${r.n} ข้อความ · ↑${kfmt(r.tin)} ↓${kfmt(r.tout)} · ${r.pct}% ของลิมิตสัปดาห์"><i style="height:${Math.max(2, Math.round((r.tin + r.tout) / max * 100))}%"></i><span>${+r.d.slice(8)}</span></div>`).join('')}</div>
+    <div class="tw"><table class="tbl"><tr><th>วัน</th><th>ข้อความ</th><th>เข้า/ออก</th><th>ลิมิต</th></tr>
+      ${d.days.slice().reverse().slice(0, 7).map(r => `<tr><td>${new Date(r.d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</td><td>${r.n}</td><td>${kfmt(r.tin)} / ${kfmt(r.tout)}</td><td>${r.pct}%</td></tr>`).join('')}</table></div>
+    ${d.models.length ? `<p class="muted" style="margin:12px 0 0">โมเดลที่ใช้: ${d.models.map(m => `${esc(m.name || 'อื่นๆ')} ${kfmt(m.tok)}`).join(' · ')}</p>` : ''}`;
+}
+
 PAGES.account = async function account() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   await loadMe();
-  const [w, mems] = await Promise.all([api('/wallet'), api('/memories')]);
+  const [w, mems, ud] = await Promise.all([api('/wallet'), api('/memories'), api('/usage/daily')]);
   const u = me.usage, refLink = `${location.origin}/login?ref=${me.ref_code}`;
   page(nav() + `<div class="wrap" style="max-width:640px"><section class="hero" style="padding:48px 0 16px"><h1>บัญชี</h1>
     <p>${esc(me.email)}</p></section>
@@ -18,6 +31,8 @@ PAGES.account = async function account() {
       <div class="tile"><div class="muted">ลิมิตสัปดาห์</div><div class="stat">${u.pctWeek}%</div><div class="muted">รีเซ็ต ${when(u.resetWeek)}</div></div>
       <div class="tile"><div class="muted">Wallet</div><div class="stat">฿${baht(w.balance)}</div><a href="/plans?topup=1">เติมเงิน</a></div>
     </div></div>
+
+    <div class="card">${h3('การใช้งาน 30 วันล่าสุด')}${usageHTML(ud)}</div>
 
     <div class="card">${h3('Wallet')}
       ${sw('overflow', me.wallet_overflow, 'ใช้ Wallet เมื่อลิมิตเต็ม', 'แชตต่อได้ คิดตามราคาต่อ token จริง')}

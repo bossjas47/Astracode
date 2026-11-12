@@ -414,7 +414,7 @@ async function pricing() {
       const m = d.models.find(x => x.id === +$('#cm').value); if (!m) return;
       const n = Math.max(0, +$('#cn').value || 0), i = Math.max(0, +$('#ci').value || 0), o = Math.max(0, +$('#co').value || 0), c = Math.min(100, Math.max(0, +$('#cc').value || 0)) / 100;
       const per1 = (i * (1 - c) * m.in + i * c * m.cache + o * m.out) / 1e6, month = per1 * n * 30;
-      const weekUnits = n * 7 * (i * (1 - c) + i * c / 10 + o) * m.multiplier; // วิธีนับเดียวกับระบบลิมิต
+      const weekUnits = n * 7 * (i * (1 - c) * m.lw.in + i * c * m.lw.cache + o * m.lw.out) / 1e6; // วิธีนับเดียวกับระบบลิมิต: ต้นทุนจริง (บาท)
       const fit = d.plans.filter(p => m.plans.includes(p.id) && p.limit_week);
       $('#cr').innerHTML = `<div class="kpis"><div class="kpi"><div class="muted">ต่อข้อความ</div><div class="stat">฿${money(per1)}</div></div>
         <div class="kpi"><div class="muted">ต่อเดือน (30 วัน)</div><div class="stat">฿${money(month)}</div></div></div>

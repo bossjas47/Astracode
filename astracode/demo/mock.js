@@ -2,17 +2,19 @@
 (() => {
   const DAY = 864e5, now = () => Date.now();
   const S = {
-    logged: false, email: '', planId: 3, expires: now() + 20 * DAY, u4: 0, uw: 0,
+    logged: false, email: '', planId: 4, expires: now() + 20 * DAY, u4: 0, uw: 0,
     settings: { promptpay_id: '', slip_api_url: '', slip_amount_field: 'data.amount', featured_plan: '3' },
     models: [
       { id: 1, name: 'DeepSeek', promo_pct: 20, promo_start: now() - 2 * DAY, promo_end: now() + 12 * DAY, provider: 'openai', api_model: 'deepseek-flash', base_url: 'https://api.deepseek.com', key_name: 'DEEPSEEK_KEY', multiplier: 1, cost_in: 0.97, cost_out: 3.87, cost_cache: 0.02, cost_cache_write: 0.97, vision: 0, effort: 'deepseek', sort: 0, active: 1, has_key: true },
       { id: 2, name: 'Claude Sonnet 5.5', provider: 'anthropic', api_model: 'claude-sonnet-5-5', base_url: 'https://api.anthropic.com/v1', key_name: 'ANTHROPIC_KEY', multiplier: 35, cost_in: 24.9, cost_out: 124.6, cost_cache: 2.5, cost_cache_write: 31.2, vision: 1, effort: 'anthropic', sort: 1, active: 1, has_key: true },
     ],
     plans: [
-      { id: 1, name: 'Free', price: 0, limit_4h: 100000, limit_week: 1000000, description: 'DeepSeek ฟรี', sort: 0, active: 1, model_ids: [1] },
-      { id: 2, name: 'DeepSeek Lite', price: 59, limit_4h: 1500000, limit_week: 6000000, description: 'DeepSeek ไม่อั้นแบบคุ้ม', sort: 1, active: 1, model_ids: [1] },
-      { id: 3, name: 'Sonnet Plus', price: 299, limit_4h: 6000000, limit_week: 30000000, description: 'DeepSeek + Claude Sonnet', sort: 2, active: 1, model_ids: [1, 2] },
-      { id: 4, name: 'Pro', price: 499, limit_4h: 12000000, limit_week: 60000000, description: 'ทุกโมเดล ยกเว้น Opus', sort: 3, active: 1, model_ids: [1, 2] },
+      { id: 1, name: 'Free', price: 0, limit_4h: 0.4, limit_week: 1.5, description: 'DeepSeek ฟรี', sort: 0, active: 1, model_ids: [1] },
+      { id: 2, name: 'DeepSeek Lite', price: 59, price_year: 602, limit_4h: 2.2, limit_week: 8, description: 'DeepSeek ประหยัด', sort: 1, active: 1, model_ids: [1] },
+      { id: 3, name: 'DeepSeek Max', price: 199, price_year: 2030, limit_4h: 9, limit_week: 35, description: 'DeepSeek ใช้หนักทั้งวัน', sort: 2, active: 1, model_ids: [1] },
+      { id: 4, name: 'Plus', price: 299, price_year: 3050, limit_4h: 8, limit_week: 30, description: 'DeepSeek + Claude Sonnet', sort: 3, active: 1, model_ids: [1, 2] },
+      { id: 5, name: 'Pro', price: 599, price_year: 6110, limit_4h: 20, limit_week: 70, description: 'ใช้ Sonnet หนักขึ้น', sort: 4, active: 1, model_ids: [1, 2] },
+      { id: 6, name: 'Max', price: 1290, price_year: 13160, limit_4h: 50, limit_week: 170, description: 'ทุกโมเดล', sort: 5, active: 1, model_ids: [1, 2] },
     ],
     chats: [{ id: 1, title: 'ตัวอย่าง: วางแผนเที่ยวเชียงใหม่', msgs: [
       { role: 'user', content: 'ช่วยวางแผนเที่ยวเชียงใหม่ 2 วันหน่อย' },
@@ -99,9 +101,9 @@
     const finish = () => {
       tk = { in: Math.ceil(c.msgs.reduce((a, x) => a + x.content.length, 0) / 2) + 400, out: Math.ceil((out.length + think.length) / 2) };
       if (out) c.msgs.push({ role: 'assistant', content: out, model: m.name, thinking: think || null, tin: tk.in, tout: tk.out });
-      const units = (text.length * 2 + out.length) * m.multiplier * 40 * (body.effort ? 2 : 1); // เดโม: คิดลิมิตเร็วกว่าจริงให้เห็นแถบขยับ
+      const units = ((text.length * 2 * m.cost_in + out.length * m.cost_out) / 1e6) * 400 * (body.effort ? 2 : 1); // ต้นทุนจริง (บาท) // เดโม: คิดลิมิตเร็วกว่าจริงให้เห็นแถบขยับ
       S.u4 += units; S.uw += units / 3;
-      S.usageLog.push({ model: m.name, tin: text.length * 2, tout: out.length, cost: units / 1e6 * 1.2 });
+      S.usageLog.push({ model: m.name, tin: text.length * 2, tout: out.length, cost: units / 400 });
     };
     const stream = new ReadableStream({
       async start(ctl) {
@@ -144,7 +146,7 @@
     }
     return err('not found', 404);
   }
-  const est = p => allowed(p).map(m => ({ name: m.name, week: Math.floor(p.limit_week / (2500 * m.multiplier)) }));
+  const est = p => allowed(p).map(m => ({ name: m.name, week: Math.floor(p.limit_week / ((20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6)) }));
   async function api(path, opt) {
     const M = (opt.method || 'GET').toUpperCase();
     const body = typeof opt.body === 'string' ? JSON.parse(opt.body) : opt.body;
@@ -159,6 +161,7 @@
     if (S.logged) {
       const u0 = S.users[0];
       if (path === '/api/me' && M === 'PUT') { if ('instructions' in body) S.instructions = body.instructions; if ('wallet_overflow' in body) S.overflow = body.wallet_overflow; if ('auto_renew' in body) S.renew = body.auto_renew; return res({ ok: true }); }
+      if (path === '/api/usage/daily') { const days = []; for (let i = 9; i >= 0; i--) { const n = 3 + (i * 7) % 11, tin = n * 900, tout = n * 400; days.push({ d: new Date(Date.now() + 7 * 3600e3 - i * 864e5).toISOString().slice(0, 10), n, tin, tout, units: n * 50000, pct: Math.round(n * 12) / 10 }); } return res({ days, models: [{ name: 'DeepSeek V4', n: 40, tok: 52000 }, { name: 'Sonnet 5.5', n: 9, tok: 21000 }] }); }
       if (path === '/api/wallet') return res({ balance: S.balance, ref_code: 'DEMO1234', referred: 3, referred_paid: 1, bonus: 20, tx: [...S.tx].reverse() });
       if (path === '/api/memories') { if (M === 'POST') { const m = { id: Date.now(), text: body.text }; S.memories.push(m); return res(m); } return res(S.memories); }
       if ((r = path.match(/^\/api\/memories\/(\d+)$/))) { S.memories = S.memories.filter(m => m.id !== +r[1]); return res({ ok: true }); }
@@ -193,7 +196,7 @@
     }
     if (path === '/api/pricing') { const mk = 1 + (+S.settings.price_markup || 30) / 100, r = v => Math.round(v * mk * 10000) / 10000;
       return res({ note: S.settings.price_note || 'หน้าเดโม: ราคาคำนวณจากทุน + markup 30%', plans: S.plans.map(({ id, name, price, limit_week }) => ({ id, name, price, limit_week })),
-        models: S.models.filter(m => m.active).map(m => ({ id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, note: m.note || '',
+        models: S.models.filter(m => m.active).map(m => ({ id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lw: { in: m.cost_in, out: m.cost_out, cache: m.cost_cache }, note: m.note || '',
           ...(() => { const b = { in: m.price_in ?? r(m.cost_in), out: m.price_out ?? r(m.cost_out), cache: m.price_cache ?? r(m.cost_cache), cache_write: m.price_cache_write ?? r(m.cost_cache_write) }, off = m.promo_pct > 0 ? 1 - m.promo_pct / 100 : 1; return { ...Object.fromEntries(Object.entries(b).map(([k, v]) => [k, Math.round(v * off * 10000) / 10000])), promo: off < 1 ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, ...b } : null }; })(), plans: S.plans.filter(p => p.model_ids.includes(m.id)).map(p => p.id) })) }); }
     if (path === '/api/plans') return res(S.plans.filter(p => p.active).sort((a, b) => a.sort - b.sort).map(p => ({ id: p.id, name: p.name, price: p.price, price_year: p.price_year, description: p.description, models: est(p), featured: String(p.id) === S.settings.featured_plan })));
     if (path === '/api/auth') { if (body.action === 'forgot') return res({ ok: true }); if (!/^[^\s@]+@[^\s@]+$/.test(body.email) || String(body.password).length < 8) return err('ใส่อีเมล และรหัสผ่านอย่างน้อย 8 ตัว (เดโม: อะไรก็ได้)'); S.logged = true; S.email = body.email; S.users[0].email = S.email; return res({ ok: true }); }

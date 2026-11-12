@@ -40,6 +40,11 @@ Existing database: run the migrations you haven't run yet, in order, in the D1 C
 8. `migrate-8.sql` (Firebase login, model price promos, tokens per message)
 9. `migrate-9.sql` (per-model Code mode instructions)
 10. `migrate-10.sql` (long-chat summaries)
+11. `migrate-11.sql` (cost-based limits; **run once only**, it converts the existing plan limits to baht and gives everyone a fresh window)
+12. optional `plans-new.sql` (replaces the sold plans with Free / DeepSeek Lite / DeepSeek Max / Plus / Pro / Max; existing subscribers keep their old plan until it expires)
+
+### Limits (like Claude)
+Usage is metered in **real cost (baht)** from each model's cost prices (Admin → models), shown to users as %. Two limits per plan, both editable in Admin → plans: a 4-hour window that starts at the user's first message, and a weekly window that starts at the first use of the week and resets 7 days later. A model's `cap_pct` limits it to that share of the weekly budget (e.g. Opus 50). Chat, Code and autocomplete share one pool. When the limit is full the user can overflow to the Wallet at sell prices. Worst-case monthly cost of a plan = weekly budget × 4.33 (shown in the plans list).
 
 If a migration fails with "duplicate column", it was already run. Skip to the next one.
 

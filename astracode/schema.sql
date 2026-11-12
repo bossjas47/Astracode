@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   plan_expires INTEGER,                     -- unix ms
   banned INTEGER NOT NULL DEFAULT 0,
   usage_reset_at INTEGER NOT NULL DEFAULT 0, -- แอดมินรีเซ็ตลิมิต
+  sess_start INTEGER, week_start INTEGER,   -- เริ่มรอบ 4 ชม. / รอบสัปดาห์ของผู้ใช้ (NULL = ยังไม่มีรอบที่นับอยู่)
   gh_token TEXT,                            -- GitHub token (เข้ารหัส)
   gh_login TEXT,
   balance REAL NOT NULL DEFAULT 0, ref_code TEXT, referred_by INTEGER, ref_rewarded INTEGER NOT NULL DEFAULT 0,
@@ -27,8 +28,8 @@ CREATE TABLE IF NOT EXISTS plans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   price REAL NOT NULL DEFAULT 0,            -- บาท / เดือน
-  limit_4h INTEGER NOT NULL,                -- units
-  limit_week INTEGER NOT NULL,              -- units
+  limit_4h REAL NOT NULL,                   -- งบต้นทุนจริงต่อรอบ 4 ชม. (บาท)
+  limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
   price_year REAL,                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
   sort INTEGER NOT NULL DEFAULT 0,
@@ -42,7 +43,7 @@ CREATE TABLE IF NOT EXISTS models (
   api_model TEXT NOT NULL,                  -- รหัสโมเดลที่ส่งไป API
   base_url TEXT NOT NULL,                   -- เช่น https://api.deepseek.com/v1
   key_name TEXT NOT NULL,                   -- ชื่อ secret ใน Worker เช่น DEEPSEEK_KEY
-  multiplier REAL NOT NULL DEFAULT 1,
+  multiplier REAL NOT NULL DEFAULT 1,       -- ความหนักสัมพัทธ์ ใช้เรียงลำดับ/แสดงผล (ลิมิตหักตามต้นทุนจริง ไม่ใช้ตัวนี้)
   cost_in REAL NOT NULL DEFAULT 0,          -- บาท / 1M token
   cost_out REAL NOT NULL DEFAULT 0,
   cost_cache REAL NOT NULL DEFAULT 0,       -- cache read
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS models (
   note TEXT NOT NULL DEFAULT '',            -- คำอธิบายในหน้าราคา
   fallback_id INTEGER,                      -- โมเดลสำรองเมื่อตัวนี้ล่ม
   promo_pct REAL, promo_start INTEGER, promo_end INTEGER, -- โปรลดราคา % ช่วงเวลา (unix ms)
+  cap_pct INTEGER NOT NULL DEFAULT 0,       -- เพดานโมเดลนี้เป็น % ของงบสัปดาห์ (0 = ไม่จำกัด) เช่น Opus 50
   code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
   effort TEXT NOT NULL DEFAULT 'none',      -- none | openai | anthropic | deepseek (รูปแบบพารามิเตอร์ effort)
   sort INTEGER NOT NULL DEFAULT 0,
@@ -122,17 +124,19 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 -- ค่าเริ่มต้น แก้ได้ในหลังบ้าน
-INSERT OR IGNORE INTO plans (id,name,price,limit_4h,limit_week,description,sort) VALUES
- (1,'Free',0,100000,1000000,'DeepSeek ฟรี',0),
- (2,'DeepSeek Lite',59,1500000,6000000,'DeepSeek ไม่อั้นแบบคุ้ม',1),
- (3,'Sonnet Plus',299,6000000,30000000,'DeepSeek + Claude Sonnet',2),
- (4,'Pro',499,12000000,60000000,'ทุกโมเดล ยกเว้น Opus',3);
+INSERT OR IGNORE INTO plans (id,name,price,price_year,limit_4h,limit_week,description,sort) VALUES
+ (1,'Free',0,NULL,0.4,1.5,'DeepSeek ฟรี',0),
+ (2,'DeepSeek Lite',59,602,2.2,8,'DeepSeek ประหยัด',1),
+ (3,'DeepSeek Max',199,2030,9,35,'DeepSeek ใช้หนักทั้งวัน',2),
+ (4,'Plus',299,3050,8,30,'DeepSeek + Claude Sonnet',3),
+ (5,'Pro',599,6110,20,70,'ใช้ Sonnet หนักขึ้น',4),
+ (6,'Max',1290,13160,50,170,'ทุกโมเดล',5);
 
 INSERT OR IGNORE INTO models (id,name,provider,api_model,base_url,key_name,multiplier,cost_in,cost_out,cost_cache,cost_cache_write,vision,effort,sort) VALUES
  (1,'DeepSeek','openai','deepseek-chat','https://api.deepseek.com/v1','DEEPSEEK_KEY',1,0.97,3.87,0.02,0.97,0,'deepseek',0),
  (2,'Claude Sonnet 5.5','anthropic','claude-sonnet-5-5','https://api.anthropic.com/v1','ANTHROPIC_KEY',35,24.9,124.6,2.5,31.2,1,'anthropic',1);
 
-INSERT OR IGNORE INTO plan_models VALUES (1,1),(2,1),(3,1),(3,2),(4,1),(4,2);
+INSERT OR IGNORE INTO plan_models VALUES (1,1),(2,1),(3,1),(4,1),(4,2),(5,1),(5,2),(6,1),(6,2);
 
 INSERT OR IGNORE INTO settings VALUES
  ('promptpay_id',''),
