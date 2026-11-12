@@ -15,9 +15,12 @@ let me = null, installEvt = null, site = {};
 async function api(path, opt = {}) {
   if (opt.body && !(opt.body instanceof FormData)) { opt.body = JSON.stringify(opt.body); opt.headers = { 'content-type': 'application/json' }; }
   const r = await fetch('/api' + path, opt);
-  const d = r.headers.get('content-type')?.includes('json') ? await r.json() : null;
+  const json = r.headers.get('content-type')?.includes('json'), d = json ? await r.json().catch(() => null) : null;
   if (r.status === 401) me = null;
-  if (!r.ok) throw Object.assign(new Error(d?.error || (d?.need2fa ? 'ต้องใช้รหัส 2FA' : 'ผิดพลาด')), { data: d, status: r.status });
+  if (!r.ok) { // ไม่ใช่ JSON = error จาก Vercel/Cloudflare เอง โชว์รหัสกับต้นข้อความไว้หาสาเหตุ
+    const raw = json ? '' : (await r.text().catch(() => '')).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    throw Object.assign(new Error(d?.error || (d?.need2fa ? 'ต้องใช้รหัส 2FA' : `ผิดพลาด (HTTP ${r.status}${raw ? ': ' + raw : ''})`)), { data: d, status: r.status });
+  }
   return d;
 }
 

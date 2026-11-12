@@ -7,16 +7,18 @@ export default async function handler(req) {
   const path = u.searchParams.get('__p') || '';
   u.searchParams.delete('__p');
   if (!/^(api|v1)\//.test(path)) return new Response('not found', { status: 404 });
+  const fail = m => new Response(JSON.stringify({ error: m }), { status: 502, headers: { 'content-type': 'application/json' } });
+  if (!process.env.WORKER_URL) return fail('Vercel ยังไม่ได้ตั้ง WORKER_URL (Settings → Environment Variables แล้ว Redeploy)');
   const target = `${process.env.WORKER_URL.replace(/\/$/, '')}/${path}${u.search}`;
   const h = new Headers(req.headers);
   for (const k of ['host', 'x-proxy-secret', 'x-client-ip', 'x-forwarded-host']) h.delete(k); // ห้ามผู้ใช้ปลอมค่าพวกนี้
   h.set('x-proxy-secret', process.env.PROXY_SECRET || '');
   h.set('x-client-ip', (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || req.headers.get('x-real-ip') || '');
   h.set('x-forwarded-host', u.host);
-  const res = await fetch(target, {
-    method: req.method, headers: h, redirect: 'manual',
-    body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body, duplex: 'half',
-  });
+  let res;
+  try {
+    res = await fetch(target, { method: req.method, headers: h, redirect: 'manual', body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body, duplex: 'half' });
+  } catch (e) { return fail('ต่อ Worker ไม่ได้ ตรวจ WORKER_URL: ' + e.message); }
   const out = new Headers(res.headers);
   out.delete('content-encoding'); out.delete('content-length'); // ให้ Vercel บีบอัดเอง และส่งแบบ stream ได้
   return new Response(res.body, { status: res.status, headers: out });
