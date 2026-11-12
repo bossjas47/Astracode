@@ -10,8 +10,15 @@ const html = `<!DOCTYPE html>
 <style>${r('public/style.css')}
 .demo-toast { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 50; background: var(--porcelain); color: #1d1d1f; font-size: 13px; padding: 10px 18px; border-radius: 9999px; max-width: 90vw; text-align: center; animation: fadeUp .25s ease-out both; }
 </style></head><body><div id="app"></div>
+<script>window.DEMO = true;</script>
 <script>${safe(r('demo/mock.js'))}</script>
 <script>${safe(r('public/app.js'))}</script>
+<script>${safe(r('public/chat.js'))}</script>
+<script>${safe(r('public/admin.js'))}</script>
+<script>${safe(r('public/account.js'))}</script>
+<script>${safe(r('public/pages.js'))}</script>
+<script>${safe(r('public/cm.js'))}</script>
+<script>${safe(r('public/code.js'))}</script>
 </body></html>`;
 fs.writeFileSync('demo/demo.html', html);
 console.log('demo.html', html.length);

@@ -1,0 +1,9 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
+<script>
+// AstraCode preview: รับ HTML จากหน้าหลักแล้วแสดงผล (หน้านี้รันใน sandbox แยก origin)
+addEventListener('message', e => {
+  if (e.source !== parent || !e.data || typeof e.data.html !== 'string') return;
+  document.open(); document.write(e.data.html); document.close();
+});
+parent.postMessage({ ready: true }, '*');
+</script></body></html>

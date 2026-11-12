@@ -1,0 +1,1 @@
+ALTER TABLE messages ADD COLUMN thinking TEXT; ALTER TABLE users ADD COLUMN gh_token TEXT; ALTER TABLE users ADD COLUMN gh_login TEXT; ALTER TABLE projects ADD COLUMN gh_repo TEXT; ALTER TABLE projects ADD COLUMN gh_branch TEXT; ALTER TABLE projects ADD COLUMN gh_sha TEXT; ALTER TABLE projects ADD COLUMN gh_synced TEXT;
