@@ -464,7 +464,8 @@ function aiMsgHTML(m, i) {
     const files = [...m.content.matchAll(FILE_RE)];
     return `<div class="msg user ${m.auto ? 'auto' : ''}"><div class="b">${m.imgs ? `<div class="mimgs shot">${m.imgs.map(d => `<img src="${d}" alt="ภาพหน้าจอผลลัพธ์">`).join('')}</div>` : ''}${esc(m.content.replace(FILE_RE, '').replace(TREE_RE, '').replace(CHECK_RE, '').replace(/\n\n\[แนบรูป \d+ รูป\]/, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${icon(f[1])} <span>${esc(f[1])}</span></span>`).join('')}</div>` : ''}</div></div>`;
   }
-  return `<div class="msg ai">${thinkHTML(m)}<div class="b">${m.content ? toolsMd(m.content) : m.thinking ? '' : DOTS}</div>${m.streaming ? '' : changeCards(m, i) + runCard(m, i)
+  const ask = parseAsk(m.content, m.streaming);
+  return `<div class="msg ai">${thinkHTML(m)}<div class="b">${ask.text ? toolsMd(ask.text) : m.thinking || ask.asks.length ? '' : DOTS}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
     + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}<button data-copy="${i}">คัดลอก</button></div>`}</div>`;
 }
 function drawAI() {
@@ -475,7 +476,7 @@ function drawAI() {
   box.scrollTop = box.scrollHeight;
 }
 async function codeSend(auto) {
-  if (IDE.busy) { IDE.round = 99; return IDE.ctrl?.abort(); } // กดหยุด = หยุดโหมดอัตโนมัติด้วย
+  if (IDE.busy) { IDE.round = 99; if (IDE.chatId) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: IDE.chatId }) }).catch(() => {}); return IDE.ctrl?.abort(); } // กดหยุด = หยุดโหมดอัตโนมัติด้วย
   const t = $('#ct'), text = auto ? auto.text : t.value.trim(); if (!text) return;
   if (!auto) IDE.round = 0;
   await saveNow();
@@ -738,7 +739,10 @@ async function codeView(id) {
   ct.oninput = () => { ct.style.height = 'auto'; ct.style.height = ct.scrollHeight + 'px'; };
   ct.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#cf').requestSubmit(); } };
   $('#cf').onsubmit = e => { e.preventDefault(); codeSend(); };
+  const answer = e => { const a = askAnswer(e); if (a != null && !IDE.busy) { e.preventDefault?.(); ct.value = a; codeSend(); } return a != null; };
+  $('#cmsgs').onkeydown = answer;
   $('#cmsgs').onclick = async e => {
+    if (answer(e)) return;
     const b = e.target.closest('button'); if (!b) return;
     if (b.classList.contains('cp-code')) return copy(b.closest('.code').querySelector('code').textContent, b);
     if (b.dataset.copy) return copy(IDE.msgs[+b.dataset.copy].content, b);

@@ -1,10 +1,42 @@
 // AstraCode API — Cloudflare Worker + D1 + R2
-const SYSTEM = new TextDecoder().decode(Uint8Array.from(atob('WW91IGFyZSBBc3RyYUNvZGUsIGEgaGVscGZ1bCBBSSBhc3Npc3RhbnQuIFJlcGx5IGluIHRoZSB1c2VyJ3MgbGFuZ3VhZ2UuIFVzZSBNYXJrZG93bi4gWW91IGhhdmUgbm8gdG9vbHM6IG5ldmVyIG91dHB1dCBKU09OIHRvb2wgY2FsbHM7IGlmIHlvdSByZWFsbHkgbmVlZCB0aGUgdXNlciB0byBjaG9vc2Ugb3IgZGVjaWRlIHNvbWV0aGluZywgZW5kIHlvdXIgcmVwbHkgd2l0aCBPTkUgYmxvY2sgKHVzZSBpdCBvbmx5IHRoZW4sIG90aGVyd2lzZSBqdXN0IHByb2NlZWQpOgpgYGBhc2sKUXVlc3Rpb24gaW4gb25lIGxpbmU/Ci0gT3B0aW9uIDEKLSBPcHRpb24gMgpgYGAKR2l2ZSAyLTQgc2hvcnQgb3B0aW9ucy4gVGhlIHBhZ2Ugc2hvd3MgdGhlbSBhcyBidXR0b25zIHBsdXMgYSBib3ggZm9yIGEgY3VzdG9tIGFuc3dlciwgc28gZG8gbm90IHJlcGVhdCB0aGUgb3B0aW9ucyBpbiB5b3VyIHRleHQuIFdoZW4gdGhlIHVzZXIgYXNrcyBmb3IgYSBmaWxlIChDU1YsIEV4Y2VsLCBNYXJrZG93biwgSFRNTCwgSlNPTiwgY29kZSwgV29yZOKApiksIHB1dCB0aGUgd2hvbGUgZmlsZSBpbiBvbmUgZmVuY2VkIGNvZGUgYmxvY2sgd2hvc2UgaW5mbyBzdHJpbmcgaXMgdGhlIGxhbmd1YWdlIHRoZW4gZmlsZT08bmFtZS5leHQ+LCBlLmcuIGBgYGNzdiBmaWxlPXNhbGVzLmNzdiDigJQgdGhlIHBhZ2Ugc2hvd3MgYSBkb3dubG9hZCBidXR0b24uIEZvciBFeGNlbCB3cml0ZSBDU1YgY29udGVudCB3aXRoIGZpbGU9PG5hbWU+Lnhsc3guIEZvciBXb3JkIHdyaXRlIGEgZnVsbCBIVE1MIGRvY3VtZW50IHdpdGggZmlsZT08bmFtZT4uZG9jLiBGb3IgUERGIHdyaXRlIEhUTUwgd2l0aCBmaWxlPTxuYW1lPi5odG1sIGFuZCB0ZWxsIHRoZSB1c2VyIHRvIHByaW50IGl0IHRvIFBERi4gV3JpdGUgZmlsZSBuYW1lcyBpbiBFbmdsaXNoIHdpdGhvdXQgc3BhY2VzLg=='), c => c.charCodeAt(0)));
-const SYSTEM_CODE = new TextDecoder().decode(Uint8Array.from(atob('WW91IGFyZSBBc3RyYUNvZGUsIGEgc2VuaW9yIHNvZnR3YXJlIGVuZ2luZWVyIHdvcmtpbmcgaW5zaWRlIHRoZSB1c2VyJ3MgcHJvamVjdC4gUmVwbHkgaW4gdGhlIHVzZXIncyBsYW5ndWFnZSBhbmQga2VlcCBleHBsYW5hdGlvbnMgc2hvcnQuCldoZW4geW91IGNyZWF0ZSBvciBjaGFuZ2UgYSBmaWxlLCBvdXRwdXQgdGhlIENPTVBMRVRFIG5ldyBjb250ZW50IG9mIHRoYXQgZmlsZSBpbiBvbmUgZmVuY2VkIGNvZGUgYmxvY2sgd2hvc2UgaW5mbyBzdHJpbmcgaXMgdGhlIGxhbmd1YWdlIGZvbGxvd2VkIGJ5IHBhdGg9PHJlbGF0aXZlIHBhdGg+LCBmb3IgZXhhbXBsZToKYGBganMgcGF0aD1zcmMvYXBwLmpzCi4uLndob2xlIGZpbGUuLi4KYGBgCk9uZSBibG9jayBwZXIgY2hhbmdlZCBmaWxlLiBOZXZlciBwdXQgcGFydGlhbCBmaWxlcywgIi4uLiIgcGxhY2Vob2xkZXJzIG9yIGRpZmZzIGluc2lkZSBwYXRoPSBibG9ja3MuIFRvIGRlbGV0ZSBhIGZpbGUsIHdyaXRlIGEgbGluZTogREVMRVRFIHBhdGg9PHJlbGF0aXZlIHBhdGg+CklmIHlvdSB0cnVseSBuZWVkIGEgZGVjaXNpb24gZnJvbSB0aGUgdXNlciAod2hpY2ggYXBwcm9hY2gsIHdoaWNoIGZpbGUsIG1pc3NpbmcgcmVxdWlyZW1lbnQpLCBkbyBub3QgZ3Vlc3M6IGVuZCB5b3VyIHJlcGx5IHdpdGggT05FIGJsb2NrIGFuZCBTVE9QLCB3aXRoIG5vIHBhdGg9IGJsb2NrcywgUkVBRCBvciBSVU4gbGluZXMgaW4gdGhlIHNhbWUgcmVwbHk6CmBgYGFzawpRdWVzdGlvbiBpbiBvbmUgbGluZT8KLSBPcHRpb24gMQotIE9wdGlvbiAyCmBgYApHaXZlIDItNCBzaG9ydCBvcHRpb25zLiBUaGUgcGFnZSBzaG93cyBidXR0b25zIHBsdXMgYSBib3ggZm9yIGEgY3VzdG9tIGFuc3dlci4gQXNrIG9ubHkgd2hlbiBuZWVkZWQ7IG90aGVyd2lzZSBqdXN0IGRvIHRoZSB3b3JrLgpDb2RlIGJsb2NrcyB3aXRob3V0IHBhdGg9IGFyZSB0cmVhdGVkIGFzIGV4YW1wbGVzIG9ubHkuIE9ubHkgY2hhbmdlIGZpbGVzIHRoYXQgbmVlZCBjaGFuZ2luZy4KWW91IGNhbiBzZWUgdGhlIHdob2xlIHByb2plY3QuIFRoZSBmaWxlIGxpc3QgaXMgaW4gdGhlIG1lc3NhZ2UuIFRvIGxvb2sgYXQgZmlsZXMsIHdyaXRlIHRvb2wgbGluZXMgb24gdGhlaXIgb3duIGFuZCB0aGVuIFNUT1AgeW91ciByZXBseTsgdGhlIHJlc3VsdHMgY29tZSBiYWNrIHRvIHlvdToKUkVBRCBwYXRoPTxyZWxhdGl2ZSBwYXRoPiAgIChmdWxsIGNvbnRlbnQgb2Ygb25lIGZpbGU7IHVwIHRvIDEwIFJFQUQgbGluZXMgYXQgb25jZSkKR1JFUCA8cmVnZXg+ICAgICAgICAgICAgICAgIChzZWFyY2ggZXZlcnkgZmlsZSwgcmV0dXJucyBwYXRoOmxpbmU6IHRleHQpCkxJU1QgPGZvbGRlci8+ICAgICAgICAgICAgICAoZmlsZXMgdW5kZXIgYSBmb2xkZXIsIHdpdGggc2l6ZXMpClJlYWQgZXZlcnkgZmlsZSB5b3UgbmVlZCBiZWZvcmUgZWRpdGluZyBpdC4gTmV2ZXIgZ3Vlc3Mgd2hhdCBhIGZpbGUgY29udGFpbnMuIERvIG5vdCBtaXggUkVBRC9HUkVQL0xJU1QgbGluZXMgd2l0aCBwYXRoPSBibG9ja3MgaW4gdGhlIHNhbWUgcmVwbHkuClRvIHJ1biBhIHRlcm1pbmFsIGNvbW1hbmQsIHdyaXRlIGEgbGluZSBSVU4gPGNvbW1hbmQ+ICh1cCB0byAzIHBlciByZXBseSkgYW5kIHRoZW4gU1RPUDsgdGhlIG91dHB1dCBjb21lcyBiYWNrIGluIHRoZSBuZXh0IG1lc3NhZ2UuIFlvdSBtYXkgcHV0IHBhdGg9IGJsb2NrcyBiZWZvcmUgUlVOIGxpbmVzIGluIHRoZSBzYW1lIHJlcGx5OiB0aGV5IGFyZSBhcHBsaWVkIGZpcnN0LiBDb21tYW5kcyBydW4gaW4gYSBicm93c2VyIE5vZGUuanMgZW11bGF0b3IgKE5vZGUgMjAgQVBJcyk6IG5wbSBpbnN0YWxsIDxwa2c+LCBucG0gdGVzdCwgbnBtIHJ1biA8c2NyaXB0Piwgbm9kZSA8ZmlsZT4uanMsIG5weC1zdHlsZSBDTElzIGZyb20gbm9kZV9tb2R1bGVzLy5iaW4sIGxzLCBjYXQsIGVjaG8uIE5vdCBhdmFpbGFibGU6IGdpdCwgcHl0aG9uLCBwaXAsIHN1ZG8sIG5vZGUgLWUsIG5vZGUgLXYsIG5hdGl2ZSBhZGRvbnMuIFVzZSBSVU4gdG8gdGVzdCB5b3VyIGNoYW5nZXMgd2hlbiB0aGUgcHJvamVjdCBoYXMgdGVzdHMgb3IgcnVubmFibGUgc2NyaXB0cy4='), c => c.charCodeAt(0)));
+const SYSTEM = 'You are AstraCode, a helpful AI assistant. Reply in the user\'s language. Use Markdown. You have no tools: never output JSON tool calls; if you really need the user to choose or decide something, end your reply with ONE block (use it only then, otherwise just proceed):\n```ask\nQuestion in one line?\n- Option 1\n- Option 2\n```\nGive 2-4 short options. The page shows them as buttons plus a box for a custom answer, so do not repeat the options in your text. When the user asks for a file (CSV, Excel, Markdown, HTML, JSON, code, Word…), put the whole file in one fenced code block whose info string is the language then file=<name.ext>, e.g. ```csv file=sales.csv — the page shows a download button. For Excel write CSV content with file=<name>.xlsx. For Word write a full HTML document with file=<name>.doc. For PDF write HTML with file=<name>.html and tell the user to print it to PDF. Write file names in English without spaces.';
+const SYSTEM_CODE = `You are AstraCode, a senior software engineer working inside the user's project. Reply in the user's language and keep explanations short.
+When you create or change a file, output the COMPLETE new content of that file in one fenced code block whose info string is the language followed by path=<relative path>, for example:
+\`\`\`js path=src/app.js
+...whole file...
+\`\`\`
+One block per changed file. Never put partial files, "..." placeholders or diffs inside path= blocks. To delete a file, write a line: DELETE path=<relative path>
+If you truly need a decision from the user (which approach, which file, missing requirement), do not guess: end your reply with ONE block and STOP, with no path= blocks, READ or RUN lines in the same reply:
+\`\`\`ask
+Question in one line?
+- Option 1
+- Option 2
+\`\`\`
+Give 2-4 short options. The page shows buttons plus a box for a custom answer. Ask only when needed; otherwise just do the work.
+Code blocks without path= are treated as examples only. Only change files that need changing.
+You can see the whole project. The file list is in the message. To look at files, write tool lines on their own and then STOP your reply; the results come back to you:
+READ path=<relative path>   (full content of one file; up to 10 READ lines at once)
+GREP <regex>                (search every file, returns path:line: text)
+LIST <folder/>              (files under a folder, with sizes)
+Read every file you need before editing it. Never guess what a file contains. Do not mix READ/GREP/LIST lines with path= blocks in the same reply.
+To run a terminal command, write a line RUN <command> (up to 3 per reply) and then STOP; the output comes back in the next message. You may put path= blocks before RUN lines in the same reply: they are applied first. Commands run in a browser Node.js emulator (Node 20 APIs): npm install <pkg>, npm test, npm run <script>, node <file>.js, npx-style CLIs from node_modules/.bin, ls, cat, echo. Not available: git, python, pip, sudo, node -e, node -v, native addons. Use RUN to test your changes when the project has tests or runnable scripts.`;
 const HISTORY = 20, HISTORY_CODE = 8; // ข้อความย้อนหลังที่ส่งให้โมเดล (โหมด Code ส่งน้อยกว่าเพราะมีไฟล์ยาว)
+const LOCK_MS = 45e3; // ล็อกตอบทีละข้อความ: ต่ออายุทุก 15 วินาทีระหว่างตอบ ถ้า Worker ถูกตัดกลางคัน (ผู้ใช้ปิดจอ) ล็อกหมดใน 45 วินาที
 const H4 = 4 * 3600e3, DAY = 864e5, BKK = 7 * 3600e3;
 
 // ข้อผิดพลาดที่บอกผู้ใช้ได้ตรงๆ (ไม่ใช่บั๊กของเซิร์ฟเวอร์)
+// เก็บสลิป: ใช้ R2 ถ้าผูกไว้ ไม่งั้นเก็บใน D1 (shortcut: D1 แถวละไม่เกิน ~2MB จึงจำกัด 1.5MB, ถ้าสลิปเยอะให้ผูก R2)
+const slipPut = async (env, key, buf, type) => {
+  if (env.SLIPS) return env.SLIPS.put(key, buf, { httpMetadata: { contentType: type } });
+  if (buf.byteLength > 1.5e6) throw userErr('รูปสลิปใหญ่เกิน 1.5MB ลดขนาดรูปแล้วลองใหม่');
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS slip_blobs (k TEXT PRIMARY KEY, t TEXT, d BLOB)').run();
+  await env.DB.prepare('INSERT OR REPLACE INTO slip_blobs VALUES (?,?,?)').bind(key, type, [...new Uint8Array(buf)]).run();
+};
+const slipGet = async (env, key) => {
+  if (env.SLIPS) return env.SLIPS.get(key);
+  const r = await env.DB.prepare('SELECT t,d FROM slip_blobs WHERE k=?').bind(key).first().catch(() => null);
+  return r && { body: new Uint8Array(r.d), httpMetadata: { contentType: r.t } };
+};
 const userErr = (m, status = 400) => Object.assign(new Error(m), { user: true, status });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const json = (d, s = 200, h = {}) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json', ...h } });
@@ -246,6 +278,13 @@ async function logUsage(env, uid, m, usage, { units = true, wallet = null } = {}
 }
 async function chat(req, env, u, ctx) {
   const b = await req.json();
+  if (b.resume || b.stop) { // ต่อสตรีมคำตอบที่ยังทำอยู่ หรือกดหยุดจริง (การหลุดการเชื่อมต่อเฉยๆ ไม่หยุด AI)
+    const cid = +b.chat_id;
+    if (!env.CHATRUN || !cid || !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, u.id).first()) return json({ ok: true, idle: true });
+    const stub = runStub(env, u.id, cid);
+    if (b.stop) { await stub.fetch('https://run/stop', { method: 'POST' }); return json({ ok: true }); }
+    return runStream(stub, 0);
+  }
   const images = Array.isArray(b.images) && !b.regenerate ? b.images.slice(0, 4) : [];
   if (images.some(d => typeof d !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(d) || d.length > 2e6)) return err('รูปต้องเป็น jpeg/png/webp ไม่เกิน 1.5MB');
   const files = Array.isArray(b.files) && !b.regenerate ? b.files : [];
@@ -271,7 +310,7 @@ async function chat(req, env, u, ctx) {
   // ให้ตอบได้ทีละข้อความ กันยิงพร้อมกันหลายอันเพื่อเลี่ยงลิมิต (ล็อกหมดอายุเองใน 3 นาที) ยกเว้นโหมดเทียบ
   const lock = 'chatlock:' + u.id + (ephemeral ? ':' + rand(4) : '');
   const got = await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n')
-    .bind(lock, Date.now() + 180e3, Date.now()).first();
+    .bind(lock, Date.now() + LOCK_MS, Date.now()).first();
   if (!got) return err('กำลังตอบข้อความก่อนหน้าอยู่', 429);
   try {
 
@@ -299,60 +338,71 @@ async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const { readable, writable } = new TransformStream();
-  const w = writable.getWriter(), enc = new TextEncoder();
-  let gone = false; // ผู้ใช้กดหยุดหรือหลุด
-  const send = async o => { if (gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify(o) + '\n\n')); } catch { gone = true; } };
-  ctx.waitUntil((async () => { // waitUntil: ทำงานต่อจนบันทึกเสร็จ แม้ผู้ใช้กดหยุด
-    let out = '', think = '', usage = null, model = m;
-    await send({ chat_id: cid, model: m.name, overflow: !!overflow });
-    const sources = b.search && !pid ? await webSearch(env, hist.at(-1).content) : [];
-    if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
-    const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') : SYSTEM, sources)) + (chatRow?.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${chatRow.summary}` : ''); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
-    let msgs = hist, imgs = images;
-    for (let round = 0; ; round++) { // โหมด Code: AI ขออ่าน/ค้นไฟล์ได้เอง แล้วตอบต่อ (สูงสุด TOOL_ROUNDS รอบ)
-      let part = '', ru = null;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          for await (const e of callModel(env, model, msgs, { effort, images: imgs, system })) {
-            if (gone) break;
-            if (e.t) { out += e.t; part += e.t; await send({ t: e.t }); }
-            if (e.th) { think += e.th; await send({ th: e.th }); }
-            if (e.usage) ru = e.usage;
-          }
-          break;
-        } catch (e) {
-          console.log('AI error', model.name, e.message);
-          await event(env, 'error', model.id, e.message.slice(0, 300));
-          const fb = !out && !think && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
-          if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
-          await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
-          break;
-        }
-      }
-      if (ru) usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : ru;
-      const reqs = pid && !gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
-      if (!reqs.length) break;
-      const result = await runTools(env, pid, reqs);
-      await send({ t: '\n\n' }); out += '\n\n';
-      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: result }]; imgs = [];
-      await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + 180e3, lock).run(); // ยืดล็อกระหว่างทำหลายรอบ
-    }
-    if (!usage && gone) { // shortcut: กดหยุดก่อนได้ usage จริง จึงประมาณจากจำนวนตัวอักษร ÷ 2
-      const chars = hist.reduce((a, x) => a + x.content.length, system.length);
-      usage = { fresh: Math.ceil(chars / 2), read: 0, write: 0, out: Math.ceil((out.length + think.length) / 2) };
-    }
-    const tok = usage && { in: usage.fresh + usage.read + usage.write, out: usage.out };
-    if ((out || think) && cid) await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?)')
-      .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).run();
-    if (usage) await logUsage(env, u.id, model, usage, { wallet: overflow });
-    await unlimit(env, lock);
-    await send({ done: true, tok, ...(await usageStatus(env, u, plan)) });
-    await w.close().catch(() => {});
-    if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
-  })());
-  return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } });
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, summary: chatRow?.summary || null };
+  if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
+    const stub = runStub(env, u.id, ephemeral ? lock : cid);
+    await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
+    return runStream(stub, 0);
+  }
+  const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder(), st = { gone: false };
+  const send = async o => { if (st.gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify(o) + '\n\n')); } catch { st.gone = true; } };
+  ctx.waitUntil(runChat(env, J, send, st).catch(() => unlimit(env, lock)).then(() => w.close().catch(() => {})));
+  return new Response(readable, SSE);
   } catch (e) { await unlimit(env, lock); throw e; }
+}
+const SSE = { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } };
+const runStub = (env, uid, key) => env.CHATRUN.get(env.CHATRUN.idFromName('run:' + uid + ':' + key));
+const runStream = (stub, from) => stub.fetch('https://run/stream?from=' + from).then(r => new Response(r.body, SSE));
+// ตอบแชต: เรียกโมเดล ส่ง event ผ่าน send บันทึกข้อความ/ค่าใช้จ่าย แล้วปลดล็อก (st.gone = ผู้ใช้กดหยุดเอง)
+async function runChat(env, J, send, st) {
+  const { u, plan, m, hist, cid, pid, effort, overflow, lock } = J;
+  let imgs0 = J.images;
+  let out = '', think = '', usage = null, model = m;
+  await send({ chat_id: cid, model: m.name, overflow: !!overflow });
+  const sources = J.search && !pid ? await webSearch(env, hist.at(-1).content) : [];
+  if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
+  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') : SYSTEM, sources)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : ''); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+  let msgs = hist, imgs = imgs0, beat = Date.now();
+  for (let round = 0; ; round++) { // โหมด Code: AI ขออ่าน/ค้นไฟล์ได้เอง แล้วตอบต่อ (สูงสุด TOOL_ROUNDS รอบ)
+    let part = '', ru = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system })) {
+          if (st.gone) break;
+          if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
+          if (e.t) { out += e.t; part += e.t; await send({ t: e.t }); }
+          if (e.th) { think += e.th; await send({ th: e.th }); }
+          if (e.usage) ru = e.usage;
+        }
+        break;
+      } catch (e) {
+        console.log('AI error', model.name, e.message);
+        await event(env, 'error', model.id, e.message.slice(0, 300));
+        const fb = !out && !think && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
+        if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
+        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
+        break;
+      }
+    }
+    if (ru) usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : ru;
+    const reqs = pid && !st.gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
+    if (!reqs.length) break;
+    const result = await runTools(env, pid, reqs);
+    await send({ t: '\n\n' }); out += '\n\n';
+    msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: result }]; imgs = [];
+    await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + LOCK_MS, lock).run(); // ยืดล็อกระหว่างทำหลายรอบ
+  }
+  if (!usage && st.gone) { // shortcut: กดหยุดก่อนได้ usage จริง จึงประมาณจากจำนวนตัวอักษร ÷ 2
+    const chars = hist.reduce((a, x) => a + x.content.length, system.length);
+    usage = { fresh: Math.ceil(chars / 2), read: 0, write: 0, out: Math.ceil((out.length + think.length) / 2) };
+  }
+  const tok = usage && { in: usage.fresh + usage.read + usage.write, out: usage.out };
+  if ((out || think) && cid) await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?)')
+    .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).run();
+  if (usage) await logUsage(env, u.id, model, usage, { wallet: overflow });
+  await unlimit(env, lock);
+  await send({ done: true, tok, ...(await usageStatus(env, u, plan)) });
+  if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
 }
 
 // ---------- ลดต้นทุน: เลือกโมเดลอัตโนมัติ + ย่อแชตยาว ----------
@@ -559,7 +609,7 @@ async function pay(req, env, u) {
   if (!type) return err('รองรับเฉพาะรูป JPG, PNG หรือ WEBP');
   const key = 'slip/' + hex(await crypto.subtle.digest('SHA-256', buf));
   if (await env.DB.prepare('SELECT 1 FROM payments WHERE slip_key=?').bind(key).first()) return err('สลิปนี้ถูกใช้แล้ว');
-  await env.SLIPS.put(key, buf, { httpMetadata: { contentType: type } });
+  await slipPut(env, key, buf, type);
   const c = await checkSlip(env, buf, type, amount);
   if (c.ref && await env.DB.prepare("SELECT 1 FROM payments WHERE slip_ref=? AND status<>'rejected'").bind(c.ref).first()) c.code = '200501'; // เลขอ้างอิงธนาคารซ้ำในระบบเรา
   const fail = SLIP_FAIL[c.code];
@@ -901,7 +951,7 @@ async function admin(req, env, path, url, me) {
   }
   if ((r = path.match(/^\/api\/admin\/slip\/(\d+)$/))) {
     const p = await DB.prepare('SELECT slip_key FROM payments WHERE id=?').bind(r[1]).first();
-    const o = p && await env.SLIPS.get(p.slip_key);
+    const o = p && await slipGet(env, p.slip_key);
     const t = o?.httpMetadata?.contentType;
     if (!o || !['image/jpeg', 'image/png', 'image/webp'].includes(t)) return err('not found', 404);
     return new Response(o.body, { headers: { 'content-type': t, 'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'private, no-store' } });
@@ -1068,7 +1118,7 @@ async function admin(req, env, path, url, me) {
 }
 
 // ---------- router ----------
-const API = {
+export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
     // Cloudflare อาจ redirect /preview.html → /preview จึงรับทั้งสองแบบ
@@ -1602,6 +1652,32 @@ async function blogPage(req, env, slugQ) { // ใส่ title/description/og ข
     .transform(new Response(res.body, res));
 }
 
-const FILES = {"/blog.html":["text/html; charset=utf-8","<!doctype html>\n<html lang=\"th\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content\">\n<meta name=\"theme-color\" content=\"#000000\">\n<meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n<meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black\">\n<title>บล็อก · AstraCode</title>\n<meta name=\"description\" content=\"ข่าวสาร วิธีใช้ และเทคนิคการใช้ AI จาก AstraCode\">\n<link rel=\"canonical\" href=\"https://astracode.panderx.xyz/blog\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:site_name\" content=\"AstraCode\">\n<meta property=\"og:title\" content=\"บล็อก · AstraCode\">\n<meta property=\"og:description\" content=\"ข่าวสาร วิธีใช้ และเทคนิคการใช้ AI จาก AstraCode\">\n<meta property=\"og:image\" content=\"https://astracode.panderx.xyz/og.png\">\n<meta property=\"og:locale\" content=\"th_TH\">\n<meta name=\"twitter:card\" content=\"summary_large_image\">\n<link rel=\"manifest\" href=\"/manifest.json\">\n<link rel=\"icon\" href=\"/icon.svg\">\n<link rel=\"apple-touch-icon\" href=\"/icon.svg\">\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&display=swap\" rel=\"stylesheet\">\n<link rel=\"stylesheet\" href=\"/style.css\">\n</head>\n<body data-page=\"blog\">\n<div id=\"app\"></div>\n<script src=\"/app.js\"></script>\n<script src=\"/pages.js\"></script>\n</body>\n</html>\n",0],"/home.html":["text/html; charset=utf-8","<!doctype html>\n<html lang=\"th\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content\">\n<meta name=\"theme-color\" content=\"#000000\">\n<meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n<meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black\">\n<title>AstraCode — AI ทุกตัว ในมือถือเครื่องเดียว</title>\n<meta name=\"description\" content=\"ใช้ ChatGPT, Claude, Gemini, DeepSeek และ Kimi ในเว็บเดียว เปิดบนมือถือได้ทันที มีโหมดเขียนโค้ด API สำหรับนักพัฒนา จ่ายผ่าน PromptPay\">\n<link rel=\"canonical\" href=\"https://astracode.panderx.xyz/\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:site_name\" content=\"AstraCode\">\n<meta property=\"og:title\" content=\"AstraCode — AI ทุกตัว ในมือถือเครื่องเดียว\">\n<meta property=\"og:description\" content=\"ใช้ ChatGPT, Claude, Gemini, DeepSeek และ Kimi ในเว็บเดียว เปิดบนมือถือได้ทันที มีโหมดเขียนโค้ด API สำหรับนักพัฒนา จ่ายผ่าน PromptPay\">\n<meta property=\"og:image\" content=\"https://astracode.panderx.xyz/og.png\">\n<meta property=\"og:locale\" content=\"th_TH\">\n<meta name=\"twitter:card\" content=\"summary_large_image\">\n<link rel=\"manifest\" href=\"/manifest.json\">\n<link rel=\"icon\" href=\"/icon.svg\">\n<link rel=\"apple-touch-icon\" href=\"/icon.svg\">\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&display=swap\" rel=\"stylesheet\">\n<link rel=\"stylesheet\" href=\"/style.css\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@graph\":[{\"@type\":\"WebSite\",\"name\":\"AstraCode\",\"url\":\"https://astracode.panderx.xyz/\",\"inLanguage\":\"th\"},{\"@type\":\"SoftwareApplication\",\"name\":\"AstraCode\",\"applicationCategory\":\"ProductivityApplication\",\"operatingSystem\":\"Web, iOS, Android\",\"url\":\"https://astracode.panderx.xyz/\",\"description\":\"ใช้ ChatGPT, Claude, Gemini, DeepSeek และ Kimi ในเว็บเดียว เปิดบนมือถือได้ทันที มีโหมดเขียนโค้ด API สำหรับนักพัฒนา จ่ายผ่าน PromptPay\",\"offers\":{\"@type\":\"Offer\",\"price\":\"0\",\"priceCurrency\":\"THB\"}}]}</script>\n</head>\n<body data-page=\"home\">\n<div id=\"app\"></div>\n<script src=\"/app.js\"></script>\n\n</body>\n</html>\n",0],"/preview.html":["text/html; charset=utf-8","<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body>\n<script>\n// AstraCode preview: รับ HTML จากหน้าหลักแล้วแสดงผล (หน้านี้รันใน sandbox แยก origin)\naddEventListener('message', e => {\n  if (e.source !== parent || !e.data || typeof e.data.html !== 'string') return;\n  document.open(); document.write(e.data.html); document.close();\n});\nparent.postMessage({ ready: true }, '*');\n</script></body></html>\n",0],"/pyworker.js":["text/javascript; charset=utf-8","// AstraCode: รัน Python ด้วย Pyodide ใน Web Worker (หยุดได้ด้วย terminate)\nconst INDEX = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';\nimportScripts(INDEX + 'pyodide.js');\nlet py = null;\nonmessage = async e => {\n  const { files, main } = e.data;\n  try {\n    if (!py) {\n      postMessage({ status: 'กำลังโหลด Python (ครั้งแรกประมาณ 10MB)...' });\n      py = await loadPyodide({ indexURL: INDEX, stdout: s => postMessage({ out: s }), stderr: s => postMessage({ err: s }) });\n    }\n    const root = '/home/pyodide/project';\n    for (const f of files) { // เขียนไฟล์โปรเจกต์ลงระบบไฟล์จำลอง ให้ import กันได้\n      const parts = (root + '/' + f.path).split('/'); parts.pop();\n      let d = ''; for (const x of parts.filter(Boolean)) { d += '/' + x; try { py.FS.mkdir(d); } catch {} }\n      py.FS.writeFile(root + '/' + f.path, f.content);\n    }\n    const code = files.find(f => f.path === main).content;\n    py.runPython(`import os, sys\\nos.chdir(${JSON.stringify(root)})\\nif ${JSON.stringify(root)} not in sys.path: sys.path.insert(0, ${JSON.stringify(root)})`);\n    postMessage({ status: 'กำลังรัน ' + main });\n    await py.loadPackagesFromImports(code);\n    await py.runPythonAsync(code, { filename: main });\n    postMessage({ done: true });\n  } catch (x) { postMessage({ err: String(x.message || x), done: true }); }\n};\n",0]};
-const ASSETS = { fetch(req) { const p = new URL(req.url).pathname, f = FILES[p] || FILES[p + '.html']; if (!f) return new Response('not found', { status: 404 }); return new Response(f[2] ? Uint8Array.from(atob(f[1]), c => c.charCodeAt(0)) : f[1], { headers: { 'content-type': f[0] } }); } };
-export default { fetch: (req, env, ctx) => API.fetch(req, { ...env, ASSETS }, ctx), scheduled: (ev, env, ctx) => API.scheduled(ev, { ...env, ASSETS }, ctx) };
+// Durable Object: ทำงานตอบแชตต่อจนเสร็จ แม้ผู้ใช้ปิดจอ (ใช้ alarm เพราะไม่ถูกตัดตามคำขอ) · เก็บ event ไว้ในหน่วยความจำให้ต่อสตรีมกลับมาดูได้
+export class ChatRun {
+  constructor(state, env) { this.s = state; this.env = env; this.ev = []; this.done = true; this.wake = []; this.st = { gone: false }; }
+  async fetch(req) {
+    const url = new URL(req.url);
+    if (url.pathname === '/start') {
+      await this.s.storage.put('job', await req.json());
+      this.ev = []; this.done = false; this.st = { gone: false };
+      await this.s.storage.setAlarm(Date.now());
+      return new Response('ok');
+    }
+    if (url.pathname === '/stop') { this.st.gone = true; return new Response('ok'); }
+    let i = +url.searchParams.get('from') || 0; const enc = new TextEncoder();
+    return new Response(new ReadableStream({ async pull(c) {
+      const o = this.o;
+      while (i >= o.ev.length && !o.done) await new Promise(r => o.wake.push(r));
+      if (i < o.ev.length) c.enqueue(enc.encode('data: ' + JSON.stringify(o.ev[i++]) + '\n\n')); else c.close();
+    }, o: this }), SSE);
+  }
+  async alarm() {
+    const J = await this.s.storage.get('job'); if (!J) return;
+    await this.s.storage.delete('job'); // alarm ที่ถูกลองซ้ำจะไม่ตอบซ้ำ
+    this.done = false;
+    const send = async o => { this.ev.push(o); this.wake.splice(0).forEach(r => r()); };
+    try { await runChat(this.env, J, send, this.st); }
+    catch (e) { console.log('run', e.message); await unlimit(this.env, J.lock).catch(() => {}); await send({ error: 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' }); await send({ done: true }); }
+    this.done = true; this.wake.splice(0).forEach(r => r());
+  }
+}

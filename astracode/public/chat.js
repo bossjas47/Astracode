@@ -1,6 +1,8 @@
 // AstraCode: หน้าแชต
 let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], compare: false, cmp: [] };
 // สลับแชตโดยไม่โหลดหน้าใหม่
+// กดหยุด = สั่งเซิร์ฟเวอร์หยุดตอบจริง (แค่ปิดจอหรือหลุดเน็ต AI จะตอบต่อเบื้องหลัง)
+function stopRun() { if (chat.id) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id }) }).catch(() => {}); chat.ctrl?.abort(); }
 function openChat(id) { if (chat.busy) chat.ctrl?.abort(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
 addEventListener('popstate', () => { if (pageName() === 'chat') chatView(qs().get('id')); });
 PAGES.chat = () => chatView(qs().get('id'));
@@ -63,14 +65,17 @@ async function chatView(id) {
   const t = $('#t');
   t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
   t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#f').requestSubmit(); } };
-  $('#f').onsubmit = e => { e.preventDefault(); chat.busy ? chat.ctrl?.abort() : send(); };
+  $('#f').onsubmit = e => { e.preventDefault(); chat.busy ? stopRun() : send(); };
   $('#file').onchange = async e => { await addFiles([...e.target.files]); e.target.value = ''; };
   const comp = $('.compose'); // ลากไฟล์มาวาง / วางรูปจากคลิปบอร์ด
   comp.ondragover = e => { e.preventDefault(); comp.classList.add('drop'); };
   comp.ondragleave = () => comp.classList.remove('drop');
   comp.ondrop = e => { e.preventDefault(); comp.classList.remove('drop'); addFiles([...e.dataTransfer.files]); };
   t.onpaste = e => { const fs = [...e.clipboardData.files]; if (fs.length) { e.preventDefault(); addFiles(fs); } };
+  const answer = e => { const a = askAnswer(e); if (a != null && !chat.busy) { e.preventDefault?.(); t.value = a; t.oninput(); send(); } return a != null; };
+  $('#msgs').onkeydown = answer;
   $('#msgs').onclick = e => {
+    if (answer(e)) return;
     const b = e.target.closest('button'); if (!b) return;
     if (b.classList.contains('cp-code')) copy(b.closest('.code').querySelector('code').textContent, b);
     if (b.classList.contains('run-code')) showPreview(b.closest('.code').querySelector('code').textContent);
@@ -78,9 +83,9 @@ async function chatView(id) {
     if (b.dataset.copy) copy(chat.msgs[+b.dataset.copy].content, b);
     if (b.dataset.regen != null) send({ regenerate: true });
     if (b.dataset.s != null) { t.value = SUGGEST[+b.dataset.s]; t.focus(); t.oninput(); }
-    if (b.dataset.ask != null && !chat.busy) { t.value = b.dataset.ask; t.oninput(); send(); }
   };
   $('#lim').innerHTML = limHTML(me.usage); modelUI(); renderAll(); loadSide();
+  if (chat.id && chat.msgs.at(-1)?.role === 'user') send({ resume: true }); // ข้อความล่าสุดยังไม่มีคำตอบ: ลองต่อสตรีมที่ AI ยังทำอยู่
 }
 function modelUI() {
   const m = curModel(), m2 = me.models.find(x => x.id === +$('#model2').value);
@@ -235,23 +240,11 @@ function msgHTML(m, i, isNew) {
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts"><button data-mem="${i}">จำไว้</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  const { text, asks } = askSplit(m.content, m.streaming);
+  const { text, asks } = parseAsk(m.content, m.streaming);
   return `<div class="msg ai ${isNew ? 'new' : ''}">${thinkHTML(m)}<div class="b">${text ? md(text) : m.thinking || asks.length ? '' : DOTS}</div>${askHTML(asks, last && !m.streaming)}${sourcesHTML(m)}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">คัดลอก</button>${last && !chat.busy ? '<button data-regen>ตอบใหม่</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
-// โมเดลบางตัว (เช่น GLM) พิมพ์คำถามแบบ JSON {"question":..,"options":[..]} ออกมาเป็นข้อความ → แสดงเป็นปุ่มให้เลือกแทน
-function askSplit(content, streaming) {
-  const s = String(content || ''), i = s.search(/(```(?:json)?\s*)?\{\s*"questions?"\s*:/);
-  if (i < 0) return { text: s, asks: [] };
-  const raw = s.slice(i).replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
-  let o; try { o = JSON.parse(raw); } catch { return { text: streaming ? s.slice(0, i) : s, asks: [] }; } // ยังพิมพ์ไม่จบ: ซ่อนไว้ก่อน
-  const list = (Array.isArray(o.questions) ? o.questions : [o]).filter(q => q && typeof q.question === 'string');
-  if (!list.length) return { text: s, asks: [] };
-  const label = x => typeof x === 'string' ? x : x?.label ?? x?.text ?? x?.value ?? x?.title ?? '';
-  return { text: s.slice(0, i).trim(), asks: list.map(q => ({ q: q.question, opts: (q.options || q.choices || q.answers || []).map(label).filter(Boolean).slice(0, 8).map(String) })) };
-}
-const askHTML = (asks, live) => asks.map(a => `<div class="ask"><div class="ask-q">${inline(esc(a.q))}</div>${a.opts.length ? `<div class="ask-o">${a.opts.map(o => `<button data-ask="${esc(o)}" ${live ? '' : 'disabled'}>${esc(o)}</button>`).join('')}</div>` : ''}</div>`).join('');
 // token ที่ใช้ตอบ + ลิมิตที่ใช้ไป (เฉพาะข้อความที่เพิ่งตอบ)
 const tokHTML = m => m.tin || m.tout ? `<span class="tok" title="Input ${num(m.tin)} · Output ${num(m.tout)} token">↑${kTok(m.tin || 0)} ↓${kTok(m.tout || 0)}${m.pct != null ? ` · ลิมิต +${m.pct < 0.1 ? '<0.1' : m.pct.toFixed(1)}%` : ''}</span>` : '';
 const sourcesHTML = m => m.sources?.length ? `<div class="srcs">${m.sources.map((x, k) => `<a href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}"><b>${k + 1}</b>${esc(x.title || new URL(x.url).hostname)}</a>`).join('')}</div>` : '';
@@ -328,15 +321,16 @@ async function compareSend() {
   }));
   setBusy(false); renderAll();
 }
-async function send({ regenerate = false } = {}) {
+async function send({ regenerate = false, resume = false } = {}) {
   if (chat.busy) return;
   if (chat.compare && !regenerate) return compareSend();
-  const t = $('#t'), text = regenerate ? '' : t.value.trim(), imgs = regenerate ? [] : chat.images, m = curModel();
-  const files = regenerate ? [] : chat.files;
+  const quiet = regenerate || resume, t = $('#t'), text = quiet ? '' : t.value.trim(), imgs = quiet ? [] : chat.images, m = curModel();
+  const files = quiet ? [] : chat.files;
   if (files.some(f => f.text == null)) return showErr('รออ่านไฟล์ให้เสร็จก่อน');
-  if (!regenerate && !text && !imgs.length && !files.length) return;
+  if (!quiet && !text && !imgs.length && !files.length) return;
   $('#e').textContent = '';
-  if (regenerate) { if (chat.msgs.at(-1)?.role === 'assistant') chat.msgs.pop(); }
+  if (resume) { if (chat.msgs.at(-1)?.role !== 'user') return; }
+  else if (regenerate) { if (chat.msgs.at(-1)?.role === 'assistant') chat.msgs.pop(); }
   else {
     t.value = ''; t.style.height = 'auto'; chat.images = []; chat.files = []; drawThumbs();
     chat.msgs.push({ role: 'user', content: withFiles(text || (files.length ? 'อ่านไฟล์นี้' : 'อธิบายรูปนี้'), files), imgs: imgs.length ? imgs : null });
@@ -344,11 +338,11 @@ async function send({ regenerate = false } = {}) {
   }
   const ai = { role: 'assistant', content: '', model: m.name, streaming: true };
   chat.msgs.push(ai);
-  if (regenerate) renderAll(); else appendMsg(ai);
+  if (quiet) renderAll(); else appendMsg(ai);
   setBusy(true); chat.ctrl = new AbortController();
   let started = false, streamErr = null, raf = 0;
   try {
-    await stream({ chat_id: chat.id, model_id: m.id, text, images: imgs, files, regenerate, search: localStorage.getItem('web') === '1' && !!site.search,
+    await stream({ chat_id: chat.id, model_id: m.id, text, images: imgs, files, regenerate, resume, search: localStorage.getItem('web') === '1' && !!site.search,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
       started = true;
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
@@ -361,7 +355,7 @@ async function send({ regenerate = false } = {}) {
     });
   } catch (x) {
     if (x.name === 'AbortError') setTimeout(() => api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {}), 1500);
-    else if (!started && !regenerate) { // เซิร์ฟเวอร์ยังไม่บันทึก: คืนข้อความให้แก้แล้วส่งใหม่
+    else if (!started && !quiet) { // เซิร์ฟเวอร์ยังไม่บันทึก: คืนข้อความให้แก้แล้วส่งใหม่
       chat.msgs.splice(-2, 2); t.value = text; chat.images = imgs; chat.files = files; drawThumbs(); setBusy(false); renderAll(); showErr(x.message); return;
     } else streamErr = x.message;
   }
@@ -372,3 +366,4 @@ async function send({ regenerate = false } = {}) {
   if (streamErr) showErr(streamErr, chat.msgs.at(-1)?.role === 'user');
   loadSide();
 }
+

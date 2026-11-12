@@ -10,14 +10,23 @@ run_worker_first = true   # ให้ worker ใส่ security headers กั�
 [[d1_databases]]
 binding = "DB"
 database_name = "astracode"
-database_id = "REPLACE_WITH_D1_ID"   # ได้จาก: npx wrangler d1 create astracode
+database_id = "723ec871-4ab3-48be-804e-7ef04e90564f"   # ได้จาก: npx wrangler d1 create astracode
 
-[[r2_buckets]]
-binding = "SLIPS"
-bucket_name = "astracode-slips"
+# [[r2_buckets]] (ไม่ใช้ R2 ก็ได้)
+# binding = "SLIPS"
+# bucket_name = "astracode-slips"
 
-[vars]
-ADMIN_EMAIL = "salisam417@gmail.com"   # อีเมลนี้สมัครแล้วได้สิทธิ์แอดมิน
+# [vars]  (ตั้ง ADMIN_EMAIL ใน dashboard ของ Worker แทน จะได้ไม่ถูกเขียนทับตอน deploy)
+# ADMIN_EMAIL = "salisam417@gmail.com"   # อีเมลนี้สมัครแล้วได้สิทธิ์แอดมิน
+
+# ตอบแชตต่อเบื้องหลังแม้ผู้ใช้ปิดจอ (Durable Object แบบ SQLite ใช้ได้ในแผนฟรี)
+[[durable_objects.bindings]]
+name = "CHATRUN"
+class_name = "ChatRun"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChatRun"]
 
 [triggers]
 crons = ["0 * * * *"]   # ทุกชั่วโมง: ต่ออายุจาก Wallet, เตือนหมดอายุ, แจ้งต้นทุน, backup ตี 3, ล้างข้อมูลเก่า
