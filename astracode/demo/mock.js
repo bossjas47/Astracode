@@ -196,7 +196,7 @@
         models: S.models.filter(m => m.active).map(m => ({ id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, note: m.note || '',
           ...(() => { const b = { in: m.price_in ?? r(m.cost_in), out: m.price_out ?? r(m.cost_out), cache: m.price_cache ?? r(m.cost_cache), cache_write: m.price_cache_write ?? r(m.cost_cache_write) }, off = m.promo_pct > 0 ? 1 - m.promo_pct / 100 : 1; return { ...Object.fromEntries(Object.entries(b).map(([k, v]) => [k, Math.round(v * off * 10000) / 10000])), promo: off < 1 ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, ...b } : null }; })(), plans: S.plans.filter(p => p.model_ids.includes(m.id)).map(p => p.id) })) }); }
     if (path === '/api/plans') return res(S.plans.filter(p => p.active).sort((a, b) => a.sort - b.sort).map(p => ({ id: p.id, name: p.name, price: p.price, price_year: p.price_year, description: p.description, models: est(p), featured: String(p.id) === S.settings.featured_plan })));
-    if (path === '/api/firebase') { S.logged = true; S.email = String(body.token).slice(5); S.users[0].email = S.email; return res({ ok: true }); }
+    if (path === '/api/auth') { if (body.action === 'forgot') return res({ ok: true }); if (!/^[^\s@]+@[^\s@]+$/.test(body.email) || String(body.password).length < 8) return err('ใส่อีเมล และรหัสผ่านอย่างน้อย 8 ตัว (เดโม: อะไรก็ได้)'); S.logged = true; S.email = body.email; S.users[0].email = S.email; return res({ ok: true }); }
     if (!S.logged) return err('กรุณาเข้าสู่ระบบ', 401);
     if (path === '/api/logout') { S.logged = false; return res({ ok: true }); }
     if (path === '/api/me') { const p = plan(); return res({ email: S.email, role: 'admin', balance: S.balance, ref_code: 'DEMO1234', email_verified: false, totp_on: S.totp, google: false, line: false, has_password: true, instructions: S.instructions, wallet_overflow: S.overflow, auto_renew: S.renew, plan: { id: p.id, name: p.name, expires: p.price > 0 ? S.expires : null }, usage: usage(), models: allowed(p).map(({ id, name, multiplier, vision, effort }) => ({ id, name, multiplier, vision, effort })), promptpay_id: S.settings.promptpay_id }); }
@@ -272,13 +272,6 @@
     return err('not found', 404);
   }
 
-  // Firebase จำลอง: ล็อกอินด้วยอีเมลอะไรก็ได้
-  const fbUser = email => ({ email, emailVerified: true, getIdToken: async () => 'demo:' + email });
-  window.FB = {
-    login: async (e, p) => { if (!/^[^\s@]+@[^\s@]+$/.test(e) || String(p).length < 8) throw Object.assign(new Error('ใส่อีเมล และรหัสผ่านอย่างน้อย 8 ตัว (เดโม: อะไรก็ได้)'), {}); return fbUser(e); },
-    google: async () => fbUser('you@gmail.com'), reset: async () => {}, verify: async () => {}, reload: async u => u, redirected: async () => null, out: async () => {},
-  };
-  window.FB.register = window.FB.login;
   const realFetch = window.fetch.bind(window);
   window.fetch = async (url, opt = {}) => {
     const u = String(url);

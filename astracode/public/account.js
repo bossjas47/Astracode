@@ -64,8 +64,8 @@ PAGES.account = async function account() {
   $('#memf').onsubmit = async e => { e.preventDefault(); try { await api('/memories', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); boot(); } catch (x) { alert(x.message); } };
   $('#pw').onclick = async e => { // รหัสผ่านอยู่ใน Firebase
     e.target.disabled = true;
-    try { await lib('fb'); await FB.reset(me.email); $('#pe').innerHTML = '<span class="ok">ส่งแล้ว ดูในอีเมล</span>'; }
-    catch (x) { $('#pe').innerHTML = `<span class="bad">${esc(x.code === 'auth/too-many-requests' ? 'ขอบ่อยเกินไป รอสักครู่' : 'ส่งไม่ได้ ลองใหม่')}</span>`; e.target.disabled = false; }
+    try { await api('/auth', { method: 'POST', body: { action: 'forgot', email: me.email } }); $('#pe').innerHTML = '<span class="ok">ส่งแล้ว ดูในอีเมล</span>'; }
+    catch (x) { $('#pe').innerHTML = `<span class="bad">${esc(x.message)}</span>`; e.target.disabled = false; }
   };
   $('#del').onclick = async () => {
     const v = prompt(`ลบบัญชีถาวร: แชต โปรเจกต์ ความจำ และ API key จะหายทั้งหมด และเงินใน Wallet จะใช้ไม่ได้อีก\n\nพิมพ์อีเมล ${me.email} เพื่อยืนยัน`);

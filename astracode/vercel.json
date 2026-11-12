@@ -34,7 +34,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://apis.google.com; frame-src 'self' https://astra-892a8.firebaseapp.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+          "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
         },
         {
           "key": "X-Frame-Options",

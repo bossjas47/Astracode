@@ -173,15 +173,8 @@ function auth() {
   const q = qs();
   if (q.get('ref')) localStorage.setItem('ref', q.get('ref'));
   const ref = localStorage.getItem('ref') || '';
-  // mfa = LINE ล็อกอินแล้วรอรหัส 2FA, code = Firebase ล็อกอินแล้วรอรหัส 2FA, verify = รอยืนยันอีเมล
-  let mode = q.get('mfa') ? 'mfa' : 'login', msg = q.get('error') || '', fbUser = null, sent = false;
-  const fb = () => window.FB ? Promise.resolve(window.FB) : lib('fb').then(() => window.FB);
-  const FB_ERR = { 'auth/invalid-credential': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'auth/wrong-password': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'auth/user-not-found': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
-    'auth/email-already-in-use': 'อีเมลนี้สมัครแล้ว กด "เข้าสู่ระบบ"', 'auth/weak-password': 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัว', 'auth/invalid-email': 'อีเมลไม่ถูกต้อง',
-    'auth/too-many-requests': 'ลองหลายครั้งเกินไป รอสักครู่แล้วลองใหม่', 'auth/network-request-failed': 'เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่',
-    'auth/account-exists-with-different-credential': 'อีเมลนี้สมัครด้วยวิธีอื่น ลองเข้าด้วยรหัสผ่าน', 'auth/unauthorized-domain': 'โดเมนนี้ยังไม่ได้เพิ่มใน Firebase (แจ้งแอดมิน)',
-    'auth/operation-not-allowed': 'ยังไม่ได้เปิดวิธีล็อกอินนี้ (แจ้งแอดมิน)', 'auth/web-storage-unsupported': 'เบราว์เซอร์นี้ปิดคุกกี้ไว้ ลองเปิดใน Chrome หรือ Safari' };
-  const fbErr = x => x.code === 'auth/popup-closed-by-user' || x.code === 'auth/cancelled-popup-request' ? '' : FB_ERR[x.code] || x.message || 'ผิดพลาด';
+  // mfa = Google/LINE ล็อกอินแล้วรอรหัส 2FA, code = อีเมลล็อกอินแล้วรอรหัส 2FA, verify = รอยืนยันอีเมล · Worker คุยกับ Firebase ให้ เบราว์เซอร์ไม่ต้องต่อ Google
+  let mode = q.get('mfa') ? 'mfa' : 'login', msg = q.get('error') || '', cred = null;
   const forms = {
     login: () => `<label>อีเมล</label><input name="email" type="email" autocomplete="email" required>
       <label>รหัสผ่าน</label><input name="password" type="password" autocomplete="current-password" required>`,
@@ -189,26 +182,24 @@ function auth() {
       <label>รหัสผ่าน (อย่างน้อย 8 ตัว)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required>
       ${ref ? `<p class="muted">ชวนโดยโค้ด <b>${esc(ref)}</b> · จ่ายครั้งแรกได้เครดิตทั้งคู่</p>` : ''}`,
     forgot: () => `<p class="muted">ใส่อีเมลที่สมัครไว้ เราจะส่งลิงก์ตั้งรหัสผ่านใหม่ให้</p><label>อีเมล</label><input name="email" type="email" autocomplete="email" required>`,
-    verify: () => `<p>เราส่งลิงก์ยืนยันไปที่ <b>${esc(fbUser?.email)}</b> แล้ว กดลิงก์ในอีเมล แล้วกลับมากดปุ่มด้านล่าง</p><p class="muted">ไม่เห็นอีเมล? ดูในจดหมายขยะ</p>`,
+    verify: () => `<p>เราส่งลิงก์ยืนยันไปที่ <b>${esc(cred?.email)}</b> แล้ว กดลิงก์ในอีเมล แล้วกลับมากดปุ่มด้านล่าง</p><p class="muted">ไม่เห็นอีเมล? ดูในจดหมายขยะ</p>`,
     code: () => `<p class="muted">บัญชีนี้เปิด 2FA ไว้ ใส่รหัส 6 หลักจากแอป Authenticator</p><label>รหัส 2FA</label><input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus>`,
   };
   forms.mfa = forms.code;
   const title = { login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ลืมรหัสผ่าน', verify: 'ยืนยันอีเมล', code: 'ยืนยันตัวตน 2 ขั้น', mfa: 'ยืนยันตัวตน 2 ขั้น' };
   const btn = { login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ส่งลิงก์', verify: 'ยืนยันแล้ว เข้าสู่ระบบ', code: 'ยืนยัน', mfa: 'ยืนยัน' };
-  const done = async () => { localStorage.removeItem('ref'); window.FB?.out().catch(() => {}); await loadMe(); go(q.get('next') || '/chat'); };
-  // ได้ผู้ใช้จาก Firebase แล้ว: ยังไม่ยืนยันอีเมล → ส่งลิงก์ / ยืนยันแล้ว → แลกเป็น session ของเรา
-  const finish = async (user, code) => {
-    if (!user) return;
-    fbUser = user;
-    if (!user.emailVerified) { if (!sent) { sent = true; await (await fb()).verify(user).catch(() => {}); } mode = 'verify'; msg = ''; return draw(); }
-    try { await api('/firebase', { method: 'POST', body: { token: await user.getIdToken(), ref, code } }); await done(); }
-    catch (x) { if (x.data?.need2fa) { mode = 'code'; msg = ''; return draw(); } throw x; }
+  const done = async () => { localStorage.removeItem('ref'); await loadMe(); go(q.get('next') || '/chat'); };
+  const send = async (action, code) => {
+    const r = await api('/auth', { method: 'POST', body: { ...cred, action, ref, code } }).catch(x => { if (x.data?.need2fa) return { need2fa: true }; throw x; });
+    if (r.verify) { if (action === 'check') throw new Error('ยังไม่ได้ยืนยัน กดลิงก์ในอีเมลก่อน'); mode = 'verify'; msg = ''; return draw(); }
+    if (r.need2fa) { mode = 'code'; msg = ''; return draw(); }
+    await done();
   };
   const draw = () => {
     const tabs = mode === 'login' || mode === 'register';
     page(nav() + `<div class="auth wrap"><h1>${title[mode]}</h1>
       ${tabs ? `<div class="tabs"><button class="${mode === 'login' ? 'on' : ''}" data-m="login">เข้าสู่ระบบ</button><button class="${mode === 'register' ? 'on' : ''}" data-m="register">สมัคร</button></div>` : ''}
-      <form class="card" id="f">${tabs ? `<div class="social"><button type="button" class="btn out" id="gg">ดำเนินการต่อด้วย Google</button>
+      <form class="card" id="f">${tabs && (site.google || site.line) ? `<div class="social">${site.google ? `<a class="btn out" href="/api/oauth/google${ref ? '?ref=' + encodeURIComponent(ref) : ''}">ดำเนินการต่อด้วย Google</a>` : ''}
         ${site.line ? `<a class="btn out line" href="/api/oauth/line${ref ? '?ref=' + encodeURIComponent(ref) : ''}">ดำเนินการต่อด้วย LINE</a>` : ''}<div class="or"><span>หรือ</span></div></div>` : ''}
       ${forms[mode]()}
       <div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${btn[mode]}</button>
@@ -216,31 +207,26 @@ function auth() {
       ${mode === 'login' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="forgot">ลืมรหัสผ่าน?</a></p>' : ''}
       ${!tabs && mode !== 'verify' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="login">กลับไปเข้าสู่ระบบ</a></p>' : ''}
       <p class="muted" style="text-align:center;margin:12px 0 0">การ${mode === 'register' ? 'สมัคร' : 'ใช้งาน'}ถือว่ายอมรับ<a href="/terms">เงื่อนไขและนโยบายความเป็นส่วนตัว</a></p></form></div>`);
-    app.querySelectorAll('[data-m]').forEach(b => b.onclick = e => { e.preventDefault(); if (mode === 'verify') window.FB?.out(); mode = b.dataset.m; msg = ''; sent = false; draw(); });
+    app.querySelectorAll('[data-m]').forEach(b => b.onclick = e => { e.preventDefault(); mode = b.dataset.m; msg = ''; draw(); });
     const busy = (b, on) => { b.disabled = on; b.classList.toggle('loading', on); };
-    $('#gg')?.addEventListener('click', async e => {
-      busy(e.target, true); $('#e').textContent = '';
-      try { await finish(await (window.FB || await fb()).google()); } /* เรียกทันทีในคลิก ไม่งั้น Safari บล็อก popup */ catch (x) { $('#e').textContent = x.code ? fbErr(x) : x.message; busy(e.target, false); }
-    });
     $('#resend')?.addEventListener('click', async e => {
       busy(e.target, true);
-      try { await (await fb()).verify(fbUser); e.target.textContent = 'ส่งแล้ว ✓'; } catch (x) { $('#e').textContent = fbErr(x); busy(e.target, false); }
+      try { await send('login'); } catch (x) { $('#e').textContent = x.message; busy(e.target, false); }
     });
     $('#f').onsubmit = async e => {
       e.preventDefault(); const b = e.submitter || $('#f .btn.blue'); busy(b, true); $('#e').textContent = '';
       const body = Object.fromEntries(new FormData(e.target));
       try {
         if (mode === 'mfa') { await api('/login/mfa', { method: 'POST', body: { ...body, token: q.get('mfa') } }); return await done(); }
-        const F = await fb();
-        if (mode === 'forgot') { await F.reset(body.email); $('#e').innerHTML = '<span class="ok">ถ้ามีบัญชีนี้ เราส่งลิงก์ไปที่อีเมลแล้ว (ดูในจดหมายขยะด้วย)</span>'; return busy(b, false); }
-        if (mode === 'verify') { const u = await F.reload(fbUser); if (!u?.emailVerified) { $('#e').textContent = 'ยังไม่ได้ยืนยัน กดลิงก์ในอีเมลก่อน'; return busy(b, false); } return await finish(u); }
-        if (mode === 'code') return await finish(fbUser, body.code);
-        await finish(await (mode === 'register' ? F.register(body.email, body.password) : F.login(body.email, body.password)));
-      } catch (x) { $('#e').textContent = x.code ? fbErr(x) : x.message; busy(b, false); }
+        if (mode === 'forgot') { await api('/auth', { method: 'POST', body: { action: 'forgot', email: body.email } }); $('#e').innerHTML = '<span class="ok">ถ้ามีบัญชีนี้ เราส่งลิงก์ไปที่อีเมลแล้ว (ดูในจดหมายขยะด้วย)</span>'; return busy(b, false); }
+        if (mode === 'verify') return await send('check');
+        if (mode === 'code') return await send('check', body.code);
+        cred = { email: body.email, password: body.password }; // เก็บในหน่วยความจำหน้านี้เท่านั้น ใช้ตอนกด "ยืนยันแล้ว"
+        await send(mode);
+      } catch (x) { $('#e').textContent = x.message; busy(b, false); }
     };
   };
   draw();
-  if (!window.DEMO) fb().then(F => F.redirected()).then(u => u && finish(u)).catch(x => { if (x.code) { msg = fbErr(x); draw(); } }); // กลับมาจาก Google แบบ redirect
 }
 const loadMe = async () => { me = await api('/me').catch(() => null); };
 
@@ -255,7 +241,6 @@ const LIBS = { // ล็อกเวอร์ชัน + SRI: ถ้าไฟล
   pdfWorker: [PDFJS + 'build/pdf.worker.min.js', 'sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2'],
   mammoth: [CDN + 'mammoth@1.8.0/mammoth.browser.min.js', 'sha384-/cXAMbzovUIKbBERjPmR3SnPTh8siWr5lsvFYj1Uq4XP0yaJUZJmsh0YXyGv5P0y'],
   jszip: [CDN + 'jszip@3.10.1/dist/jszip.min.js', 'sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG'],
-  fb: ['/fb.js', ''], // Firebase Auth (bundle เองจาก tools/fb-entry.js)
   xlsx: [CDN + 'xlsx@0.18.5/dist/xlsx.full.min.js', 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw'],
 };
 const FILE_MAX = 200000, FILES_MAX = 5, RAW_MAX = 20e6; // ตัวอักษรต่อไฟล์, จำนวนไฟล์, ขนาดไฟล์ดิบ

@@ -83,13 +83,16 @@ Sign-up, login, Google login, email verification and password reset use Firebase
 
 In the Firebase console (project `astra-892a8`):
 
-1. Authentication → Sign-in method: enable **Email/Password** and **Google**.
-2. Authentication → Settings → Authorized domains: add `astracode.panderx.xyz` (and your `workers.dev` domain if you use it).
-3. Authentication → Templates: set the language to Thai.
+1. Authentication → Sign-in method: enable **Email/Password**.
+2. Authentication → Templates: set the language to Thai.
+3. Admin → Settings → "ล็อกอิน": the Firebase Web API key (default is the astra-892a8 key). If the key has HTTP-referrer restrictions in Google Cloud, allow `astracode.panderx.xyz/*`; the Worker sends that Referer.
+
+The Worker calls the Firebase Auth REST API itself (`/api/auth`), so the browser never talks to Google; a blocked network, CSP or ad blocker cannot break login.
+
+Google login uses the Worker's own OAuth (`/api/oauth/google`): Google Cloud → APIs & Services → Credentials → OAuth client (Web), add the redirect URI `https://astracode.panderx.xyz/api/oauth/google/callback`, then paste the Client ID and Client Secret in Admin → Settings → "ล็อกอิน" (or set Worker secrets `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`).
 
 Users must verify their email before the first login. An existing account (from before Firebase) links automatically when the user signs up or logs in with Google using the same email. LINE login still uses its own OAuth (Firebase has no LINE provider).
 
-`public/fb.js` is a bundle of the Firebase SDK. To rebuild it: `npm i firebase@11 esbuild` then `npx esbuild tools/fb-entry.js --bundle --minify --format=iife --outfile=public/fb.js`.
 
 ## 2. Vercel (optional, e.g. `astracode.panderx.xyz`)
 

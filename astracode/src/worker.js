@@ -57,33 +57,39 @@ async function sessionCookie(env, uid) {
 }
 const startSession = async (env, uid) => json({ ok: true }, 200, { 'set-cookie': await sessionCookie(env, uid) });
 
-// ---------- Firebase Auth: เว็บล็อกอินกับ Firebase แล้วส่ง ID token มาแลกเป็น session ของเรา ----------
-let JWKS = null; // { keys, exp } แคชกุญแจของ Google ตาม max-age
-async function fbKey(env, kid) {
-  if (!JWKS || JWKS.exp < Date.now() || !JWKS.keys[kid]) {
-    const r = await fetch(env.FB_JWKS_URL || 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'); // FB_JWKS_URL ใช้ตอนทดสอบเท่านั้น
-    const age = +(r.headers.get('cache-control') || '').match(/max-age=(\d+)/)?.[1] || 3600;
-    JWKS = { keys: Object.fromEntries((await r.json()).keys.map(k => [k.kid, k])), exp: Date.now() + age * 1000 };
-  }
-  const k = JWKS.keys[kid]; if (!k) return null;
-  return crypto.subtle.importKey('jwk', k, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-}
+// ---------- Firebase Auth ผ่าน REST จากฝั่ง Worker: เบราว์เซอร์ไม่ต้องคุยกับ Google เอง (กันเน็ต/CSP/adblock บล็อก) ----------
 const b64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-async function fbVerify(env, token) { // ตรวจตามเอกสาร Firebase "Verify ID tokens using a third-party JWT library"
-  const project = env.FIREBASE_PROJECT_ID || 'astra-892a8', [h, p, sig] = String(token || '').split('.');
-  if (!sig) return null;
-  const head = JSON.parse(new TextDecoder().decode(b64u(h))), c = JSON.parse(new TextDecoder().decode(b64u(p))), now = Date.now() / 1000;
-  if (head.alg !== 'RS256' || c.aud !== project || c.iss !== 'https://securetoken.google.com/' + project || !c.sub || c.exp < now || c.iat > now + 60 || c.auth_time > now + 60) return null;
-  const key = await fbKey(env, head.kid);
-  return key && await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64u(sig), new TextEncoder().encode(h + '.' + p)) ? c : null;
+const FB_BAD = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', FB_OFF = 'ยังไม่ได้เปิดล็อกอินด้วยอีเมลใน Firebase (แจ้งแอดมิน)';
+const FB_MSG = { EMAIL_EXISTS: 'อีเมลนี้สมัครแล้ว กด "เข้าสู่ระบบ"', INVALID_LOGIN_CREDENTIALS: FB_BAD, EMAIL_NOT_FOUND: FB_BAD, INVALID_PASSWORD: FB_BAD, USER_DISABLED: 'บัญชีนี้ถูกระงับ',
+  WEAK_PASSWORD: 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัว', INVALID_EMAIL: 'อีเมลไม่ถูกต้อง', TOO_MANY_ATTEMPTS_TRY_LATER: 'ลองหลายครั้งเกินไป รอสักครู่แล้วลองใหม่', OPERATION_NOT_ALLOWED: FB_OFF, PASSWORD_LOGIN_DISABLED: FB_OFF };
+async function fbApi(req, env, op, body) {
+  const s = await getSettings(env, ['fb_api_key']), key = s.fb_api_key || 'AIzaSyBDiG6Y7fhI-pPkucmAtTNZaZ5rgLIdxOM'; // web key ของ Firebase เป็นค่าสาธารณะ
+  const r = await fetch(`${env.FB_API_URL || 'https://identitytoolkit.googleapis.com/v1'}/accounts:${op}?key=${encodeURIComponent(key)}`, { method: 'POST', // FB_API_URL ใช้ตอนทดสอบเท่านั้น
+    headers: { 'content-type': 'application/json', referer: origin(req, env) + '/', 'x-firebase-locale': 'th' }, body: JSON.stringify(body) }); // referer: ผ่านกรณี API key จำกัดโดเมนไว้
+  const d = await r.json().catch(() => ({}));
+  if (r.ok) return d;
+  const code = String(d.error?.message || r.status), k = code.split(/[\s:]/)[0];
+  if (!FB_MSG[k]) await event(env, 'error', null, 'firebase ' + op + ': ' + code);
+  throw Object.assign(new Error(FB_MSG[k] || 'ระบบล็อกอินขัดข้อง: ' + code), { known: !!FB_MSG[k] });
 }
-async function firebaseLogin(req, env, ctx) {
-  const b = await req.json();
+async function emailAuth(req, env) {
+  const b = await req.json(), a = b.action, email = String(b.email || '').trim().toLowerCase(), pw = String(b.password || '');
   if (await limited(env, 'fb:' + ip(req, env), 30, 900e3)) return err('ลองหลายครั้งเกินไป รอ 15 นาที', 429);
-  const c = await fbVerify(env, b.token).catch(() => null);
-  if (!c) return err('ล็อกอินไม่สำเร็จ ลองใหม่อีกครั้ง', 401);
+  try {
+    if (a === 'forgot') { await fbApi(req, env, 'sendOobCode', { requestType: 'PASSWORD_RESET', email }).catch(x => { if (!x.known) throw x; }); return json({ ok: true }); } // ไม่บอกว่ามีอีเมลนี้ไหม
+    if (!['login', 'register', 'check'].includes(a) || !email || !pw) return err('ใส่อีเมลและรหัสผ่าน');
+    if (a === 'register' && pw.length < 8) return err('รหัสผ่านต้องยาวอย่างน้อย 8 ตัว');
+    const d = await fbApi(req, env, a === 'register' ? 'signUp' : 'signInWithPassword', { email, password: pw, returnSecureToken: true });
+    const c = JSON.parse(new TextDecoder().decode(b64u(d.idToken.split('.')[1]))); // ได้ token ตรงจาก Google ผ่าน HTTPS จึงอ่าน payload ได้เลย
+    if (!c.email_verified) { // check = กด "ยืนยันแล้ว" ไม่ต้องส่งอีเมลซ้ำ
+      if (a !== 'check') await fbApi(req, env, 'sendOobCode', { requestType: 'VERIFY_EMAIL', idToken: d.idToken }).catch(() => {});
+      return json({ verify: true });
+    }
+    return await fbSession(req, env, { sub: c.user_id || c.sub, email: c.email }, b);
+  } catch (x) { return err(x.message, x.known ? 400 : 502); }
+}
+async function fbSession(req, env, c, b) { // c มาจาก token ที่อีเมลยืนยันแล้ว: กันคนสมัครด้วยอีเมลคนอื่นแล้วยึดบัญชีเดิม
   const email = String(c.email || '').toLowerCase();
-  if (!email || !c.email_verified) return err('ยืนยันอีเมลก่อน', 403); // กันคนสมัครด้วยอีเมลคนอื่นแล้วยึดบัญชีเดิม
   let u = await env.DB.prepare('SELECT * FROM users WHERE fb_uid=?').bind(c.sub).first()
     || await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first(); // บัญชีเดิม (สมัครก่อนย้ายมา Firebase) เชื่อมด้วยอีเมลที่ยืนยันแล้ว
   if (u && u.fb_uid !== c.sub) await env.DB.prepare('UPDATE users SET fb_uid=?, email_verified=1 WHERE id=?').bind(c.sub, u.id).run();
@@ -846,7 +852,7 @@ const TABLES = {
 };
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
-  'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min'];
+  'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret'];
 
 async function admin(req, env, path, url, me) {
   const M = req.method, DB = env.DB;
@@ -956,9 +962,9 @@ async function admin(req, env, path, url, me) {
   }
   if (path === '/api/admin/settings') {
     if (M === 'PUT') await ctxAudit('update settings', Object.keys(await req.clone().json()));
-    if (M === 'PUT') { const b = await req.json(); await DB.batch(SETTINGS.filter(k => k in b).map(k => DB.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').bind(k, String(b[k])))); }
+    if (M === 'PUT') { const b = await req.json(), q = SETTINGS.filter(k => k in b && (k !== 'google_client_secret' || b[k])).map(k => DB.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').bind(k, String(b[k]))); if (q.length) await DB.batch(q); } // ช่อง secret ว่าง = คงค่าเดิม
     const rows = (await DB.prepare('SELECT * FROM settings').all()).results;
-    return json({ ...Object.fromEntries(rows.map(x => [x.key, x.value])), slip_key_set: !!env.SLIP_API_KEY, slip2go_key_set: !!env.SLIP2GO_KEY,
+    return json({ ...Object.fromEntries(rows.filter(x => x.key !== 'google_client_secret').map(x => [x.key, x.value])), google_secret_set: rows.some(x => x.key === 'google_client_secret' && x.value), slip_key_set: !!env.SLIP_API_KEY, slip2go_key_set: !!env.SLIP2GO_KEY,
       env: Object.fromEntries(['RESEND_KEY', 'TAVILY_KEY', 'SECRET_KEY', 'GOOGLE_CLIENT_ID', 'LINE_CHANNEL_ID', 'LINE_ALERT_TOKEN', 'PUBLIC_URL'].map(k => [k, !!env[k]])), r2: !!env.SLIPS });
   }
   if (path === '/api/admin/coupons') {
@@ -1091,7 +1097,7 @@ export default {
 };
 
 // cdn.jsdelivr.net: ตัวอ่าน PDF/Word/Excel (ล็อกเวอร์ชัน + SRI ใน app.js)
-const CSP = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://apis.google.com; frame-src 'self' https://astra-892a8.firebaseapp.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+const CSP = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
 // หน้าแสดงผลโค้ดของผู้ใช้: รันใน iframe sandbox (origin แยก อ่าน cookie / เรียก API ในชื่อผู้ใช้ไม่ได้)
 function sandboxed(res, path) {
   const r = new Response(res.body, res), h = r.headers;
@@ -1116,7 +1122,7 @@ async function route(req, env, ctx, url, path, M) {
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้
         const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min']);
-        return json({ ...s, google: !!env.GOOGLE_CLIENT_ID, line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', image: s.image_enabled === '1', mail: !!env.RESEND_KEY });
+        return json({ ...s, google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', image: s.image_enabled === '1', mail: !!env.RESEND_KEY });
       }
       if (path === '/api/blog') return json((await env.DB.prepare('SELECT slug,title,summary,cover,created_at FROM posts WHERE published=1 ORDER BY created_at DESC LIMIT 100').all()).results);
       if (path.startsWith('/api/blog/')) { const p = await env.DB.prepare('SELECT slug,title,summary,body,cover,created_at FROM posts WHERE slug=? AND published=1').bind(path.slice(10)).first(); return p ? json(p) : err('ไม่พบบทความ', 404); }
@@ -1130,7 +1136,7 @@ async function route(req, env, ctx, url, path, M) {
         if (!await totpOk(env, u, b.code)) return err('รหัส 2FA ไม่ถูกต้อง', 401);
         return await startSession(env, u.id);
       }
-      if (path === '/api/firebase' && M === 'POST') return await firebaseLogin(req, env, ctx);
+      if (path === '/api/auth' && M === 'POST') return await emailAuth(req, env);
       if (path === '/api/pricing') { // หน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
         const [ms, ps, pm] = await Promise.all([
           env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort,id').all(),
@@ -1373,7 +1379,8 @@ async function totpOk(env, u, code) {
 // ---------- ล็อกอินด้วย Google / LINE ----------
 async function oauth(req, env, url, path) {
   const [, , , who, step] = path.split('/'), base = origin(req, env), cb = `${base}/api/oauth/${who}/callback`;
-  const cfg = { google: { id: env.GOOGLE_CLIENT_ID, secret: env.GOOGLE_CLIENT_SECRET, auth: 'https://accounts.google.com/o/oauth2/v2/auth', token: 'https://oauth2.googleapis.com/token', scope: 'openid email', extra: '&prompt=select_account' },
+  const g = await getSettings(env, ['google_client_id', 'google_client_secret']);
+  const cfg = { google: { id: env.GOOGLE_CLIENT_ID || g.google_client_id, secret: env.GOOGLE_CLIENT_SECRET || g.google_client_secret, auth: 'https://accounts.google.com/o/oauth2/v2/auth', token: 'https://oauth2.googleapis.com/token', scope: 'openid email', extra: '&prompt=select_account' },
     line: { id: env.LINE_CHANNEL_ID, secret: env.LINE_CHANNEL_SECRET, auth: 'https://access.line.me/oauth2/v2.1/authorize', token: 'https://api.line.me/oauth2/v2.1/token', scope: 'openid profile email', extra: '' } }[who];
   if (!cfg?.id) return err('ยังไม่ได้เปิดการล็อกอินแบบนี้', 404);
   const fail = m => Response.redirect(`${base}/login?error=${encodeURIComponent(m)}`, 302);

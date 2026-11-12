@@ -330,6 +330,12 @@ const ADMIN = {
       <h2 style="margin-top:28px">Wallet และชวนเพื่อน</h2>
       <label>เติมเงินขั้นต่ำ (บาท)</label><input name="topup_min" type="number" min="1" value="${esc(s.topup_min || '50')}">
       <label>เครดิตชวนเพื่อน (บาท ต่อคน ให้ทั้งคนชวนและคนถูกชวน เมื่อจ่ายเงินจริงครั้งแรก, 0 = ปิด)</label><input name="referral_bonus" type="number" min="0" step="any" value="${esc(s.referral_bonus || '0')}">
+      <h2 style="margin-top:28px">ล็อกอิน</h2>
+      <label>Firebase Web API key (เว้นว่าง = ค่าของโปรเจกต์ astra-892a8)</label><input name="fb_api_key" value="${esc(s.fb_api_key)}" placeholder="AIza...">
+      <p class="muted">Worker คุยกับ Firebase เอง เบราว์เซอร์ผู้ใช้ไม่ต้องต่อ Google · Firebase Console ต้องเปิด Email/Password · ถ้าจำกัดคีย์ใน Google Cloud ให้อนุญาต <code>astracode.panderx.xyz/*</code></p>
+      <label>Google OAuth Client ID (เว้นว่าง = ซ่อนปุ่ม Google)</label><input name="google_client_id" value="${esc(s.google_client_id)}" placeholder="xxxx.apps.googleusercontent.com">
+      <label>Google OAuth Client Secret ${s.google_secret_set ? '<span class="ok">✓ ตั้งแล้ว (เว้นว่าง = ใช้ค่าเดิม)</span>' : ''}</label><input name="google_client_secret" type="password" autocomplete="off">
+      <p class="muted">Google Cloud → APIs &amp; Services → Credentials → OAuth client (Web) → Authorized redirect URI: <code>${location.origin}/api/oauth/google/callback</code></p>
       <h2 style="margin-top:28px">ลดต้นทุน</h2>
       <p class="muted">"อัตโนมัติ" ในหน้าแชต: คำถามทั่วไปใช้โมเดลถูก คำถามยาก/โค้ด/รูป/ไฟล์ใช้โมเดลเก่ง (เลือกจากโมเดลในแพลนของผู้ใช้) · แชตยาวเกิน ~30,000 ตัวอักษร ระบบจะสรุปข้อความเก่าด้วยโมเดลถูก ไม่หักลิมิตผู้ใช้</p>
       <label>โมเดลถูกสำหรับคำถามทั่วไป (เว้นว่าง = ตัวคูณต่ำสุดในแพลน)</label><select name="auto_cheap_model"><option value="">อัตโนมัติ</option>${models.map(m => `<option value="${m.id}" ${String(m.id) === s.auto_cheap_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
