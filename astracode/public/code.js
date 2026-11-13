@@ -1037,9 +1037,10 @@ async function codeView(id) {
   if (first) openFile(first); else refresh();
   setStatus('บันทึกแล้ว ✓');
 
-  bindIDE();
+  // ต้องรู้ค่าออปชันก่อนวาดปุ่มล่าง ไม่งั้นป้าย Auto-apply/ตรวจผลเองจะไม่ขึ้นตอนเปิดหน้าครั้งแรก
   IDE.autoMode = localStorage.getItem('auto') === '1';
   IDE.autoApply = localStorage.getItem('autoapply') === '1';
+  bindIDE();
   drawAI();
   const chats = await api('/chats?project=' + IDE.pid).catch(() => []); // เปิดแชตล่าสุดของโปรเจกต์
   if (chats[0]) {
