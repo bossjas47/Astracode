@@ -597,7 +597,7 @@ async function send({ regenerate = false, resume = false } = {}) {
   setBusy(false); renderAll();
   const last = chat.msgs.at(-1);
   // 200 แต่ไม่มี event เลย (เช่น DO ถูกปลุกใหม่/สตรีมหลุด) เดิมเงียบสนิท ตอนนี้บอกผู้ใช้และให้กดตอบใหม่
-  if (idle || (!started && empty)) showErr('AI ไม่ได้ตอบแชตนี้ (อาจถูกหยุด或被ตัดการเชื่อมต่อ) · กด "ตอบใหม่" เพื่อให้ตอบ', last?.role === 'user');
+  if (idle || (!started && empty)) showErr('AI ไม่ได้ตอบแชตนี้ (อาจถูกหยุด বাถูกตัดการเชื่อมต่อ) · กด "ตอบใหม่" เพื่อให้ตอบ', last?.role === 'user');
   else if (streamErr) showErr(streamErr, last?.role === 'user');
   loadSide();
 }
