@@ -394,11 +394,11 @@ function runPython(main) {
   if (!IDE.worker) {
     IDE.worker = window.DEMO_PYWORKER ? new Worker(DEMO_PYWORKER) : new Worker('/pyworker.js');
     IDE.worker.onmessage = e => {
-      const d = e.data;
-      if (d.status) $('#run-status').textContent = d.status;
+      const d = e.data || {}, st = $('#run-status');
+      if (d.status && st) st.textContent = d.status;
       if (d.out != null) log('log', d.out);
       if (d.err != null) { log('error', d.err); badge(); }
-      if (d.done) { $('#run-status').textContent = 'จบการทำงาน'; IDE.running = false; }
+      if (d.done) { if (st) st.textContent = 'จบการทำงาน'; IDE.running = false; }
     };
     IDE.worker.onerror = e => { log('error', 'โหลด Python ไม่ได้: ' + (e.message || 'ตรวจการเชื่อมต่อ')); IDE.worker = null; };
   }
@@ -631,7 +631,7 @@ function changeCards(m, i) {
       : `${c.del ? '' : `<button data-diff="${i}:${k}">ดู diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'ลบไฟล์' : 'Apply'}</button>`;
     return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span>${tag}${body}</div>`;
   }).join('');
-  const all = ch.filter(needsApply).length > 1 ? `}${''}<button class="btn blue sm" data-applyall="${i}">Apply ทั้งหมด</button>` : '';
+  const all = ch.filter(needsApply).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply ทั้งหมด</button>` : '';
   return `<div class="changes">${cards}${all}</div>`;
 }
 async function apply(c) {
