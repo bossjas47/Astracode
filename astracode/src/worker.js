@@ -1665,6 +1665,9 @@ export class ChatRun {
     }
     if (url.pathname === '/stop') { this.st.gone = true; return new Response('ok'); }
     let i = +url.searchParams.get('from') || 0; const enc = new TextEncoder();
+    // DO อาจถูกปลุกใหม่หลังเริ่มงาน (ev ว่าง แต่ยังมีงานค้างใน storage) → ต้องรอ ไม่ใช่ปิดสตรีมทันที
+    // ไม่งั้นผู้ใช้จะเห็น 200 แต่ไม่มี event เลย = หน้าจอเงียบไม่มีคำตอบ
+    if (this.done && !this.ev.length && await this.s.storage.get('job')) this.done = false;
     return new Response(new ReadableStream({ async pull(c) {
       const o = this.o;
       while (i >= o.ev.length && !o.done) await new Promise(r => o.wake.push(r));
