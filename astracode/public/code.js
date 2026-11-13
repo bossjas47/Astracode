@@ -476,7 +476,7 @@ function drawAI() {
   box.scrollTop = box.scrollHeight;
 }
 async function codeSend(auto) {
-  if (IDE.busy) { IDE.round = 99; if (IDE.chatId) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: IDE.chatId }) }).catch(() => {}); return IDE.ctrl?.abort(); } // กดหยุด = หยุดโหมดอัตโนมัติด้วย
+  if (IDE.busy) { IDE.round = 99; return IDE.ctrl?.abort(); } // กดหยุด = หยุดโหมดอัตโนมัติด้วย
   const t = $('#ct'), text = auto ? auto.text : t.value.trim(); if (!text) return;
   if (!auto) IDE.round = 0;
   await saveNow();

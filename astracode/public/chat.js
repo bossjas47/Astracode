@@ -1,9 +1,10 @@
 // AstraCode: หน้าแชต
 let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], compare: false, cmp: [] };
-// สลับแชตโดยไม่โหลดหน้าใหม่
+let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ครั้งเดียว กันวนไม่จบ
 // กดหยุด = สั่งเซิร์ฟเวอร์หยุดตอบจริง (แค่ปิดจอหรือหลุดเน็ต AI จะตอบต่อเบื้องหลัง)
 function stopRun() { if (chat.id) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id }) }).catch(() => {}); chat.ctrl?.abort(); }
-function openChat(id) { if (chat.busy) chat.ctrl?.abort(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
+// สลับแชตโดยไม่โหลดหน้าใหม่
+function openChat(id) { if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
 addEventListener('popstate', () => { if (pageName() === 'chat') chatView(qs().get('id')); });
 PAGES.chat = () => chatView(qs().get('id'));
 function notice(u) {
@@ -20,6 +21,7 @@ const curModel = () => $('#model')?.value === 'auto' ? AUTO() : me.models.find(m
 async function chatView(id) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   chat = { ...chat, id: id ? +id : null, msgs: id ? await api('/chats/' + id).catch(() => []) : [], busy: false, images: [], files: [], compare: false, cmp: [] };
+  autoRetry = 0;
   for (const m of chat.msgs) if (typeof m.sources === 'string') try { m.sources = JSON.parse(m.sources); } catch { m.sources = null; }
   const saved = localStorage.getItem('model'), opt = sel => me.models.map(m => `<option value="${m.id}" ${String(m.id) === sel ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
   app.innerHTML = `<div class="chat view"><aside class="side" id="side">
@@ -85,7 +87,7 @@ async function chatView(id) {
     if (b.dataset.s != null) { t.value = SUGGEST[+b.dataset.s]; t.focus(); t.oninput(); }
   };
   $('#lim').innerHTML = limHTML(me.usage); modelUI(); renderAll(); loadSide();
-  if (chat.id && chat.msgs.at(-1)?.role === 'user') send({ resume: true }); // ข้อความล่าสุดยังไม่มีคำตอบ: ลองต่อสตรีมที่ AI ยังทำอยู่
+  if (chat.id && chat.msgs.at(-1)?.role === 'user') send({ resume: true }); // ข้อความล่าสุดยังไม่มีคำตอบ: ต่อสตรีมที่ AI ยังทำอยู่
 }
 function modelUI() {
   const m = curModel(), m2 = me.models.find(x => x.id === +$('#model2').value);
@@ -270,8 +272,11 @@ function updateLast() {
   if (stick) box.scrollTop = box.scrollHeight;
 }
 function showErr(msg, retry) {
-  $('#e').innerHTML = esc(msg) + (retry ? ' <button class="btn out sm" id="retry">ลองใหม่</button>' : '');
-  $('#retry')?.addEventListener('click', () => send({ regenerate: true }));
+  // retry: true = เดาให้ว่าควรทำอะไรต่อ (มีคำถามค้าง → ต่อคำตอบ, ไม่มี → ตอบใหม่) หรือส่งฟังก์ชันมาเอง
+  const fn = typeof retry === 'function' ? retry
+    : retry ? () => (chat.id && chat.msgs.at(-1)?.role === 'user' ? send({ resume: true }) : send({ regenerate: true })) : null;
+  $('#e').innerHTML = esc(msg) + (fn ? ' <button class="btn out sm" id="retry">ลองใหม่</button>' : '');
+  const b = $('#retry'); if (b) b.onclick = () => { $('#e').textContent = ''; fn(); };
 }
 function setBusy(b) { chat.busy = b; const g = $('#go'); g.innerHTML = ic(b ? 'stop' : 'up'); g.setAttribute('aria-label', b ? 'หยุด' : 'ส่ง'); g.classList.toggle('stop', b); }
 
@@ -323,15 +328,17 @@ async function compareSend() {
 }
 async function send({ regenerate = false, resume = false } = {}) {
   if (chat.busy) return;
-  if (chat.compare && !regenerate) return compareSend();
+  if (chat.compare && !regenerate && !resume) return compareSend();
   const quiet = regenerate || resume, t = $('#t'), text = quiet ? '' : t.value.trim(), imgs = quiet ? [] : chat.images, m = curModel();
   const files = quiet ? [] : chat.files;
+  if (!m) return showErr('ยังโหลดรายการโมเดลไม่เสร็จ ลองรีเฟรชหน้าแล้วส่งอีกครั้ง');
   if (files.some(f => f.text == null)) return showErr('รออ่านไฟล์ให้เสร็จก่อน');
   if (!quiet && !text && !imgs.length && !files.length) return;
   $('#e').textContent = '';
-  if (resume) { if (chat.msgs.at(-1)?.role !== 'user') return; }
+  if (resume) { if (chat.msgs.at(-1)?.role !== 'user') return; } // ต่อคำตอบ: ต้องมีคำถามค้างอยู่
   else if (regenerate) { if (chat.msgs.at(-1)?.role === 'assistant') chat.msgs.pop(); }
   else {
+    autoRetry = 0;
     t.value = ''; t.style.height = 'auto'; chat.images = []; chat.files = []; drawThumbs();
     chat.msgs.push({ role: 'user', content: withFiles(text || (files.length ? 'อ่านไฟล์นี้' : 'อธิบายรูปนี้'), files), imgs: imgs.length ? imgs : null });
     appendMsg(chat.msgs.at(-1));
@@ -340,7 +347,7 @@ async function send({ regenerate = false, resume = false } = {}) {
   chat.msgs.push(ai);
   if (quiet) renderAll(); else appendMsg(ai);
   setBusy(true); chat.ctrl = new AbortController();
-  let started = false, streamErr = null, raf = 0;
+  let started = false, streamErr = null, aborted = false, raf = 0;
   try {
     await stream({ chat_id: chat.id, model_id: m.id, text, images: imgs, files, regenerate, resume, search: localStorage.getItem('web') === '1' && !!site.search,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
@@ -354,16 +361,38 @@ async function send({ regenerate = false, resume = false } = {}) {
       if (d.done) { ai.pct = Math.max(0, d.pctWeek - me.usage.pctWeek); setUsage(d); }
     });
   } catch (x) {
-    if (x.name === 'AbortError') setTimeout(() => api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {}), 1500);
+    if (x.name === 'AbortError') {
+      aborted = true;
+      setTimeout(() => api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {}), 1500);
+      // เซิร์ฟเวอร์ยังตอบต่อเบื้องหลัง (waitUntil) แล้วบันทึกคำตอบไว้ → ดึงกลับมาแสดงให้เอง
+      if (chat.id) setTimeout(async () => {
+        if (chat.busy) return;
+        const list = await api('/chats/' + chat.id).catch(() => null);
+        if (!list || chat.busy || list.length <= chat.msgs.length) return;
+        for (const r of list) if (typeof r.sources === 'string') try { r.sources = JSON.parse(r.sources); } catch { r.sources = null; }
+        chat.msgs = list; $('#e').textContent = ''; renderAll(); loadSide();
+      }, 6000);
+    }
     else if (!started && !quiet) { // เซิร์ฟเวอร์ยังไม่บันทึก: คืนข้อความให้แก้แล้วส่งใหม่
       chat.msgs.splice(-2, 2); t.value = text; chat.images = imgs; chat.files = files; drawThumbs(); setBusy(false); renderAll(); showErr(x.message); return;
     } else streamErr = x.message;
   }
   cancelAnimationFrame(raf);
   ai.streaming = false;
-  if (!ai.content && !ai.thinking) chat.msgs.pop();
+  const empty = !ai.content && !ai.thinking;
+  if (empty && chat.msgs.at(-1) === ai) chat.msgs.pop();
   setBusy(false); renderAll();
-  if (streamErr) showErr(streamErr, chat.msgs.at(-1)?.role === 'user');
+  if (streamErr) showErr(streamErr, true);
+  else if (aborted) showErr('หยุดแล้ว · ถ้าเซิร์ฟเวอร์ตอบจบแล้ว ระบบจะดึงคำตอบมาแสดงให้เอง');
+  else if (empty) {
+    // เดิม: ลบคำตอบทิ้งแล้วเงียบสนิท ไม่มีอะไรขึ้นเลย → ตอนนี้ลองต่อให้อัตโนมัติ 1 ครั้ง แล้วค่อยแจ้ง
+    if (started && chat.id && !resume && autoRetry < 1) { autoRetry++; showErr('โมเดลยังไม่ได้ส่งคำตอบ กำลังลองใหม่ให้อัตโนมัติ…'); return send({ resume: true }); }
+    showErr('ไม่ได้คำตอบจากโมเดล ลองอีกครั้ง', true);
+  }
   loadSide();
 }
+
+// กันเหนียว: error ที่หลุดมานอก try ต้องเห็นบนจอ ไม่ใช่เงียบหายไปเลย
+addEventListener('error', e => { try { if (e.message) showErr('ผิดพลาด: ' + e.message); } catch {} });
+addEventListener('unhandledrejection', e => { const s = e.reason?.message || String(e.reason || ''); if (s && !/\babort/i.test(s)) try { showErr('ผิดพลาด: ' + s); } catch {} });
 
