@@ -79,6 +79,15 @@ function md(s) {
 // ---------- Thinking: กล่องเหตุผลที่ AI คิด (กดเพื่อขยาย) ----------
 const thinkLabel = m => m.streaming && !m.content ? '<span class="shimmer">กำลังคิด…</span>' : `Thinking${m.thinkSec ? ` · ${m.thinkSec} วินาที` : ''}`;
 const thinkHTML = m => m.thinking ? `<details class="think"><summary>${ic('sparkles', 'sm')}<span class="think-s">${thinkLabel(m)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${esc(m.thinking)}</div></details>` : '';
+// กล่องตัวเลือกจากบล็อก ```ask ที่ parseAsk() แยกออกมา
+function askHTML(asks, active = true) {
+  if (!Array.isArray(asks) || !asks.length) return '';
+  return `<div class="asks">${asks.map(a => `<div class="ask"><div class="ask-q">${esc(a.q || '')}</div><div class="ask-o">${(a.opts || []).map(o => `<button type="button" data-ask="${esc(String(o))}" ${active ? '' : 'disabled'}>${esc(String(o))}</button>`).join('')}</div></div>`).join('')}</div>`;
+}
+function askAnswer(e) {
+  const b = e?.target?.closest?.('button[data-ask]');
+  return b && !b.disabled ? (b.dataset.ask ?? null) : null;
+}
 // อัปเดตข้อความ AI ที่กำลังพิมพ์ โดยไม่ปิดกล่อง Thinking ที่ผู้ใช้เปิดไว้
 function paintStreaming(el, m) {
   let th = el.querySelector('.think');
