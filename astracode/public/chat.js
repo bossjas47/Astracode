@@ -1,5 +1,37 @@
 // AstraCode: หน้าแชต
 let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], compare: false, cmp: [] };
+// ── กัน deploy ไม่ครบคู่ (chat.js ใหม่ + app.js เก่า): ไม่ให้แชตพังเงียบ ──
+// app.js ที่ตรงกันจะเป็นคนประกาศ parseAsk; ถ้าไม่มี ให้ใช้ตัวสำรองนี้แทน
+if (typeof globalThis.parseAsk !== 'function') {
+  const OPT_RE = /^(?:[-*•]|\d+[.)])\s+/;
+  globalThis.parseAsk = function (content, streaming) {
+    let s = String(content || ''); const asks = [];
+    const block = (all, body) => {
+      const lines = body.split('\n').map(x => x.trim()).filter(Boolean), q = lines.filter(x => !OPT_RE.test(x)).join(' ').slice(0, 400);
+      const opts = lines.filter(x => OPT_RE.test(x)).map(x => x.replace(OPT_RE, '').slice(0, 120)).slice(0, 8);
+      if (!q || asks.length >= 4) return all;
+      asks.push({ q, opts }); return '';
+    };
+    s = s.replace(/```ask[ \t]*\n([\s\S]*?)```/g, block);
+    const open = s.search(/```ask[ \t]*(\n|$)/);
+    if (open >= 0 && !s.slice(open + 6).includes('```')) {
+      if (streaming) s = s.slice(0, open);
+      else { const rest = s.slice(open).replace(/^```ask[ \t]*\n?/, ''), kept = block(s.slice(open), rest); s = s.slice(0, open) + kept; }
+    }
+    const i = s.search(/(```(?:json)?\s*)?\{\s*"questions?"\s*:/);
+    if (i >= 0) {
+      const raw = s.slice(i).replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
+      let o; try { o = JSON.parse(raw); } catch { return { text: (streaming ? s.slice(0, i) : s).trim(), asks }; }
+      const list = (Array.isArray(o.questions) ? o.questions : [o]).filter(q => q && typeof q.question === 'string');
+      const label = x => typeof x === 'string' ? x : x?.label ?? x?.text ?? x?.value ?? x?.title ?? '';
+      if (list.length) { for (const q of list) asks.push({ q: q.question, opts: (q.options || q.choices || q.answers || []).map(label).filter(Boolean).slice(0, 8).map(String) }); s = s.slice(0, i); }
+    }
+    return { text: s.trim(), asks };
+  };
+}
+// ฟังก์ชันที่ต้องมาจาก app.js — ถ้าขาด ให้ขึ้นใน console ว่าลงไฟล์ไม่ครบคู่ (ไม่ใช่พังเงียบ)
+for (const k of ['setUrl', 'go', 'qs', 'here', 'pageName', 'limHTML', 'askHTML', 'askAnswer', 'withFiles', 'nearBottom', 'showPreview'])
+  if (typeof globalThis[k] !== 'function') console.warn('[AstraCode] app.js ไม่มี ' + k + '() — deploy app.js ให้ตรงกับ chat.js');
 let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ครั้งเดียว กันวนไม่จบ
 // กดหยุด = สั่งเซิร์ฟเวอร์หยุดตอบจริง (แค่ปิดจอหรือหลุดเน็ต AI จะตอบต่อเบื้องหลัง)
 function stopRun() { if (chat.id) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id }) }).catch(() => {}); chat.ctrl?.abort(); }
