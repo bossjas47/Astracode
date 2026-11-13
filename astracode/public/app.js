@@ -76,6 +76,35 @@ function md(s) {
     return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} แสดงผล</button>` : ''}<button class="cp-code">คัดลอก</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' ดาวน์โหลด' : ''}</button></div><pre><code>${esc(nl >= 0 ? part.slice(nl + 1) : part)}</code></pre></div>`;
   }).join('');
 }
+// แยกบล็อกคำถามของ AI ให้ใช้ร่วมกันทั้งหน้า Chat และหน้า Code
+if (typeof globalThis.parseAsk !== 'function') {
+  const ASK_OPT_RE = /^(?:[-*•]|\d+[.)])\s+/;
+  globalThis.parseAsk = function (content, streaming) {
+    let s = String(content || ''); const asks = [];
+    const block = (all, body) => {
+      const lines = body.split('\n').map(x => x.trim()).filter(Boolean);
+      const q = lines.filter(x => !ASK_OPT_RE.test(x)).join(' ').slice(0, 400);
+      const opts = lines.filter(x => ASK_OPT_RE.test(x)).map(x => x.replace(ASK_OPT_RE, '').slice(0, 120)).slice(0, 8);
+      if (!q || asks.length >= 4) return all;
+      asks.push({ q, opts }); return '';
+    };
+    s = s.replace(/```ask[ \t]*\n([\s\S]*?)```/g, block);
+    const open = s.search(/```ask[ \t]*(\n|$)/);
+    if (open >= 0 && !s.slice(open + 6).includes('```')) {
+      if (streaming) s = s.slice(0, open);
+      else { const rest = s.slice(open).replace(/^```ask[ \t]*\n?/, ''), kept = block(s.slice(open), rest); s = s.slice(0, open) + kept; }
+    }
+    const i = s.search(/(```(?:json)?\s*)?\{\s*"questions?"\s*:/);
+    if (i >= 0) {
+      const raw = s.slice(i).replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
+      let o; try { o = JSON.parse(raw); } catch { return { text: (streaming ? s.slice(0, i) : s).trim(), asks }; }
+      const list = (Array.isArray(o.questions) ? o.questions : [o]).filter(q => q && typeof q.question === 'string');
+      const label = x => typeof x === 'string' ? x : x?.label ?? x?.text ?? x?.value ?? x?.title ?? '';
+      if (list.length) { for (const q of list) asks.push({ q: q.question, opts: (q.options || q.choices || q.answers || []).map(label).filter(Boolean).slice(0, 8).map(String) }); s = s.slice(0, i); }
+    }
+    return { text: s.trim(), asks };
+  };
+}
 // ---------- Thinking: กล่องเหตุผลที่ AI คิด (กดเพื่อขยาย) ----------
 const thinkLabel = m => m.streaming && !m.content ? '<span class="shimmer">กำลังคิด…</span>' : `Thinking${m.thinkSec ? ` · ${m.thinkSec} วินาที` : ''}`;
 const thinkHTML = m => m.thinking ? `<details class="think"><summary>${ic('sparkles', 'sm')}<span class="think-s">${thinkLabel(m)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${esc(m.thinking)}</div></details>` : '';
