@@ -202,7 +202,11 @@ async function resetUsage(env, uid, scope) {
     // shortcut: ลดหน่วยลิมิตของแถวในรอบ 7 วันเหลือ 1e-12 (ไม่ใช่ 0 เพราะรายงานแยก "ใช้ผ่านแพลน" ด้วย units>0 · ต้นทุนจริง cost ไม่เปลี่ยน) ถ้าต้องเก็บประวัติรีเซ็ต ให้เพิ่มคอลัมน์ใน usage
     return (await env.DB.prepare(`UPDATE usage SET units=1e-12 WHERE user_id=?1 AND units>1e-12 AND created_at>=?3 AND ${sel}`).bind(uid, key, Date.now() - 7 * DAY).run()).meta?.changes ?? 0;
   }
-  await env.DB.prepare('UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE id=?').bind(Date.now(), uid).run();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE id=?').bind(Date.now(), uid),
+    // สมาชิกทีมที่ใช้ลิมิตรวม: ลิมิตนับจากรอบของทีม จึงต้องเริ่มรอบทีมใหม่ด้วย (มีผลกับทั้งทีม)
+    env.DB.prepare('UPDATE teams SET sess_start=NULL, week_start=NULL WHERE shared_pool=1 AND id IN (SELECT team_id FROM team_members WHERE user_id=?)').bind(uid),
+  ]);
   return 1;
 }
 // สิทธิ์กดรีเซ็ตที่แอดมินแจก (ใช้แล้วหมดไป) · สร้างตารางเองครั้งแรก ไม่ต้องรัน migration
@@ -476,20 +480,23 @@ async function chat(req, env, u, ctx) {
   if (await capHit(env, u, plan, m)) return json({ error: `${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว ลองโมเดลอื่นได้เลย`, cap: true }, 429);
   const st = await usageStatus(env, u, plan);
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
-  const overflow = (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance > 0 ? 'overflow' : null) : null;
+  const overflow = (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance > 0 && !ephemeral ? 'overflow' : null) : null;
   if ((st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429);
   if (await limited(env, 'chatmin:' + u.id, 20, 60e3)) return err('ส่งเร็วเกินไป รอสักครู่', 429);
   // ให้ตอบได้ทีละข้อความ กันยิงพร้อมกันหลายอันเพื่อเลี่ยงลิมิต (ล็อกหมดอายุเองใน 3 นาที) ยกเว้นโหมดเทียบ
-  const lock = 'chatlock:' + u.id + (ephemeral ? ':' + rand(4) : '');
-  const got = await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n')
-    .bind(lock, Date.now() + LOCK_MS, Date.now()).first();
-  if (!got) return err('กำลังตอบข้อความก่อนหน้าอยู่', 429);
+  // โหมดเทียบ (ephemeral) ขนานได้สูงสุด 3 ช่อง ไม่ใช่ไม่จำกัด
+  let lock = null;
+  for (const k of ephemeral ? [0, 1, 2].map(i => 'chatlock:' + u.id + ':e' + i) : ['chatlock:' + u.id]) {
+    if (await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(k, Date.now() + LOCK_MS, Date.now()).first()) { lock = k; break; }
+  }
+  if (!lock) return err('กำลังตอบข้อความก่อนหน้าอยู่', 429);
+  const fail = async (...a) => { await unlimit(env, lock); return err(...a); }; // ทางออกก่อนเริ่มตอบต้องคืนล็อกเสมอ
   try {
 
   const pid = b.project_id || null; // โหมด Code
-  if (pid && !await env.DB.prepare('SELECT 1 FROM projects WHERE id=? AND user_id=?').bind(pid, u.id).first()) return err('ไม่พบโปรเจกต์', 404);
+  if (pid && !await env.DB.prepare('SELECT 1 FROM projects WHERE id=? AND user_id=?').bind(pid, u.id).first()) return fail('ไม่พบโปรเจกต์', 404);
   let cid = ephemeral ? null : b.chat_id;
-  if (cid && !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, u.id).first()) return err('ไม่พบแชต', 404);
+  if (cid && !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, u.id).first()) return fail('ไม่พบแชต', 404);
   // ไฟล์เก็บในข้อความ โมเดลจึงจำได้ในข้อความถัดไป (รูปแบบเดียวกับฝั่งเว็บ)
   // shortcut: ไม่เก็บรูปไว้ในประวัติ (โมเดลเห็นรูปแค่ข้อความนี้) ถ้าต้องการให้จำรูป ให้เก็บใน R2
   const saved = text + files.map(f => `\n\n[[file:${f.name.replace(/[[\]\r\n]/g, '')}]]\n${f.text}\n[[/file]]`).join('') + (images.length ? `\n\n[แนบรูป ${images.length} รูป]` : '');
@@ -498,7 +505,7 @@ async function chat(req, env, u, ctx) {
   else {
     if (b.edit_id && cid) { // แก้ไขข้อความเดิมของ user แล้วลบข้อความหลังจากนั้นเพื่อตอบใหม่
       const target = await env.DB.prepare("SELECT id FROM messages WHERE id=? AND chat_id=? AND role='user'").bind(+b.edit_id, cid).first();
-      if (!target) return err('ไม่พบข้อความที่จะแก้ไข', 404);
+      if (!target) return fail('ไม่พบข้อความที่จะแก้ไข', 404);
       await env.DB.batch([
         env.DB.prepare('UPDATE messages SET content=?, model_id=? WHERE id=?').bind(saved, m.id, target.id),
         env.DB.prepare('DELETE FROM messages WHERE chat_id=? AND id>?').bind(cid, target.id),
@@ -506,7 +513,7 @@ async function chat(req, env, u, ctx) {
       ]);
     } else if (b.regenerate) { // ตอบใหม่: ลบคำตอบล่าสุด แล้วใช้คำถามเดิม
       const last = cid && await env.DB.prepare('SELECT id,role FROM messages WHERE chat_id=? ORDER BY id DESC LIMIT 1').bind(cid).first();
-      if (!last) return err('ไม่มีข้อความให้ตอบใหม่');
+      if (!last) return fail('ไม่มีข้อความให้ตอบใหม่');
       if (last.role === 'assistant') await env.DB.prepare('DELETE FROM messages WHERE id=?').bind(last.id).run();
     } else {
       if (!cid) cid = (await env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,?) RETURNING id').bind(u.id, text.slice(0, 40), Date.now(), pid, b.folder_id || null).first()).id;
@@ -766,7 +773,7 @@ async function mail(env, to, subject, html) {
 }
 async function notify(env, text) {
   const s = await getSettings(env, ['alert_discord', 'alert_line_to']), jobs = [];
-  if (s.alert_discord) jobs.push(fetch(s.alert_discord, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: text.slice(0, 1900) }) }));
+  if (s.alert_discord) jobs.push(fetch(s.alert_discord, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: text.slice(0, 1900), allowed_mentions: { parse: [] } }) })); // กันข้อความผู้ใช้ปิง @everyone
   if (env.LINE_ALERT_TOKEN && s.alert_line_to) jobs.push(fetch('https://api.line.me/v2/bot/message/push', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.LINE_ALERT_TOKEN }, body: JSON.stringify({ to: s.alert_line_to, messages: [{ type: 'text', text: text.slice(0, 4900) }] }) }));
   await Promise.allSettled(jobs);
 }
@@ -830,9 +837,18 @@ async function couponFor(env, u, code, kind) {
   return c;
 }
 const discountOf = (c, amount) => !c ? 0 : Math.min(amount, Math.round((c.kind === 'percent' ? amount * c.value / 100 : c.value) * 100) / 100);
-async function useCoupon(env, code, uid) {
+// จองคูปองแบบ atomic: คนนี้ต้องยังไม่เคยใช้ (PK code+user) และจำนวนใช้ต้องไม่เกิน max_uses · ซ้ำได้ผล false
+async function claimCoupon(env, code, uid) {
+  if (!code) return true;
+  if (!(await env.DB.prepare('INSERT OR IGNORE INTO coupon_uses VALUES (?,?,?)').bind(code, uid, Date.now()).run()).meta.changes) return false;
+  if ((await env.DB.prepare('UPDATE coupons SET used=used+1 WHERE code=? AND (COALESCE(max_uses,0)=0 OR used<max_uses)').bind(code).run()).meta.changes) return true;
+  await env.DB.prepare('DELETE FROM coupon_uses WHERE code=? AND user_id=?').bind(code, uid).run();
+  return false;
+}
+const releaseCoupon = async (env, code, uid) => { if (code && (await env.DB.prepare('DELETE FROM coupon_uses WHERE code=? AND user_id=?').bind(code, uid).run()).meta.changes) await env.DB.prepare('UPDATE coupons SET used=MAX(used-1,0) WHERE code=?').bind(code).run(); };
+async function useCoupon(env, code, uid) { // idempotent: นับ used เฉพาะตอนบันทึกครั้งแรก (ถ้าจองไว้แล้วจะไม่นับซ้ำ)
   if (!code) return;
-  await env.DB.batch([env.DB.prepare('UPDATE coupons SET used=used+1 WHERE code=?').bind(code), env.DB.prepare('INSERT OR IGNORE INTO coupon_uses VALUES (?,?,?)').bind(code, uid, Date.now())]);
+  if ((await env.DB.prepare('INSERT OR IGNORE INTO coupon_uses VALUES (?,?,?)').bind(code, uid, Date.now()).run()).meta.changes) await env.DB.prepare('UPDATE coupons SET used=used+1 WHERE code=?').bind(code).run();
 }
 // อนุมัติการจ่ายเงิน: เปิด/ต่อแพลน หรือเติม wallet + ให้รางวัลแนะนำเพื่อน
 async function applyPayment(env, p) {
@@ -882,8 +898,9 @@ async function pay(req, env, u) {
   }
   if (await limited(env, 'pay:' + u.id, 5, 3600e3)) return err('ส่งสลิปบ่อยเกินไป รอ 1 ชั่วโมง', 429);
   if (kind === 'plan' && fd.get('wallet') === '1' && amount > 0) { // จ่ายด้วยเงินใน Wallet: เปิดแพลนทันที
+    if (!await claimCoupon(env, coupon?.code, u.id)) return err('คูปองใช้ไม่ได้หรือหมดอายุ');
     const left = await env.DB.prepare('UPDATE users SET balance=ROUND(balance-?,4) WHERE id=? AND balance>=? RETURNING balance').bind(amount, u.id, amount).first(); // ตัดเงินแบบ atomic กันกดซ้ำพร้อมกัน
-    if (!left) return err('ยอดเงินใน Wallet ไม่พอ');
+    if (!left) { await releaseCoupon(env, coupon?.code, u.id); return err('ยอดเงินใน Wallet ไม่พอ'); }
     await env.DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, left.balance, 'plan', plan.name, Date.now()).run();
     const p = await env.DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,coupon,discount,created_at,approved_at) VALUES (?,?,?,'wallet','approved','plan',?,?,?,?,?) RETURNING *")
       .bind(u.id, plan.id, amount, period, coupon?.code || null, discount, Date.now(), Date.now()).first();
@@ -892,6 +909,7 @@ async function pay(req, env, u) {
   }
   if (await env.DB.prepare("SELECT 1 FROM payments WHERE user_id=? AND status='pending'").bind(u.id).first()) return err('มีคำขอที่รออนุมัติอยู่แล้ว');
   if (amount <= 0) { // คูปองลด 100%: เปิดแพลนทันที ไม่ต้องใช้สลิป
+    if (!await claimCoupon(env, coupon?.code, u.id)) return err('คูปองใช้ไม่ได้หรือหมดอายุ');
     const p = await env.DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,coupon,discount,created_at,approved_at) VALUES (?,?,0,'coupon','approved',?,?,?,?,?,?) RETURNING *")
       .bind(u.id, plan.id, kind, period, coupon?.code || null, discount, Date.now(), Date.now()).first();
     await applyPayment(env, p);
@@ -1119,7 +1137,7 @@ async function github(req, env, u, p, sub, now) {
   const DB = env.DB, M = req.method;
     const tok = u.gh_token && await unseal(env, u.gh_token).catch(() => null);
   if (!tok) return err('ยังไม่ได้เชื่อม GitHub', 400);
-  const ghApi = (path, opt = {}) => ghApi(path, { ...opt, base: env.GITHUB_API });
+  const ghApi = (path, opt = {}) => gh(tok, path, { ...opt, base: env.GITHUB_API });
   const head = async () => (await ghApi(`/repos/${p.gh_repo}/git/ref/heads/${encodeURIComponent(p.gh_branch)}`)).object.sha;
   const local = async () => (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(p.id).all()).results;
   const save = (sha, synced) => DB.prepare('UPDATE projects SET gh_sha=?, gh_synced=?, updated_at=? WHERE id=?').bind(sha, JSON.stringify(Object.fromEntries(synced)), now, p.id).run();
@@ -1284,15 +1302,16 @@ async function admin(req, env, path, url, me) {
     await ctxAudit('update user', { id: +r[1], ...b });
     if (b.credit) { const v = Math.round(+b.credit * 100) / 100; if (!v) return err('จำนวนเงินไม่ถูกต้อง'); await walletAdd(env, +r[1], v, 'admin', String(b.note || '').slice(0, 100) || null); }
     if (b.logout) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run(); // รหัสผ่านอยู่ใน Firebase ผู้ใช้รีเซ็ตเองที่หน้าเข้าสู่ระบบ
+    let scopedRows = null;
     if (b.reset_usage) {
       const n = await resetUsage(env, +r[1], b.scope), lbl = b.scope?.vendor ? 'ค่าย ' + String(b.scope.vendor).slice(0, 40) : b.scope?.model_id ? 'โมเดล #' + (+b.scope.model_id) : 'ทั้งหมด';
       await logReset(env, +r[1], 'direct', lbl, { by: me.email });
-      if (b.scope?.vendor || b.scope?.model_id) return json({ ok: true, rows: n });
+      scopedRows = n;
     }
     if ('banned' in b) await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run();
     if ('plan_id' in b) await DB.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').bind(b.plan_id || null, b.plan_id ? Date.now() + (b.days || 30) * DAY : null, r[1]).run();
     if (b.banned) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run();
-    return json({ ok: true });
+    return json(scopedRows == null ? { ok: true } : { ok: true, rows: scopedRows });
   }
   if (path === '/api/admin/stats') { // ช่วงเวลาปัจจุบันเทียบกับช่วงก่อนหน้าที่ยาวเท่ากัน
     const days = Math.min(365, Math.max(1, +url.searchParams.get('days') || 30));
@@ -1427,12 +1446,17 @@ async function admin(req, env, path, url, me) {
       let label = 'ทั้งหมด';
       if (sc?.model_id) { const m = await DB.prepare('SELECT name FROM models WHERE id=?').bind(sc.model_id).first(); if (!m) return err('ไม่พบโมเดล', 404); label = 'โมเดล ' + m.name; } else if (sc?.vendor) label = 'ค่าย ' + sc.vendor;
       const days = Math.round(+b.days || 0), exp = days > 0 ? now + Math.min(days, 3650) * DAY : null; // ว่าง/0 = ไม่หมดอายุ
-      count = 0; // 1 แถวต่อ 1 สิทธิ์ (n รอบ) · ? ใน where นับต่อจาก ?4
-      for (let i = 0; i < n; i++) count = (await DB.prepare(`INSERT INTO reset_grants (user_id,vendor,model_id,created_at,expires_at) SELECT id,?1,?2,?3,?4 FROM users WHERE banned=0 AND ${where}`).bind(sc?.vendor ?? null, sc?.model_id ?? null, now, exp, ...args).run()).meta.changes;
-      await DB.prepare(`INSERT INTO reset_log (user_id,kind,scope,n,expires_at,by_email,created_at) SELECT id,'grant',?1,?2,?3,?4,?5 FROM users WHERE banned=0 AND ${where}`).bind(label, n, exp, me.email, now, ...args).run();
+      // สมาชิกทีมที่ใช้ลิมิตรวมใช้สิทธิ์เองไม่ได้ จึงไม่แจกให้ · แจกทั้งก้อนใน batch เดียว (n รอบด้วย CTE) พร้อมบันทึกประวัติ
+      const pool = ' AND id NOT IN (SELECT tm.user_id FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE t.shared_pool=1 AND t.expires>?)', arg = [...args, now];
+      const res = await DB.batch([
+        DB.prepare(`WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM s WHERE i<?5) INSERT INTO reset_grants (user_id,vendor,model_id,created_at,expires_at) SELECT id,?1,?2,?3,?4 FROM users, s WHERE banned=0 AND ${where}${pool}`).bind(sc?.vendor ?? null, sc?.model_id ?? null, now, exp, n, ...arg),
+        DB.prepare(`INSERT INTO reset_log (user_id,kind,scope,n,expires_at,by_email,created_at) SELECT id,'grant',?1,?2,?3,?4,?5 FROM users WHERE banned=0 AND ${where}${pool}`).bind(label, n, exp, me.email, now, ...arg),
+      ]);
+      count = Math.round(res[0].meta.changes / n);
     } else {
       await creditsInit(env);
       await DB.prepare(`INSERT INTO reset_log (user_id,kind,scope,n,expires_at,by_email,created_at) SELECT id,'direct','ทั้งหมด',1,NULL,?1,?2 FROM users WHERE banned=0 AND ${where}`).bind(me.email, now, ...args).run(); // บันทึกก่อนรีเซ็ต
+      await DB.prepare(`UPDATE teams SET sess_start=NULL, week_start=NULL WHERE shared_pool=1 AND id IN (SELECT team_id FROM team_members WHERE user_id IN (SELECT id FROM users WHERE banned=0 AND ${where}))`).bind(...args).run();
       count = (await DB.prepare(`UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE banned=0 AND ${where}`).bind(now, ...args).run()).meta.changes;
     }
     if (b.target === 'email' && !count) return err('ไม่พบผู้ใช้อีเมลนี้');
@@ -1826,9 +1850,10 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     const b = await req.json();
     if (u.role === 'admin') return err('บัญชีแอดมินลบเองไม่ได้');
     if (String(b.confirm || '').trim().toLowerCase() !== u.email) return err('อีเมลไม่ตรง', 401);
+    await creditsInit(env); // ให้ตารางสิทธิ์รีเซ็ตมีอยู่ก่อนลบ
     const c = 'SELECT id FROM chats WHERE user_id=?1', pj = 'SELECT id FROM projects WHERE user_id=?1';
     await DB.batch([`DELETE FROM messages WHERE chat_id IN (${c})`, 'DELETE FROM chats WHERE user_id=?1', `DELETE FROM project_files WHERE project_id IN (${pj})`, `DELETE FROM file_versions WHERE project_id IN (${pj})`,
-      'DELETE FROM projects WHERE user_id=?1', 'DELETE FROM memories WHERE user_id=?1', 'DELETE FROM folders WHERE user_id=?1', 'DELETE FROM api_keys WHERE user_id=?1', 'DELETE FROM sessions WHERE user_id=?1',
+      'DELETE FROM projects WHERE user_id=?1', 'DELETE FROM team_members WHERE user_id=?1', 'DELETE FROM mcp_servers WHERE user_id=?1', 'DELETE FROM skills WHERE user_id=?1', 'DELETE FROM reset_grants WHERE user_id=?1', 'DELETE FROM reset_credits WHERE user_id=?1', 'DELETE FROM memories WHERE user_id=?1', 'DELETE FROM folders WHERE user_id=?1', 'DELETE FROM api_keys WHERE user_id=?1', 'DELETE FROM sessions WHERE user_id=?1',
       `DELETE FROM ticket_msgs WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)`, 'DELETE FROM tickets WHERE user_id=?1', 'DELETE FROM tokens WHERE user_id=?1',
       "UPDATE users SET email='deleted-'||id||'@deleted.local', pass_hash='x', banned=1, gh_token=NULL, totp_secret=NULL, google_id=NULL, line_id=NULL, fb_uid=NULL, instructions='' WHERE id=?1", // เก็บแถวผู้ใช้ไว้เพราะประวัติการเงินต้องเก็บตามกฎหมาย
     ].map(q => DB.prepare(q).bind(u.id)));
@@ -2119,7 +2144,14 @@ async function v1(req, env, ctx, path) {
     if (JSON.stringify(hist).length > 800000) return fail('ข้อความยาวเกินไป', 413);
     const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.reasoning_effort) ? b.reasoning_effort : null, id = 'chatcmpl-' + rand(12), created = Math.floor(Date.now() / 1000);
     const tools = Array.isArray(b.tools) && b.tools.length ? b.tools : undefined, toolChoice = b.tool_choice;
-    const maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined;
+    let maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined, walletKey = null;
+    if (billingMode === 'wallet') { // ตัดเงินหลังตอบ: จำกัดผลลัพธ์ไม่ให้เกินยอดที่เหลือ และให้ใช้ Wallet ทีละคำขอต่อผู้ใช้ กันยิงขนานจนยอดติดลบ
+      const pr = await priceOf(env, m), need = Math.ceil((JSON.stringify(hist).length + system.length) / 2) * pr.in / 1e6, room = k.balance - need;
+      if (!(room > 0)) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
+      maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * 1e6 / Math.max(pr.out, 1e-9))));
+      walletKey = 'walletlock:' + k.id; // shortcut: ล็อกหมดอายุเอง 3 นาทีถ้าคำขอล้มก่อนจบ, ถ้าต้องการเข้มกว่านี้ให้จองยอดล่วงหน้าแบบ atomic
+      if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(walletKey, Date.now() + 180e3, Date.now()).first()) return fail('มีคำขอที่ใช้ Wallet ค้างอยู่ รอให้เสร็จก่อน', 429, 'rate_limit_error');
+    }
     let activeModel = m;
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read } });
     const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2) });
@@ -2127,6 +2159,7 @@ async function v1(req, env, ctx, path) {
       const finalU = u || (outChars > 0 ? estUsage(outChars) : null);
       const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' ? { units: true, wallet: null, plan } : { units: false, wallet: 'api', plan }) : 0;
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
+      if (walletKey) await unlimit(env, walletKey);
       return finalU;
     };
     const nextFallback = async cur => cur.fallback_id ? env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(cur.fallback_id).first() : null;
