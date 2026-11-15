@@ -1237,6 +1237,14 @@ async function admin(req, env, path, url, me) {
     await ctxAudit('update user', { id: +r[1], ...b });
     if (b.credit) { const v = Math.round(+b.credit * 100) / 100; if (!v) return err('จำนวนเงินไม่ถูกต้อง'); await walletAdd(env, +r[1], v, 'admin', String(b.note || '').slice(0, 100) || null); }
     if (b.logout) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run(); // รหัสผ่านอยู่ใน Firebase ผู้ใช้รีเซ็ตเองที่หน้าเข้าสู่ระบบ
+    if (b.reset_usage && (b.scope?.vendor || b.scope?.model_id)) { // รีเซ็ตเฉพาะค่าย (ชื่อโมเดลขึ้นต้นด้วยชื่อค่าย เช่น DeepSeek) หรือโมเดลเดียว
+      // shortcut: ลดหน่วยลิมิตของแถวใช้งานในรอบ 7 วันเหลือ 1e-12 (ไม่ใช่ 0 เพราะรายงานแยก "ใช้ผ่านแพลน" ด้วย units>0 · ต้นทุนจริง cost ไม่เปลี่ยน) ถ้าต้องการประวัติว่ารีเซ็ตเมื่อไหร่ ให้เพิ่มคอลัมน์ใน usage
+      const byModel = !!b.scope.model_id, key = byModel ? +b.scope.model_id : String(b.scope.vendor).replace(/[%_]/g, '').trim().slice(0, 40);
+      if (!key) return err('เลือกค่ายหรือโมเดลที่จะรีเซ็ต');
+      const sel = byModel ? 'model_id=?2' : "model_id IN (SELECT id FROM models WHERE lower(name)=lower(?2) OR lower(name) LIKE lower(?2)||' %')";
+      const res = await DB.prepare(`UPDATE usage SET units=1e-12 WHERE user_id=?1 AND units>1e-12 AND created_at>=?3 AND ${sel}`).bind(+r[1], key, Date.now() - 7 * DAY).run();
+      return json({ ok: true, rows: res.meta?.changes ?? 0 });
+    }
     if (b.reset_usage) await DB.prepare('UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE id=?').bind(Date.now(), r[1]).run();
     if ('banned' in b) await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run();
     if ('plan_id' in b) await DB.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').bind(b.plan_id || null, b.plan_id ? Date.now() + (b.days || 30) * DAY : null, r[1]).run();

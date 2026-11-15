@@ -405,7 +405,8 @@ async function editors(tab, box, reload) {
 
 // แผงรายละเอียดผู้ใช้ (เลื่อนออกมาจากขวา)
 async function userDrawer(id, after) {
-  const [u, plans] = await Promise.all([api('/admin/users/' + id), api('/admin/plans')]);
+  const [u, plans, allModels] = await Promise.all([api('/admin/users/' + id), api('/admin/plans'), api('/admin/models')]);
+  const vendors = [...new Set(allModels.map(m => String(m.name).trim().split(/\s+/)[0]))];
   document.querySelector('.drawer')?.remove();
   const d = document.createElement('div'); d.className = 'drawer';
   const total = u.models.reduce((a, m) => a + m.cost, 0);
@@ -423,14 +424,20 @@ async function userDrawer(id, after) {
     <h3>การชำระเงิน</h3>${u.payments.length ? u.payments.map(p => `<div class="row" style="padding:6px 0">${STATUS[p.status]} ${esc(p.plan_name)} ฿${baht(p.amount)} <span class="muted">${when(p.created_at)}</span></div>`).join('') : '<p class="muted">ยังไม่เคยจ่าย</p>'}
     <h3>จัดการ</h3>
     <label>เปลี่ยนแพลน (30 วันนับจากวันนี้)</label><div class="row"><select id="dp" style="flex:1"><option value="">Free</option>${plans.filter(p => p.price > 0).map(p => `<option value="${p.id}" ${p.id === u.plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn blue sm" id="dps">ใช้แพลนนี้</button></div>
-    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dr">รีเซ็ตลิมิต</button><button class="btn out sm" id="dpw">ออกจากระบบทุกเครื่อง</button><button class="btn red sm" id="db">${u.banned ? 'ปลดแบน' : 'แบน'}</button></div>
+    <label>รีเซ็ตลิมิต</label><div class="row"><select id="dscope" style="flex:1"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${allModels.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select><button class="btn out sm" id="dr">รีเซ็ต</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dpw">ออกจากระบบทุกเครื่อง</button><button class="btn red sm" id="db">${u.banned ? 'ปลดแบน' : 'แบน'}</button></div>
     <p class="ok" id="dmsg"></p></aside>`;
   document.body.append(d);
   const close = () => { d.classList.add('out'); setTimeout(() => d.remove(), 200); after?.(); };
   d.querySelector('.dr-shade').onclick = close; d.querySelector('#dx').onclick = close;
   const put = async (body, msg) => { try { await api('/admin/users/' + id, { method: 'PUT', body }); d.querySelector('#dmsg').textContent = '✓ ' + msg; } catch (x) { toast(x.message, 'bad'); } };
   d.querySelector('#dps').onclick = () => put({ plan_id: +d.querySelector('#dp').value || null, days: 30 }, 'เปลี่ยนแพลนแล้ว');
-  d.querySelector('#dr').onclick = () => put({ reset_usage: true }, 'รีเซ็ตลิมิตแล้ว');
+  d.querySelector('#dr').onclick = async () => {
+    const v = d.querySelector('#dscope').value, label = d.querySelector('#dscope').selectedOptions[0].textContent;
+    const scope = v.startsWith('v:') ? { vendor: v.slice(2) } : v.startsWith('m:') ? { model_id: +v.slice(2) } : null;
+    if (!await confirmSheet(`รีเซ็ตลิมิตของ ${u.email}: ${label}?`, { title: 'รีเซ็ตลิมิต', ok: 'รีเซ็ต' })) return;
+    put(scope ? { reset_usage: true, scope } : { reset_usage: true }, 'รีเซ็ตลิมิตแล้ว: ' + label);
+  };
   d.querySelector('#dcs').onclick = async () => { const v = +d.querySelector('#dcr').value; if (!v || !await confirmSheet(`ปรับ Wallet ${v > 0 ? '+' : ''}${v} บาท?`, { title: 'ปรับยอด Wallet', ok: 'ยืนยัน' })) return; await put({ credit: v, note: d.querySelector('#dcn').value }, 'ปรับยอดแล้ว'); setTimeout(() => userDrawer(id, after), 500); };
   d.querySelector('#dpw').onclick = async () => { if (await confirmSheet('ให้ผู้ใช้นี้ออกจากระบบทุกเครื่อง?', { title: 'บังคับออกจากระบบ', ok: 'ยืนยัน' })) put({ logout: 1 }, 'ออกจากระบบทุกเครื่องแล้ว'); };
   d.querySelector('#db').onclick = async () => { if (await confirmSheet(u.banned ? 'ปลดแบนผู้ใช้นี้?' : 'แบนผู้ใช้นี้? จะถูกออกจากระบบทันที', { title: 'จัดการบัญชี', ok: 'ยืนยัน', danger: !u.banned })) { await put({ banned: u.banned ? 0 : 1 }, u.banned ? 'ปลดแบนแล้ว' : 'แบนแล้ว'); setTimeout(() => userDrawer(id, after), 600); } };
