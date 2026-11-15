@@ -169,10 +169,18 @@ async function copy(text, btn) {
 }
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
-const navL = (h, t) => `<a class="l${curl().pathname === h ? ' on' : ''}" href="${h}">${t}</a>`;
-const nav = () => `<nav class="nav"><a class="logo" href="/">AstraCode</a><span class="sp"></span>
-  ${me ? `${navL('/chat', 'แชต')}${navL('/code', 'Code')}${navL('/plans', 'แพลน')}${navL('/pricing', 'ราคา')}${navL('/blog', 'บล็อก')}<a class="l nav-acc" href="/account">${ic('user', 'sm')} บัญชี</a>${me.role === 'admin' ? navL('/admin', 'หลังบ้าน') : ''}`
-       : `${navL('/plans', 'แพลน')}${navL('/pricing', 'ราคา')}${navL('/blog', 'บล็อก')}<a class="btn blue sm" href="/login">เริ่มใช้ฟรี</a>`}</nav>`;
+const navL = (h, t, i) => `<a class="l${curl().pathname === h ? ' on' : ''}" href="${h}">${ic(i)}<span>${t}</span></a>`;
+const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="เมนู" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a></div>
+  <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="ปิดเมนู">${ic('x')}</button></div>
+  ${me ? `${navL('/chat', 'แชต', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}${me.role === 'admin' ? navL('/admin', 'หลังบ้าน', 'dash') : ''}<span class="sp"></span>${navL('/account', 'บัญชี', 'user')}`
+       : `${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}<span class="sp"></span><a class="btn blue" href="/login">เริ่มใช้ฟรี</a>`}</div></nav>`;
+// เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
+document.addEventListener('click', e => {
+  const n = e.target.closest?.('.nav'); if (!n) return;
+  const open = e.target.closest('.nav-btn:not(.nav-x)') ? !n.classList.contains('open') : false;
+  if (e.target.closest('.nav-btn, .nav-scrim, .nav-panel a')) { n.classList.toggle('open', open); n.querySelector('.nav-btn')?.setAttribute('aria-expanded', open); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelector('.nav.open')?.classList.remove('open'); });
 const page = html => { app.innerHTML = `<div class="view">${html}</div>`; };
 
 function planTiles(plans, sel, period) {
