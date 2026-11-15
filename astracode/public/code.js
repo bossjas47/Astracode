@@ -342,7 +342,7 @@ function showRun(on) { $('.ide').dataset.run = on ? '1' : ''; if (on && matchMed
 function drawer(on) { const ide = $('.ide'); if (!ide) return; ide.dataset.drawer = on ? '1' : ''; $('#burger')?.setAttribute('aria-expanded', !!on); }
 // รูปแบบ AI บนมือถือ (ผู้ใช้เลือกในตั้งค่า): page = หน้าแยก · sheet = แผ่นลอยทับโค้ด · bar = แถบสั่งเร็วใต้โค้ด + แผ่นลอย · split = แบ่งจอบน-ล่าง
 const AI_MODES = [['page', 'หน้าแยก', 'สลับไปหน้า AI เต็มจอ (แบบเดิม)'], ['sheet', 'แผ่นลอยทับโค้ด', 'ปุ่ม AI เปิดแผ่นครึ่งจอ ยังเห็นโค้ดด้านบน'], ['bar', 'แถบสั่งเร็วใต้โค้ด', 'พิมพ์คำสั่งใต้โค้ด ผลตอบกลับเปิดในแผ่นครึ่งจอ'], ['split', 'แบ่งจอ บน-ล่าง', 'โค้ดอยู่บน AI อยู่ล่างตลอดเวลา']];
-const aiMode = () => { const m = localStorage.getItem('aimode'); return AI_MODES.some(x => x[0] === m) ? m : 'page'; };
+const aiMode = () => { const m = localStorage.getItem('aimode'); return AI_MODES.some(x => x[0] === m) ? m : 'split'; }; // ค่าเริ่มต้น = แบ่งจอ
 const isPhone = () => matchMedia('(max-width: 999px)').matches;
 function openAI(on = true) {
   const ide = $('.ide'); if (!ide) return; const m = aiMode();
