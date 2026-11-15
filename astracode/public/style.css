@@ -1089,3 +1089,4 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 #mic .ic { width: 22px; height: 22px; }
 .cb.pick { overflow: hidden; }
 .cb .ic { flex: none; }
+.cb { justify-content: center; } /* ปุ่มไอคอนล้วน (ไมค์ ฯลฯ) อยู่กึ่งกลางกรอบ ไม่เบี้ยวซ้าย */
