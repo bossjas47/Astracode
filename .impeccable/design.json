@@ -1,23 +1,23 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-15T12:00:00Z",
+  "generatedAt": "2026-11-15T13:00:00Z",
   "title": "Design System: AstraCode",
   "extensions": {
     "colorMeta": {
-      "ash": {
+      "clay": {
         "role": "primary",
-        "displayName": "Ash",
-        "canonical": "#8e8ea0"
+        "displayName": "Clay",
+        "canonical": "#d97757"
       },
-      "black": {
+      "warm-black": {
         "role": "neutral",
-        "displayName": "Black",
-        "canonical": "#000000"
+        "displayName": "Warm Black",
+        "canonical": "#12100e"
       },
       "porcelain": {
         "role": "neutral",
         "displayName": "Porcelain",
-        "canonical": "#ececf1"
+        "canonical": "#f4efe8"
       }
     },
     "typographyMeta": {
@@ -30,12 +30,23 @@
         "purpose": "Default text."
       }
     },
-    "shadows": [],
+    "shadows": [
+      {
+        "name": "glass",
+        "value": "inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(255,255,255,.04), 0 8px 32px rgba(0,0,0,.3)",
+        "purpose": "Glass surfaces."
+      }
+    ],
     "motion": [
       {
-        "name": "base",
-        "value": "400ms ease",
-        "purpose": "All transitions."
+        "name": "glass",
+        "value": ".35s ease",
+        "purpose": "Controls."
+      },
+      {
+        "name": "drift",
+        "value": "28s ease-in-out infinite alternate",
+        "purpose": "Ambient light."
       }
     ],
     "breakpoints": [
@@ -60,15 +71,15 @@
       "refersTo": "button-primary",
       "description": "Main action. One per screen.",
       "html": "<button class=\"ds-btn-primary\">เริ่มใช้งาน</button>",
-      "css": ".ds-btn-primary{min-height:44px;padding:0 22px;border-radius:5px;border:0;background:#ffffff;color:#000;font:500 15px Inter,Prompt,system-ui,sans-serif;cursor:pointer}.ds-btn-primary:focus-visible{outline:2px solid #f5f5f7;outline-offset:2px}.ds-btn-primary:disabled{opacity:.4}"
+      "css": ".ds-btn-primary{min-height:44px;padding:0 28px;border-radius:9999px;border:0;background:linear-gradient(180deg,#e68a6b,#d97757);color:#1f1410;font:500 15px system-ui,Prompt,sans-serif;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 6px 20px rgba(217,119,87,.35)}.ds-btn-primary:focus-visible{outline:2px solid #e8a183;outline-offset:2px}"
     },
     {
-      "name": "Outline Button",
+      "name": "Glass Button",
       "kind": "button",
       "refersTo": "button-outline",
       "description": "Secondary action.",
       "html": "<button class=\"ds-btn-out\">ยกเลิก</button>",
-      "css": ".ds-btn-out{min-height:44px;padding:0 22px;border-radius:5px;border:0;background:transparent;color:#f5f5f7;box-shadow:0 0 0 1px #6e6e73 inset;font:500 15px Inter,Prompt,system-ui,sans-serif;cursor:pointer}.ds-btn-out:focus-visible{outline:2px solid #f5f5f7;outline-offset:2px}"
+      "css": ".ds-btn-out{min-height:44px;padding:0 22px;border-radius:9999px;color:#f4efe8;font:500 15px system-ui,Prompt,sans-serif;cursor:pointer;background-color:rgba(255,255,255,.04);background-image:linear-gradient(135deg,rgba(255,255,255,.11),rgba(255,255,255,.03));backdrop-filter:blur(24px) saturate(180%);border:1px solid rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 8px 32px rgba(0,0,0,.3);}.ds-btn-out:focus-visible{outline:2px solid #e8a183;outline-offset:2px}"
     },
     {
       "name": "Text Field",
@@ -76,7 +87,7 @@
       "refersTo": "input",
       "description": "Single-line input.",
       "html": "<input class=\"ds-input\" placeholder=\"อีเมล\">",
-      "css": ".ds-input{width:100%;min-height:44px;padding:10px 14px;border-radius:5px;border:1px solid #2e2e34;background:rgba(255,255,255,.04);color:#f5f5f7;font:400 15px Inter,Prompt,system-ui,sans-serif}.ds-input:focus{outline:1px solid #ffffff;outline-offset:1px}"
+      "css": ".ds-input{width:100%;min-height:44px;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#f4efe8;font:400 15px system-ui,Prompt,sans-serif;box-shadow:inset 0 1px 2px rgba(0,0,0,.3)}.ds-input:focus{outline:1px solid #d97757}"
     },
     {
       "name": "Card",
@@ -84,36 +95,37 @@
       "refersTo": "card",
       "description": "Content container.",
       "html": "<div class=\"ds-card\"><b>Plus</b><p>แผนรายเดือน</p></div>",
-      "css": ".ds-card{background:#0a0a0b;border:1px solid rgba(255,255,255,.09);border-radius:5px;padding:24px;color:#f5f5f7;box-shadow:0 5px 32px rgba(0,0,0,.35)}.ds-card p{margin:6px 0 0;color:#8e8ea0;font-size:13px}"
+      "css": ".ds-card{border-radius:28px;padding:24px;color:#f4efe8;background-color:rgba(255,255,255,.04);background-image:linear-gradient(135deg,rgba(255,255,255,.11),rgba(255,255,255,.03));backdrop-filter:blur(24px) saturate(180%);border:1px solid rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 8px 32px rgba(0,0,0,.3);}.ds-card p{margin:6px 0 0;color:#a39a8d;font-size:13px}"
     }
   ],
   "narrative": {
     "northStar": "The Quiet Observatory",
-    "overview": "Flat, black, OpenAI-style: one 5px radius, hairlines, no resting shadows, 400ms ease; Ash accent, white primary action.",
+    "overview": "Liquid Glass on warm black: frosted capsules over drifting warm light, specular edges, Clay accent, serif display.",
     "keyCharacteristics": [
-      "True black",
-      "One radius",
-      "Flat depth",
-      "Web tricks on Home only"
+      "Warm black",
+      "Glass on grouped surfaces",
+      "Clay primary action",
+      "Serif display voice"
     ],
     "rules": [
       {
-        "name": "The White Action Rule",
-        "body": "Primary action is white on black; Ash never carries a filled button.",
+        "name": "The One Warm Light Rule",
+        "body": "Clay is the only saturated accent.",
         "section": "colors"
       },
       {
-        "name": "The Flat Rule",
-        "body": "Separate with a hairline or tone step, never a shadow.",
+        "name": "The Glass Needs Light Rule",
+        "body": "Glass only over light or content; flat panels inside glass stay flat.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "Do keep 44px touch targets and a visible focus outline."
+      "Do keep 44px touch targets and a visible focus outline.",
+      "Do keep body text at 4.5:1 over glass."
     ],
     "donts": [
-      "Don't add shadows or a second accent hue.",
-      "Don't fill a button with Ash and put white text on it."
+      "Don't stack glass on glass beyond one level.",
+      "Don't put white text on Clay."
     ]
   }
 }

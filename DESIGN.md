@@ -1,61 +1,64 @@
 ---
 name: AstraCode
-description: Flat, black, OpenAI-style Thai AI chat and code workspace with a few web tricks on the home page.
+description: Liquid Glass on warm black: frosted capsules, specular edges, clay accent, serif display.
 colors:
-  black: "#000000"
-  graphite: "#0a0a0b"
-  carbon: "#121214"
-  steel: "#26262b"
-  slate: "#5c5c68"
-  ash: "#8e8ea0"
-  porcelain: "#ececf1"
-  link: "#b4b4c7"
+  warm-black: "#12100e"
+  graphite: "#1a1714"
+  carbon: "#221e1a"
+  steel: "#3a342d"
+  slate: "#6f665b"
+  ash: "#a39a8d"
+  porcelain: "#f4efe8"
+  clay: "#d97757"
+  clay-light: "#e8a183"
   go-green: "#30d158"
   caution-yellow: "#ffd500"
   alert-red: "#ff453a"
 typography:
   display:
-    fontFamily: "system-ui, Prompt, sans-serif"
+    fontFamily: "ui-serif, Iowan Old Style, Georgia, Prompt, serif"
     fontSize: "64px"
-    fontWeight: 700
+    fontWeight: 500
     lineHeight: 1.3
-    letterSpacing: "-0.03em"
   headline:
-    fontFamily: "system-ui, Prompt, sans-serif"
+    fontFamily: "ui-serif, Iowan Old Style, Georgia, Prompt, serif"
     fontSize: "32px"
-    fontWeight: 600
+    fontWeight: 500
     lineHeight: 1.3
   body:
-    fontFamily: "system-ui, Prompt, sans-serif"
+    fontFamily: "system-ui, -apple-system, Prompt, sans-serif"
     fontSize: "15px"
     fontWeight: 400
     lineHeight: 1.5
 rounded:
-  base: "5px"
+  field: "12px"
+  tile: "20px"
+  card: "28px"
+  pill: "9999px"
 spacing:
   sm: "8px"
   md: "16px"
-  lg: "24px"
+  lg: "28px"
 components:
   button-primary:
-    backgroundColor: "#ffffff"
-    textColor: "#000000"
-    rounded: "{rounded.base}"
-    padding: "0 24px"
+    backgroundColor: "{colors.clay}"
+    textColor: "#1f1410"
+    rounded: "{rounded.pill}"
+    padding: "0 28px"
     height: "44px"
-  button-outline:
-    backgroundColor: "transparent"
-    textColor: "{colors.porcelain}"
-    rounded: "{rounded.base}"
-    height: "44px"
-  input:
+  button-glass:
     backgroundColor: "rgba(255,255,255,0.04)"
     textColor: "{colors.porcelain}"
-    rounded: "{rounded.base}"
+    rounded: "{rounded.pill}"
+    height: "44px"
+  input:
+    backgroundColor: "rgba(255,255,255,0.05)"
+    textColor: "{colors.porcelain}"
+    rounded: "{rounded.field}"
     height: "44px"
   card:
-    backgroundColor: "{colors.graphite}"
-    rounded: "{rounded.base}"
+    backgroundColor: "rgba(34,30,26,0.45)"
+    rounded: "{rounded.card}"
     padding: "24px"
 ---
 
@@ -63,78 +66,83 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Quiet Observatory"** (kept), now drawn in the flat, engineered manner of OpenAI's system, on true black.
+**Creative North Star: "The Quiet Observatory"** (kept), now seen through glass: Apple's Liquid Glass material with Claude's warmth.
 
-Everything is flat: one 5px radius, 1px hairlines, no resting shadows, an 8px spacing grid and a single 400ms `ease` for every transition. The accent is the muted purple-gray Ash (#8e8ea0), used for secondary text, focus and the feature outline. The primary action is a white button with black text, because white on Ash fails contrast (about 3.3:1) while white on black is 21:1.
+Surfaces are translucent sheets over a slowly drifting warm light (clay, soft violet, sand). Each sheet blurs and saturates what is behind it, carries a bright 1px top edge and a soft drop. Shapes are capsules and generously rounded panels. The one accent is Clay; the display voice is a serif; body stays system sans.
 
 **Key Characteristics:**
-- True black page (#000), graphite and carbon layers, hairline borders `rgba(255,255,255,.1)`.
-- System-UI type stack with Prompt for Thai glyphs; no webfont for Latin.
-- Web tricks live on Home only: pointer spotlight on the hero and tile borders, a dotted grid, scroll reveal. All are off under `prefers-reduced-motion`.
+- Warm black (#12100e) page; the ambient light is fixed behind content on Home.
+- Glass on floating or grouped surfaces only: nav, cards, tiles, showcase, controls.
+- Clay primary action with dark text (white on Clay is about 3:1, so it is not used).
+- Motion: drifting ambient light, pointer sheen on tiles, scroll reveal. All stop under `prefers-reduced-motion`.
 
 ## Colors
 
 ### Primary
-- **White** (#ffffff on #000000): primary buttons.
-- **Ash** (#8e8ea0): secondary text, feature-plan outline, focus accents; 6.6:1 on black.
+- **Clay** (#d97757): primary button, user chat bubble, featured-plan outline.
+- **Clay Light** (#e8a183): links and stat figures.
 
 ### Neutral
-- **Black** (#000000) page. **Graphite** (#0a0a0b) tiles. **Carbon** (#121214) cards and hover. **Steel** (#26262b) field borders. **Slate** (#5c5c68) outline ring. **Porcelain** (#ececf1) body text. **Link** (#b4b4c7) inline links.
+- **Warm Black** (#12100e) page; **Graphite** (#1a1714), **Carbon** (#221e1a) layers; **Steel** (#3a342d) borders; **Slate** (#6f665b); **Ash** (#a39a8d) secondary text; **Porcelain** (#f4efe8) body text.
 
 ### Status
 - **Go Green** (#30d158), **Caution Yellow** (#ffd500), **Alert Red** (#ff453a).
 
 ### Named Rules
-**The White Action Rule.** The one primary action per screen is white on black; Ash never carries a filled button.
+**The One Warm Light Rule.** Clay is the only saturated accent; the violet and sand in the ambient light stay behind the glass and never reach a control.
 
 ## Typography
 
-**Display / Body Font:** system-ui, then Prompt, then sans-serif
+**Display Font:** ui-serif, Iowan Old Style, Georgia, then Prompt for Thai
+**Body Font:** system-ui, then Prompt
 
 ### Hierarchy
-- **Display** (700, 40px mobile / 64px from 768px, 1.3, -0.03em): home hero.
-- **Headline** (600, 32px, 1.3): section titles.
+- **Display** (500, 40px mobile / 64px from 768px, 1.3): home hero.
+- **Headline** (500, 32px, 1.3): section titles and plan prices.
 - **Body** (400, 15px, 1.5): default; muted copy in Ash.
-- **Label** (500, 13px): buttons, fields, the AstraCode wordmark tag (uppercase, +0.16em).
+- **Label** (500, 13px): controls; the wordmark tag is uppercase, +0.16em.
+
+Thai glyphs fall through to Prompt, so Thai headings are sans while Latin and digits are serif.
 
 ## Layout
 
-Centered column, max 980px, 16px gutters; 8px grid (8/16/24/32/48/56). App shells keep their full-height chat and IDE grids. Breakpoints: 400, 520, 760, 1000, 1280px. Plans scroll-snap on phones and sit in a four-column grid from 768px.
+Centered column, max 980px, 16px gutters. Home bands have no frame: the glass tiles are the structure. Plans scroll-snap on phones and form four columns from 768px. App shells keep their full-height chat and IDE grids.
 
 ## Elevation & Depth
 
-Flat. Depth is a background step and a 1px hairline. No resting shadows. Floating layers (modals, toasts) may keep a soft shadow.
+Glass depth: `backdrop-filter: blur(24px) saturate(180%)`, a 135deg white gradient fill (11% to 3%), `inset 0 1px 0 rgba(255,255,255,.28)` for the specular edge, `0 8px 32px rgba(0,0,0,.3)` drop. The featured plan adds a Clay ring and glow.
 
 ### Named Rules
-**The Flat Rule.** If a surface needs separation, add a hairline or a tone step, never a shadow.
+**The Glass Needs Light Rule.** Glass only on surfaces that sit over the ambient light or over content; flat panels inside a glass card stay flat.
 
 ## Shapes
 
-One radius: 5px on buttons, fields, cards, tabs, pills. Circles (50%) for avatars, dots and icon buttons. Switch tracks stay pill-shaped because they are a control shape, not a container.
+Capsules (9999px) for buttons, tabs, chips and pills; 28px for cards and the showcase; 20px for tiles and rows; 12px for fields. Circles for avatars and icon buttons.
 
 ## Components
 
 ### Buttons
-- 5px radius, 44px tall (48px in the hero). Primary white/black. Outline: transparent with a 1px Slate ring, fills 6% white on hover. 400ms ease.
+- **Primary:** Clay gradient, dark text, inset top highlight, Clay glow; lifts 1px on hover, scales to .97 on press.
+- **Glass:** translucent capsule with the glass border; fills to 12% white on hover.
 
 ### Inputs / Fields
-- 5px radius, 1px Steel border, 4% white fill; focus outline in Ash.
+- 12px radius, 5% white fill, 12px blur, inset shadow; Clay outline on focus.
 
 ### Cards / Containers
-- Graphite fill, 1px hairline, 5px radius, 24px padding. On Home, the border lights up toward the pointer.
+- 28px glass card or 20px tile; on Home a soft white radial sheen follows the pointer.
 
 ### Navigation
-- Sticky 52px bar, 80% black with 20px backdrop blur and a hairline bottom border.
+- Sticky 52px glass bar, 55% warm black, 24px blur.
 
 ## Do's and Don'ts
 
 ### Do:
 - **Do** keep 44px touch targets and a visible focus outline.
-- **Do** keep Thai line height at 1.3 or more for headings, 1.5 for body.
-- **Do** keep content visible by default; JS adds reveal classes only when motion is allowed.
+- **Do** keep body text at 4.5:1 or better over the glass.
+- **Do** provide a solid fallback where `backdrop-filter` is unsupported (already in the stylesheet).
 
 ### Don't:
-- **Don't** add shadows, gradients on text, or a second accent hue.
-- **Don't** fill a button with Ash and put white text on it.
+- **Don't** stack glass on glass beyond one level, or blur the whole page.
+- **Don't** put white text on Clay.
 - **Don't** change copy or behavior while restyling.
 - **Don't** break the CSP: no inline scripts, no new script origins beyond cdn.jsdelivr.net.
