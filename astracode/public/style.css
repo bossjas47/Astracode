@@ -906,3 +906,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .rst-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .gdot { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px var(--blue); }
 .cb.pick { gap: 6px; } .cb.pick .vlogo.xs { width: 22px; height: 22px; }
+/* composer row: keep the send button on the same line; the model pill shrinks (ellipsis) instead of wrapping */
+.crow:has(> .send) { flex-wrap: nowrap; }
+.crow:has(> .send) > .cb:not(.pick), .crow:has(> .send) > .send { flex: none; }
+.crow:has(> .send) > .cb.pick { flex: 0 1 auto; min-width: 0; }
