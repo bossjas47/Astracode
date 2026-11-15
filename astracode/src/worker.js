@@ -45,7 +45,12 @@ const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')
 const rand = n => hex(crypto.getRandomValues(new Uint8Array(n)));
 
 // ---------- auth ----------
-const same = (a, b) => { const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b); return x.length === y.length && crypto.subtle.timingSafeEqual(x, y); };
+const same = (a, b) => {
+  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0, n = Math.max(x.length, y.length); i < n; i++) diff |= (x[i] || 0) ^ (y[i] || 0);
+  return diff === 0;
+};
 const sha = async t => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)));
 // คำขอที่ผ่าน proxy บน Vercel แนบ x-proxy-secret มา จึงเชื่อ IP และโดเมนที่ proxy ส่งต่อได้
 const viaProxy = (req, env) => !!env.PROXY_SECRET && same(req.headers.get('x-proxy-secret') || '', env.PROXY_SECRET);
