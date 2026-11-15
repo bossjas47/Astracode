@@ -1051,3 +1051,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .cmd-opts button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border-radius: 9999px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .05); color: var(--porcelain); font: 500 12px var(--font); cursor: pointer; }
 .cmd-opts button[hidden] { display: none; }
 .cmd-opts .muted { flex: none; font-size: 11.5px; white-space: nowrap; }
+.sel-bg { z-index: 80; }
+.sel-sheet .opt { margin-bottom: 4px; }
+.sel-sheet .opt i { display: inline-flex; align-items: center; color: var(--link); }
+.sel-sheet .opt[disabled] { opacity: .4; }

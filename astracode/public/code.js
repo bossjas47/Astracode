@@ -3,7 +3,7 @@ PAGES.code = () => qs().get('p') ? codeView(qs().get('p')) : codeHome();
 const IDE = {
   pid: null, name: '', files: new Map(), states: new Map(), open: [], active: null, view: null,
   dirty: new Set(), saveT: null, status: '', closed: new Set(),
-  chatId: null, msgs: [], busy: false, ctrl: null, ctx: new Set(), autoActive: true,
+  chatId: null, msgs: [], busy: false, ctrl: null, 
   worker: null, frame: null, logs: [], runTab: 'out', pane: 'code', skills: JSON.parse(localStorage.getItem('cskills') || '[]'), mcps: JSON.parse(localStorage.getItem('cmcps') || '[]'),
 };
 const TREE_RE = /\n\n\[ไฟล์ทั้งหมดในโปรเจกต์\]\n[\s\S]*?(?=\n\n\[\[file:|$)/;
@@ -115,7 +115,7 @@ function openFile(path) {
   IDE.view.setState(stateFor(path));
   IDE.active = path;
   if (!IDE.open.includes(path)) IDE.open.push(path);
-  drawTabs(); drawTree(); drawRecent(); drawCtx(); setPane('code'); drawer(false);
+  drawTabs(); drawTree(); drawRecent(); setPane('code'); drawer(false);
 }
 function closeTab(path) {
   IDE.open = IDE.open.filter(p => p !== path);
@@ -153,14 +153,13 @@ function menu(btn, path, folder) {
   open?.remove(); if (same) return; // กดซ้ำที่ปุ่มเดิม = ปิดเมนู
   const m = document.createElement('div'); m.className = 'tmenu';
   m.innerHTML = folder ? '<button data-a="new">+ ไฟล์ในโฟลเดอร์นี้</button><button data-a="nfold">+ โฟลเดอร์ย่อย</button><button data-a="ren">เปลี่ยนชื่อโฟลเดอร์</button><button data-a="del" class="bad">ลบโฟลเดอร์</button>'
-    : `<button data-a="ai">${IDE.ctx.has(path) ? 'เอาออกจาก AI' : 'ส่งให้ AI ดู'}</button><button data-a="ren">เปลี่ยนชื่อ / ย้าย</button><button data-a="dup">ทำสำเนา</button><button data-a="del" class="bad">Delete</button>`;
+    : `<button data-a="ren">เปลี่ยนชื่อ / ย้าย</button><button data-a="dup">ทำสำเนา</button><button data-a="del" class="bad">Delete</button>`;
   btn.closest('.trow').after(m);
   m.onclick = async e => {
     const a = e.target.dataset.a; if (!a) return; m.remove();
     try {
       if (a === 'new') return newFile(path);
       if (a === 'nfold') return newFolder(path);
-      if (a === 'ai') { IDE.ctx.has(path) ? IDE.ctx.delete(path) : IDE.ctx.add(path); drawCtx(); return; }
       if (a === 'dup') { const to = await promptSheet('ชื่อไฟล์สำเนา', path.replace(/(\.\w+)?$/, '-copy$1'), { title: 'ทำสำเนาไฟล์', ok: 'Create' }); if (to) await writeFiles([{ path: to, content: content(path) }]); return; }
       if (a === 'del') {
         if (!await confirmSheet(`ลบ ${path} ?`, { title: 'ยืนยันการลบ', ok: 'Delete', danger: true })) return;
@@ -179,7 +178,7 @@ function menu(btn, path, folder) {
     } catch (x) { setStatus(x.message, true); }
   };
 }
-function dropFile(p) { IDE.files.delete(p); IDE.states.delete(p); IDE.dirty.delete(p); IDE.ctx.delete(p); if (IDE.open.includes(p)) closeTab(p); }
+function dropFile(p) { IDE.files.delete(p); IDE.states.delete(p); IDE.dirty.delete(p); if (IDE.open.includes(p)) closeTab(p); }
 async function newFile(dir = '') {
   const p = await promptSheet('ระบุพาธและชื่อไฟล์ (เช่น src/app.js)', dir, { title: 'สร้างไฟล์ใหม่', ok: 'Create' }); if (!p || p.endsWith('/')) return;
   if (has(p)) return openFile(p);
@@ -207,11 +206,11 @@ async function writeFiles(files) { // นำเข้าหลายไฟล์
 async function reload(openPath) {
   const d = await api('/projects/' + IDE.pid);
   IDE.files = new Map(d.files.map(f => [f.path, f.content])); IDE.states.clear(); IDE.dirty.clear();
-  IDE.open = IDE.open.filter(has); IDE.ctx = new Set([...IDE.ctx].filter(has));
+  IDE.open = IDE.open.filter(has);
   const a = openPath && has(openPath) ? openPath : has(IDE.active) ? IDE.active : IDE.open[0] || [...IDE.files.keys()][0];
   IDE.active = null; if (a) openFile(a); refresh();
 }
-function refresh() { drawTree(); drawTabs(); drawCtx(); }
+function refresh() { drawTree(); drawTabs(); }
 
 // ---------- อัปโหลด / zip ----------
 async function readText(f) {
@@ -487,16 +486,6 @@ function codeTools() {
 }
 
 // ---------- AI ----------
-function drawCtx() {
-  const box = $('#ctx'); if (!box) return;
-  const list = [...new Set([IDE.autoActive && IDE.active, ...IDE.ctx].filter(p => p && has(p)))];
-  const total = list.reduce((a, p) => a + content(p).length, 0);
-  box.innerHTML = `<span class="muted">แนบให้ AI:</span>` + list.map(p => `<span class="fchip">${icon(p)} <span>${esc(p)}</span>${p === IDE.active && IDE.autoActive && !IDE.ctx.has(p) ? '<small>ไฟล์ที่เปิด</small>' : ''}<button data-uctx="${esc(p)}" aria-label="เอาออก">${ic('x')}</button></span>`).join('')
-    + `<select id="addctx" aria-label="เพิ่มไฟล์ให้ AI"><option value="">+ เพิ่มไฟล์</option>${[...IDE.files.keys()].filter(p => !list.includes(p)).map(p => `<option>${esc(p)}</option>`).join('')}</select>`
-    + `<small class="muted">${tok(total)}</small>`;
-  box.querySelectorAll('[data-uctx]').forEach(b => b.onclick = () => { const p = b.dataset.uctx; if (IDE.ctx.has(p)) IDE.ctx.delete(p); else IDE.autoActive = false; drawCtx(); });
-  $('#addctx').onchange = e => { if (e.target.value) { IDE.ctx.add(e.target.value); drawCtx(); } };
-}
 function changesOf(text) {
   const map = new Map();
   for (const m of text.matchAll(/```[^\n`]*?\bpath=([^\s`]+)[^\n]*\n([\s\S]*?)\n?```/g)) map.set(m[1], { path: m[1], content: m[2].replace(/\n?$/, '\n') });
@@ -607,10 +596,8 @@ async function codeSend(auto) {
   if (!resume && !text) return;
   if (!auto) IDE.round = 0;
   await saveNow();
-  const paths = resume ? [] : [...new Set([IDE.autoActive && IDE.active, ...IDE.ctx].filter(p => p && has(p)))];
-  const files = paths.map(p => ({ name: p, text: content(p) }));
-  if (files.reduce((a, f) => a + f.text.length, 0) > 380000) return $('#ce').textContent = 'ไฟล์ที่ส่งให้ AI ยาวเกินไป เอาบางไฟล์ออก';
-  const tree = resume ? '' : [...IDE.files.keys()].join('\n').slice(0, 15000);
+  const files = []; // ไม่มีระบบแนบไฟล์: AI อ่านไฟล์เองด้วย READ / GREP
+  const tree = resume ? '' : [...IDE.files.keys()].join('\n').slice(0, 15000) + (IDE.active && has(IDE.active) ? `\n\n[ไฟล์ที่เปิดอยู่ในตัวแก้ไข: ${IDE.active}]` : '');
   const full = resume ? '' : `${text}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${tree}`;
   const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
   const images = auto?.images || [];
@@ -804,7 +791,7 @@ async function codeView(id) {
   const d = await api('/projects/' + id);
   IDE.node?.f.remove(); IDE.node = null; // เทอร์มินัลของโปรเจกต์ก่อน
   Object.assign(IDE, { pid: d.id, name: d.name, instructions: d.instructions || '', gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,
-    dirty: new Set(), ctx: new Set(), filter: '', recent: (() => { try { return JSON.parse(localStorage.getItem('recent:' + d.id) || '[]'); } catch { return []; } })(), autoActive: true, msgs: [], chatId: null, busy: false, logs: [], frame: null });
+    dirty: new Set(), filter: '', recent: (() => { try { return JSON.parse(localStorage.getItem('recent:' + d.id) || '[]'); } catch { return []; } })(), msgs: [], chatId: null, busy: false, logs: [], frame: null });
   if (IDE.worker) { IDE.worker.terminate(); IDE.worker = null; }
   const saved = localStorage.getItem('model');
   app.innerHTML = `<div class="ide view" data-pane="code">
@@ -836,9 +823,9 @@ async function codeView(id) {
         <select id="cmodel" hidden>${me.models.map(m => `<option value="${m.id}" ${String(m.id) === saved ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
         <select id="ceffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></div>
         <div id="cmsgs" class="msgs"></div>
-        <div class="compose"><div id="ctx" class="ctx"></div><div class="err" id="ce"></div>
+        <div class="compose"><div class="err" id="ce"></div>
           <form id="cf" class="cbox"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea>
-            <div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
+            <div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="อัปโหลดไฟล์เข้าโปรเจกต์">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
               <span id="cflags"></span><button class="send" id="cgo" aria-label="ส่ง">${ic('up')}</button></div></form></div></aside>
     </div>
     <nav class="ide-nav">${[['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['ai', 'sparkles', 'AI'], ['run', 'play', 'ผลลัพธ์']].map(([k, i, l]) => `<button data-pane-btn="${k}" class="${k === 'code' ? 'on' : ''}"><span>${ic(i)}</span>${l}</button>`).join('')}</nav></div>`;
@@ -854,7 +841,7 @@ async function codeView(id) {
 
   $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); };
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
-  $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools;
+  $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools; $('#cup').onclick = () => $('#uplf').click();
   $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
     else if (f === 'mc') { IDE.mcps = IDE.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('cmcps', JSON.stringify(IDE.mcps)); cUI(); } else if (f) { setOpt(f, false); cUI(); } };
   $('#clim').innerHTML = limHTML(me.usage); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();
