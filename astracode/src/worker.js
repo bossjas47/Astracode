@@ -286,6 +286,14 @@ const toAnthropicPart = p => {
   }
   return null;
 };
+// ผู้ให้บริการบางรายปฏิเสธระดับ effort ที่เราเลือก (เช่น "does not support reasoning effort \"minimal\"; use low, medium, high, xhigh or max") → อ่านรายการที่รองรับแล้วเลือกระดับที่ใกล้ที่สุด (เท่ากันเลือกอันที่สูงกว่า) เพื่อลองใหม่ 1 ครั้ง
+const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+function nearEffort(errText, cur) {
+  const after = String(errText).split(/reasoning effort/i)[1]?.split(/\buse\b/i)[1]; if (!after || !cur) return null;
+  const ok = [...after.matchAll(/\b(none|minimal|low|medium|high|xhigh|max)\b/gi)].map(x => x[1].toLowerCase()), ci = EFFORT_ORDER.indexOf(String(cur).toLowerCase());
+  if (!ok.length || ci < 0) return null;
+  return ok.sort((a, b) => Math.abs(EFFORT_ORDER.indexOf(a) - ci) - Math.abs(EFFORT_ORDER.indexOf(b) - ci) || EFFORT_ORDER.indexOf(b) - EFFORT_ORDER.indexOf(a))[0];
+}
 async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal } = {}) {
   const key = env[m.key_name];
   const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
@@ -393,7 +401,9 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       if (toolChoice === 'auto' || toolChoice === 'required') body.tool_choice = toolChoice;
       else if (toolChoice?.function?.name) body.tool_choice = { type: 'function', name: toolChoice.function.name };
     }
-    const res = await fetch(m.base_url + '/responses', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
+    const post = () => fetch(m.base_url + '/responses', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
+    let res = await post();
+    if (res.status === 400 && body.reasoning) { const t = await res.text(), ne = nearEffort(t, body.reasoning.effort); if (!ne) throw new Error(`upstream 400: ${t.slice(0, 300)}`); body.reasoning.effort = ne; res = await post(); }
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
     let usage = null;
     for await (const e of sse(res)) {
@@ -431,11 +441,9 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       if (effort) body.reasoning_effort = { on: 'medium', xhigh: 'max', minimal: 'low' }[effort] || effort;
     }
     if (m.effort === 'kimi') body.thinking = { type: effort ? 'enabled' : 'disabled' }; // Kimi K2.5+: เปิด/ปิดคิดอย่างเดียว ไม่มีระดับ
-    const res = await fetch(m.base_url + '/chat/completions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
-      body: JSON.stringify(body),
-    });
+    const post = () => fetch(m.base_url + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
+    let res = await post();
+    if (res.status === 400 && body.reasoning_effort) { const t = await res.text(), ne = nearEffort(t, body.reasoning_effort); if (!ne) throw new Error(`upstream 400: ${t.slice(0, 300)}`); body.reasoning_effort = ne; res = await post(); }
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
     let usage = null, inThink = false, tagBuf = '';
     const OPEN_T = ['<think>', '<thought>'], CLOSE_T = ['</think>', '</thought>'];
