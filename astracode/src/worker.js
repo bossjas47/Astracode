@@ -349,6 +349,40 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       else if (e.type === 'error') throw new Error(e.error?.message || 'upstream error');
     }
     yield { usage: u };
+  } else if (m.provider === 'responses') { // OpenAI Responses API (/responses): โมเดลรุ่นใหม่ที่ไม่รับ /chat/completions
+    const part = (role, p) => typeof p === 'string' ? { type: role === 'assistant' ? 'output_text' : 'input_text', text: p }
+      : p?.type === 'image_url' ? { type: 'input_image', image_url: p.image_url?.url || p.image_url }
+      : { type: role === 'assistant' ? 'output_text' : 'input_text', text: String(p?.text ?? '') };
+    const input = [];
+    for (const x of msgs) {
+      if (x.role === 'tool') { input.push({ type: 'function_call_output', call_id: x.tool_call_id || '', output: typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '') }); continue; }
+      const role = x.role === 'system' ? 'developer' : x.role;
+      const parts = (Array.isArray(x.content) ? x.content : x.content ? [String(x.content)] : []).map(c => part(role, c));
+      if (parts.length) input.push({ role, content: parts });
+      for (const tc of x.tool_calls || []) input.push({ type: 'function_call', call_id: tc.id || rand(8), name: tc.function?.name || '', arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {}) });
+    }
+    if (images.length) { const last = input.findLast(i => i.role === 'user'); if (last) last.content.push(...images.map(url => ({ type: 'input_image', image_url: url }))); }
+    const body = { model: m.api_model, stream: true, store: false, input };
+    if (system) body.instructions = system;
+    if (maxTokens) body.max_output_tokens = maxTokens;
+    if (m.effort === 'openai' && effort) body.reasoning = { effort: { on: 'medium', max: 'high' }[effort] || effort };
+    if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
+      body.tools = tools.map(t => ({ type: 'function', name: t.function?.name || t.name, description: t.function?.description || t.description || '', parameters: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));
+      if (toolChoice === 'auto' || toolChoice === 'required') body.tool_choice = toolChoice;
+      else if (toolChoice?.function?.name) body.tool_choice = { type: 'function', name: toolChoice.function.name };
+    }
+    const res = await fetch(m.base_url + '/responses', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    let usage = null;
+    for await (const e of sse(res)) {
+      if (e.type === 'response.output_text.delta' && e.delta) yield { t: e.delta };
+      else if ((e.type === 'response.reasoning_summary_text.delta' || e.type === 'response.reasoning_text.delta') && e.delta) yield { th: e.delta };
+      else if (e.type === 'response.output_item.added' && e.item?.type === 'function_call') yield { tc: [{ index: e.output_index ?? 0, id: e.item.call_id || e.item.id, function: { name: e.item.name || '', arguments: '' } }] };
+      else if (e.type === 'response.function_call_arguments.delta' && e.delta) yield { tc: [{ index: e.output_index ?? 0, function: { arguments: e.delta } }] };
+      else if (e.type === 'response.completed' || e.type === 'response.incomplete') { usage = e.response?.usage || usage; yield { stop_reason: e.type === 'response.completed' ? 'stop' : 'length' }; }
+      else if (e.type === 'response.failed' || e.type === 'error') throw new Error(`upstream: ${String(e.response?.error?.message || e.message || e.error?.message || 'failed').slice(0, 300)}`);
+    }
+    if (usage) { const inp = usage.input_tokens || 0, read = usage.input_tokens_details?.cached_tokens || 0; yield { usage: { fresh: Math.max(0, inp - read), read, write: 0, out: usage.output_tokens || 0 } }; }
   } else { // OpenAI-compatible: OpenAI, DeepSeek, Kimi, Gemini
     const messages = [
       ...(system ? [{ role: 'system', content: system }] : []),
