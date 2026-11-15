@@ -25,10 +25,12 @@ async function codeHome() {
       <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">Clone</button></div></form>
       <p class="muted" id="cmsg">ต้องเชื่อม GitHub ก่อน (ปุ่ม Git ในโปรเจกต์ไหนก็ได้)</p></details>
     <div class="err" id="e"></div>
-    <div class="grid">${list.map(p => `<div class="tile proj"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}</div>
+    ${list.length > 4 ? '<input id="psearch" type="search" placeholder="ค้นหาโปรเจกต์" aria-label="ค้นหาโปรเจกต์" autocomplete="off" style="margin-bottom:12px">' : ''}
+    <div class="grid" id="pgrid">${list.map(p => `<div class="tile proj" data-name="${esc(p.name.toLowerCase())}"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}</div>
       <div class="muted">${p.files} ไฟล์ · ${kb(p.size)} · แก้ล่าสุด ${when(p.updated_at)}</div></a>
       <div class="row" style="margin-top:8px"><a class="btn blue sm" href="/code?p=${p.id}">Open</a><button class="btn out sm" data-ren="${p.id}">Rename</button><button class="btn red sm" data-del="${p.id}">Delete</button></div></div>`).join('')
       || '<p class="muted" style="text-align:center">ยังไม่มีโปรเจกต์ สร้างอันแรกได้เลย ระบบจะใส่ไฟล์ตัวอย่างให้</p>'}</div>${footer()}</div>`);
+  $('#psearch')?.addEventListener('input', e => { const q = e.target.value.trim().toLowerCase(); document.querySelectorAll('#pgrid .tile.proj').forEach(t => t.hidden = !!q && !t.dataset.name.includes(q)); });
   $('#nf').onsubmit = async e => {
     e.preventDefault(); e.submitter.disabled = true;
     try { const r = await api('/projects', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); go('/code?p=' + r.id); }
@@ -528,12 +530,37 @@ function cUI() {
     + (IDE.mcps.length && _mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
 }
 function setOpt(k, on) { localStorage.setItem(k, on ? '1' : '0'); if (k === 'auto') IDE.autoMode = on; else IDE.autoApply = on; }
+async function shareProject() {
+  const r = await api(`/projects/${IDE.pid}/share`, { method: 'POST' }), url = `${location.origin}/p/${r.token}`;
+  sheet('แชร์โปรเจกต์ (อ่านอย่างเดียว)', `<p class="muted" style="margin:0 0 12px">ใครมีลิงก์นี้เปิดดูหน้าเว็บของโปรเจกต์ได้ แต่แก้ไฟล์ไม่ได้ · หน้าจะอัปเดตตามไฟล์ล่าสุดเสมอ</p>
+    <div class="row" style="flex-wrap:nowrap"><input readonly id="shu" value="${esc(url)}"><button class="btn out sm" id="shc">Copy</button></div><button class="btn red sm" id="shx" style="margin-top:12px">Stop sharing</button>`, (d, close) => {
+    d.querySelector('#shc').onclick = e => copy(url, e.target);
+    d.querySelector('#shx').onclick = async () => { await api(`/projects/${IDE.pid}/share`, { method: 'DELETE' }); close(); toast('ยกเลิกการแชร์แล้ว', 'ok'); };
+  });
+}
+// โหลดไฟล์ทั้งหมดจากเซิร์ฟเวอร์ใหม่ (หลังย้อนทั้งโปรเจกต์)
+async function reloadFiles() {
+  const d = await api('/projects/' + IDE.pid), keep = IDE.active;
+  IDE.files = new Map(d.files.map(f => [f.path, f.content])); IDE.states.clear(); IDE.dirty.clear(); IDE.open = IDE.open.filter(has); IDE.active = null;
+  refresh(); const first = has(keep) ? keep : [...IDE.files.keys()][0]; if (first) openFile(first);
+}
+async function projectHistory() {
+  const pts = await api(`/projects/${IDE.pid}/restorepoints`), label = { edit: 'ก่อนแก้ไข', import: 'ก่อนนำเข้า', git: 'ก่อน Pull', restore: 'ก่อนย้อนกลับ' };
+  sheet('ประวัติโปรเจกต์', pts.length ? `<p class="muted" style="margin:0 0 10px">เลือกจุดเวลา แล้วไฟล์ที่เปลี่ยนหลังจุดนั้นจะย้อนกลับ (ไฟล์ใหม่ที่เพิ่งสร้างจะยังอยู่ · ย้อนกลับของการย้อนได้จากรายการนี้)</p>${pts.map(x => optHTML(x.ts, when(x.ts), `${label[x.source] || x.source} · ${x.files} ไฟล์`)).join('')}` : '<p class="muted">ยังไม่มีประวัติ</p>', (d, close) => {
+    d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = async () => {
+      if (!await confirmSheet('ย้อนไฟล์ในโปรเจกต์ไปสถานะก่อนเวลานี้?', { title: 'ย้อนโปรเจกต์', ok: 'Undo' })) return;
+      try { await saveNow(); const r = await api(`/projects/${IDE.pid}/restore`, { method: 'POST', body: { ts: +b.dataset.v } }); close(); await reloadFiles(); toast(`ย้อนแล้ว ${r.restored} ไฟล์`, 'ok'); } catch (x) { toast(x.message, 'bad'); }
+    });
+  });
+}
 function codeTools() {
   sheet('เครื่องมือ AI', optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
     + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
     + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
+    + optHTML('share', ic('share') + 'แชร์โปรเจกต์ (ลิงก์อ่านอย่างเดียว)', 'ให้คนอื่นเปิดดูหน้าเว็บที่รันแล้วได้ แก้ไฟล์ไม่ได้')
+    + optHTML('hist', ic('undo') + 'ประวัติโปรเจกต์ / ย้อนทั้งโปรเจกต์', 'ย้อนไฟล์ทั้งหมดไปสถานะก่อนช่วงเวลาที่เลือก')
     + optHTML('exphtml', ic('download') + 'ส่งออก HTML ไฟล์เดียว', 'รวม HTML/CSS/JS เป็นไฟล์เดียวพร้อมเปิดใช้งาน')
     + optHTML('term', ic('terminal') + 'เปิดเทอร์มินัล', 'พิมพ์คำสั่ง npm / node เอง'),
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
@@ -542,6 +569,8 @@ function codeTools() {
       if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
       if (v === 'mcp') mcpSheet(IDE.mcps, ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); cUI(); });
       if (v === 'skl') skillsSheet(IDE.skills, ids => { IDE.skills = ids; localStorage.setItem('cskills', JSON.stringify(ids)); cUI(); });
+      if (v === 'share') shareProject().catch(x => $('#ce').textContent = x.message);
+      if (v === 'hist') projectHistory().catch(x => $('#ce').textContent = x.message);
       if (v === 'rules') {
         sheet('กฎประจำโปรเจกต์', `<form class="sheet-form" id="rf"><p class="sheet-msg">AI จะอ่านกฎนี้ทุกครั้งที่สั่งงานในโปรเจกต์นี้ (เช่น Stack, สไตล์โค้ด, ข้อห้าม)</p><textarea name="instructions" rows="5" maxlength="3000" placeholder="เช่น ใช้ Vanilla JS + Tailwind CSS, ตอบสั้นๆ">${esc(IDE.instructions || '')}</textarea><div class="sheet-acts"><button type="button" class="btn out" data-c>Cancel</button><button class="btn blue">Save rule</button></div></form>`, (sd, sclose) => {
           sd.querySelector('[data-c]').onclick = sclose;

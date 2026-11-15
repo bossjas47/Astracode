@@ -169,3 +169,64 @@ test('turnstile: when configured, login without a token is rejected before reach
   const off = await makeEnv(); const r2 = await off.json('/api/auth', { method: 'POST', body: { action: 'login', email: 'a@b.co', password: 'x' } });
   assert.notEqual(r2.data?.error?.includes?.('บอท'), true);
 });
+
+test('auto model: skips image models and models that are down', async () => {
+  const a = await fakeModel((q, res) => a.sse(res, 'A')), b = await fakeModel((q, res) => b.sse(res, 'B'));
+  const t = await makeEnv({ K: 'k' });
+  const cheap = addModel(t.DB, { name: 'cheap', base_url: a.url, sort: 1 }), img = addModel(t.DB, { name: 'img', provider: 'image', base_url: a.url, sort: 2 }), other = addModel(t.DB, { name: 'other', base_url: b.url, sort: 3 });
+  t.DB.raw.prepare('UPDATE models SET multiplier=1 WHERE id=?').run(cheap.id); t.DB.raw.prepare('UPDATE models SET multiplier=2 WHERE id=?').run(other.id); t.DB.raw.prepare('UPDATE models SET multiplier=0.1 WHERE id=?').run(img.id);
+  const plan = addPlan(t.DB, { models: [cheap.id, img.id, other.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+  for (let i = 0; i < 3; i++) t.DB.raw.prepare("INSERT INTO events (kind,model_id,detail,created_at) VALUES ('error',?,'x',?)").run(cheap.id, Date.now());
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: 'auto', text: 'hi' } })); await Promise.all(t.ctx.pending);
+  assert.ok(ev.some(e => e.t === 'B'), JSON.stringify(ev)); assert.equal(a.hits.length, 0);
+  a.close(); b.close();
+});
+
+test('usage CSV export lists days and models for the signed-in user only', async () => {
+  const t = await makeEnv(); const u = await t.user(), o = await t.user(); const m = addModel(t.DB, { name: 'CSV,Model', base_url: 'http://x' }); const plan = addPlan(t.DB, { models: [m.id], limit_week: 10 }); give(t.DB, u, plan);
+  const ins = t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,10,20,0,1,1,?)');
+  ins.run(u.id, m.id, Date.now()); ins.run(o.id, m.id, Date.now());
+  const r = await t.call('/api/usage/export?days=30', { cookie: u.cookie }); const txt = await r.text();
+  assert.equal(r.headers.get('content-type'), 'text/csv; charset=utf-8'); assert.ok(txt.includes('"CSV,Model",1,10,20,0,10')); assert.equal(txt.trim().split('\n').length, 2);
+});
+
+test('changing plan carries the remaining value over as days of the new plan', async () => {
+  const t = await makeEnv(); const adm = await t.user({ role: 'admin' }), u = await t.user();
+  const a = addPlan(t.DB, { name: 'A', price: 300 }), b = addPlan(t.DB, { name: 'B', price: 600 }); const now = Date.now();
+  t.DB.raw.prepare("UPDATE users SET plan_id=?,plan_expires=?,plan_period='month' WHERE id=?").run(a.id, now + 15 * 864e5, u.id);
+  const pay = t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at) VALUES (?,?,?,'x','pending','plan','month',?) RETURNING id").get(u.id, b.id, 600, now);
+  const r = await t.json(`/api/admin/payments/${pay.id}/approve`, { method: 'POST', cookie: adm.cookie }); assert.equal(r.status, 200);
+  const days = (t.DB.raw.prepare('SELECT plan_expires FROM users WHERE id=?').get(u.id).plan_expires - now) / 864e5;
+  assert.ok(Math.abs(days - (7.5 + 30)) < 0.05, 'days=' + days);
+});
+
+const project = (t, u, files) => {
+  const p = t.DB.raw.prepare('INSERT INTO projects (user_id,name,created_at,updated_at) VALUES (?,?,?,?) RETURNING id').get(u.id, 'P', Date.now(), Date.now());
+  for (const [path, content] of Object.entries(files)) t.DB.raw.prepare('INSERT INTO project_files VALUES (?,?,?,?)').run(p.id, path, content, Date.now());
+  return p;
+};
+
+test('shared project: owner gets a link, anyone sees a bundled sandboxed page, revoking removes it', async () => {
+  const t = await makeEnv(); const u = await t.user(), other = await t.user();
+  const png = 'data:image/jpeg;base64,/9j/AAAA';
+  const p = project(t, u, { 'index.html': '<html><head><link rel="stylesheet" href="style.css"></head><body><img src="images/a.jpg"><script src="app.js"></script></body></html>', 'style.css': 'body{color:red}', 'app.js': 'window.x=1', 'images/a.jpg': png });
+  assert.equal((await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: other.cookie })).status, 404);
+  const sh = await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: u.cookie }); assert.match(sh.data.token, /^[a-f0-9]{24}$/);
+  const page = await t.call('/p/' + sh.data.token); const html = await page.text();
+  assert.equal(page.status, 200); assert.ok(html.includes('body{color:red}') && html.includes('window.x=1') && html.includes(png) && !html.includes('href="style.css"'));
+  assert.match(page.headers.get('content-security-policy'), /sandbox/);
+  await t.json(`/api/projects/${p.id}/share`, { method: 'DELETE', cookie: u.cookie });
+  assert.equal((await t.call('/p/' + sh.data.token)).status, 404);
+});
+
+test('project restore points bring files back to an earlier state and are themselves undoable', async () => {
+  const t = await makeEnv(); const u = await t.user(); const p = project(t, u, { 'a.txt': 'v3', 'b.txt': 'b3' });
+  const ins = t.DB.raw.prepare('INSERT INTO file_versions (project_id,path,content,source,created_at) VALUES (?,?,?,?,?)');
+  const T1 = Date.now() - 3600e3, T2 = Date.now() - 1800e3;
+  ins.run(p.id, 'a.txt', 'v1', 'edit', T1); ins.run(p.id, 'a.txt', 'v2', 'edit', T2); ins.run(p.id, 'b.txt', 'b2', 'edit', T2);
+  const pts = await t.json(`/api/projects/${p.id}/restorepoints`, { cookie: u.cookie }); assert.equal(pts.data.length, 2);
+  const r = await t.json(`/api/projects/${p.id}/restore`, { method: 'POST', cookie: u.cookie, body: { ts: T1 } }); assert.equal(r.data.restored, 2);
+  const f = Object.fromEntries(t.DB.raw.prepare('SELECT path,content FROM project_files WHERE project_id=?').all(p.id).map(x => [x.path, x.content]));
+  assert.deepEqual(f, { 'a.txt': 'v1', 'b.txt': 'b2' });
+  assert.ok(t.DB.raw.prepare("SELECT 1 FROM file_versions WHERE project_id=? AND source='restore' AND content='v3'").get(p.id), 'previous state kept');
+});

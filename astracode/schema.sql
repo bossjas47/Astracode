@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   gh_repo TEXT, gh_branch TEXT, gh_sha TEXT, -- repo ที่เชื่อม และคอมมิตล่าสุดที่ sync
   gh_synced TEXT                            -- JSON: path → blob sha ตอน sync ล่าสุด
   , instructions TEXT NOT NULL DEFAULT ''
+  , share_token TEXT                        -- ลิงก์แชร์แบบอ่านอย่างเดียว /p/<token>
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id);
 CREATE TABLE IF NOT EXISTS project_files (

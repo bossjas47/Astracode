@@ -11,7 +11,7 @@ function usageHTML(d) {
   const by = Object.fromEntries(d.days.map(r => [r.d, r])), list = [], bkk = Date.now() + 7 * 3600e3;
   for (let i = 13; i >= 0; i--) { const k = new Date(bkk - i * 864e5).toISOString().slice(0, 10); list.push(by[k] || { d: k, n: 0, tin: 0, tout: 0, pct: 0 }); }
   const max = Math.max(...list.map(r => r.tin + r.tout), 1), tot = d.days.reduce((a, r) => ({ n: a.n + r.n, t: a.t + r.tin + r.tout }), { n: 0, t: 0 });
-  return `<p class="muted" style="margin:0 0 12px">รวม ${tot.n.toLocaleString('th-TH')} ข้อความ · ${kfmt(tot.t)} token</p>
+  return `<p class="muted" style="margin:0 0 12px">รวม ${tot.n.toLocaleString('th-TH')} ข้อความ · ${kfmt(tot.t)} token · <a href="/api/usage/export?days=90" download>Download CSV</a></p>
     <div class="ubars">${list.map(r => `<div class="ubar" title="${r.d}: ${r.n} ข้อความ · ↑${kfmt(r.tin)} ↓${kfmt(r.tout)} · ${r.pct}% ของลิมิตสัปดาห์"><i style="height:${Math.max(2, Math.round((r.tin + r.tout) / max * 100))}%"></i><span>${+r.d.slice(8)}</span></div>`).join('')}</div>
     <div class="tw"><table class="tbl"><tr><th>วัน</th><th>ข้อความ</th><th>เข้า/ออก</th><th>ลิมิต</th></tr>
       ${d.days.slice().reverse().slice(0, 7).map(r => `<tr><td>${new Date(r.d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</td><td>${r.n}</td><td>${kfmt(r.tin)} / ${kfmt(r.tout)}</td><td>${r.pct}%</td></tr>`).join('')}</table></div>

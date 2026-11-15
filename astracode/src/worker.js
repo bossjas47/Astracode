@@ -13,7 +13,7 @@ Question in one line?
 - Option 2
 \`\`\`
 Give 2-4 short options. The page shows buttons plus a box for a custom answer. Ask only when needed; otherwise just do the work.
-Code blocks without path= are treated as examples only. Only change files that need changing.
+The project preview runs in a sandboxed browser frame: access to localStorage/sessionStorage/cookies may be blocked, so wrap storage reads in try/catch; there is no real server, no network to localhost and no Python http.server: build front-end projects that open from index.html, and Python runs in the browser (Pyodide) without a server or webbrowser module. Code blocks without path= are treated as examples only. Only change files that need changing.
 You can see the whole project. The file list is in the message. To look at files, write tool lines on their own and then STOP your reply; the results come back to you:
 READ path=<relative path>   (full content of one file; up to 10 READ lines at once)
 GREP <regex>                (search every file, returns path:line: text)
@@ -203,7 +203,7 @@ const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4h: null
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 let colsDone;
 const ensureCols = env => colsDone ||= (async () => {
-  for (const q of ['ALTER TABLE plans ADD COLUMN use_4h INTEGER', 'ALTER TABLE models ADD COLUMN use_mult REAL', 'ALTER TABLE models ADD COLUMN promo_mult REAL', 'ALTER TABLE team_members ADD COLUMN cap_pct REAL', 'ALTER TABLE models ADD COLUMN first_token_s REAL', 'ALTER TABLE models ADD COLUMN idle_s REAL', 'ALTER TABLE sessions ADD COLUMN created_at INTEGER', 'ALTER TABLE sessions ADD COLUMN ua TEXT', 'ALTER TABLE sessions ADD COLUMN ip TEXT'])
+  for (const q of ['ALTER TABLE plans ADD COLUMN use_4h INTEGER', 'ALTER TABLE models ADD COLUMN use_mult REAL', 'ALTER TABLE models ADD COLUMN promo_mult REAL', 'ALTER TABLE team_members ADD COLUMN cap_pct REAL', 'ALTER TABLE models ADD COLUMN first_token_s REAL', 'ALTER TABLE models ADD COLUMN idle_s REAL', 'ALTER TABLE sessions ADD COLUMN created_at INTEGER', 'ALTER TABLE sessions ADD COLUMN ua TEXT', 'ALTER TABLE sessions ADD COLUMN ip TEXT', 'ALTER TABLE projects ADD COLUMN share_token TEXT'])
     try { await env.DB.prepare(q).run(); } catch { /* มีคอลัมน์แล้ว */ }
 })();
 // ตัวคูณหน่วยลิมิตของโมเดล: ช่วงโปรใช้ promo_mult (ถ้าตั้ง) ไม่งั้นใช้ use_mult · ว่าง = 1
@@ -499,6 +499,10 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       if (typeof th === 'string' && th) yield { th };
       const t = dl?.content;
       if (typeof t === 'string' && t) { tagBuf += t; for (const ev of flushBuf(false)) yield ev; }
+      for (const im of Array.isArray(dl?.images) ? dl.images : []) { // โมเดลที่ตอบเป็นภาพในแชตเลย (เช่น Gemini Image ผ่านรูปแบบ OpenAI): เก็บเป็นไฟล์แล้วแสดงใต้คำตอบ
+        const u0 = im?.image_url?.url || im?.url;
+        if (typeof u0 === 'string' && u0.startsWith('data:image/') && userId) { const mm = u0.slice(5, u0.indexOf(';')), b64s = u0.slice(u0.indexOf(',') + 1); try { yield { t: `\n\n![image](${await putImage(env, userId, mm === 'image/png' ? 'image/png' : 'image/jpeg', b64s)})\n\n` }; } catch { /* รูปใหญ่เกิน ข้าม */ } }
+      }
       if (Array.isArray(dl?.tool_calls) && dl.tool_calls.length) yield { tc: dl.tool_calls };
       if (ch?.finish_reason) yield { stop_reason: ch.finish_reason };
       if (e.usage || ch?.usage) usage = e.usage || ch.usage; // Kimi ใส่ usage ไว้ใน choices
@@ -559,6 +563,26 @@ const ensureFb = env => fbTable ||= env.DB.batch([
   env.DB.prepare('CREATE TABLE IF NOT EXISTS feedback (message_id INTEGER NOT NULL, user_id INTEGER NOT NULL, model_id INTEGER, vote INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (message_id, user_id))'),
   env.DB.prepare("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, user_id INTEGER, model_id INTEGER, reason TEXT, snippet TEXT, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL)"),
 ]);
+// หน้าเว็บของโปรเจกต์ที่แชร์: รวม CSS/JS/รูปเข้าไฟล์ HTML เดียว (เวอร์ชันฝั่งเซิร์ฟเวอร์ของ buildHtml ในหน้า Code · ไม่รองรับ ES module ที่ import ข้ามไฟล์)
+const STORAGE_SHIM = `<script>try{localStorage.getItem('_')}catch(e){for(const n of['localStorage','sessionStorage']){const m=new Map();Object.defineProperty(window,n,{configurable:true,value:{getItem:k=>m.has(k)?m.get(k):null,setItem:(k,v)=>{m.set(String(k),String(v))},removeItem:k=>{m.delete(k)},clear:()=>m.clear(),key:i=>[...m.keys()][i]??null,get length(){return m.size}}})}}</script>`;
+function bundleProject(files) {
+  const has = p => files.has(p), isImg = p => /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i.test(p), data = p => { const c = files.get(p) || ''; return c.startsWith('data:image/') ? c : null; };
+  const entry = has('index.html') ? 'index.html' : [...files.keys()].find(f => /\.html?$/i.test(f));
+  if (!entry) return null;
+  const dir = entry.replace(/[^/]*$/, '');
+  const resolve = ref => {
+    if (/^([a-z]+:|\/\/|#)/i.test(ref)) return null;
+    const out = []; for (const x of (ref.startsWith('/') ? ref.slice(1) : dir + ref).split('?')[0].split('#')[0].split('/')) { if (x === '..') out.pop(); else if (x && x !== '.') out.push(x); }
+    const p = out.join('/'); return has(p) ? p : null;
+  };
+  const b64 = str => { let o = ''; for (const x of new TextEncoder().encode(str)) o += String.fromCharCode(x); return btoa(o); };
+  let html = files.get(entry)
+    .replace(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi, (m, h) => { const f = resolve(h); return f && /stylesheet/i.test(m) ? `<style>\n${files.get(f)}\n</style>` : m; })
+    .replace(/<img\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>/gi, (m, a, src, b) => { const f = resolve(src); if (!f) return m; if (isImg(f) && data(f)) return `<img${a}src="${data(f)}"${b}>`; return /\.svg$/i.test(f) ? `<img${a}src="data:image/svg+xml;base64,${b64(files.get(f))}"${b}>` : m; })
+    .replace(/<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi, (m, a, src, b) => { const f = resolve(src); return f ? `<script${a}${b}>\n${files.get(f).replace(/<\/script/gi, '<\\/script')}\n</script>` : m; })
+    .replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, ref) => { const f = resolve(ref); return f && isImg(f) && data(f) ? `url(${q}${data(f)}${q})` : m; });
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + STORAGE_SHIM) : STORAGE_SHIM + html;
+}
 async function webSearch(env, q) { // Tavily
   if (!env.TAVILY_KEY || (await getSetting(env, 'search_enabled')) === '0') return [];
   try {
@@ -785,10 +809,10 @@ async function runChat(env, J, send, st) {
 const HARD_RE = /```|\b(debug|bug|error|refactor|algorithm|optimi[sz]e|architecture|prove|proof|regex|sql|typescript|python|javascript|react)\b|โค้ด|เขียนโปรแกรม|แก้บั๊ก|วิเคราะห์|พิสูจน์|คำนวณ|สมการ|ออกแบบระบบ|เปรียบเทียบ|กลยุทธ์|แผนธุรกิจ|เรียงความ|รายงาน/i;
 // shortcut: แยกง่าย/ยากด้วยกฎ (ไม่เสีย token เพิ่ม) ถ้าอยากแม่นขึ้นค่อยให้โมเดลเล็กช่วยจัดประเภท
 async function autoModel(env, plan, u, { text, images, files, effort, regenerate }) {
-  const all = await allowedModels(env, plan.id); if (!all.length) return null;
-  const ok = [];
-  for (const m of all) if (!(await capHit(env, u, plan, m))) ok.push(m);
-  const ms = ok.length ? ok : all; // ถ้าติดเพดานหมด ให้ใช้ all เพื่อแจ้ง 429 ตามปกติ
+  const all = (await allowedModels(env, plan.id)).filter(m => m.provider !== 'image'); if (!all.length) return null; // โมเดลสร้างรูปไม่ใช่ตัวเลือกของ Auto
+  const ok = [], healthy = [];
+  for (const m of all) if (!(await capHit(env, u, plan, m))) { ok.push(m); if (!await modelDown(env, m.id)) healthy.push(m); }
+  const ms = healthy.length ? healthy : ok.length ? ok : all; // เลือกจากตัวที่ปกติก่อน (ข้ามโมเดลที่ล่มอยู่) ถ้าไม่เหลือใช้ตัวที่เหลือ · ติดเพดานหมดใช้ all เพื่อแจ้ง 429 ตามปกติ
   const s = await getSettings(env, ['auto_cheap_model', 'auto_strong_model']), by = (a, b) => a.multiplier - b.multiplier;
   const cheap = ms.find(m => m.id === +s.auto_cheap_model) || [...ms].sort(by)[0];
   const strong = ms.find(m => m.id === +s.auto_strong_model) || [...ms].sort(by).at(-1);
@@ -1008,6 +1032,13 @@ async function useCoupon(env, code, uid) { // idempotent: นับ used เฉ�
   if ((await env.DB.prepare('INSERT OR IGNORE INTO coupon_uses VALUES (?,?,?)').bind(code, uid, Date.now()).run()).meta.changes) await env.DB.prepare('UPDATE coupons SET used=used+1 WHERE code=?').bind(code).run();
 }
 // อนุมัติการจ่ายเงิน: เปิด/ต่อแพลน หรือเติม wallet + ให้รางวัลแนะนำเพื่อน
+// เปลี่ยนไปแพ็กเกจอื่นระหว่างที่ยังมีเวลาเหลือ: แปลงมูลค่าที่เหลือของแพ็กเกจเดิมเป็นวันของแพ็กเกจใหม่ (ไม่เกินจำนวนวันที่เหลือจริง) ไม่ให้เวลาที่จ่ายไปแล้วหายไป
+function carryMs(oldPlan, oldPeriod, remainingMs, newPlan, newPeriod) {
+  if (!oldPlan || remainingMs <= 0) return 0;
+  const rate = (pl, per) => (per === 'year' && pl.price_year ? pl.price_year / 365 : pl.price / 30);
+  const o = rate(oldPlan, oldPeriod), n = rate(newPlan, newPeriod);
+  return n > 0 && o > 0 ? Math.min(remainingMs, remainingMs * o / n) : 0;
+}
 async function applyPayment(env, p) {
   const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(p.user_id).first();
   if (p.kind === 'topup') await walletAdd(env, u.id, p.amount, 'topup', 'payment#' + p.id);
@@ -1016,7 +1047,8 @@ async function applyPayment(env, p) {
     const pl = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(p.plan_id).first();
     if (pl && pl.seats > 1) {
       const ex = await env.DB.prepare('SELECT * FROM teams WHERE owner_id=? ORDER BY id DESC LIMIT 1').bind(u.id).first();
-      const base = ex && ex.plan_id === p.plan_id && ex.expires > now ? ex.expires : now;
+      let base = ex && ex.plan_id === p.plan_id && ex.expires > now ? ex.expires : now;
+      if (ex && ex.plan_id !== p.plan_id && ex.expires > now) base = now + carryMs(await env.DB.prepare('SELECT price,price_year FROM plans WHERE id=?').bind(ex.plan_id).first(), u.plan_period, ex.expires - now, pl, p.period); // อัปเกรดทีม: ทบเวลาที่เหลือ
       const exp = base + days * DAY;
       if (ex) {
         await env.DB.prepare('UPDATE teams SET plan_id=?, expires=?, max_seats=?, shared_pool=? WHERE id=?').bind(pl.id, exp, pl.seats, pl.shared_pool ? 1 : 0, ex.id).run();
@@ -1026,7 +1058,8 @@ async function applyPayment(env, p) {
         await env.DB.prepare("INSERT OR IGNORE INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'owner',?)").bind(t.id, u.id, now).run();
       }
     } else {
-      const base = u.plan_id === p.plan_id && u.plan_expires > now ? u.plan_expires : now; // ต่ออายุแพลนเดิมต่อท้าย
+      let base = u.plan_id === p.plan_id && u.plan_expires > now ? u.plan_expires : now; // ต่ออายุแพลนเดิมต่อท้าย
+      if (u.plan_id && u.plan_id !== p.plan_id && u.plan_expires > now) base = now + carryMs(await env.DB.prepare('SELECT price,price_year FROM plans WHERE id=?').bind(u.plan_id).first(), u.plan_period, u.plan_expires - now, pl || { price: 0 }, p.period); // เปลี่ยนแพลน: ทบเวลาที่เหลือ
       await env.DB.prepare('UPDATE users SET plan_id=?, plan_expires=?, plan_period=? WHERE id=?').bind(p.plan_id, base + days * DAY, p.period, u.id).run();
     }
   }
@@ -1210,6 +1243,24 @@ async function projects(req, env, u, path, url) {
     if (moves.some(([, n]) => rows.includes(n) && !moves.some(([o]) => o === n))) return err('มีไฟล์ชื่อนี้อยู่แล้ว');
     await DB.batch([...moves.map(([o, n]) => DB.prepare('UPDATE project_files SET path=?, updated_at=? WHERE project_id=? AND path=?').bind(n, now, pid, o)), touch]);
     return json({ ok: true });
+  }
+  if (sub === '/share') { // ลิงก์อ่านอย่างเดียวของโปรเจกต์ (หน้าเว็บที่รันได้ที่ /p/<token>) · DELETE = ยกเลิกลิงก์
+    if (M === 'DELETE') { await DB.prepare('UPDATE projects SET share_token=NULL WHERE id=?').bind(pid).run(); return json({ ok: true }); }
+    const token = p.share_token || rand(12);
+    if (!p.share_token) await DB.prepare('UPDATE projects SET share_token=? WHERE id=?').bind(token, pid).run();
+    return json({ token });
+  }
+  if (sub === '/restorepoints') return json((await DB.prepare('SELECT MIN(created_at) ts, source, COUNT(DISTINCT path) files FROM file_versions WHERE project_id=? GROUP BY created_at/60000, source ORDER BY ts DESC LIMIT 40').bind(pid).all()).results);
+  if (sub === '/restore' && M === 'POST') { // ย้อนทั้งโปรเจกต์ไปสถานะก่อนช่วงเวลานั้น (ใช้ประวัติรายไฟล์) · ไฟล์ที่สร้างใหม่หลังจุดนั้นจะยังอยู่
+    const ts = +(await req.json()).ts; if (!(ts > 0)) return err('จุดย้อนกลับไม่ถูกต้อง');
+    const back = (await DB.prepare('SELECT v.path,v.content FROM file_versions v WHERE v.project_id=?1 AND v.id=(SELECT MIN(id) FROM file_versions WHERE project_id=?1 AND path=v.path AND created_at>=?2)').bind(pid, ts).all()).results;
+    const files = back.filter(f => PATH_RE.test(f.path));
+    if (!files.length) return err('ไม่มีอะไรให้ย้อน');
+    await snapshot(env, pid, files, 'restore'); // เก็บสถานะปัจจุบันไว้ก่อน ย้อนกลับของการย้อนได้
+    const put = 'INSERT INTO project_files VALUES (?,?,?,?) ON CONFLICT(project_id,path) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at';
+    for (let i = 0; i < files.length; i += 50) await DB.batch(files.slice(i, i + 50).map(f => DB.prepare(put).bind(pid, f.path, f.content, now)));
+    await touch.run();
+    return json({ ok: true, restored: files.length });
   }
   if (sub === '/versions') return json((await DB.prepare('SELECT id,source,created_at,length(content) size FROM file_versions WHERE project_id=? AND path=? ORDER BY id DESC').bind(pid, url.searchParams.get('path') || '').all()).results);
   if (sub.startsWith('/versions/')) {
@@ -1706,6 +1757,14 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
+    if ((r = path.match(/^\/p\/([a-f0-9]{24})$/))) { // โปรเจกต์ที่แชร์: หน้าเว็บอ่านอย่างเดียว รันใน sandbox (ไม่มีคุกกี้/ข้อมูลของเว็บเรา)
+      await ensureCols(env);
+      const pr = await env.DB.prepare('SELECT id FROM projects WHERE share_token=?').bind(r[1]).first();
+      const rows = pr ? (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pr.id).all()).results : [];
+      const html = rows.length ? bundleProject(new Map(rows.map(f => [f.path, f.content]))) : null;
+      if (!html) return new Response('ไม่พบโปรเจกต์นี้ หรือเจ้าของยกเลิกการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60', 'x-robots-tag': 'noindex', 'content-security-policy': "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self'; sandbox allow-scripts allow-modals allow-forms allow-popups", 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } });
+    }
     // Cloudflare อาจ redirect /preview.html → /preview จึงรับทั้งสองแบบ
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
     if (path === '/node-runner' || path === '/node-runner.html') return sandboxed(await env.ASSETS.fetch(req), '/preview.html'); // เทอร์มินัล Node: origin แยกเหมือนหน้าแสดงผล
@@ -1849,6 +1908,13 @@ async function route(req, env, ctx, url, path, M) {
         await env.DB.prepare('INSERT INTO reports (message_id,user_id,model_id,reason,snippet,created_at) VALUES (?,?,?,?,?,?)').bind(m.id, u.id, m.model_id, String(b.reason || '').slice(0, 300), String(m.content || '').replace(/\u2063/g, '').slice(0, 600), Date.now()).run();
         ctx.waitUntil(notify(env, `🚩 มีรายงานคำตอบ AI #${m.id} จาก ${u.email.split('@')[0]}`));
         return json({ ok: true });
+      }
+      if (path === '/api/usage/export') { // CSV การใช้งานรายวันต่อโมเดล (สูงสุด 365 วัน)
+        const days = Math.min(365, Math.max(1, +url.searchParams.get('days') || 90)), plan = await planOf(env, u), wk = plan?.limit_week || 0;
+        const rows = (await env.DB.prepare("SELECT date((g.created_at+25200000)/1000,'unixepoch') d, COALESCE(m.name,'(รูป/อื่นๆ)') model, COUNT(*) n, SUM(g.tokens_in) tin, SUM(g.tokens_out) tout, SUM(g.tokens_cache) tc, SUM(g.units) units FROM usage g LEFT JOIN models m ON m.id=g.model_id WHERE g.user_id=? AND g.created_at>=? GROUP BY d, g.model_id ORDER BY d DESC, model").bind(u.id, Date.now() - days * DAY).all()).results;
+        const q = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : v;
+        const csv = '\ufeffวันที่,โมเดล,ข้อความ,token เข้า,token ออก,token cache,ใช้ลิมิต (% ของงบสัปดาห์)\n' + rows.map(r => [r.d, q(r.model), r.n, r.tin, r.tout, r.tc, wk > 0 ? Math.round(r.units / wk * 1000) / 10 : ''].join(',')).join('\n');
+        return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="astracode-usage-${days}d.csv"` } });
       }
       if (path === '/api/sessions') { // อุปกรณ์ที่ล็อกอินอยู่: ดูรายการ / ออกจากระบบเครื่องอื่นทั้งหมด
         if (M === 'GET') return json((await env.DB.prepare('SELECT token,created_at,ua,ip,expires FROM sessions WHERE user_id=? AND expires>? ORDER BY created_at DESC').bind(u.id, Date.now()).all()).results.map(x => ({ id: x.token.slice(0, 16), created_at: x.created_at, ua: x.ua || '', ip: x.ip || '', current: x.token === u.sid })));
