@@ -406,7 +406,7 @@ function drawer(on) { const ide = $('.ide'); if (!ide) return; ide.dataset.drawe
 const AI_MODES = [['page', 'หน้าแยก', 'สลับไปหน้า AI เต็มจอ (แบบเดิม)'], ['sheet', 'แผ่นลอยทับโค้ด', 'ปุ่ม AI เปิดแผ่นครึ่งจอ ยังเห็นโค้ดด้านบน'], ['bar', 'แถบสั่งเร็วใต้โค้ด', 'พิมพ์คำสั่งใต้โค้ด เลือกโมเดล/Effort ได้ และทำให้อัตโนมัติทั้งหมด (ใช้การแก้ไข รัน ตรวจผล)'], ['split', 'แบ่งจอ บน-ล่าง', 'โค้ดอยู่บน AI อยู่ล่างตลอดเวลา']];
 const aiMode = () => { const m = localStorage.getItem('aimode'); return AI_MODES.some(x => x[0] === m) ? m : 'split'; }; // ค่าเริ่มต้น = แบ่งจอ
 const isPhone = () => matchMedia('(max-width: 999px)').matches;
-const barAuto = () => isPhone() && aiMode() === 'bar'; // แถบสั่งเร็ว = ทำอัตโนมัติทั้งหมด: ใช้การแก้ไข รันคำสั่งที่ AI ขอ แล้วรัน+จับภาพตรวจผลให้ AI แก้ต่อ (สูงสุด 3 รอบ)
+const barAuto = () => true; // แถบสั่งเร็ว = ทำอัตโนมัติทั้งหมด: ใช้การแก้ไข รันคำสั่งที่ AI ขอ แล้วรัน+จับภาพตรวจผลให้ AI แก้ต่อ (สูงสุด 3 รอบ)
 function openAI(on = true) {
   const ide = $('.ide'); if (!ide) return; const m = aiMode();
   if (!isPhone() || m === 'page') return setPane(on ? 'ai' : 'code');
@@ -505,7 +505,7 @@ async function imagesForAI(msg, list) {
   if (IDE.round <= 5) await codeSend({ text: text + '\n\nใส่รูปลงในโค้ดตามที่ต้องการ แล้วสรุปสั้นๆ ถ้าสร้างรูปไม่สำเร็จให้ใช้ CSS หรือ SVG แทน' });
 }
 async function runForAI(msg, cmds) {
-  for (const c of changesOf(msg.content)) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, IDE.msgs[ref[0]]);
+  for (const c of changesOf(msg.content)) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, msg);
   msg.ran = true; drawAI();
   const cut = s => s.length > 6000 ? s.slice(0, 2000) + '\n…(ตัดกลาง)…\n' + s.slice(-4000) : s;
   let text = '[ผลการรันคำสั่ง]';
@@ -523,16 +523,13 @@ function cUI() {
   if (efs.length && !efs.includes($('#ceffort').value)) $('#ceffort').value = efs[0];
   $('#ceff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
   $('#bmdl').innerHTML = $('#cmdl').innerHTML; $('#beff').innerHTML = $('#ceff').innerHTML; $('#beff').hidden = !efs.length; // แถบสั่งเร็วใช้ค่าเดียวกับกล่อง AI
-  $('#cflags').innerHTML = (IDE.autoApply ? `<button type="button" class="flag" data-flag="autoapply" aria-label="ปิด Auto-apply">${ic('check', 'sm')}Auto-apply${ic('x', 'sm')}</button>` : '')
-    + (IDE.autoMode ? `<button type="button" class="flag" data-flag="auto" aria-label="ปิดตรวจผลเอง">${ic('eye', 'sm')}ตรวจผลเอง${ic('x', 'sm')}</button>` : '')
+  $('#cflags').innerHTML = ''
     + (IDE.skills.length && _skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
     + (IDE.mcps.length && _mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
 }
 function setOpt(k, on) { localStorage.setItem(k, on ? '1' : '0'); if (k === 'auto') IDE.autoMode = on; else IDE.autoApply = on; }
 function codeTools() {
-  sheet('เครื่องมือ AI', optHTML('autoapply', ic('check') + 'Auto-apply', 'ใช้การแก้ไฟล์ของ AI ทันที และรันคำสั่งที่ AI ขอ ไม่ต้องกดเอง', IDE.autoApply)
-    + optHTML('auto', ic('eye') + 'ตรวจผลเองอัตโนมัติ', 'ใช้การแก้ไข แล้วรัน + จับภาพหน้าจอให้ AI ดูและแก้ต่อ สูงสุด 3 รอบ', IDE.autoMode)
-    + optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
+  sheet('เครื่องมือ AI', optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
     + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
@@ -669,7 +666,7 @@ function aiMsgHTML(m, i) {
   const ask = parseAsk(m.content, m.streaming);
   const cleanBody = stripTools(ask.text);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
-  return `<div class="msg ai">${thinkHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : waitHTML(m)}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
+  return `<div class="msg ai">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${hasSegs(m) ? segHTML(m, cleanBody) : cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : waitHTML(m)}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
     + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;
 }
 function drawAI() {
@@ -1038,7 +1035,7 @@ async function codeView(id) {
       });
     };
   };
-  IDE.autoMode = localStorage.getItem('auto') === '1'; IDE.autoApply = localStorage.getItem('autoapply') === '1';
+  IDE.autoMode = true; IDE.autoApply = true; // โหมด Code ใช้การแก้ไขและรันทดสอบอัตโนมัติเสมอ (ปิดไม่ได้)
   const ct = $('#ct');
   ct.oninput = () => { ct.style.height = 'auto'; ct.style.height = ct.scrollHeight + 'px'; };
   ct.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#cf').requestSubmit(); } };

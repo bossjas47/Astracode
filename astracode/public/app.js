@@ -134,10 +134,10 @@ if (typeof globalThis.parseAsk !== 'function') {
   };
 }
 // ---------- Thinking: กล่องเหตุผลที่ AI คิด (กดเพื่อขยาย) ----------
-const thinkLabel = m => m.streaming && !m.content ? '<span class="shimmer">กำลังคิด…</span>' : `Thinking${m.thinkSec ? ` · ${m.thinkSec} วินาที` : ''}`;
+const thinkLabel = (m, i = 1, n = 1) => m.streaming && !m.content ? '<span class="shimmer">กำลังคิด…</span>' : `Thinking${n > 1 ? ` · รอบที่ ${i}` : ''}${m.thinkSec ? ` · ${m.thinkSec} วินาที` : ''}`;
 // ความคิดบางรุ่นส่งมาเป็นหัวข้อ **...** ต่อกันโดยไม่มีบรรทัดว่าง → จัดเป็นย่อหน้าและทำตัวหนา
 const thinkText = s => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/<\/b>(?=<b>)/g, '</b>\n\n').replace(/([^\n>])<b>/g, '$1\n\n<b>');
-const thinkHTML = m => m.thinking ? `<details class="think"><summary>${ic('sparkles', 'sm')}<span class="think-s">${thinkLabel(m)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${thinkText(m.thinking)}</div></details>` : '';
+const thinkHTML = (m, i = 1, n = 1) => m.thinking ? `<details class="think"><summary>${ic('sparkles', 'sm')}<span class="think-s">${thinkLabel(m, i, n)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${thinkText(m.thinking)}</div></details>` : '';
 // กล่องตัวเลือกจากบล็อก ```ask ที่ parseAsk() แยกออกมา
 function askHTML(asks, active = true) {
   if (!Array.isArray(asks) || !asks.length) return '';
@@ -148,7 +148,22 @@ function askAnswer(e) {
   return b && !b.disabled ? (b.dataset.ask ?? null) : null;
 }
 // อัปเดตข้อความ AI ที่กำลังพิมพ์ โดยไม่ปิดกล่อง Thinking ที่ผู้ใช้เปิดไว้
+// ความคิดหลายรอบ: thinking คั่นด้วย \u0001 และข้อความมีตัวคั่นมองไม่เห็น \u2063\u2063 ตรงจุดที่ความคิดรอบใหม่เริ่ม → แสดงเป็น Thinking · ข้อความ · Thinking · ข้อความ ตามลำดับจริง
+const SEG_MARK = '\u2063\u2063';
+const hasSegs = m => !!m.thinking && m.thinking.includes('\u0001');
+function segHTML(m, text) {
+  const th = String(m.thinking || '').split('\u0001'), parts = String(text || '').split(SEG_MARK), n = Math.max(th.length, parts.length);
+  let h = '';
+  for (let i = 0; i < n; i++) {
+    const body = (parts[i] || '').trim(), last = i === n - 1;
+    if (th[i]) h += thinkHTML({ thinking: th[i], streaming: !!m.streaming && last, content: body, thinkSec: i === 0 ? m.thinkSec : 0 }, i + 1, n);
+    if (body) h += md(body);
+  }
+  return h || (m.streaming ? waitHTML(m) : '');
+}
 function paintStreaming(el, m) {
+  const body = typeof stripTools === 'function' ? stripTools(m.content) : m.content; // โหมด Code: ซ่อนบรรทัดคำสั่ง READ/GREP/RUN ระหว่างพิมพ์ด้วย
+  if (hasSegs(m)) { el.querySelector('.think')?.remove(); el.querySelector('.b').innerHTML = segHTML(m, body); return; }
   let th = el.querySelector('.think');
   if (m.thinking && !th) { el.insertAdjacentHTML('afterbegin', thinkHTML(m)); th = el.querySelector('.think'); }
   if (th) {
@@ -161,7 +176,7 @@ function paintStreaming(el, m) {
     if (!mp) { el.querySelector('.b').insertAdjacentHTML('beforebegin', '<div class="steps-bar mcp-live" style="cursor:default"></div>'); mp = el.querySelector('.mcp-live'); }
     mp.innerHTML = `${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span>`;
   }
-  el.querySelector('.b').innerHTML = m.content ? md(m.content) : m.thinking ? '' : waitHTML(m);
+  el.querySelector('.b').innerHTML = body ? md(body) : m.thinking ? '' : waitHTML(m);
 }
 // นับเวลาคิด: จากความคิดคำแรก ถึงคำตอบคำแรก
 function onStreamEvent(m, d) {

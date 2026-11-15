@@ -626,7 +626,7 @@ async function chat(req, env, u, ctx) {
       await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(cid, 'user', saved, m.id, Date.now()).run();
     }
     chatRow = await env.DB.prepare('SELECT summary,summary_upto FROM chats WHERE id=?').bind(cid).first();
-    hist = (await env.DB.prepare('SELECT role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id DESC LIMIT ?').bind(cid, chatRow?.summary_upto || 0, pid ? HISTORY_CODE : HISTORY).all()).results.reverse().filter(x => x.content); // ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
+    hist = (await env.DB.prepare('SELECT role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id DESC LIMIT ?').bind(cid, chatRow?.summary_upto || 0, pid ? HISTORY_CODE : HISTORY).all()).results.reverse().map(x => ({ ...x, content: String(x.content || '').replace(/\u2063/g, '') })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
     while (hist.length && hist[0].role !== 'user') hist.shift();
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
@@ -674,7 +674,8 @@ async function runChat(env, J, send, st) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
     if (fb && !await modelDown(env, fb.id)) { model = fb; await send({ fallback: fb.name }); }
   }
-  let msgs = hist, imgs = imgs0, beat = Date.now();
+  let msgs = hist, imgs = imgs0, beat = Date.now(), lastKind = '';
+  // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     let part = '', ru = null;
     const tcs = new Map(), anthIdx = new Map();
@@ -688,8 +689,8 @@ async function runChat(env, J, send, st) {
           arm(60e3);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
-          if (e.t) { out += e.t; part += e.t; await send({ t: e.t }); }
-          if (e.th) { think += e.th; await send({ th: e.th }); }
+          if (e.t) { lastKind = 't'; out += e.t; part += e.t; await send({ t: e.t }); }
+          if (e.th) { if (lastKind === 't') { think += '\u0001'; out += '\u2063\u2063'; await send({ t: '\u2063\u2063' }); } lastKind = 'th'; think += e.th; await send({ th: e.th }); }
           if (e.tc_start) { const idx = tcs.size; anthIdx.set(e.tc_start.index, idx); tcs.set(idx, { id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }); }
           if (e.tc_delta) { const idx = anthIdx.get(e.tc_delta.index); if (idx != null) tcs.get(idx).function.arguments += e.tc_delta.args; }
           if (e.tc) for (const d of e.tc) {
@@ -730,12 +731,13 @@ async function runChat(env, J, send, st) {
         msgs.push({ role: 'tool', tool_call_id: tc.id, content: resText });
       }
       await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + LOCK_MS, lock).run();
+      lastKind = 't';
       continue;
     }
     const reqs = pid && !st.gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
     if (!reqs.length) break;
     const result = await runTools(env, pid, reqs);
-    await send({ t: '\n\n' }); out += '\n\n';
+    await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
     msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: result }]; imgs = [];
     await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + LOCK_MS, lock).run(); // ยืดล็อกระหว่างทำหลายรอบ
   }
@@ -770,7 +772,7 @@ async function autoModel(env, plan, u, { text, images, files, effort, regenerate
 const COMPACT_CHARS = 30000, COMPACT_KEEP = 6;
 async function compact(env, u, cid) {
   const c = await env.DB.prepare('SELECT summary,summary_upto FROM chats WHERE id=?').bind(cid).first();
-  const rows = (await env.DB.prepare('SELECT id,role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id').bind(cid, c?.summary_upto || 0).all()).results;
+  const rows = (await env.DB.prepare('SELECT id,role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id').bind(cid, c?.summary_upto || 0).all()).results.map(r => ({ ...r, content: String(r.content || '').replace(/\u2063/g, '') }));
   if (rows.length <= COMPACT_KEEP + 2 || rows.reduce((a, r) => a + r.content.length, 0) < COMPACT_CHARS) return;
   const old = rows.slice(0, -COMPACT_KEEP);
   const want = +(await getSetting(env, 'summary_model'));
