@@ -34,7 +34,7 @@
       'main.py': 'print("สวัสดี AstraCode")\n',
     } }],
     nextProject: 2,
-    balance: 120, memories: [{ id: 1, text: 'ฉันชอบคำตอบสั้นๆ เป็นภาษาไทย' }], folders: [{ id: 1, name: 'งาน' }], keys: [], instructions: '', overflow: false, renew: false, totp: false,
+    credits: 2, balance: 120, memories: [{ id: 1, text: 'ฉันชอบคำตอบสั้นๆ เป็นภาษาไทย' }], folders: [{ id: 1, name: 'งาน' }], keys: [], instructions: '', overflow: false, renew: false, totp: false,
     tickets: [{ id: 1, user_id: 1, subject: 'สอบถามเรื่องแพลนรายปี', status: 'answered', created_at: now() - 2 * DAY, updated_at: now() - DAY, msgs: [{ admin: 0, body: 'แพลนรายปีลดกี่เปอร์เซ็นต์ครับ', created_at: now() - 2 * DAY }, { admin: 1, body: 'ประหยัดประมาณ 2 เดือนครับ ดูได้ที่หน้าแพลน กดแท็บรายปี', created_at: now() - DAY }] }],
     coupons: [{ code: 'WELCOME20', kind: 'percent', value: 20, max_uses: 100, used: 12, expires: null, note: 'ลูกค้าใหม่', active: 1 }, { code: 'GIFT50', kind: 'credit', value: 50, max_uses: 0, used: 3, expires: null, note: '', active: 1 }],
     posts: [{ id: 1, slug: 'welcome', title: 'เปิดตัว AstraCode', summary: 'AI ทุกตัวในมือถือเครื่องเดียว พร้อมโหมด Code และ API', body: '## ยินดีต้อนรับ\n\nAstraCode รวม **Claude, GPT, Gemini, DeepSeek และ Kimi** ไว้ในเว็บเดียว\n\n- แชตบนมือถือ\n- เขียนโค้ดแบบ VS Code\n- API แบบ OpenAI', cover: '', published: 1, created_at: now() - 3 * DAY }],
@@ -202,7 +202,8 @@
     if (path === '/api/auth') { if (body.action === 'forgot') return res({ ok: true }); if (!/^[^\s@]+@[^\s@]+$/.test(body.email) || String(body.password).length < 8) return err('ใส่อีเมล และรหัสผ่านอย่างน้อย 8 ตัว (เดโม: อะไรก็ได้)'); S.logged = true; S.email = body.email; S.users[0].email = S.email; return res({ ok: true }); }
     if (!S.logged) return err('กรุณาเข้าสู่ระบบ', 401);
     if (path === '/api/logout') { S.logged = false; return res({ ok: true }); }
-    if (path === '/api/me') { const p = plan(); return res({ email: S.email, role: 'admin', balance: S.balance, ref_code: 'DEMO1234', email_verified: false, totp_on: S.totp, google: false, line: false, has_password: true, instructions: S.instructions, wallet_overflow: S.overflow, auto_renew: S.renew, plan: { id: p.id, name: p.name, expires: p.price > 0 ? S.expires : null }, usage: usage(), models: allowed(p).map(({ id, name, multiplier, vision, effort }) => ({ id, name, multiplier, vision, effort })), promptpay_id: S.settings.promptpay_id }); }
+    if (path === '/api/limits/reset' && M === 'POST') { if (!(S.credits > 0)) return err('ไม่มีสิทธิ์รีเซ็ตเหลือ', 403); S.credits--; return res({ ok: true, left: S.credits, usage: { pct4h: 0, pctWeek: 0, reset4h: null, resetWeek: Date.now() + 5 * 864e5 } }); }
+    if (path === '/api/me') { const p = plan(); return res({ reset_credits: S.credits, email: S.email, role: 'admin', balance: S.balance, ref_code: 'DEMO1234', email_verified: false, totp_on: S.totp, google: false, line: false, has_password: true, instructions: S.instructions, wallet_overflow: S.overflow, auto_renew: S.renew, plan: { id: p.id, name: p.name, expires: p.price > 0 ? S.expires : null }, usage: usage(), models: allowed(p).map(({ id, name, multiplier, vision, effort }) => ({ id, name, multiplier, vision, effort })), promptpay_id: S.settings.promptpay_id }); }
     if (path === '/api/chat') return chatStream(body, opt.signal);
     if (path === '/api/chats') { const pj = +q.searchParams.get('project') || null; return res(S.chats.filter(c => (c.project_id || null) === pj).map(c => ({ id: c.id, title: c.title, folder_id: c.folder_id || null }))); }
     if (path === '/api/github') return M === 'GET' ? res({ connected: false, secret: true }) : err('หน้าเดโมเชื่อม GitHub ไม่ได้ ใช้ได้บนเว็บจริง');

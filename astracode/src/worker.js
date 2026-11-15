@@ -193,6 +193,24 @@ async function capHit(env, u, plan, m) {
   const r = await env.DB.prepare('SELECT COALESCE(SUM(units),0) x FROM usage WHERE user_id=? AND model_id=? AND created_at>=?').bind(u.id, m.id, Math.max(w.week_start, u.usage_reset_at || 0)).first();
   return r.x >= plan.limit_week * m.cap_pct / 100;
 }
+// ---------- รีเซ็ตลิมิต: ทั้งหมด / ค่าย (ชื่อโมเดลขึ้นต้นด้วยชื่อค่าย) / โมเดลเดียว ----------
+async function resetUsage(env, uid, scope) {
+  if (scope?.vendor || scope?.model_id) {
+    const byModel = !!scope.model_id, key = byModel ? +scope.model_id : String(scope.vendor).replace(/[%_]/g, '').trim().slice(0, 40);
+    if (!key) throw userErr('เลือกค่ายหรือโมเดลที่จะรีเซ็ต');
+    const sel = byModel ? 'model_id=?2' : "model_id IN (SELECT id FROM models WHERE lower(name)=lower(?2) OR lower(name) LIKE lower(?2)||' %')";
+    // shortcut: ลดหน่วยลิมิตของแถวในรอบ 7 วันเหลือ 1e-12 (ไม่ใช่ 0 เพราะรายงานแยก "ใช้ผ่านแพลน" ด้วย units>0 · ต้นทุนจริง cost ไม่เปลี่ยน) ถ้าต้องเก็บประวัติรีเซ็ต ให้เพิ่มคอลัมน์ใน usage
+    return (await env.DB.prepare(`UPDATE usage SET units=1e-12 WHERE user_id=?1 AND units>1e-12 AND created_at>=?3 AND ${sel}`).bind(uid, key, Date.now() - 7 * DAY).run()).meta?.changes ?? 0;
+  }
+  await env.DB.prepare('UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE id=?').bind(Date.now(), uid).run();
+  return 1;
+}
+// สิทธิ์กดรีเซ็ตที่แอดมินแจก (ใช้แล้วหมดไป) · สร้างตารางเองครั้งแรก ไม่ต้องรัน migration
+let creditsReady = false;
+async function creditsOf(env, uid) {
+  if (!creditsReady) { await env.DB.prepare('CREATE TABLE IF NOT EXISTS reset_credits (user_id INTEGER PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)').run(); creditsReady = true; }
+  return (await env.DB.prepare('SELECT n FROM reset_credits WHERE user_id=?').bind(uid).first())?.n || 0;
+}
 // ต้นทุนโดยประมาณของ 1 ข้อความทั่วไป (context 20K อยู่ใน cache, ส่งใหม่ 1K, ตอบ 1K) ใช้ประมาณจำนวนข้อความต่อสัปดาห์
 const msgCost = m => (20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6;
 const allowedModels = (env, planId) => env.DB.prepare(
@@ -1171,7 +1189,8 @@ const TABLES = {
 };
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
-  'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret'];
+  'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
+  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos'];
 
 async function admin(req, env, path, url, me) {
   const M = req.method, DB = env.DB;
@@ -1237,15 +1256,7 @@ async function admin(req, env, path, url, me) {
     await ctxAudit('update user', { id: +r[1], ...b });
     if (b.credit) { const v = Math.round(+b.credit * 100) / 100; if (!v) return err('จำนวนเงินไม่ถูกต้อง'); await walletAdd(env, +r[1], v, 'admin', String(b.note || '').slice(0, 100) || null); }
     if (b.logout) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run(); // รหัสผ่านอยู่ใน Firebase ผู้ใช้รีเซ็ตเองที่หน้าเข้าสู่ระบบ
-    if (b.reset_usage && (b.scope?.vendor || b.scope?.model_id)) { // รีเซ็ตเฉพาะค่าย (ชื่อโมเดลขึ้นต้นด้วยชื่อค่าย เช่น DeepSeek) หรือโมเดลเดียว
-      // shortcut: ลดหน่วยลิมิตของแถวใช้งานในรอบ 7 วันเหลือ 1e-12 (ไม่ใช่ 0 เพราะรายงานแยก "ใช้ผ่านแพลน" ด้วย units>0 · ต้นทุนจริง cost ไม่เปลี่ยน) ถ้าต้องการประวัติว่ารีเซ็ตเมื่อไหร่ ให้เพิ่มคอลัมน์ใน usage
-      const byModel = !!b.scope.model_id, key = byModel ? +b.scope.model_id : String(b.scope.vendor).replace(/[%_]/g, '').trim().slice(0, 40);
-      if (!key) return err('เลือกค่ายหรือโมเดลที่จะรีเซ็ต');
-      const sel = byModel ? 'model_id=?2' : "model_id IN (SELECT id FROM models WHERE lower(name)=lower(?2) OR lower(name) LIKE lower(?2)||' %')";
-      const res = await DB.prepare(`UPDATE usage SET units=1e-12 WHERE user_id=?1 AND units>1e-12 AND created_at>=?3 AND ${sel}`).bind(+r[1], key, Date.now() - 7 * DAY).run();
-      return json({ ok: true, rows: res.meta?.changes ?? 0 });
-    }
-    if (b.reset_usage) await DB.prepare('UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE id=?').bind(Date.now(), r[1]).run();
+    if (b.reset_usage) { const n = await resetUsage(env, +r[1], b.scope); if (b.scope?.vendor || b.scope?.model_id) return json({ ok: true, rows: n }); }
     if ('banned' in b) await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run();
     if ('plan_id' in b) await DB.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').bind(b.plan_id || null, b.plan_id ? Date.now() + (b.days || 30) * DAY : null, r[1]).run();
     if (b.banned) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run();
@@ -1366,8 +1377,8 @@ async function admin(req, env, path, url, me) {
     return json({ ok: r.ok, data: await r.json().catch(() => null) });
   }
   if (path === '/api/admin/notify-test' && M === 'POST') { await notify(env, '✅ ทดสอบแจ้งเตือนจาก AstraCode'); return json({ ok: true }); }
-  if (path === '/api/admin/reset-limits' && M === 'POST') { // แจกรีเซ็ตลิมิต: ทุกคน / ทุกคนในแพลน / คนเดียว
-    const b = await req.json(), now = Date.now();
+  if ((path === '/api/admin/reset-limits' || path === '/api/admin/reset-credits') && M === 'POST') { // รีเซ็ตทันที หรือ แจกปุ่มรีเซ็ต: ทุกคน / ทุกคนในแพลน / คนเดียว
+    const b = await req.json(), now = Date.now(), credits = path.endsWith('credits');
     let where = '1=1', args = [];
     if (b.target === 'email') { where = 'email=?'; args = [String(b.email || '').trim().toLowerCase()]; }
     else if (b.target === 'plan') {
@@ -1375,10 +1386,15 @@ async function admin(req, env, path, url, me) {
       // แพลนฟรีรวมคนที่ไม่มีแพลนหรือแพลนหมดอายุ (ระบบนับเป็นแพลนฟรี)
       [where, args] = p.price > 0 ? ['plan_id=? AND plan_expires>?', [p.id, now]] : ['(plan_id IS NULL OR plan_expires IS NULL OR plan_expires<=? OR plan_id=?)', [now, p.id]];
     } else if (b.target !== 'all') return err('เลือกกลุ่มผู้ใช้');
-    const r = await DB.prepare(`UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE banned=0 AND ${where}`).bind(now, ...args).run();
-    if (b.target === 'email' && !r.meta.changes) return err('ไม่พบผู้ใช้อีเมลนี้');
-    await ctxAudit('reset limits', { target: b.target, plan_id: b.plan_id, email: b.email, count: r.meta.changes });
-    return json({ ok: true, count: r.meta.changes });
+    let count;
+    if (credits) {
+      const n = Math.min(50, Math.max(1, Math.round(+b.n || 1)));
+      await creditsOf(env, 0); // สร้างตารางถ้ายังไม่มี
+      count = (await DB.prepare(`INSERT INTO reset_credits (user_id,n) SELECT id,?1 FROM users WHERE banned=0 AND ${where} ON CONFLICT(user_id) DO UPDATE SET n=n+?1`).bind(n, ...args).run()).meta.changes; // ?1 = จำนวนที่แจก, ? ที่เหลือใน where นับต่อจาก ?1
+    } else count = (await DB.prepare(`UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE banned=0 AND ${where}`).bind(now, ...args).run()).meta.changes;
+    if (b.target === 'email' && !count) return err('ไม่พบผู้ใช้อีเมลนี้');
+    await ctxAudit(credits ? 'grant reset credits' : 'reset limits', { target: b.target, plan_id: b.plan_id, email: b.email, n: b.n, count });
+    return json({ ok: true, count });
   }
   if (path === '/api/admin/teams') {
     return json((await DB.prepare(`SELECT t.*, u.email owner_email, p.name plan_name,
@@ -1502,7 +1518,7 @@ async function route(req, env, ctx, url, path, M) {
   let r;
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้
-        const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min']);
+        const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min', 'model_icons', 'picker_filter', 'picker_mult', 'picker_logos']);
         return json({ ...s, google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', image: s.image_enabled === '1', mail: !!env.RESEND_KEY });
       }
       if (path === '/api/blog') return json((await env.DB.prepare('SELECT slug,title,summary,cover,created_at FROM posts WHERE published=1 ORDER BY created_at DESC LIMIT 100').all()).results);
@@ -1567,7 +1583,7 @@ async function route(req, env, ctx, url, path, M) {
           email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
-          usage: await usageStatus(env, u, plan), models: await allowedModels(env, plan.id),
+          usage: await usageStatus(env, u, plan), reset_credits: await creditsOf(env, u.id), models: await allowedModels(env, plan.id),
           promptpay_id: await getSetting(env, 'promptpay_id'),
         });
       }
@@ -1639,6 +1655,21 @@ async function route(req, env, ctx, url, path, M) {
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
 async function userRoutes(req, env, ctx, url, path, M, u) {
   const DB = env.DB; let r;
+  if (path === '/api/limits/reset' && M === 'POST') { // ผู้ใช้กดใช้ปุ่มรีเซ็ตที่แอดมินแจกให้ (1 ครั้ง = 1 สิทธิ์)
+    const b = await req.json(), plan = await planOf(env, u);
+    if (plan?._team?.shared_pool) return err('แพลนทีมใช้ลิมิตรวมกัน รีเซ็ตเองไม่ได้ ติดต่อแอดมิน', 400);
+    const sc = b.scope?.vendor || b.scope?.model_id ? b.scope : null;
+    if (sc?.model_id && !await DB.prepare('SELECT 1 FROM models WHERE id=?').bind(+sc.model_id).first()) return err('ไม่พบโมเดล', 404);
+    if (sc?.vendor) { const v = String(sc.vendor).replace(/[%_]/g, '').trim().slice(0, 40); if (!v || !await DB.prepare("SELECT 1 FROM models WHERE lower(name)=lower(?1) OR lower(name) LIKE lower(?1)||' %'").bind(v).first()) return err('ไม่พบค่ายนี้', 404); }
+    if (await limited(env, 'rst:' + u.id, 10, 60e3)) return err('กดเร็วเกินไป รอสักครู่', 429);
+    await creditsOf(env, u.id);
+    const used = await DB.prepare('UPDATE reset_credits SET n=n-1 WHERE user_id=? AND n>0').bind(u.id).run(); // หักก่อน ถ้าไม่มีสิทธิ์ changes = 0
+    if (!used.meta.changes) return err('ไม่มีสิทธิ์รีเซ็ตเหลือ', 403);
+    await resetUsage(env, u.id, sc);
+    await audit(env, u, 'use reset credit', sc || 'all');
+    const u2 = await DB.prepare('SELECT * FROM users WHERE id=?').bind(u.id).first();
+    return json({ ok: true, left: await creditsOf(env, u.id), usage: await usageStatus(env, u2, plan) });
+  }
   if (path === '/api/me' && M === 'PUT') {
     const b = await req.json();
     await DB.prepare('UPDATE users SET instructions=COALESCE(?,instructions), wallet_overflow=COALESCE(?,wallet_overflow), auto_renew=COALESCE(?,auto_renew) WHERE id=?')

@@ -169,17 +169,20 @@ const ADMIN = {
 
   async users(box) {
     const plans = await api('/admin/plans');
-    box.innerHTML = `<details class="ed gift"><summary><b>${ic('refresh')} แจกรีเซ็ตลิมิต</b><span class="muted">ล้างลิมิต 4 ชม. และรายสัปดาห์ให้ใช้ต่อได้ทันที</span></summary>
-      <form id="rlf" class="ed-f"><label>แจกให้</label><select name="who"><option value="all">ผู้ใช้ทุกคน</option>${plans.map(p => `<option value="plan:${p.id}">ทุกคนในแพลน ${esc(p.name)}</option>`).join('')}<option value="email">ผู้ใช้คนเดียว (ใส่อีเมล)</option></select>
+    box.innerHTML = `<details class="ed gift"><summary><b>${ic('refresh')} แจกรีเซ็ตลิมิต</b><span class="muted">รีเซ็ตให้ทันที หรือแจกปุ่มรีเซ็ตให้ผู้ใช้กดเอง (เลือกค่าย/โมเดลได้)</span></summary>
+      <form id="rlf" class="ed-f"><label>รูปแบบ</label><select name="mode"><option value="grant">แจกปุ่มรีเซ็ต (ผู้ใช้กดเอง เลือกค่าย/โมเดลได้)</option><option value="now">รีเซ็ตทันที (ล้างทุกโมเดล)</option></select>
+        <input name="n" type="number" min="1" max="50" value="1" placeholder="จำนวนสิทธิ์ต่อคน"><label>แจกให้</label><select name="who"><option value="all">ผู้ใช้ทุกคน</option>${plans.map(p => `<option value="plan:${p.id}">ทุกคนในแพลน ${esc(p.name)}</option>`).join('')}<option value="email">ผู้ใช้คนเดียว (ใส่อีเมล)</option></select>
         <input name="email" type="email" placeholder="อีเมลผู้ใช้" hidden>
-        <div class="row" style="margin-top:12px"><button class="btn blue sm">รีเซ็ตลิมิต</button><span class="ok sv"></span></div></form></details>
+        <div class="row" style="margin-top:12px"><button class="btn blue sm">ยืนยัน</button><span class="ok sv"></span></div></form></details>
       <div class="toolbar"><input id="q" placeholder="ค้นหาอีเมล" aria-label="ค้นหาอีเมล"></div><div id="ul"></div>`;
     const rf = $('#rlf');
     rf.who.onchange = () => { rf.email.hidden = rf.who.value !== 'email'; rf.email.required = !rf.email.hidden; };
+    rf.mode.onchange = () => { rf.n.hidden = rf.mode.value !== 'grant'; }; rf.mode.onchange();
     rf.onsubmit = async e => {
       e.preventDefault(); const t = rf.who.value, label = rf.who.selectedOptions[0].textContent;
-      if (!await confirmSheet(`รีเซ็ตลิมิตให้ ${t === 'email' ? rf.email.value : label}?`, { title: 'รีเซ็ตลิมิต', ok: 'รีเซ็ต' })) return;
-      try { const r = await api('/admin/reset-limits', { method: 'POST', body: { target: t.split(':')[0], plan_id: +t.split(':')[1] || null, email: rf.email.value } }); rf.querySelector('.sv').textContent = `✓ รีเซ็ตแล้ว ${num(r.count)} คน`; }
+      const grant = rf.mode.value === 'grant', n = +rf.n.value || 1, who = t === 'email' ? rf.email.value : label;
+      if (!await confirmSheet(grant ? `แจกปุ่มรีเซ็ต ${n} ครั้ง ให้ ${who}?` : `รีเซ็ตลิมิตให้ ${who}?`, { title: grant ? 'แจกปุ่มรีเซ็ต' : 'รีเซ็ตลิมิต', ok: grant ? 'แจก' : 'รีเซ็ต' })) return;
+      try { const r = await api(grant ? '/admin/reset-credits' : '/admin/reset-limits', { method: 'POST', body: { target: t.split(':')[0], plan_id: +t.split(':')[1] || null, email: rf.email.value, n } }); rf.querySelector('.sv').textContent = grant ? `✓ แจกแล้ว ${num(r.count)} คน` : `✓ รีเซ็ตแล้ว ${num(r.count)} คน`; }
       catch (x) { toast(x.message, 'bad'); }
     };
     const load = async () => {
@@ -299,7 +302,41 @@ const ADMIN = {
     $('#atest').onclick = async () => { try { await api('/admin/notify-test', { method: 'POST' }); $('#as').textContent = '✓ ส่งแล้ว ตรวจใน Discord/LINE'; } catch (x) { toast(x.message, 'bad'); } };
     $('#bk').onclick = async e => { e.target.disabled = true; try { await api('/admin/backups', { method: 'POST' }); reload(); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; } };
   },
-  async models(box, reload) { return editors('models', box, reload); },
+  async models(box, reload) {
+    await editors('models', box, reload);
+    const [s, ms] = await Promise.all([api('/admin/settings'), api('/admin/models')]);
+    const vendors = [...new Map(ms.map(m => [vendorOf(m.name).toLowerCase(), vendorOf(m.name)])).values()];
+    let icons = {}; try { icons = JSON.parse(s.model_icons || '{}') || {}; } catch { /* ค่าเสีย เริ่มใหม่ */ }
+    const on = k => s[k] !== '0';
+    const toIcon = file => new Promise((ok, no) => { // ย่อเป็น 96px แล้วเก็บเป็น data URL (CSP ให้โหลดรูปจากเว็บอื่นไม่ได้)
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => { const c = document.createElement('canvas'), z = 96; c.width = c.height = z; const r = Math.min(z / img.width, z / img.height); c.getContext('2d').drawImage(img, (z - img.width * r) / 2, (z - img.height * r) / 2, img.width * r, img.height * r); URL.revokeObjectURL(url); ok(c.toDataURL('image/png')); };
+      img.onerror = () => no(new Error('อ่านรูปไม่ได้')); img.src = url;
+    });
+    const card = document.createElement('details'); card.className = 'ed'; card.open = true; card.style.marginBottom = '16px';
+    const draw = () => {
+      site.model_icons = JSON.stringify(icons); // ให้ vendorLogo() แสดงตัวอย่างตามที่แก้อยู่
+      card.innerHTML = `<summary><b>${ic('palette')} หน้าเลือกโมเดล</b><span class="muted">โลโก้ค่าย ตัวกรอง และป้ายตัวคูณลิมิต</span></summary>
+        <form id="pkf" class="ed-f">
+          <label class="tg"><input type="checkbox" data-pk="picker_logos" ${on('picker_logos') ? 'checked' : ''}><span>แสดงโลโก้ค่าย</span></label>
+          <label class="tg"><input type="checkbox" data-pk="picker_filter" ${on('picker_filter') ? 'checked' : ''}><span>แสดงปุ่มกรองตามค่ายด้านบน</span></label>
+          <label class="tg"><input type="checkbox" data-pk="picker_mult" ${on('picker_mult') ? 'checked' : ''}><span>แสดงตัวคูณลิมิต (×1, ×5 ...)</span></label>
+          <h3>โลโก้แต่ละค่าย</h3><p class="muted" style="margin:0 0 8px;font-size:13px">ค่ายดูจากคำแรกของชื่อโมเดล ถ้าไม่อัปโหลดจะใช้โลโก้ค่าเริ่มต้น (ค่ายที่ไม่มีโลโก้ในระบบ เช่น ChatGPT จะแสดงตัวอักษรแรก) รูปจะถูกย่อเป็น 96px</p>
+          ${vendors.map(v => `<div class="row" style="align-items:center;gap:12px;padding:6px 0">${vendorLogo(v)}<b style="min-width:96px">${esc(v)}</b><label class="btn out sm" style="margin:0;cursor:pointer">อัปโหลด<input type="file" accept="image/*" data-up="${esc(v.toLowerCase())}" hidden></label>${icons[v.toLowerCase()] ? `<button type="button" class="btn out sm" data-rm="${esc(v.toLowerCase())}">ใช้ค่าเริ่มต้น</button>` : '<span class="muted" style="font-size:12px">ค่าเริ่มต้น</span>'}</div>`).join('')}
+          <div class="row" style="margin-top:12px"><button class="btn blue sm">บันทึก</button><span class="ok sv"></span></div></form>`;
+      card.querySelectorAll('[data-up]').forEach(i => i.onchange = async () => {
+        const f = i.files[0]; if (!f) return;
+        try { const u = await toIcon(f); if (u.length > 60000) throw new Error('รูปใหญ่เกินไป ใช้รูปที่เรียบง่ายกว่านี้'); icons[i.dataset.up] = u; draw(); } catch (x) { toast(x.message, 'bad'); }
+      });
+      card.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { delete icons[b.dataset.rm]; draw(); });
+      card.querySelector('#pkf').onsubmit = async e => {
+        e.preventDefault(); const body = { model_icons: JSON.stringify(icons) };
+        card.querySelectorAll('[data-pk]').forEach(c => body[c.dataset.pk] = c.checked ? '1' : '0');
+        try { await api('/admin/settings', { method: 'PUT', body }); card.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; Object.assign(site, body); } catch (x) { toast(x.message, 'bad'); }
+      };
+    };
+    draw(); box.prepend(card);
+  },
 
   async settings(box) {
     const [s, plans, models] = await Promise.all([api('/admin/settings'), api('/admin/plans'), api('/admin/models')]);
