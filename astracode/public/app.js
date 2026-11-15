@@ -169,9 +169,10 @@ async function copy(text, btn) {
 }
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
+const navL = (h, t) => `<a class="l${curl().pathname === h ? ' on' : ''}" href="${h}">${t}</a>`;
 const nav = () => `<nav class="nav"><a class="logo" href="/">AstraCode</a><span class="sp"></span>
-  ${me ? `<a class="l" href="/chat">แชต</a><a class="l" href="/code">Code</a><a class="l" href="/plans">แพลน</a><a class="l" href="/pricing">ราคา</a><a class="l" href="/blog">บล็อก</a><a class="l nav-acc" href="/account">${ic('user', 'sm')} บัญชี</a>${me.role === 'admin' ? '<a class="l" href="/admin">หลังบ้าน</a>' : ''}`
-       : `<a class="l" href="/plans">แพลน</a><a class="l" href="/pricing">ราคา</a><a class="l" href="/blog">บล็อก</a><a class="btn blue sm" href="/login">เริ่มใช้ฟรี</a>`}</nav>`;
+  ${me ? `${navL('/chat', 'แชต')}${navL('/code', 'Code')}${navL('/plans', 'แพลน')}${navL('/pricing', 'ราคา')}${navL('/blog', 'บล็อก')}<a class="l nav-acc" href="/account">${ic('user', 'sm')} บัญชี</a>${me.role === 'admin' ? navL('/admin', 'หลังบ้าน') : ''}`
+       : `${navL('/plans', 'แพลน')}${navL('/pricing', 'ราคา')}${navL('/blog', 'บล็อก')}<a class="btn blue sm" href="/login">เริ่มใช้ฟรี</a>`}</nav>`;
 const page = html => { app.innerHTML = `<div class="view">${html}</div>`; };
 
 function planTiles(plans, sel, period) {
