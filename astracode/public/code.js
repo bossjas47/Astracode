@@ -236,17 +236,39 @@ function log(type, msg) {
   c.insertAdjacentHTML('beforeend', `<div class="cl ${type}">${esc(msg)}</div>`); c.scrollTop = c.scrollHeight;
 }
 function buildHtml(htmlPath, jsPath) {
-  let html = htmlPath ? content(htmlPath) : `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script src="${jsPath}"></script></body></html>`;
-  const dir = htmlPath ? htmlPath.replace(/[^/]*$/, '') : '';
-  const resolve = ref => {
+  const entryIsMod = jsPath && /\bmjs$|\bexport\s|\bimport\s/m.test(content(jsPath));
+  let html = htmlPath ? content(htmlPath) : `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script${entryIsMod ? ' type="module"' : ''} src="${jsPath}"></script></body></html>`;
+  const dirOf = f => f ? f.replace(/[^/]*$/, '') : '';
+  const resolveFrom = (baseDir, ref) => {
     if (/^([a-z]+:|\/\/|#)/i.test(ref)) return null;
-    const out = []; for (const x of (ref.startsWith('/') ? ref.slice(1) : dir + ref).split('?')[0].split('/')) { if (x === '..') out.pop(); else if (x && x !== '.') out.push(x); }
-    return out.join('/');
+    const out = []; for (const x of (ref.startsWith('/') ? ref.slice(1) : baseDir + ref).split('?')[0].split('/')) { if (x === '..') out.pop(); else if (x && x !== '.') out.push(x); }
+    const p = out.join('/');
+    if (has(p)) return p;
+    for (const ext of ['.js', '.mjs']) if (has(p + ext)) return p + ext;
+    return p;
   };
-  // shortcut: ใส่ CSS/JS ของโปรเจกต์แบบ inline ลงหน้า (import ระหว่าง module และรูปในโปรเจกต์ยังไม่รองรับ)
-  html = html.replace(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi, (m, href) => { const p = resolve(href); return p && has(p) && /stylesheet/i.test(m) ? `<style>\n${content(p)}\n</style>` : m; })
-    .replace(/<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi, (m, a, src, b) => { const p = resolve(src); return p && has(p) ? `<script${a}${b}>\n${content(p).replace(/<\/script/gi, '<\\/script')}\n</script>` : m; });
-  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + CAPTURE) : CAPTURE + html;
+  const rewriteMod = (code, baseDir) => code
+    .replace(/(\b(?:import|export)\b[\s\S]*?\bfrom\s*['"])([^'"]+)(['"])/g, (m, a, ref, b) => { const rp = resolveFrom(baseDir, ref); return rp && has(rp) ? `${a}@proj/${rp}${b}` : m; })
+    .replace(/(\bimport\s*['"])([^'"]+)(['"])/g, (m, a, ref, b) => { const rp = resolveFrom(baseDir, ref); return rp && has(rp) ? `${a}@proj/${rp}${b}` : m; })
+    .replace(/(\bimport\s*\(\s*['"])([^'"]+)(['"]\s*\))/g, (m, a, ref, b) => { const rp = resolveFrom(baseDir, ref); return rp && has(rp) ? `${a}@proj/${rp}${b}` : m; });
+  const toB64 = str => { const u = new TextEncoder().encode(str); let b = ''; for (const x of u) b += String.fromCharCode(x); return btoa(b); };
+  const imports = {};
+  for (const fp of IDE.files.keys()) {
+    if (/\.m?js$/i.test(fp)) imports['@proj/' + fp] = 'data:text/javascript;base64,' + toB64(rewriteMod(content(fp), dirOf(fp)));
+  }
+  const importMap = Object.keys(imports).length ? `<script type="importmap">${JSON.stringify({ imports })}<\/script>` : '';
+  const dir = dirOf(htmlPath);
+  html = html.replace(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi, (m, href) => { const fp = resolveFrom(dir, href); return fp && has(fp) && /stylesheet/i.test(m) ? `<style>\n${content(fp)}\n</style>` : m; })
+    .replace(/<img\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>/gi, (m, a, src, b) => { const fp = resolveFrom(dir, src); return fp && has(fp) && /\.svg$/i.test(fp) ? `<img${a}src="data:image/svg+xml;base64,${toB64(content(fp))}"${b}>` : m; })
+    .replace(/<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi, (m, a, src, b) => {
+      const fp = resolveFrom(dir, src);
+      if (!fp || !has(fp)) return m;
+      const isMod = /\btype\s*=\s*["']module["']/i.test(a + b);
+      const body = isMod ? rewriteMod(content(fp), dirOf(fp)) : content(fp);
+      return `<script${a}${b}>\n${body.replace(/<\/script/gi, '<\\/script')}\n</script>`;
+    })
+    .replace(/<script\b([^>]*\btype\s*=\s*["']module["'][^>]*)>([\s\S]*?)<\/script>/gi, (m, attrs, body) => /src=/.test(attrs) ? m : `<script${attrs}>${rewriteMod(body, dir).replace(/<\/script/gi, '<\\/script')}</script>`);
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + CAPTURE + importMap) : CAPTURE + importMap + html;
 }
 async function run() {
   await saveNow();
@@ -475,27 +497,35 @@ function drawAI() {
       <div class="chips">${['อธิบายโค้ดไฟล์นี้', 'หาบั๊กและแก้ให้', 'เพิ่มคอมเมนต์ภาษาไทย', 'ทำให้หน้าเว็บสวยขึ้น'].map(s => `<button data-cs="${s}">${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight;
 }
+function codeStop() {
+  IDE.round = 99;
+  if (IDE.chatId) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: IDE.chatId }) }).catch(() => {});
+  IDE.ctrl?.abort();
+}
 async function codeSend(auto) {
-  if (IDE.busy) { IDE.round = 99; return IDE.ctrl?.abort(); } // กดหยุด = หยุดโหมดอัตโนมัติด้วย
-  const t = $('#ct'), text = auto ? auto.text : t.value.trim(); if (!text) return;
+  if (IDE.busy) return codeStop(); // กดหยุด = หยุดโหมดอัตโนมัติและหยุดฝั่งเซิร์ฟเวอร์ด้วย
+  const resume = !!auto?.resume;
+  if (resume && IDE.msgs.at(-1)?.role !== 'user') return;
+  const t = $('#ct'), text = resume ? '' : auto ? auto.text : t.value.trim();
+  if (!resume && !text) return;
   if (!auto) IDE.round = 0;
   await saveNow();
-  const paths = [...new Set([IDE.autoActive && IDE.active, ...IDE.ctx].filter(p => p && has(p)))];
+  const paths = resume ? [] : [...new Set([IDE.autoActive && IDE.active, ...IDE.ctx].filter(p => p && has(p)))];
   const files = paths.map(p => ({ name: p, text: content(p) }));
   if (files.reduce((a, f) => a + f.text.length, 0) > 380000) return $('#ce').textContent = 'ไฟล์ที่ส่งให้ AI ยาวเกินไป เอาบางไฟล์ออก';
-  const tree = [...IDE.files.keys()].join('\n').slice(0, 15000);
-  const full = `${text}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${tree}`;
+  const tree = resume ? '' : [...IDE.files.keys()].join('\n').slice(0, 15000);
+  const full = resume ? '' : `${text}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${tree}`;
   const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
   const images = auto?.images || [];
   if (!auto) { t.value = ''; t.style.height = 'auto'; }
   $('#ce').textContent = '';
-  IDE.msgs.push({ role: 'user', content: withFiles(full, files), imgs: images.length ? images : null, auto: !!auto });
+  if (!resume) IDE.msgs.push({ role: 'user', content: withFiles(full, files), imgs: images.length ? images : null, auto: !!auto });
   const ai = { role: 'assistant', content: '', model: m.name, streaming: true }; IDE.msgs.push(ai); drawAI();
   IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop');
   let raf = 0, started = false;
   try {
-    const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal,
-      body: JSON.stringify({ project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null }) });
+    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null };
+    const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal, body: JSON.stringify(reqBody) });
     if (!r.ok) { const d = await r.json(); throw new Error(r.status === 429 && d.pct4h != null ? 'ลิมิตเต็มแล้ว' : d.error); }
     started = true;
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
@@ -513,7 +543,7 @@ async function codeSend(auto) {
       }
     }
   } catch (x) {
-    if (x.name !== 'AbortError') { $('#ce').textContent = x.message; if (!started) { IDE.msgs.splice(-2, 2); if (!auto) t.value = text; } }
+    if (x.name !== 'AbortError') { $('#ce').textContent = x.message; if (!started && !resume) { IDE.msgs.splice(-2, 2); if (!auto) t.value = text; } }
   }
   cancelAnimationFrame(raf); ai.streaming = false; if (!ai.content && !ai.thinking && IDE.msgs.at(-1) === ai) IDE.msgs.pop();
   IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
@@ -758,6 +788,6 @@ async function codeView(id) {
   };
   drawAI();
   const chats = await api('/chats?project=' + IDE.pid).catch(() => []); // เปิดแชตล่าสุดของโปรเจกต์
-  if (chats[0]) { IDE.chatId = chats[0].id; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); }
+  if (chats[0]) { IDE.chatId = chats[0].id; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); if (IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); }
 }
 addEventListener('beforeunload', e => { if (IDE.dirty.size) { saveNow(); e.preventDefault(); } });

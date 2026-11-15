@@ -181,21 +181,57 @@ async function* sse(res) {
     }
   } } finally { rd.cancel().catch(() => {}); } // ผู้ใช้กดหยุด: ตัดการเชื่อมต่อ AI ทันที
 }
-async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens } = {}) {
+const toAnthropicPart = p => {
+  if (typeof p === 'string') return { type: 'text', text: p };
+  if (p?.type === 'text') return { type: 'text', text: String(p.text || '') };
+  if (p?.type === 'image_url') {
+    const u = String(p.image_url?.url || p.image_url || '');
+    if (u.startsWith('data:')) return { type: 'image', source: { type: 'base64', media_type: u.slice(5, u.indexOf(';')), data: u.slice(u.indexOf(',') + 1) } };
+    return { type: 'image', source: { type: 'url', url: u } };
+  }
+  return null;
+};
+async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice } = {}) {
   const key = env[m.key_name];
   if (!key) throw new Error('missing key ' + m.key_name);
-  // หมายเหตุ Claude: Anthropic มี code execution tool ของตัวเอง (ส่ง tools: [{ type: 'code_execution_20250825', name: 'code_execution' }])
-  // รัน Python 3.11 + Bash ในเครื่องของ Anthropic, ไม่มีอินเทอร์เน็ต (npm install ไม่ได้), ฟรี 1,550 ชม./เดือน/องค์กร แล้ว $0.05/ชม.
-  // ยังไม่เปิดใช้: โหมด Code ใช้ RUN (เทอร์มินัลในเบราว์เซอร์) ซึ่งใช้ได้ทุกโมเดล ถ้าจะเปิด ต้องรองรับ event server_tool_use / bash_code_execution_tool_result ด้วย
   if (m.provider === 'anthropic') {
-    const messages = msgs.map(x => ({ role: x.role, content: x.content }));
+    const messages = [];
+    for (const x of msgs) {
+      if (x.role === 'tool') {
+        const part = { type: 'tool_result', tool_use_id: x.tool_call_id || '', content: typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '') };
+        if (messages.at(-1)?.role === 'user' && Array.isArray(messages.at(-1).content)) messages.at(-1).content.push(part);
+        else messages.push({ role: 'user', content: [part] });
+        continue;
+      }
+      if (x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.length) {
+        const blocks = [];
+        if (x.content) blocks.push({ type: 'text', text: typeof x.content === 'string' ? x.content : String(x.content) });
+        for (const tc of x.tool_calls) {
+          let inp = {};
+          try { inp = typeof tc.function?.arguments === 'string' ? JSON.parse(tc.function.arguments || '{}') : (tc.function?.arguments || {}); } catch {}
+          blocks.push({ type: 'tool_use', id: tc.id || rand(8), name: tc.function?.name || '', input: inp });
+        }
+        messages.push({ role: 'assistant', content: blocks });
+        continue;
+      }
+      const content = Array.isArray(x.content) ? x.content.map(toAnthropicPart).filter(Boolean) : x.content;
+      messages.push({ role: x.role, content });
+    }
     const last = messages.at(-1); // cache ทั้งบทสนทนาถึงข้อความล่าสุด
-    last.content = [
-      ...images.map(d => ({ type: 'image', source: { type: 'base64', media_type: d.slice(5, d.indexOf(';')), data: d.slice(d.indexOf(',') + 1) } })),
-      { type: 'text', text: last.content, cache_control: { type: 'ephemeral' } },
-    ];
+    if (last) {
+      const baseParts = Array.isArray(last.content) ? last.content : [{ type: 'text', text: String(last.content || '') }];
+      const imgParts = images.map(d => ({ type: 'image', source: { type: 'base64', media_type: d.slice(5, d.indexOf(';')), data: d.slice(d.indexOf(',') + 1) } }));
+      last.content = [...imgParts, ...baseParts];
+      if (last.content.length) last.content[last.content.length - 1] = { ...last.content.at(-1), cache_control: { type: 'ephemeral' } };
+    }
     const body = { model: m.api_model, max_tokens: maxTokens || 16000, stream: true, messages };
     if (system) body.system = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
+    if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
+      body.tools = tools.map(t => ({ name: t.function?.name || t.name, description: t.function?.description || t.description || '', input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));
+      if (toolChoice === 'auto') body.tool_choice = { type: 'auto' };
+      else if (toolChoice === 'required') body.tool_choice = { type: 'any' };
+      else if (toolChoice?.function?.name) body.tool_choice = { type: 'tool', name: toolChoice.function.name };
+    }
     // shortcut: Max ของ Claude ส่งเป็น high เพราะ effort max ใช้ได้แค่บางรุ่น ถ้ารุ่นที่ใช้รองรับ ให้เปลี่ยนเป็น 'max'
     if (m.effort === 'anthropic' && effort) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: { low: 'low', high: 'medium', max: 'high' }[effort] }; }
     const res = await fetch(m.base_url + '/messages', {
@@ -207,16 +243,35 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
     const u = { fresh: 0, read: 0, write: 0, out: 0 };
     for await (const e of sse(res)) {
       if (e.type === 'message_start') { const x = e.message.usage; u.fresh = x.input_tokens || 0; u.read = x.cache_read_input_tokens || 0; u.write = x.cache_creation_input_tokens || 0; }
+      else if (e.type === 'content_block_start' && e.content_block?.type === 'tool_use') yield { tc_start: { index: e.index, id: e.content_block.id, name: e.content_block.name } };
       else if (e.type === 'content_block_delta' && e.delta?.text) yield { t: e.delta.text };
       else if (e.type === 'content_block_delta' && e.delta?.thinking) yield { th: e.delta.thinking }; // เหตุผลที่ Claude คิด
-      else if (e.type === 'message_delta' && e.usage) u.out = e.usage.output_tokens || 0;
+      else if (e.type === 'content_block_delta' && e.delta?.type === 'input_json_delta') yield { tc_delta: { index: e.index, args: e.delta.partial_json || '' } };
+      else if (e.type === 'message_delta') {
+        if (e.usage) u.out = e.usage.output_tokens || 0;
+        if (e.delta?.stop_reason) yield { stop_reason: e.delta.stop_reason === 'tool_use' ? 'tool_calls' : 'stop' };
+      }
       else if (e.type === 'error') throw new Error(e.error?.message || 'upstream error');
     }
     yield { usage: u };
   } else { // OpenAI-compatible: OpenAI, DeepSeek, Kimi, Gemini
-    const messages = [...(system ? [{ role: 'system', content: system }] : []), ...msgs.map(x => ({ role: x.role, content: x.content }))];
-    if (images.length) messages.at(-1).content = [{ type: 'text', text: messages.at(-1).content }, ...images.map(url => ({ type: 'image_url', image_url: { url } }))];
+    const messages = [
+      ...(system ? [{ role: 'system', content: system }] : []),
+      ...msgs.map(x => x.role === 'tool'
+        ? { role: 'tool', tool_call_id: x.tool_call_id, content: x.content }
+        : x.tool_calls ? { role: 'assistant', content: x.content ?? null, tool_calls: x.tool_calls }
+        : { role: x.role, content: x.content }),
+    ];
+    if (images.length) {
+      const prev = messages.at(-1).content;
+      const parts = Array.isArray(prev) ? prev : [{ type: 'text', text: String(prev || '') }];
+      messages.at(-1).content = [...parts, ...images.map(url => ({ type: 'image_url', image_url: { url } }))];
+    }
     const body = { model: m.api_model, stream: true, stream_options: { include_usage: true }, messages };
+    if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
+      body.tools = tools;
+      if (toolChoice) body.tool_choice = toolChoice;
+    }
     if (maxTokens) body[/api\.openai\.com/.test(m.base_url) ? 'max_completion_tokens' : 'max_tokens'] = maxTokens; // OpenAI รุ่นคิด (GPT-5, o-series) ไม่รับ max_tokens
     if (m.effort === 'openai' && effort) body.reasoning_effort = { low: 'low', high: 'medium', max: 'high' }[effort];
     if (m.effort === 'deepseek') { // DeepSeek เปิดคิดเป็นค่าเริ่มต้น จึงต้องปิดเองเมื่อเลือก "เร็ว"
@@ -232,14 +287,18 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
     let usage = null;
     for await (const e of sse(res)) {
-      const dl = e.choices?.[0]?.delta, th = dl?.reasoning_content || dl?.reasoning; // DeepSeek/Kimi/อื่นๆ ส่งความคิดมาทางนี้
+      const ch = e.choices?.[0], dl = ch?.delta, th = dl?.reasoning_content || dl?.reasoning; // DeepSeek/Kimi/อื่นๆ ส่งความคิดมาทางนี้
       if (typeof th === 'string' && th) yield { th };
       const t = dl?.content; if (t) yield { t };
-      if (e.usage || e.choices?.[0]?.usage) usage = e.usage || e.choices[0].usage; // Kimi ใส่ usage ไว้ใน choices
+      if (Array.isArray(dl?.tool_calls) && dl.tool_calls.length) yield { tc: dl.tool_calls };
+      if (ch?.finish_reason) yield { stop_reason: ch.finish_reason };
+      if (e.usage || ch?.usage) usage = e.usage || ch.usage; // Kimi ใส่ usage ไว้ใน choices
     }
-    const p = usage?.prompt_tokens || 0, d = usage?.prompt_tokens_details;
-    const read = usage?.prompt_cache_hit_tokens ?? d?.cached_tokens ?? usage?.cached_tokens ?? 0, write = d?.cache_write_tokens || 0;
-    yield { usage: { fresh: p - read - write, read, write, out: usage?.completion_tokens || 0 } };
+    if (usage) {
+      const p = usage.prompt_tokens || 0, d = usage.prompt_tokens_details;
+      const read = usage.prompt_cache_hit_tokens ?? d?.cached_tokens ?? usage.cached_tokens ?? 0, write = d?.cache_write_tokens || 0;
+      yield { usage: { fresh: Math.max(0, p - read - write), read, write, out: usage.completion_tokens || 0 } };
+    }
   }
 }
 
@@ -297,7 +356,7 @@ async function chat(req, env, u, ctx) {
   const effort = ['low', 'high', 'max'].includes(b.effort) ? b.effort : null;
   const ephemeral = !!b.ephemeral; // โหมดเทียบโมเดล: ไม่บันทึกแชต
   const plan = await planOf(env, u);
-  if (b.model_id === 'auto') b.model_id = await autoModel(env, plan.id, { text, images, files, effort, regenerate: b.regenerate });
+  if (b.model_id === 'auto') b.model_id = await autoModel(env, plan, u, { text, images, files, effort, regenerate: b.regenerate });
   const m = await env.DB.prepare('SELECT m.* FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.id=? AND m.active=1').bind(plan.id, b.model_id).first();
   if (!m) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
   if (images.length && !m.vision) return err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น');
@@ -392,8 +451,8 @@ async function runChat(env, J, send, st) {
     msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: result }]; imgs = [];
     await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + LOCK_MS, lock).run(); // ยืดล็อกระหว่างทำหลายรอบ
   }
-  if (!usage && st.gone) { // shortcut: กดหยุดก่อนได้ usage จริง จึงประมาณจากจำนวนตัวอักษร ÷ 2
-    const chars = hist.reduce((a, x) => a + x.content.length, system.length);
+  if (!usage && (st.gone || out || think)) { // กดหยุดหรือ upstream ไม่ส่ง usage จริง → ประมาณจากจำนวนตัวอักษร ÷ 2
+    const chars = hist.reduce((a, x) => a + String(x.content || '').length, system.length);
     usage = { fresh: Math.ceil(chars / 2), read: 0, write: 0, out: Math.ceil((out.length + think.length) / 2) };
   }
   const tok = usage && { in: usage.fresh + usage.read + usage.write, out: usage.out };
@@ -408,8 +467,11 @@ async function runChat(env, J, send, st) {
 // ---------- ลดต้นทุน: เลือกโมเดลอัตโนมัติ + ย่อแชตยาว ----------
 const HARD_RE = /```|\b(debug|bug|error|refactor|algorithm|optimi[sz]e|architecture|prove|proof|regex|sql|typescript|python|javascript|react)\b|โค้ด|เขียนโปรแกรม|แก้บั๊ก|วิเคราะห์|พิสูจน์|คำนวณ|สมการ|ออกแบบระบบ|เปรียบเทียบ|กลยุทธ์|แผนธุรกิจ|เรียงความ|รายงาน/i;
 // shortcut: แยกง่าย/ยากด้วยกฎ (ไม่เสีย token เพิ่ม) ถ้าอยากแม่นขึ้นค่อยให้โมเดลเล็กช่วยจัดประเภท
-async function autoModel(env, planId, { text, images, files, effort, regenerate }) {
-  const ms = await allowedModels(env, planId); if (!ms.length) return null;
+async function autoModel(env, plan, u, { text, images, files, effort, regenerate }) {
+  const all = await allowedModels(env, plan.id); if (!all.length) return null;
+  const ok = [];
+  for (const m of all) if (!(await capHit(env, u, plan, m))) ok.push(m);
+  const ms = ok.length ? ok : all; // ถ้าติดเพดานหมด ให้ใช้ all เพื่อแจ้ง 429 ตามปกติ
   const s = await getSettings(env, ['auto_cheap_model', 'auto_strong_model']), by = (a, b) => a.multiplier - b.multiplier;
   const cheap = ms.find(m => m.id === +s.auto_cheap_model) || [...ms].sort(by)[0];
   const strong = ms.find(m => m.id === +s.auto_strong_model) || [...ms].sort(by).at(-1);
@@ -739,7 +801,7 @@ async function projects(req, env, u, path, url) {
 
 // ---------- GitHub (โหมด Code) ----------
 // token ของผู้ใช้เข้ารหัส AES-GCM ด้วย SECRET_KEY ก่อนเก็บ ไม่เคยส่งกลับไปที่หน้าเว็บ
-let GH = 'https://api.github.com'; const GH_IGNORE = /(^|\/)(node_modules|\.git|dist|build|__pycache__|\.next|\.venv)(\/|$)/;
+const GH_BASE = 'https://api.github.com'; const GH_IGNORE = /(^|\/)(node_modules|\.git|dist|build|__pycache__|\.next|\.venv)(\/|$)/;
 const b64 = u => { let s = ''; for (const x of new Uint8Array(u)) s += String.fromCharCode(x); return btoa(s); };
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 async function sealKey(env) {
@@ -754,7 +816,7 @@ const ghErr = (st, d) => st === 401 ? 'GitHub token ใช้ไม่ได้�
   : st === 409 ? 'repo ยังว่างอยู่ ให้สร้างไฟล์แรก (เช่น README) บน GitHub ก่อน'
   : 'GitHub ตอบกลับ ' + st + (d?.message ? ': ' + d.message : '');
 async function gh(token, path, opt = {}) {
-  const r = await fetch(GH + path, { method: opt.method || 'GET', body: opt.body && JSON.stringify(opt.body),
+  const r = await fetch((opt.base || GH_BASE) + path, { method: opt.method || 'GET', body: opt.body && JSON.stringify(opt.body),
     headers: { authorization: 'Bearer ' + token, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'AstraCode', ...(opt.body ? { 'content-type': 'application/json' } : {}) } })
     .catch(() => { throw userErr('เชื่อมต่อ GitHub ไม่ได้ ลองใหม่อีกครั้ง', 502); });
   if (opt.raw) { if (!r.ok) throw userErr(ghErr(r.status)); return r; }
@@ -786,8 +848,8 @@ async function unzip(buf) {
 }
 async function inflate(z) { return z.method === 0 ? z.data : new Uint8Array(await new Response(new Blob([z.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()); }
 // ดึงไฟล์ข้อความทั้งหมดของ repo ที่ commit นั้น (ข้ามไฟล์ไบนารี รูป และไฟล์ใหญ่)
-async function remoteFiles(token, repo, sha) {
-  const buf = await (await gh(token, `/repos/${repo}/zipball/${sha}`, { raw: true })).arrayBuffer();
+async function remoteFiles(token, repo, sha, base) {
+  const buf = await (await gh(token, `/repos/${repo}/zipball/${sha}`, { raw: true, base })).arrayBuffer();
   if (buf.byteLength > 30e6) throw userErr('repo ใหญ่เกิน 30MB');
   const files = new Map(), skipped = [];
   for (const z of await unzip(buf)) {
@@ -802,10 +864,10 @@ async function remoteFiles(token, repo, sha) {
 }
 async function github(req, env, u, p, sub, now) {
   const DB = env.DB, M = req.method;
-  if (env.GITHUB_API) GH = env.GITHUB_API; // ใช้ทดสอบกับ GitHub จำลองเท่านั้น
-  const tok = u.gh_token && await unseal(env, u.gh_token).catch(() => null);
+    const tok = u.gh_token && await unseal(env, u.gh_token).catch(() => null);
   if (!tok) return err('ยังไม่ได้เชื่อม GitHub', 400);
-  const head = async () => (await gh(tok, `/repos/${p.gh_repo}/git/ref/heads/${encodeURIComponent(p.gh_branch)}`)).object.sha;
+  const ghApi = (path, opt = {}) => ghApi(path, { ...opt, base: env.GITHUB_API });
+  const head = async () => (await ghApi(`/repos/${p.gh_repo}/git/ref/heads/${encodeURIComponent(p.gh_branch)}`)).object.sha;
   const local = async () => (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(p.id).all()).results;
   const save = (sha, synced) => DB.prepare('UPDATE projects SET gh_sha=?, gh_synced=?, updated_at=? WHERE id=?').bind(sha, JSON.stringify(Object.fromEntries(synced)), now, p.id).run();
 
@@ -813,8 +875,8 @@ async function github(req, env, u, p, sub, now) {
     if (M === 'DELETE') { await DB.prepare('UPDATE projects SET gh_repo=NULL, gh_branch=NULL, gh_sha=NULL, gh_synced=NULL WHERE id=?').bind(p.id).run(); return json({ ok: true }); }
     const b = await req.json(), repo = String(b.repo || '').trim().replace(/^https:\/\/github\.com\//, '').replace(/\.git$|\/$/g, '');
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return err('ใส่ repo แบบ owner/repo');
-    const info = await gh(tok, `/repos/${repo}`), branch = String(b.branch || '').trim() || info.default_branch;
-    await gh(tok, `/repos/${repo}/branches/${encodeURIComponent(branch)}`);
+    const info = await ghApi(`/repos/${repo}`), branch = String(b.branch || '').trim() || info.default_branch;
+    await ghApi(`/repos/${repo}/branches/${encodeURIComponent(branch)}`);
     await DB.prepare('UPDATE projects SET gh_repo=?, gh_branch=?, gh_sha=NULL, gh_synced=NULL WHERE id=?').bind(info.full_name, branch, p.id).run();
     return json({ ok: true, repo: info.full_name, branch, push: !!info.permissions?.push });
   }
@@ -826,12 +888,12 @@ async function github(req, env, u, p, sub, now) {
     const added = [...mine.keys()].filter(k => !synced.has(k)), modified = [...mine].filter(([k, v]) => synced.has(k) && synced.get(k) !== v).map(([k]) => k);
     const deleted = [...synced.keys()].filter(k => !mine.has(k));
     let behind = 0, remote = [];
-    if (p.gh_sha && h !== p.gh_sha) { const c = await gh(tok, `/repos/${p.gh_repo}/compare/${p.gh_sha}...${h}`); behind = c.ahead_by; remote = (c.files || []).slice(0, 50).map(f => ({ path: f.filename, status: f.status })); }
+    if (p.gh_sha && h !== p.gh_sha) { const c = await ghApi(`/repos/${p.gh_repo}/compare/${p.gh_sha}...${h}`); behind = c.ahead_by; remote = (c.files || []).slice(0, 50).map(f => ({ path: f.filename, status: f.status })); }
     return json({ repo: p.gh_repo, branch: p.gh_branch, head: h, synced: p.gh_sha, never: !p.gh_sha, behind, remote, local: { added, modified, deleted } });
   }
   if (sub === '/github/pull' && M === 'POST') { // รวมแบบ 3 ทาง ทีละไฟล์: ของเรา / GitHub / ครั้งล่าสุดที่ sync
     const keep = (await req.json()).resolve; // 'remote' | 'local' เมื่อชนกัน
-    const h = await head(), { files: remote, skipped } = await remoteFiles(tok, p.gh_repo, h), mineRows = await local();
+    const h = await head(), { files: remote, skipped } = await remoteFiles(tok, p.gh_repo, h, env.GITHUB_API), mineRows = await local();
     const mine = await shaMap(mineRows), theirs = new Map(await Promise.all([...remote].map(async ([k, v]) => [k, await blobSha(v)])));
     const writes = [], dels = [], conflicts = [];
     for (const k of new Set([...mine.keys(), ...theirs.keys(), ...synced.keys()])) {
@@ -852,12 +914,12 @@ async function github(req, env, u, p, sub, now) {
     return json({ ok: true, head: h, updated: writes.map(f => f.path), deleted: dels, conflicts, skipped: skipped.slice(0, 30), skippedCount: skipped.length });
   }
   if (sub === '/github/branches') {
-    const list = await gh(tok, `/repos/${p.gh_repo}/branches?per_page=100`), info = await gh(tok, `/repos/${p.gh_repo}`);
+    const list = await ghApi(`/repos/${p.gh_repo}/branches?per_page=100`), info = await ghApi(`/repos/${p.gh_repo}`);
     return json({ current: p.gh_branch, default: info.default_branch, branches: list.map(x => x.name) });
   }
   if (sub === '/github/switch' && M === 'POST') { // เปลี่ยน branch: ต้อง Pull ใหม่
     const br = String((await req.json()).branch || '');
-    await gh(tok, `/repos/${p.gh_repo}/branches/${encodeURIComponent(br)}`);
+    await ghApi(`/repos/${p.gh_repo}/branches/${encodeURIComponent(br)}`);
     await DB.prepare('UPDATE projects SET gh_branch=?, gh_sha=NULL, gh_synced=NULL WHERE id=?').bind(br, p.id).run();
     return json({ ok: true, branch: br });
   }
@@ -865,14 +927,14 @@ async function github(req, env, u, p, sub, now) {
     const name = String((await req.json()).name || '').trim();
     if (!/^[\w.\-/]{1,100}$/.test(name) || name.includes('..')) return err('ชื่อ branch ใช้ได้เฉพาะ a-z 0-9 - _ . /');
     if (!p.gh_sha) return err('กด Pull ก่อน แล้วค่อยสร้าง branch', 409);
-    await gh(tok, `/repos/${p.gh_repo}/git/refs`, { method: 'POST', body: { ref: 'refs/heads/' + name, sha: p.gh_sha } });
+    await ghApi(`/repos/${p.gh_repo}/git/refs`, { method: 'POST', body: { ref: 'refs/heads/' + name, sha: p.gh_sha } });
     await DB.prepare('UPDATE projects SET gh_branch=? WHERE id=?').bind(name, p.id).run(); // คอมมิตเดียวกัน จึงไม่ต้อง pull ใหม่
     return json({ ok: true, branch: name });
   }
   if (sub === '/github/pr' && M === 'POST') {
-    const b = await req.json(), info = await gh(tok, `/repos/${p.gh_repo}`), base = String(b.base || info.default_branch);
+    const b = await req.json(), info = await ghApi(`/repos/${p.gh_repo}`), base = String(b.base || info.default_branch);
     if (base === p.gh_branch) return err('branch ต้นทางกับปลายทางเป็นอันเดียวกัน สร้าง branch ใหม่ก่อน');
-    const pr = await gh(tok, `/repos/${p.gh_repo}/pulls`, { method: 'POST', body: { title: String(b.title || 'อัปเดตจาก AstraCode').slice(0, 200), body: String(b.body || '').slice(0, 5000), head: p.gh_branch, base } });
+    const pr = await ghApi(`/repos/${p.gh_repo}/pulls`, { method: 'POST', body: { title: String(b.title || 'อัปเดตจาก AstraCode').slice(0, 200), body: String(b.body || '').slice(0, 5000), head: p.gh_branch, base } });
     return json({ ok: true, url: pr.html_url, number: pr.number });
   }
   if (sub === '/github/push' && M === 'POST') {
@@ -884,10 +946,10 @@ async function github(req, env, u, p, sub, now) {
     const tree = [...[...mine].filter(([k, v]) => synced.get(k) !== v).map(([k]) => ({ path: k, mode: '100644', type: 'blob', content: text.get(k) })),
       ...[...synced.keys()].filter(k => !mine.has(k)).map(k => ({ path: k, mode: '100644', type: 'blob', sha: null }))];
     if (!tree.length) return json({ ok: true, nothing: true });
-    const base = await gh(tok, `/repos/${p.gh_repo}/git/commits/${h}`);
-    const t = await gh(tok, `/repos/${p.gh_repo}/git/trees`, { method: 'POST', body: { base_tree: base.tree.sha, tree } });
-    const c = await gh(tok, `/repos/${p.gh_repo}/git/commits`, { method: 'POST', body: { message, tree: t.sha, parents: [h] } });
-    await gh(tok, `/repos/${p.gh_repo}/git/refs/heads/${encodeURIComponent(p.gh_branch)}`, { method: 'PATCH', body: { sha: c.sha } });
+    const base = await ghApi(`/repos/${p.gh_repo}/git/commits/${h}`);
+    const t = await ghApi(`/repos/${p.gh_repo}/git/trees`, { method: 'POST', body: { base_tree: base.tree.sha, tree } });
+    const c = await ghApi(`/repos/${p.gh_repo}/git/commits`, { method: 'POST', body: { message, tree: t.sha, parents: [h] } });
+    await ghApi(`/repos/${p.gh_repo}/git/refs/heads/${encodeURIComponent(p.gh_branch)}`, { method: 'PATCH', body: { sha: c.sha } });
     await save(c.sha, mine);
     return json({ ok: true, commit: c.sha, url: c.html_url, files: tree.length });
   }
@@ -1245,8 +1307,7 @@ async function route(req, env, ctx, url, path, M) {
         if (M === 'DELETE') { await env.DB.prepare('UPDATE users SET gh_token=NULL, gh_login=NULL WHERE id=?').bind(u.id).run(); return json({ ok: true }); }
         const token = String((await req.json()).token || '').trim();
         if (!/^(gh[pousr]_|github_pat_)[\w]{20,}$/.test(token)) return err('รูปแบบ token ไม่ถูกต้อง (ขึ้นต้นด้วย github_pat_ หรือ ghp_)');
-        if (env.GITHUB_API) GH = env.GITHUB_API;
-        const who = await gh(token, '/user');
+        const who = await gh(token, '/user', { base: env.GITHUB_API });
         await env.DB.prepare('UPDATE users SET gh_token=?, gh_login=? WHERE id=?').bind(await seal(env, token), who.login, u.id).run();
         return json({ ok: true, login: who.login });
       }
@@ -1537,34 +1598,88 @@ async function v1(req, env, ctx, path) {
     if (k.budget != null && spent >= k.budget) return fail(`key นี้ใช้ครบงบเดือนนี้แล้ว (฿${k.budget})`, 429, 'insufficient_quota');
     const msgs = Array.isArray(b.messages) ? b.messages : [];
     const text = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text).join('\n') : '';
-    const system = msgs.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content)).join('\n\n');
-    const hist = msgs.filter(x => x.role === 'user' || x.role === 'assistant').map(x => ({ role: x.role, content: text(x.content) })).filter(x => x.content);
-    if (!hist.length || hist.at(-1).role !== 'user') return fail('messages ต้องลงท้ายด้วยข้อความของ user', 400);
+    const hasImg = c => Array.isArray(c) && c.some(x => x?.type === 'image_url');
+    const normContent = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text' || x?.type === 'image_url') : '';
+    const system = msgs.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content)).filter(Boolean).join('\n\n');
+    const hist = msgs.filter(x => ['user', 'assistant', 'tool'].includes(x.role)).map(x => x.role === 'tool'
+      ? { role: 'tool', tool_call_id: String(x.tool_call_id || ''), content: typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '') }
+      : x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.length
+        ? { role: 'assistant', content: text(x.content) || null, tool_calls: x.tool_calls }
+        : { role: x.role, content: normContent(x.content) }).filter(x => x.role === 'tool' || (x.tool_calls?.length) || (Array.isArray(x.content) ? x.content.length : x.content));
+    if (!hist.length || !['user', 'tool'].includes(hist.at(-1).role)) return fail('messages ต้องลงท้ายด้วยข้อความของ user หรือ tool', 400);
+    if (hist.some(x => hasImg(x.content)) && !m.vision) return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
     if (JSON.stringify(hist).length > 800000) return fail('ข้อความยาวเกินไป', 413);
-    const effort = ['low', 'high', 'max'].includes(b.reasoning_effort) ? b.reasoning_effort : null, id = 'chatcmpl-' + rand(12), created = Math.floor(Date.now() / 1000), name = slug(m);
+    const effort = ['low', 'high', 'max'].includes(b.reasoning_effort) ? b.reasoning_effort : null, id = 'chatcmpl-' + rand(12), created = Math.floor(Date.now() / 1000);
+    const tools = Array.isArray(b.tools) && b.tools.length ? b.tools : undefined, toolChoice = b.tool_choice;
+    const maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined;
+    let activeModel = m;
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read } });
-    const finish = async u => {
-      const charge = u ? await logUsage(env, k.id, m, u, { units: false, wallet: 'api' }) : 0;
+    const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2) });
+    const finish = async (u, outChars) => {
+      const finalU = u || (outChars > 0 ? estUsage(outChars) : null);
+      const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, { units: false, wallet: 'api' }) : 0;
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
+      return finalU;
     };
-    const gen = callModel(env, m, hist, { system, effort, maxTokens: +b.max_tokens || +b.max_completion_tokens || undefined });
+    const nextFallback = async cur => cur.fallback_id ? env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(cur.fallback_id).first() : null;
     if (!b.stream) {
-      let content = '', reasoning = '', usage = null;
-      try { for await (const e of gen) { if (e.t) content += e.t; if (e.th) reasoning += e.th; if (e.usage) usage = e.usage; } }
-      catch (e) { await event(env, 'error', m.id, 'api: ' + e.message.slice(0, 200)); return fail('โมเดลตอบไม่ได้ตอนนี้', 502, 'api_error'); }
-      await finish(usage);
-      return out({ id, object: 'chat.completion', created, model: name, choices: [{ index: 0, message: { role: 'assistant', content, ...(reasoning ? { reasoning_content: reasoning } : {}) }, finish_reason: 'stop' }], usage: usage ? usageOut(usage) : undefined });
+      let content = '', reasoning = '', usage = null, finishReason = 'stop', tcs = new Map(), anthIdx = new Map();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice })) {
+            if (e.t) content += e.t;
+            if (e.th) reasoning += e.th;
+            if (e.tc_start) { const idx = tcs.size; anthIdx.set(e.tc_start.index, idx); tcs.set(idx, { id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }); }
+            if (e.tc_delta) { const idx = anthIdx.get(e.tc_delta.index); if (idx != null) tcs.get(idx).function.arguments += e.tc_delta.args; }
+            if (e.tc) for (const d of e.tc) {
+              const idx = d.index ?? 0;
+              if (!tcs.has(idx)) tcs.set(idx, { id: d.id || 'call_' + rand(8), type: 'function', function: { name: d.function?.name || '', arguments: '' } });
+              const c = tcs.get(idx); if (d.id) c.id = d.id; if (d.function?.name) c.function.name += d.function.name; if (d.function?.arguments) c.function.arguments += d.function.arguments;
+            }
+            if (e.stop_reason) finishReason = e.stop_reason;
+            if (e.usage) usage = e.usage;
+          }
+          break;
+        } catch (e) {
+          await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
+          const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
+          if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { activeModel = fb; continue; }
+          return fail('โมเดลตอบไม่ได้ตอนนี้', 502, 'api_error');
+        }
+      }
+      const toolCalls = [...tcs.values()]; if (toolCalls.length) finishReason = 'tool_calls';
+      const used = await finish(usage, content.length + reasoning.length + JSON.stringify(toolCalls).length);
+      return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined });
     }
     const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder();
-    const chunk = (delta, extra = {}) => w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: name, choices: [{ index: 0, delta, finish_reason: null }], ...extra }) + '\n\n'));
+    const chunk = (delta, extra = {}, fin = null) => w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n'));
     ctx.waitUntil((async () => {
-      let usage = null;
+      let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0;
       try {
-        await chunk({ role: 'assistant', content: '' });
-        for await (const e of gen) { if (e.t) await chunk({ content: e.t }); if (e.th) await chunk({ reasoning_content: e.th }); if (e.usage) usage = e.usage; }
-        await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: name, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: usage ? usageOut(usage) : null }) + '\n\n'));
-      } catch (e) { await event(env, 'error', m.id, 'api: ' + e.message.slice(0, 200)); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
-      await finish(usage);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice })) {
+              if (!sentAny) { sentAny = true; await chunk({ role: 'assistant', content: '' }); }
+              if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
+              if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }
+              if (e.tc_start) { const idx = tcCount++; anthIdx.set(e.tc_start.index, idx); await chunk({ tool_calls: [{ index: idx, id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }] }); }
+              if (e.tc_delta) { const idx = anthIdx.get(e.tc_delta.index); if (idx != null) { outChars += e.tc_delta.args.length; await chunk({ tool_calls: [{ index: idx, function: { arguments: e.tc_delta.args } }] }); } }
+              if (e.tc) { outChars += JSON.stringify(e.tc).length; tcCount = Math.max(tcCount, e.tc.length); await chunk({ tool_calls: e.tc }); }
+              if (e.stop_reason) finishReason = e.stop_reason;
+              if (e.usage) usage = e.usage;
+            }
+            break;
+          } catch (e) {
+            await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
+            const fb = attempt === 0 && !sentAny ? await nextFallback(activeModel) : null;
+            if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { activeModel = fb; continue; }
+            throw e;
+          }
+        }
+        if (tcCount > 0 && finishReason === 'stop') finishReason = 'tool_calls';
+        const used = await finish(usage, outChars);
+        await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
+      } catch (e) { await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
     return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...cors } });
