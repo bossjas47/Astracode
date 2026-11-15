@@ -135,7 +135,9 @@ if (typeof globalThis.parseAsk !== 'function') {
 }
 // ---------- Thinking: กล่องเหตุผลที่ AI คิด (กดเพื่อขยาย) ----------
 const thinkLabel = m => m.streaming && !m.content ? '<span class="shimmer">กำลังคิด…</span>' : `Thinking${m.thinkSec ? ` · ${m.thinkSec} วินาที` : ''}`;
-const thinkHTML = m => m.thinking ? `<details class="think"><summary>${ic('sparkles', 'sm')}<span class="think-s">${thinkLabel(m)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${esc(m.thinking)}</div></details>` : '';
+// ความคิดบางรุ่นส่งมาเป็นหัวข้อ **...** ต่อกันโดยไม่มีบรรทัดว่าง → จัดเป็นย่อหน้าและทำตัวหนา
+const thinkText = s => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/<\/b>(?=<b>)/g, '</b>\n\n').replace(/([^\n>])<b>/g, '$1\n\n<b>');
+const thinkHTML = m => m.thinking ? `<details class="think"><summary>${ic('sparkles', 'sm')}<span class="think-s">${thinkLabel(m)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${thinkText(m.thinking)}</div></details>` : '';
 // กล่องตัวเลือกจากบล็อก ```ask ที่ parseAsk() แยกออกมา
 function askHTML(asks, active = true) {
   if (!Array.isArray(asks) || !asks.length) return '';
@@ -151,7 +153,7 @@ function paintStreaming(el, m) {
   if (m.thinking && !th) { el.insertAdjacentHTML('afterbegin', thinkHTML(m)); th = el.querySelector('.think'); }
   if (th) {
     const b = th.querySelector('.think-b'), stick = b.scrollHeight - b.scrollTop - b.clientHeight < 40;
-    b.textContent = m.thinking; th.querySelector('.think-s').innerHTML = thinkLabel(m);
+    b.innerHTML = thinkText(m.thinking); th.querySelector('.think-s').innerHTML = thinkLabel(m);
     if (stick) b.scrollTop = b.scrollHeight;
   }
   if (m.mcps?.length) {

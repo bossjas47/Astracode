@@ -647,12 +647,13 @@ function showDiff(c, label = 'Apply') {
 const TOOL_LABEL = { IMAGE: ['image', 'สร้างรูป'], READ: ['filetext', 'อ่านไฟล์'], GREP: ['search', 'ค้นหา'], LIST: ['folder', 'ดูโฟลเดอร์'], RUN: ['terminal', 'รันคำสั่ง'] };
 function stepsOf(text) {
   const out = [];
-  for (const m of String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(/^[ \t]*(READ|GREP|LIST|RUN|IMAGE)\b[ \t]*(?:path=)?(.*)$/gm)) {
-    out.push({ op: m[1], arg: m[2].trim() });
+  for (const m of String(text || '').replace(/```[\s\S]*?```/g, '').replace(/(\S)(READ path=)/g, '$1\n$2').matchAll(/^[ \t]*(READ|GREP|LIST|RUN|IMAGE)\b[ \t]*(?:path=)?(.*)$/gm)) {
+    const a = m[2].trim();
+    out.push({ op: m[1], arg: m[1] === 'READ' || m[1] === 'LIST' ? a.match(/^[`'"]?([\w./@~-]*)/)?.[1] || a : a });
   }
   return out;
 }
-const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/^[ \t]*(READ|GREP|LIST|RUN|IMAGE)\b.*$/gm, '')).join('```').replace(/\n{3,}/g, '\n\n').trim();
+const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/(\S)(READ path=)/g, '$1\n$2').replace(/^[ \t]*(?:READ|LIST)\b[ \t]*(?:path=)?[`'"]?[\w./@~-]*[`'"]?/gm, '').replace(/^[ \t]*(?:GREP|RUN|IMAGE)\b.*$/gm, '')).join('```').replace(/\n{3,}/g, '\n\n').trim();
 function stepsBar(m, i) {
   const s = stepsOf(m.content); if (!s.length) return '';
   const cnt = k => s.filter(x => x.op === k).length;
@@ -701,7 +702,7 @@ async function codeSend(auto) {
   if (!resume) IDE.msgs.push({ role: 'user', content: withFiles(full, files), imgs: images.length ? images : null, auto: !!auto });
   const ai = { role: 'assistant', content: '', model: m.name, streaming: true }; IDE.msgs.push(ai); drawAI();
   IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop');
-  let raf = 0, started = false;
+  let raf = 0, started = false, netLost = false;
   try {
     const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps };
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal, body: JSON.stringify(reqBody) });
@@ -719,13 +720,26 @@ async function codeSend(auto) {
         if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) { const stick = nearBottom(b); paintStreaming(last, ai); if (stick) b.scrollTop = b.scrollHeight; } }); }
         if (d.error) $('#ce').textContent = d.error;
-        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); }
+        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; }
       }
     }
   } catch (x) {
-    if (x.name !== 'AbortError') { $('#ce').textContent = x.message; if (!started && !resume) { IDE.msgs.splice(-2, 2); if (!auto) t.value = text; } }
+    if (x.name !== 'AbortError') {
+      // เครือข่ายหลุดกลางคำตอบ (สลับแอป ปิดจอ): เซิร์ฟเวอร์ยังตอบต่อเบื้องหลัง จึงต่อสตรีมกลับมาให้เอง แทนที่จะแจ้ง network error
+      if (started && IDE.chatId && (IDE.resumeTries = (IDE.resumeTries || 0) + 1) <= 8) netLost = true;
+      else { $('#ce').textContent = x.message; if (!started && !resume) { IDE.msgs.splice(-2, 2); if (!auto) t.value = text; } }
+    }
   }
   cancelAnimationFrame(raf); ai.streaming = false; if (!ai.content && !ai.thinking && IDE.msgs.at(-1) === ai) IDE.msgs.pop();
+  if (netLost) { // ทิ้งข้อความที่ได้มาครึ่งเดียว แล้วรอจนหน้าจอกลับมา เพื่อดึงคำตอบเต็มจากเซิร์ฟเวอร์
+    if (IDE.msgs.at(-1) === ai) IDE.msgs.pop();
+    IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI(); $('#ce').textContent = 'เครือข่ายหลุด กำลังต่อให้อัตโนมัติ...';
+    const go = () => { $('#ce').textContent = ''; if (!IDE.busy && IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); };
+    if (document.hidden) document.addEventListener('visibilitychange', function f() { if (!document.hidden) { document.removeEventListener('visibilitychange', f); setTimeout(go, 600); } });
+    else setTimeout(go, 2000);
+    return;
+  }
+  if (resume && !ai.content && !ai.thinking && IDE.chatId) { IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => IDE.msgs); IDE.resumeTries = 0; drawAI(); return; } // เซิร์ฟเวอร์ตอบจบไปแล้ว: โหลดคำตอบที่บันทึกไว้
   IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
   // โหมดอัตโนมัติ: ใช้การแก้ไขทันที แล้วให้ AI ดูผลลัพธ์เอง (สูงสุด 3 รอบ)
   // Auto-apply: ใช้การแก้ไขทันที (และรันคำสั่งที่ AI ขอ) · ตรวจผลเอง: ใช้การแก้ไข แล้วรัน + จับภาพให้ AI ดู (สูงสุด 3 รอบ)

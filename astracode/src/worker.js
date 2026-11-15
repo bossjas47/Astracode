@@ -846,7 +846,12 @@ async function mcpCall(url, token, name, args) {
 
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
 const TOOL_ROUNDS = 6, READ_MAX = 100e3;
-const toolReqs = text => [...text.replace(/```[\s\S]*?```/g, '').matchAll(/^\s*(READ|GREP|LIST)\b[ \t]*(?:path=)?(.*)$/gm)].map(m => ({ op: m[1], arg: m[2].trim().replace(/^`|`$/g, '') })).slice(0, 12);
+// โมเดลบางตัวเขียนคำสั่งติดกับข้อความ (เช่น "...ครับREAD path=a.js" หรือ "READ path=a.jsกำลังอ่าน...") → แยกบรรทัด และอ่านพาธเฉพาะตัวอักษรที่เป็นพาธ ไม่เอาข้อความไทยที่ติดมา (เดิมทำให้หาไฟล์ไม่พบแล้วโมเดลสั่งอ่านซ้ำวน)
+const toolReqs = text => [...text.replace(/```[\s\S]*?```/g, '').replace(/(\S)(READ path=)/g, '$1\n$2').matchAll(/^\s*(READ|GREP|LIST)\b[ \t]*(?:path=)?(.*)$/gm)].map(m => {
+  let arg = m[2].trim().replace(/^`|`$/g, '');
+  if (m[1] !== 'GREP') arg = arg.match(/^[`'"]?([\w./@~-]*)/)?.[1] ?? arg;
+  return { op: m[1], arg };
+}).slice(0, 12);
 async function runTools(env, pid, reqs) {
   const files = (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all()).results;
   const out = []; let budget = 200e3;
