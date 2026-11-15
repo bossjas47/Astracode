@@ -890,13 +890,13 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .vlogo.xs { width: 20px; height: 20px; border-radius: 8px; border: 0; background: none; }
 .vlogo.xs svg { width: 15px; height: 15px; } .vlogo.xs img { width: 16px; height: 16px; } .vlogo.xs b { font-size: 12px; }
 .vchips button.on .vlogo { color: #1f1410; }
-.vopt { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 12px; margin-bottom: 6px; border-radius: 14px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .04); color: var(--porcelain); text-align: left; cursor: pointer; transition: background-color .35s ease, border-color .35s ease, transform .35s cubic-bezier(.2, .8, .2, 1); }
+.vopt { font-family: var(--font); width: 100%; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 12px; margin-bottom: 6px; border-radius: 14px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .04); color: var(--porcelain); text-align: left; cursor: pointer; transition: background-color .35s ease, border-color .35s ease, transform .35s cubic-bezier(.2, .8, .2, 1); }
 .vopt:hover { background: rgba(255, 255, 255, .08); } .vopt:active { transform: scale(.985); }
 .vopt[hidden] { display: none; }
 .vopt.on { border-color: rgba(255, 255, 255, .6); background: rgba(255, 255, 255, .1); }
 .vtxt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .vtxt b { font: 600 15px/1.3 var(--font); }
-.vtxt small { color: var(--ash); font-size: 12px; line-height: 1.35; }
+.vtxt small { color: var(--ash); font: 400 12px/1.4 var(--font); }
 .vmult { flex: none; padding: 2px 8px; border-radius: 9999px; background: rgba(255, 255, 255, .08); border: 1px solid var(--hair); font: 600 12px var(--font); font-variant-numeric: tabular-nums; }
 .vck { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--porcelain); color: #1f1410; }
 .vck .ic { width: 12px; height: 12px; }
