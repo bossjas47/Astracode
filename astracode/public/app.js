@@ -91,6 +91,7 @@ function hlCode(raw) {
   return out + esc(raw.slice(last));
 }
 function md(s) {
+  s = String(s).replace(/!\[[^\]]*\]\((?:\/api\/img\/[\w/.-]+|data:image\/[^)]+)\)/g, m => m.replace(/\s*\n\s*/g, ' ')); // รูปที่ alt ขึ้นบรรทัดใหม่ (ข้อความเก่า) ยังแสดงได้
   return String(s).split(/```/).map((part, i) => {
     if (!(i % 2)) return blocks(part);
     const nl = part.indexOf('\n'), info = nl >= 0 ? part.slice(0, nl).trim() : '', lang = info.split(/\s/)[0];

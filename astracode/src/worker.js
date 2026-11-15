@@ -34,7 +34,7 @@ const slipPut = async (env, key, buf, type) => {
   await env.DB.prepare('INSERT OR REPLACE INTO slip_blobs VALUES (?,?,?)').bind(key, type, [...new Uint8Array(buf)]).run();
 };
 const slipGet = async (env, key) => {
-  if (env.SLIPS) return env.SLIPS.get(key);
+  if (env.SLIPS) { const o = await env.SLIPS.get(key); if (o) return o; } // สลิปที่เก็บก่อนผูก R2 ยังอยู่ใน D1
   const r = await env.DB.prepare('SELECT t,d FROM slip_blobs WHERE k=?').bind(key).first().catch(() => null);
   return r && { body: new Uint8Array(r.d), httpMetadata: { contentType: r.t } };
 };
@@ -368,7 +368,7 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       else if (item.b64_json.length > 1.8e6) throw new Error('รูปที่ได้ใหญ่เกินจะบันทึก ลองใช้ขนาดที่เล็กลง');
       else src = `data:${mime};base64,` + item.b64_json;
     } else if (item?.url) src = item.url; else throw new Error('ไม่ได้รูปกลับมา');
-    yield { t: `![${prompt.slice(0, 80).replace(/[\[\]]/g, '')}](${src})` };
+    yield { t: `![${prompt.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${src})` }; // alt ต้องอยู่บรรทัดเดียว ไม่งั้น markdown ไม่แสดงรูป
     yield { usage: { fresh: 0, read: 0, write: 0, out: 1e6 } }; // 1 รูป = 1M "token" จึงคิดตามทุน output ต่อรูป
   } else if (m.provider === 'responses') { // OpenAI Responses API (/responses): โมเดลรุ่นใหม่ที่ไม่รับ /chat/completions
     const part = (role, p) => typeof p === 'string' ? { type: role === 'assistant' ? 'output_text' : 'input_text', text: p }
@@ -516,11 +516,13 @@ let imgTable;
 const ensureImgTable = env => imgTable ||= env.DB.prepare('CREATE TABLE IF NOT EXISTS chat_images (key TEXT NOT NULL, n INTEGER NOT NULL, user_id INTEGER NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (key, n))').run();
 async function putImage(env, uid, mime, b64s) {
   if (b64s.length > IMG_MAX) throw new Error('รูปที่ได้ใหญ่เกินไป');
+  const ext = mime === 'image/png' ? 'png' : 'jpg', key = rand(12);
+  if (env.SLIPS) { await env.SLIPS.put(`img/${uid}/${key}.${ext}`, unb64(b64s), { httpMetadata: { contentType: mime } }); return `/api/img/${uid}/${key}.${ext}`; } // มี R2: เก็บที่ R2
   await ensureImgTable(env);
-  const key = rand(12), now = Date.now(), ops = [];
+  const now = Date.now(), ops = [];
   for (let i = 0, n = 0; i < b64s.length; i += IMG_CHUNK, n++) ops.push(env.DB.prepare('INSERT INTO chat_images VALUES (?,?,?,?,?,?)').bind(key, n, uid, mime, b64s.slice(i, i + IMG_CHUNK), now));
   await env.DB.batch(ops);
-  return `/api/img/${uid}/${key}.${mime === 'image/png' ? 'png' : 'jpg'}`;
+  return `/api/img/${uid}/${key}.${ext}`;
 }
 const modelDown = async (env, id) => (await env.DB.prepare("SELECT COUNT(*) n FROM events WHERE kind='error' AND model_id=? AND created_at>?").bind(id, Date.now() - 300e3).first()).n >= 3;
 async function webSearch(env, q) { // Tavily
@@ -2216,7 +2218,7 @@ async function imageGen(req, env, u) {
   else src = await putImage(env, u.id, 'image/png', b64(bytes)); // ไม่มี R2: เก็บเป็นก้อนในฐานข้อมูล
   if (b.chat_id && await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(b.chat_id, u.id).first())
     await env.DB.batch([...(b.silent ? [] : [env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'user', '🎨 ' + prompt, Date.now())]), // silent = AI สั่งสร้างเอง ไม่มีข้อความฝั่งผู้ใช้
-      env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'assistant', `![${prompt.slice(0, 80).replace(/[\[\]]/g, '')}](${src})`, Date.now())]);
+      env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'assistant', `![${prompt.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${src})`, Date.now())]);
   return json({ src, usage: await usageStatus(env, u, plan) });
 }
 

@@ -12,9 +12,9 @@ binding = "DB"
 database_name = "astracode"
 database_id = "723ec871-4ab3-48be-804e-7ef04e90564f"   # ได้จาก: npx wrangler d1 create astracode
 
-# [[r2_buckets]] (ไม่ใช้ R2 ก็ได้)
-# binding = "SLIPS"
-# bucket_name = "astracode-slips"
+[[r2_buckets]] # เก็บรูปที่ AI สร้างและสลิป (ไม่ผูกก็ได้: ระบบจะเก็บใน D1 แทน)
+binding = "SLIPS"
+bucket_name = "astracode"
 
 # [vars]  (ตั้ง ADMIN_EMAIL ใน dashboard ของ Worker แทน จะได้ไม่ถูกเขียนทับตอน deploy)
 
