@@ -1090,3 +1090,6 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .cb.pick { overflow: hidden; }
 .cb .ic { flex: none; }
 .cb { justify-content: center; } /* ปุ่มไอคอนล้วน (ไมค์ ฯลฯ) อยู่กึ่งกลางกรอบ ไม่เบี้ยวซ้าย */
+.dr-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.dr-back, .dr-exit { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: 9999px; border: 1px solid var(--hair); font-size: 12.5px; color: var(--porcelain); background: rgba(255, 255, 255, .06); }
+.dr-exit { background: rgba(217, 119, 87, .18); border-color: rgba(217, 119, 87, .5); }

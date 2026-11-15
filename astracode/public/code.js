@@ -300,6 +300,8 @@ async function exportZip() {
 }
 
 // ---------- รันโค้ด ----------
+// หน้าตัวอย่างรันใน iframe แบบ sandbox (ไม่มี allow-same-origin) จึงเรียก localStorage/sessionStorage แล้วเกิด SecurityError ทำให้สคริปต์ของเกมล้มตั้งแต่ต้นและปุ่มไม่ทำงาน · ใส่ตัวแทนที่เก็บในหน่วยความจำ (หายเมื่อรันใหม่)
+const STORAGE_SHIM = `<script>try{localStorage.getItem('_')}catch(e){for(const n of['localStorage','sessionStorage']){const m=new Map();Object.defineProperty(window,n,{configurable:true,value:{getItem:k=>m.has(k)?m.get(k):null,setItem:(k,v)=>{m.set(String(k),String(v))},removeItem:k=>{m.delete(k)},clear:()=>m.clear(),key:i=>[...m.keys()][i]??null,get length(){return m.size}}})}}<\/script>`;
 const CAPTURE = `<script>(()=>{const s=(t,a)=>parent.postMessage({log:t,msg:a.map(x=>{try{return typeof x==='string'?x:JSON.stringify(x)}catch{return String(x)}}).join(' ')},'*');for(const k of ['log','info','warn','error'])console[k]=(...a)=>s(k,a);addEventListener('error',e=>s('error',[e.message+(e.lineno?' (บรรทัด '+e.lineno+')':'')]));addEventListener('unhandledrejection',e=>s('error',[String(e.reason)]));addEventListener('message',e=>{if(e.source!==parent||!e.data||!e.data.shot)return;const done=(img,err)=>parent.postMessage({shotResult:img||null,err:err||null,text:(document.body&&document.body.innerText||'').slice(0,3000)},'*');const go=()=>{const b=document.body,bg=getComputedStyle(b).backgroundColor;htmlToImage.toJpeg(b,{quality:.8,pixelRatio:Math.min(2,devicePixelRatio||1),skipFonts:true,width:Math.max(b.scrollWidth,innerWidth),height:Math.min(Math.max(b.scrollHeight,innerHeight),2400),backgroundColor:bg==='rgba(0, 0, 0, 0)'?'#fff':bg}).then(img=>done(img)).catch(x=>done(null,String(x&&x.message||x)))};if(window.htmlToImage)return go();const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.js';sc.integrity='sha384-Tha/42qsYmpYmQ07pX+nJzkKumO0BzKJxK/uzVc7xyBQxVCUgQBhQIG8L7vXK+9C';sc.crossOrigin='anonymous';sc.onload=go;sc.onerror=()=>done(null,'โหลดตัวจับภาพไม่ได้');document.head.appendChild(sc)})})()<\/script>`;
 function log(type, msg) {
   IDE.logs.push({ type, msg }); if (IDE.logs.length > 500) IDE.logs.shift();
@@ -341,7 +343,7 @@ function buildHtml(htmlPath, jsPath, forExport = false) {
     })
     .replace(/<script\b([^>]*\btype\s*=\s*["']module["'][^>]*)>([\s\S]*?)<\/script>/gi, (m, attrs, body) => /src=/.test(attrs) ? m : `<script${attrs}>${rewriteMod(body, dir).replace(/<\/script/gi, '<\\/script')}</script>`);
   html = html.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, ref) => { const fp = resolveFrom(dir, ref); return fp && isImg(fp) && isDataImg(IDE.files.get(fp)) ? `url(${q}${IDE.files.get(fp)}${q})` : m; }); // รูปใน CSS
-  const headAdd = (forExport ? '' : CAPTURE) + importMap;
+  const headAdd = (forExport ? '' : STORAGE_SHIM + CAPTURE) + importMap;
   return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + headAdd) : headAdd + html;
 }
 async function run() {
@@ -895,7 +897,7 @@ async function codeView(id) {
     <div class="ide-body">
       <aside class="ide-files">
         <div class="dr-tabs" role="tablist"><button type="button" data-dr="ai" aria-label="AI">${ic('sparkles')}</button><button type="button" data-dr="files" class="on" aria-label="ไฟล์">${ic('folder')}</button><button type="button" data-dr="find" aria-label="ค้นหาทั้งโปรเจกต์">${ic('search')}</button><button type="button" data-dr="git" aria-label="GitHub">${ic('branch')}</button><a href="/account" aria-label="บัญชี">${ic('user')}</a></div>
-        <div class="dr-head"><div><a href="/code" class="dr-back">‹ โปรเจกต์ทั้งหมด</a><b>${esc(d.name)}</b></div><button type="button" class="icon-btn sm" id="edset" aria-label="ตั้งค่าตัวแก้ไข">${ic('settings')}</button></div>
+        <div class="dr-head"><div><b>${esc(d.name)}</b><div class="dr-links"><a href="/code" class="dr-back">‹ Projects</a><a href="/chat" class="dr-exit">Exit Code mode</a></div></div><button type="button" class="icon-btn sm" id="edset" aria-label="ตั้งค่าตัวแก้ไข">${ic('settings')}</button></div>
         <div class="dr-find"><input id="tfilter" type="search" placeholder="ค้นหาชื่อไฟล์" aria-label="ค้นหาชื่อไฟล์" autocomplete="off"></div><div id="recent" class="recent"></div>
         <div id="tree" class="tree"></div>
         <div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="nfold">+ Folder</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">Upload</button>
@@ -943,7 +945,7 @@ async function codeView(id) {
   document.querySelectorAll('[data-pane-btn]').forEach(b => b.onclick = () => { if (b.dataset.paneBtn === 'files') return drawer(true); if (b.dataset.paneBtn === 'run') showRun(true); if (b.dataset.paneBtn === 'ai') return openAI(!(aiMode() !== 'page' && isPhone() && $('.ide').dataset.ai)); setPane(b.dataset.paneBtn); });
   $('#burger').onclick = () => drawer(!$('.ide').dataset.drawer); $('#idescrim').onclick = () => drawer(false);
   document.querySelectorAll('[data-dr]').forEach(b => b.onclick = () => { const k = b.dataset.dr; if (k === 'files') return; drawer(false); if (k === 'ai') openAI(true); else if (k === 'find') $('#gfind').click(); else if (k === 'git') $('#git').click(); });
-  $('.ide-files').addEventListener('click', e => { if (e.target.closest('.dr-back, .dr-tabs a')) drawer(false); });
+  $('.ide-files').addEventListener('click', e => { if (e.target.closest('.dr-back, .dr-exit, .dr-tabs a')) drawer(false); });
   $('#term-f').onsubmit = async e => { e.preventDefault(); const i = $('#term-i'), cmd = i.value.trim(); if (!cmd || IDE.termBusy) return; i.value = ''; IDE.termBusy = true; try { await nodeRun(cmd); } finally { IDE.termBusy = false; i.focus(); } };
   $('#run').onclick = run; $('#git').onclick = () => gitPanel(); $('#stop').onclick = stopRun; $('#clr').onclick = () => { IDE.logs = []; $('#console').innerHTML = ''; };
   $('#hiderun').onclick = () => { $('.ide').classList.remove('run-full'); $('#rfull')?.classList.remove('on'); showRun(false); setPane('code'); };
