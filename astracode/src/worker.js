@@ -163,7 +163,7 @@ async function usageStatus(env, u, plan) {
         COALESCE(SUM(CASE WHEN created_at>=?2 THEN units END),0) uw
       FROM usage WHERE user_id IN (SELECT user_id FROM team_members WHERE team_id=?3) AND created_at>=?4`).bind(s4 || 1e18, sw || 1e18, plan._team.id, Math.min(s4 || 1e18, sw || 1e18)).first() : { u4: 0, uw: 0 };
     const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 1000) / 10) : 100;
-    return { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY };
+    return win4(plan, { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY });
   }
   const w = await env.DB.prepare('SELECT sess_start,week_start FROM users WHERE id=?').bind(u.id).first() || {}; // อ่านใหม่เสมอ เพราะเพิ่งอาจเริ่มรอบตอนบันทึกการใช้งาน
   const s4 = w.sess_start && now < w.sess_start + H4 && w.sess_start >= r0 ? w.sess_start : null, sw = w.week_start && now < w.week_start + 7 * DAY && w.week_start >= r0 ? w.week_start : null;
@@ -172,8 +172,18 @@ async function usageStatus(env, u, plan) {
       COALESCE(SUM(CASE WHEN created_at>=?2 THEN units END),0) uw
     FROM usage WHERE user_id=?3 AND created_at>=?4`).bind(s4 || 1e18, sw || 1e18, u.id, Math.min(s4 || 1e18, sw || 1e18)).first() : { u4: 0, uw: 0 };
   const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 1000) / 10) : 100;
-  return { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY };
+  return win4(plan, { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY });
 }
+// แพลนที่ปิดรอบ 4 ชม. (use_4h=0): ไม่นับ/ไม่บล็อกด้วยรอบ 4 ชม. เหลือแค่รอบสัปดาห์ · use4h ให้หน้าเว็บซ่อนมิเตอร์
+const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4h: null, use4h: false } : { ...st, use4h: true };
+// คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
+let colsDone;
+const ensureCols = env => colsDone ||= (async () => {
+  for (const q of ['ALTER TABLE plans ADD COLUMN use_4h INTEGER', 'ALTER TABLE models ADD COLUMN use_mult REAL', 'ALTER TABLE models ADD COLUMN promo_mult REAL'])
+    try { await env.DB.prepare(q).run(); } catch { /* มีคอลัมน์แล้ว */ }
+})();
+// ตัวคูณหน่วยลิมิตของโมเดล: ช่วงโปรใช้ promo_mult (ถ้าตั้ง) ไม่งั้นใช้ use_mult · ว่าง = 1
+const limMult = (m, now = Date.now()) => { const inPromo = (m.promo_pct > 0 || m.promo_mult != null) && (!m.promo_start || m.promo_start <= now) && (!m.promo_end || now <= m.promo_end), v = inPromo && m.promo_mult != null ? m.promo_mult : m.use_mult; return v != null && v >= 0 ? +v : 1; };
 // ข้อความแรกหลังรอบเก่าจบ = เริ่มรอบใหม่
 async function touchWindows(env, uid, now = Date.now(), plan = null) {
   await env.DB.prepare(`UPDATE users SET
@@ -440,7 +450,7 @@ async function webSearch(env, q) { // Tavily
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
 async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null } = {}) {
   const cost = (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6;
-  const un = units ? Math.max(cost, 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) · 0 = ไม่หักลิมิตผู้ใช้
+  const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)')
@@ -1229,8 +1239,8 @@ async function github(req, env, u, p, sub, now) {
 
 // ---------- admin ----------
 const TABLES = {
-  plans: ['name', 'price', 'price_year', 'limit_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
-  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active'],
+  plans: ['name', 'price', 'price_year', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
+  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published'],
 };
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
@@ -1259,6 +1269,7 @@ async function admin(req, env, path, url, me) {
     const b = await req.json(), vals = cols.map(c => b[c] ?? null);
     if (t === 'posts' && !/^[a-z0-9-]{1,80}$/.test(b.slug || '')) return err('slug ใช้ได้เฉพาะ a-z 0-9 และ -');
     if (t === 'models' && b.promo_pct != null && !(b.promo_pct >= 0 && b.promo_pct <= 100)) return err('โปรลดราคาต้องอยู่ระหว่าง 0–100%');
+    if (t === 'models' && [b.use_mult, b.promo_mult].some(v => v != null && !(v >= 0 && v <= 100))) return err('ตัวคูณลิมิตต้องอยู่ระหว่าง 0–100');
     if (t === 'models' && b.promo_start && b.promo_end && b.promo_end < b.promo_start) return err('วันจบโปรต้องอยู่หลังวันเริ่ม');
     await ctxAudit((M === 'POST' ? 'create ' : 'update ') + t, { id, name: b.name || b.title });
     let pid = id;
@@ -1539,6 +1550,7 @@ async function admin(req, env, path, url, me) {
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
+    if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
     // Cloudflare อาจ redirect /preview.html → /preview จึงรับทั้งสองแบบ
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
     if (path === '/node-runner' || path === '/node-runner.html') return sandboxed(await env.ASSETS.fetch(req), '/preview.html'); // เทอร์มินัล Node: origin แยกเหมือนหน้าแสดงผล
@@ -1624,7 +1636,7 @@ async function route(req, env, ctx, url, path, M) {
           plans: ps.results, // limit_week = งบต้นทุนต่อสัปดาห์ (บาท) ใช้คำนวณ % ในเครื่องคิดเลข
           models: await Promise.all(ms.results.map(async m => {
             const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
-            return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, note: m.note,
+            return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lim: limMult(m), note: m.note,
               in: p.in, out: p.out, cache: p.cache, cache_write: p.write, lw: { in: m.cost_in, out: m.cost_out, cache: m.cost_cache }, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
               official: official[m.id] || null, plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
           })),

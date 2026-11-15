@@ -32,7 +32,7 @@ PAGES.account = async function account() {
 
     <div class="card"><div class="grid">
       <div class="tile"><div class="muted">แพลน</div><div class="stat">${esc(me.plan.name)}</div><div class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</div></div>
-      <div class="tile"><div class="muted">ลิมิต 4 ชม.</div><div class="stat">${u.pct4h}%</div><div class="muted">รีเซ็ต ${u.reset4h ? when(u.reset4h) : '-'}</div></div>
+      ${u.use4h === false ? '' : `<div class="tile"><div class="muted">ลิมิต 4 ชม.</div><div class="stat">${u.pct4h}%</div><div class="muted">รีเซ็ต ${u.reset4h ? when(u.reset4h) : '-'}</div></div>`}
       <div class="tile"><div class="muted">ลิมิตสัปดาห์</div><div class="stat">${u.pctWeek}%</div><div class="muted">รีเซ็ต ${when(u.resetWeek)}</div></div>
       <div class="tile"><div class="muted">Wallet</div><div class="stat">฿${baht(w.balance)}</div><a href="/plans?topup=1">เติมเงิน</a></div>
     </div></div>

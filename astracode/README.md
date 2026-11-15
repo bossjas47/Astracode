@@ -48,6 +48,7 @@ Existing database: run the migrations you haven't run yet, in order, in the D1 C
 16. `migrate-16.sql` (Per-project custom instructions)
 17. `migrate-17.sql` (Lightweight Skills system for global & user skills)
 18. `migrate-18.sql` (Remote MCP servers & tool calling)
+19. `migrate-19.sql` (per-plan 4h window switch, per-model limit multiplier; the Worker also adds these columns itself)
 12. optional `plans-new.sql` (replaces the sold plans with Free / DeepSeek Lite / DeepSeek Max / Plus / Pro / Max; existing subscribers keep their old plan until it expires)
 
 ### Limits (like Claude)

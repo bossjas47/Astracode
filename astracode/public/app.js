@@ -345,7 +345,7 @@ const loadMe = async () => { me = await api('/me').catch(() => null); };
 
 function meters(u) {
   const m = (label, p, reset) => `<div class="meter ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" title="รีเซ็ต ${when(reset)}">${label} ${p}%<div class="track"><div class="fill" style="width:${p}%"></div></div></div>`;
-  return m('4 ชม.', u.pct4h, u.reset4h) + m('สัปดาห์', u.pctWeek, u.resetWeek);
+  return (u.use4h === false ? '' : m('4 ชม.', u.pct4h, u.reset4h)) + m('สัปดาห์', u.pctWeek, u.resetWeek);
 }
 // ---------- แนบไฟล์: แปลงเป็นข้อความในเบราว์เซอร์ก่อนส่ง ----------
 const CDN = 'https://cdn.jsdelivr.net/npm/', PDFJS = CDN + 'pdfjs-dist@3.11.174/';
@@ -528,7 +528,7 @@ async function pricing() {
       <div><span>Cache read</span>${cell(m, 'cache')}</div>
       ${m.cache_write ? `<div><span>Cache write</span>${cell(m, 'cache_write')}</div>` : ''}
     </div>
-    <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
+    <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}${m.lim !== 1 ? ` · หักจริง ×${m.lim}` : ''}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
   const draw = () => {
     page(nav() + `<div class="wrap"><section class="hero" style="padding:56px 0 24px"><div class="name">AstraCode</div><h1>ราคาต่อ token</h1>
       <p>ราคาของแต่ละโมเดล เป็น${getCur() === 'USD' ? 'ดอลลาร์ ($)' : 'บาท (฿)'} ${unit()} โมเดลที่แพงกว่าจะใช้ลิมิตแพลนเร็วกว่า</p>
@@ -827,7 +827,7 @@ function limitSheet() {
     <p class="muted" style="font-size:13px;margin:6px 0 10px">แอดมินแจกสิทธิ์รีเซ็ตให้ กดปุ่มด้านล่างเพื่อใช้ (1 สิทธิ์ต่อครั้ง)</p>
     ${list.map(x => `<button class="btn blue rst-b" data-k="${esc(x.k)}"><span>รีเซ็ต: ${esc(x.label)}${x.exp ? `<small class="rst-e">หมดอายุ ${when(x.exp)}</small>` : ''}</span><span class="pill">เหลือ ${x.n}</span></button>`).join('')}<div class="err" id="rse"></div></div>` : '';
   sheet('ลิมิตการใช้งาน', `<p class="muted" style="margin:0 0 12px">แพลน ${esc(me.plan.name)}</p><div class="meters big">${meters(u)}</div>
-    <p class="muted" style="font-size:13px">ลิมิต 4 ชม. รีเซ็ต ${u.reset4h ? when(u.reset4h) : 'เมื่อเริ่มใช้'} · ลิมิตสัปดาห์รีเซ็ต ${when(u.resetWeek)}</p>${reset}
+    <p class="muted" style="font-size:13px">${u.use4h === false ? '' : `ลิมิต 4 ชม. รีเซ็ต ${u.reset4h ? when(u.reset4h) : 'เมื่อเริ่มใช้'} · `}ลิมิตสัปดาห์รีเซ็ต ${when(u.resetWeek)}</p>${reset}
     <div id="rsh"></div><a class="btn ${list.length ? 'out' : 'blue'}" href="/plans" style="width:100%;margin-top:10px">อัปเกรดแพลน</a>`, (d, close) => {
       api('/limits/history').then(h => { if (h.length) d.querySelector('#rsh').innerHTML = `<details class="rst-h2"><summary>ประวัติรีเซ็ตลิมิต</summary>${h.map(r => `<div class="rst-row"><span>${r.kind === 'grant' ? 'ได้รับสิทธิ์ ' + esc(r.scope || '') + ' ×' + (r.n || 1) : r.kind === 'use' ? 'ใช้สิทธิ์ ' + esc(r.scope || '') : 'แอดมินรีเซ็ตให้'}</span><small>${when(r.created_at)}</small></div>`).join('')}</details>`; }).catch(() => {});
       d.querySelectorAll('.rst-b').forEach(btn => btn.onclick = async () => {

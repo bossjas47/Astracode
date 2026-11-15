@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS plans (
   name TEXT NOT NULL,
   price REAL NOT NULL DEFAULT 0,            -- บาท / เดือน
   limit_4h REAL NOT NULL,                   -- งบต้นทุนจริงต่อรอบ 4 ชม. (บาท)
+  use_4h INTEGER,                           -- 0 = ปิดรอบ 4 ชม. (ว่าง/1 = เปิด)
   limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
   price_year REAL,                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS models (
   fallback_id INTEGER,                      -- โมเดลสำรองเมื่อตัวนี้ล่ม
   promo_pct REAL, promo_start INTEGER, promo_end INTEGER, -- โปรลดราคา % ช่วงเวลา (unix ms)
   cap_pct INTEGER NOT NULL DEFAULT 0,       -- เพดานโมเดลนี้เป็น % ของงบสัปดาห์ (0 = ไม่จำกัด) เช่น Opus 50
+  use_mult REAL, promo_mult REAL,           -- ตัวคูณหน่วยลิมิต (ว่าง = 1) / ช่วงโปร
   code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
   effort TEXT NOT NULL DEFAULT 'none',      -- none | openai | anthropic | deepseek | kimi
   effort_levels TEXT,                       -- คั่นด้วย , เช่น none,low,medium,high,max (ว่าง = ค่าเริ่มต้นค่าย)
