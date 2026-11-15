@@ -15,7 +15,7 @@ const kb = n => n > 1024 ? Math.round(n / 102.4) / 10 + ' KB' : n + ' B';
 async function codeHome() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   const list = await api('/projects');
-  page(nav() + `<div class="wrap"><section class="hero" style="padding:48px 0 24px"><div class="name">AstraCode</div><h1>Code</h1>
+  page(nav() + `<div class="wrap"><section class="hero code-hero" style="padding:20px 0 8px"><h1>Code</h1>
     <p>เขียนโค้ดบนมือถือ มี AI ช่วยแก้ไฟล์ รัน HTML, JavaScript และ Python ได้ในเบราว์เซอร์</p></section>
     <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px">
       <select name="template" style="width:auto;min-width:160px"><option value="starter">เว็บเริ่มต้น (HTML/CSS/JS/Py)</option><option value="tailwind">HTML + Tailwind CSS</option><option value="node">Node.js (package.json)</option><option value="python">Python</option><option value="empty">โปรเจกต์ว่าง</option></select>
@@ -59,7 +59,7 @@ async function codeHome() {
 const edTheme = () => CM.EditorView.theme({
   '&': { height: '100%', backgroundColor: '#0d0b09' },
   '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: matchMedia('(pointer:coarse)').matches ? '16px' : '13px', lineHeight: '1.55' },
-  '.cm-gutters': { backgroundColor: '#14110f', border: 'none', color: '#6f665b' },
+  '.cm-gutters': { backgroundColor: '#14110f', border: 'none', color: '#a39a8d' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: '#ffffff0d' },
   '.cm-panels': { backgroundColor: '#221e1a', color: '#f4efe8' },
   '.cm-ghost': { color: '#6e6e73', cursor: 'pointer' },

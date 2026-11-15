@@ -212,20 +212,31 @@ async function creditsInit(env) {
   if (creditsReady) return;
   await env.DB.batch([
     env.DB.prepare('CREATE TABLE IF NOT EXISTS reset_credits (user_id INTEGER PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)'),
-    env.DB.prepare('CREATE TABLE IF NOT EXISTS reset_grants (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, vendor TEXT, model_id INTEGER, created_at INTEGER NOT NULL)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS reset_grants (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, vendor TEXT, model_id INTEGER, created_at INTEGER NOT NULL, expires_at INTEGER)'),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS reset_grants_user ON reset_grants(user_id)'),
+    // ประวัติ: grant = แอดมินแจก · use = ผู้ใช้กดใช้ · direct = แอดมินรีเซ็ตให้ทันที
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS reset_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, kind TEXT NOT NULL, scope TEXT, n INTEGER, expires_at INTEGER, by_email TEXT, created_at INTEGER NOT NULL)'),
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS reset_log_user ON reset_log(user_id, created_at)'),
   ]);
+  try { await env.DB.prepare('ALTER TABLE reset_grants ADD COLUMN expires_at INTEGER').run(); } catch { /* มีคอลัมน์แล้ว */ }
   creditsReady = true;
 }
-// รายการสิทธิ์ของผู้ใช้ แยกตามขอบเขต: [{k:'all'|'v:DeepSeek'|'m:12', label, n}]
+const logReset = async (env, uid, kind, scope, { n = 1, exp = null, by = null } = {}) => { await creditsInit(env); await env.DB.prepare('INSERT INTO reset_log (user_id,kind,scope,n,expires_at,by_email,created_at) VALUES (?,?,?,?,?,?,?)').bind(uid, kind, scope, n, exp, by, Date.now()).run(); };
+// รายการสิทธิ์ของผู้ใช้ที่ยังไม่หมดอายุ แยกตามขอบเขต: [{k:'all'|'v:DeepSeek'|'m:12', label, n, exp}]
 async function creditList(env, uid) {
   await creditsInit(env);
-  const [all, gs] = await Promise.all([
+  const now = Date.now();
+  const [legacy, gs] = await Promise.all([
     env.DB.prepare('SELECT n FROM reset_credits WHERE user_id=?').bind(uid).first(),
-    env.DB.prepare('SELECT g.vendor, g.model_id, m.name mname, COUNT(*) n FROM reset_grants g LEFT JOIN models m ON m.id=g.model_id WHERE g.user_id=? GROUP BY g.vendor, g.model_id').bind(uid).all(),
+    env.DB.prepare('SELECT g.vendor, g.model_id, m.name mname, COUNT(*) n, MIN(g.expires_at) exp FROM reset_grants g LEFT JOIN models m ON m.id=g.model_id WHERE g.user_id=? AND (g.expires_at IS NULL OR g.expires_at>?) GROUP BY g.vendor, g.model_id').bind(uid, now).all(),
   ]);
-  return [...(all?.n > 0 ? [{ k: 'all', label: 'ทั้งหมด (ทุกโมเดล)', n: all.n }] : []),
-    ...gs.results.map(g => g.vendor ? { k: 'v:' + g.vendor, label: 'ค่าย ' + g.vendor, n: g.n } : { k: 'm:' + g.model_id, label: 'โมเดล ' + (g.mname || g.model_id), n: g.n })];
+  const out = [];
+  let all = { k: 'all', label: 'ทั้งหมด (ทุกโมเดล)', n: legacy?.n || 0, exp: null };
+  for (const g of gs.results) {
+    if (!g.vendor && !g.model_id) { all.n += g.n; all.exp = g.exp; } // ขอบเขตทั้งหมด
+    else out.push(g.vendor ? { k: 'v:' + g.vendor, label: 'ค่าย ' + g.vendor, n: g.n, exp: g.exp } : { k: 'm:' + g.model_id, label: 'โมเดล ' + (g.mname || g.model_id), n: g.n, exp: g.exp });
+  }
+  return [...(all.n > 0 ? [all] : []), ...out];
 }
 const creditsOf = async (env, uid) => (await creditList(env, uid)).reduce((a, x) => a + x.n, 0);
 // ต้นทุนโดยประมาณของ 1 ข้อความทั่วไป (context 20K อยู่ใน cache, ส่งใหม่ 1K, ตอบ 1K) ใช้ประมาณจำนวนข้อความต่อสัปดาห์
@@ -1273,7 +1284,11 @@ async function admin(req, env, path, url, me) {
     await ctxAudit('update user', { id: +r[1], ...b });
     if (b.credit) { const v = Math.round(+b.credit * 100) / 100; if (!v) return err('จำนวนเงินไม่ถูกต้อง'); await walletAdd(env, +r[1], v, 'admin', String(b.note || '').slice(0, 100) || null); }
     if (b.logout) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run(); // รหัสผ่านอยู่ใน Firebase ผู้ใช้รีเซ็ตเองที่หน้าเข้าสู่ระบบ
-    if (b.reset_usage) { const n = await resetUsage(env, +r[1], b.scope); if (b.scope?.vendor || b.scope?.model_id) return json({ ok: true, rows: n }); }
+    if (b.reset_usage) {
+      const n = await resetUsage(env, +r[1], b.scope), lbl = b.scope?.vendor ? 'ค่าย ' + String(b.scope.vendor).slice(0, 40) : b.scope?.model_id ? 'โมเดล #' + (+b.scope.model_id) : 'ทั้งหมด';
+      await logReset(env, +r[1], 'direct', lbl, { by: me.email });
+      if (b.scope?.vendor || b.scope?.model_id) return json({ ok: true, rows: n });
+    }
     if ('banned' in b) await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run();
     if ('plan_id' in b) await DB.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').bind(b.plan_id || null, b.plan_id ? Date.now() + (b.days || 30) * DAY : null, r[1]).run();
     if (b.banned) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run();
@@ -1408,16 +1423,26 @@ async function admin(req, env, path, url, me) {
       const n = Math.min(50, Math.max(1, Math.round(+b.n || 1)));
       await creditsInit(env);
       const sc = b.scope?.vendor ? { vendor: String(b.scope.vendor).replace(/[%_]/g, '').trim().slice(0, 40) } : b.scope?.model_id ? { model_id: +b.scope.model_id } : null;
-      if (sc?.model_id && !await DB.prepare('SELECT 1 FROM models WHERE id=?').bind(sc.model_id).first()) return err('ไม่พบโมเดล', 404);
       if (sc?.vendor === '') return err('เลือกค่ายที่จะแจก');
-      if (sc) { // สิทธิ์ที่จำกัดขอบเขต: 1 แถวต่อ 1 สิทธิ์ (n รอบ)
-        count = 0;
-        for (let i = 0; i < n; i++) count = (await DB.prepare(`INSERT INTO reset_grants (user_id,vendor,model_id,created_at) SELECT id,?1,?2,?3 FROM users WHERE banned=0 AND ${where}`).bind(sc.vendor ?? null, sc.model_id ?? null, now, ...args).run()).meta.changes; // ? ใน where นับต่อจาก ?3
-      } else count = (await DB.prepare(`INSERT INTO reset_credits (user_id,n) SELECT id,?1 FROM users WHERE banned=0 AND ${where} ON CONFLICT(user_id) DO UPDATE SET n=n+?1`).bind(n, ...args).run()).meta.changes; // ?1 = จำนวนที่แจก, ? ที่เหลือใน where นับต่อจาก ?1
-    } else count = (await DB.prepare(`UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE banned=0 AND ${where}`).bind(now, ...args).run()).meta.changes;
+      let label = 'ทั้งหมด';
+      if (sc?.model_id) { const m = await DB.prepare('SELECT name FROM models WHERE id=?').bind(sc.model_id).first(); if (!m) return err('ไม่พบโมเดล', 404); label = 'โมเดล ' + m.name; } else if (sc?.vendor) label = 'ค่าย ' + sc.vendor;
+      const days = Math.round(+b.days || 0), exp = days > 0 ? now + Math.min(days, 3650) * DAY : null; // ว่าง/0 = ไม่หมดอายุ
+      count = 0; // 1 แถวต่อ 1 สิทธิ์ (n รอบ) · ? ใน where นับต่อจาก ?4
+      for (let i = 0; i < n; i++) count = (await DB.prepare(`INSERT INTO reset_grants (user_id,vendor,model_id,created_at,expires_at) SELECT id,?1,?2,?3,?4 FROM users WHERE banned=0 AND ${where}`).bind(sc?.vendor ?? null, sc?.model_id ?? null, now, exp, ...args).run()).meta.changes;
+      await DB.prepare(`INSERT INTO reset_log (user_id,kind,scope,n,expires_at,by_email,created_at) SELECT id,'grant',?1,?2,?3,?4,?5 FROM users WHERE banned=0 AND ${where}`).bind(label, n, exp, me.email, now, ...args).run();
+    } else {
+      await creditsInit(env);
+      await DB.prepare(`INSERT INTO reset_log (user_id,kind,scope,n,expires_at,by_email,created_at) SELECT id,'direct','ทั้งหมด',1,NULL,?1,?2 FROM users WHERE banned=0 AND ${where}`).bind(me.email, now, ...args).run(); // บันทึกก่อนรีเซ็ต
+      count = (await DB.prepare(`UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE banned=0 AND ${where}`).bind(now, ...args).run()).meta.changes;
+    }
     if (b.target === 'email' && !count) return err('ไม่พบผู้ใช้อีเมลนี้');
     await ctxAudit(credits ? 'grant reset credits' : 'reset limits', { target: b.target, plan_id: b.plan_id, email: b.email, n: b.n, count });
     return json({ ok: true, count });
+  }
+  if (path === '/api/admin/reset-log' && M === 'GET') { // ประวัติแจก/ใช้สิทธิ์รีเซ็ต: ทั้งระบบ หรือของผู้ใช้คนเดียว (?user_id=)
+    await creditsInit(env);
+    const uid = +url.searchParams.get('user_id') || 0;
+    return json((await DB.prepare(`SELECT l.id,l.kind,l.scope,l.n,l.expires_at,l.by_email,l.created_at,u.email FROM reset_log l LEFT JOIN users u ON u.id=l.user_id ${uid ? 'WHERE l.user_id=?1' : 'WHERE ?1=0'} ORDER BY l.id DESC LIMIT 100`).bind(uid).all()).results);
   }
   if (path === '/api/admin/teams') {
     return json((await DB.prepare(`SELECT t.*, u.email owner_email, p.name plan_name,
@@ -1683,17 +1708,27 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     if (plan?._team?.shared_pool) return err('แพลนทีมใช้ลิมิตรวมกัน รีเซ็ตเองไม่ได้ ติดต่อแอดมิน', 400);
     if (await limited(env, 'rst:' + u.id, 10, 60e3)) return err('กดเร็วเกินไป รอสักครู่', 429);
     await creditsInit(env);
-    let sc = null, used;
-    if (k === 'all') used = await DB.prepare('UPDATE reset_credits SET n=n-1 WHERE user_id=? AND n>0').bind(u.id).run(); // หักก่อน ถ้าไม่มีสิทธิ์ changes = 0
-    else if (k.startsWith('v:') || k.startsWith('m:')) {
+    let sc = null, used, now = Date.now();
+    // ใช้สิทธิ์ที่ใกล้หมดอายุก่อน · ไม่นับสิทธิ์ที่หมดอายุแล้ว
+    const take = (cond, ...args) => DB.prepare(`DELETE FROM reset_grants WHERE id=(SELECT id FROM reset_grants WHERE user_id=?1 AND (expires_at IS NULL OR expires_at>?2) AND ${cond} ORDER BY expires_at IS NULL, expires_at LIMIT 1)`).bind(u.id, now, ...args).run();
+    if (k === 'all') {
+      used = await take('vendor IS NULL AND model_id IS NULL');
+      if (!used.meta.changes) used = await DB.prepare('UPDATE reset_credits SET n=n-1 WHERE user_id=? AND n>0').bind(u.id).run(); // สิทธิ์รุ่นเก่า (ไม่มีวันหมดอายุ)
+    } else if (k.startsWith('v:') || k.startsWith('m:')) {
       const v = k.startsWith('v:'); sc = v ? { vendor: k.slice(2) } : { model_id: +k.slice(2) };
-      used = await DB.prepare(`DELETE FROM reset_grants WHERE id=(SELECT id FROM reset_grants WHERE user_id=?1 AND ${v ? 'vendor=?2' : 'model_id=?2'} LIMIT 1)`).bind(u.id, v ? sc.vendor : sc.model_id).run();
+      used = await take(v ? 'vendor=?3' : 'model_id=?3', v ? sc.vendor : sc.model_id);
     } else return err('เลือกสิทธิ์ที่จะใช้');
     if (!used.meta.changes) return err('ไม่มีสิทธิ์รีเซ็ตเหลือ', 403);
     await resetUsage(env, u.id, sc);
     await audit(env, u, 'use reset credit', sc || 'all');
+    const lbl = sc?.vendor ? 'ค่าย ' + sc.vendor : sc?.model_id ? 'โมเดล ' + ((await DB.prepare('SELECT name FROM models WHERE id=?').bind(sc.model_id).first())?.name || sc.model_id) : 'ทั้งหมด';
+    await logReset(env, u.id, 'use', lbl, { by: u.email });
     const u2 = await DB.prepare('SELECT * FROM users WHERE id=?').bind(u.id).first(), list = await creditList(env, u.id);
     return json({ ok: true, credits: list, left: list.reduce((a, x) => a + x.n, 0), usage: await usageStatus(env, u2, plan) });
+  }
+  if (path === '/api/limits/history' && M === 'GET') { // ประวัติสิทธิ์รีเซ็ตของตัวเอง
+    await creditsInit(env);
+    return json((await DB.prepare('SELECT kind,scope,n,expires_at,created_at FROM reset_log WHERE user_id=? ORDER BY id DESC LIMIT 20').bind(u.id).all()).results);
   }
   if (path === '/api/me' && M === 'PUT') {
     const b = await req.json();

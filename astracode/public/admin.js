@@ -170,22 +170,25 @@ const ADMIN = {
   async users(box) {
     const [plans, models] = await Promise.all([api('/admin/plans'), api('/admin/models')]);
     const vendors = [...new Set(models.map(m => String(m.name).trim().split(/\s+/)[0]))];
-    box.innerHTML = `<details class="ed gift"><summary><b>${ic('refresh')} แจกรีเซ็ตลิมิต</b><span class="muted">รีเซ็ตให้ทันที หรือแจกปุ่มรีเซ็ตให้ผู้ใช้กดเอง (เลือกค่าย/โมเดลได้)</span></summary>
-      <form id="rlf" class="ed-f"><label>รูปแบบ</label><select name="mode"><option value="grant">แจกปุ่มรีเซ็ต (ผู้ใช้กดเอง เลือกค่าย/โมเดลได้)</option><option value="now">รีเซ็ตทันที (ล้างทุกโมเดล)</option></select>
-        <input name="n" type="number" min="1" max="50" value="1" placeholder="จำนวนสิทธิ์ต่อคน">
+    box.innerHTML = `<details class="ed gift"><summary><b>${ic('refresh')} แจกรีเซ็ตลิมิต</b><span class="muted">รีเซ็ตให้ทันที หรือแจกปุ่มรีเซ็ตให้ผู้ใช้กดใช้เอง (กำหนดค่าย/โมเดลและวันหมดอายุได้)</span></summary>
+      <form id="rlf" class="ed-f"><label>รูปแบบ</label><select name="mode"><option value="grant">แจกปุ่มรีเซ็ต (ผู้ใช้กดใช้เอง)</option><option value="now">รีเซ็ตทันที (ล้างทุกโมเดล)</option></select>
+        <label class="gs">จำนวนสิทธิ์ต่อคน</label><input name="n" type="number" min="1" max="50" value="1" placeholder="จำนวนสิทธิ์ต่อคน" class="gs">
+        <label class="gs">หมดอายุใน (วัน) เว้นว่าง = ไม่หมดอายุ</label><input name="days" type="number" min="1" max="3650" placeholder="เช่น 7" class="gs">
         <label class="gs">ขอบเขตที่ผู้ใช้จะรีเซ็ตได้ (เลือกตอนแจก ผู้ใช้เปลี่ยนเองไม่ได้)</label><select name="scope" class="gs"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${models.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select>
         <label>แจกให้</label><select name="who"><option value="all">ผู้ใช้ทุกคน</option>${plans.map(p => `<option value="plan:${p.id}">ทุกคนในแพลน ${esc(p.name)}</option>`).join('')}<option value="email">ผู้ใช้คนเดียว (ใส่อีเมล)</option></select>
         <input name="email" type="email" placeholder="อีเมลผู้ใช้" hidden>
         <div class="row" style="margin-top:12px"><button class="btn blue sm">ยืนยัน</button><span class="ok sv"></span></div></form></details>
+      <details class="ed" id="rlh"><summary><b>${ic('activity')} ประวัติรีเซ็ตลิมิต</b><span class="muted">แจกให้ใคร ใครกดใช้ เมื่อไหร่ (ล่าสุด 100 รายการ)</span></summary><div id="rlhb" class="tw"></div></details>
       <div class="toolbar"><input id="q" placeholder="ค้นหาอีเมล" aria-label="ค้นหาอีเมล"></div><div id="ul"></div>`;
+    $('#rlh').ontoggle = async () => { if (!$('#rlh').open) return; try { $('#rlhb').innerHTML = resetLogTable(await api('/admin/reset-log')); } catch (x) { $('#rlhb').textContent = x.message; } };
     const rf = $('#rlf');
     rf.who.onchange = () => { rf.email.hidden = rf.who.value !== 'email'; rf.email.required = !rf.email.hidden; };
-    rf.mode.onchange = () => { const g = rf.mode.value === 'grant'; rf.n.hidden = !g; rf.querySelectorAll('.gs').forEach(e => e.hidden = !g); }; rf.mode.onchange();
+    rf.mode.onchange = () => { const g = rf.mode.value === 'grant'; rf.querySelectorAll('.gs').forEach(e => e.hidden = !g); }; rf.mode.onchange();
     rf.onsubmit = async e => {
       e.preventDefault(); const t = rf.who.value, label = rf.who.selectedOptions[0].textContent;
       const grant = rf.mode.value === 'grant', n = +rf.n.value || 1, who = t === 'email' ? rf.email.value : label, sv = rf.scope.value, scope = sv.startsWith('v:') ? { vendor: sv.slice(2) } : sv.startsWith('m:') ? { model_id: +sv.slice(2) } : null, sl = rf.scope.selectedOptions[0].textContent;
-      if (!await confirmSheet(grant ? `แจกปุ่มรีเซ็ต ${n} ครั้ง (${sl}) ให้ ${who}?` : `รีเซ็ตลิมิตให้ ${who}?`, { title: grant ? 'แจกปุ่มรีเซ็ต' : 'รีเซ็ตลิมิต', ok: grant ? 'แจก' : 'รีเซ็ต' })) return;
-      try { const r = await api(grant ? '/admin/reset-credits' : '/admin/reset-limits', { method: 'POST', body: { target: t.split(':')[0], plan_id: +t.split(':')[1] || null, email: rf.email.value, n, scope } }); rf.querySelector('.sv').textContent = grant ? `✓ แจกแล้ว ${num(r.count)} คน` : `✓ รีเซ็ตแล้ว ${num(r.count)} คน`; }
+      if (!await confirmSheet(grant ? `แจกปุ่มรีเซ็ต ${n} ครั้ง (${sl}${+rf.days.value ? ' · หมดอายุใน ' + +rf.days.value + ' วัน' : ' · ไม่หมดอายุ'}) ให้ ${who}?` : `รีเซ็ตลิมิตให้ ${who}?`, { title: grant ? 'แจกปุ่มรีเซ็ต' : 'รีเซ็ตลิมิต', ok: grant ? 'แจก' : 'รีเซ็ต' })) return;
+      try { const r = await api(grant ? '/admin/reset-credits' : '/admin/reset-limits', { method: 'POST', body: { target: t.split(':')[0], plan_id: +t.split(':')[1] || null, email: rf.email.value, n, scope, days: +rf.days.value || 0 } }); rf.querySelector('.sv').textContent = grant ? `✓ แจกแล้ว ${num(r.count)} คน` : `✓ รีเซ็ตแล้ว ${num(r.count)} คน`; }
       catch (x) { toast(x.message, 'bad'); }
     };
     const load = async () => {
@@ -443,9 +446,11 @@ async function editors(tab, box, reload) {
   box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบรายการนี้ถาวร?', { title: 'ยืนยันการลบ', ok: 'ลบถาวร', danger: true })) { await api(`/admin/${tab}/${b.dataset.del}`, { method: 'DELETE' }); reload(); } });
 }
 
+const RL_KIND = { grant: 'แจกสิทธิ์', use: 'ผู้ใช้กดใช้', direct: 'แอดมินรีเซ็ตให้' };
+const resetLogTable = (rows, withUser = true) => rows.length ? `<table class="tbl"><tr><th>เมื่อ</th>${withUser ? '<th>ผู้ใช้</th>' : ''}<th>รายการ</th><th>ขอบเขต</th><th>หมายเหตุ</th></tr>${rows.map(r => `<tr><td>${when(r.created_at)}</td>${withUser ? `<td>${esc(r.email || '-')}</td>` : ''}<td>${RL_KIND[r.kind] || esc(r.kind)}${r.kind === 'grant' ? ' ×' + (r.n || 1) : ''}</td><td>${esc(r.scope || '-')}</td><td class="muted">${r.kind === 'grant' ? (r.expires_at ? 'หมดอายุ ' + when(r.expires_at) : 'ไม่หมดอายุ') + (r.by_email ? ' · โดย ' + esc(r.by_email) : '') : (r.by_email && r.kind === 'direct' ? 'โดย ' + esc(r.by_email) : '')}</td></tr>`).join('')}</table>` : '<p class="muted">ยังไม่มีประวัติ</p>';
 // แผงรายละเอียดผู้ใช้ (เลื่อนออกมาจากขวา)
 async function userDrawer(id, after) {
-  const [u, plans, allModels] = await Promise.all([api('/admin/users/' + id), api('/admin/plans'), api('/admin/models')]);
+  const [u, plans, allModels, rlog] = await Promise.all([api('/admin/users/' + id), api('/admin/plans'), api('/admin/models'), api('/admin/reset-log?user_id=' + id).catch(() => [])]);
   const vendors = [...new Set(allModels.map(m => String(m.name).trim().split(/\s+/)[0]))];
   document.querySelector('.drawer')?.remove();
   const d = document.createElement('div'); d.className = 'drawer';
@@ -466,6 +471,7 @@ async function userDrawer(id, after) {
     <label>เปลี่ยนแพลน (30 วันนับจากวันนี้)</label><div class="row"><select id="dp" style="flex:1"><option value="">Free</option>${plans.filter(p => p.price > 0).map(p => `<option value="${p.id}" ${p.id === u.plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn blue sm" id="dps">ใช้แพลนนี้</button></div>
     <label>รีเซ็ตลิมิต</label><div class="row"><select id="dscope" style="flex:1"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${allModels.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select><button class="btn out sm" id="dr">รีเซ็ต</button></div>
     <div class="row" style="margin-top:12px"><button class="btn out sm" id="dpw">ออกจากระบบทุกเครื่อง</button><button class="btn red sm" id="db">${u.banned ? 'ปลดแบน' : 'แบน'}</button></div>
+    <h3>ประวัติรีเซ็ตลิมิต</h3><div class="tw">${resetLogTable(rlog, false)}</div>
     <p class="ok" id="dmsg"></p></aside>`;
   document.body.append(d);
   const close = () => { d.classList.add('out'); setTimeout(() => d.remove(), 200); after?.(); };

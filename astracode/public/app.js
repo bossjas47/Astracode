@@ -817,10 +817,11 @@ function limitSheet() {
   const u = me.usage, list = me.reset_list || [];
   const reset = list.length ? `<div class="rst"><div class="rst-h"><b>ปุ่มรีเซ็ตลิมิต</b></div>
     <p class="muted" style="font-size:13px;margin:6px 0 10px">แอดมินแจกสิทธิ์รีเซ็ตให้ กดปุ่มด้านล่างเพื่อใช้ (1 สิทธิ์ต่อครั้ง)</p>
-    ${list.map(x => `<button class="btn blue rst-b" data-k="${esc(x.k)}"><span>รีเซ็ต: ${esc(x.label)}</span><span class="pill">เหลือ ${x.n}</span></button>`).join('')}<div class="err" id="rse"></div></div>` : '';
+    ${list.map(x => `<button class="btn blue rst-b" data-k="${esc(x.k)}"><span>รีเซ็ต: ${esc(x.label)}${x.exp ? `<small class="rst-e">หมดอายุ ${when(x.exp)}</small>` : ''}</span><span class="pill">เหลือ ${x.n}</span></button>`).join('')}<div class="err" id="rse"></div></div>` : '';
   sheet('ลิมิตการใช้งาน', `<p class="muted" style="margin:0 0 12px">แพลน ${esc(me.plan.name)}</p><div class="meters big">${meters(u)}</div>
     <p class="muted" style="font-size:13px">ลิมิต 4 ชม. รีเซ็ต ${u.reset4h ? when(u.reset4h) : 'เมื่อเริ่มใช้'} · ลิมิตสัปดาห์รีเซ็ต ${when(u.resetWeek)}</p>${reset}
-    <a class="btn ${list.length ? 'out' : 'blue'}" href="/plans" style="width:100%;margin-top:10px">อัปเกรดแพลน</a>`, (d, close) => {
+    <div id="rsh"></div><a class="btn ${list.length ? 'out' : 'blue'}" href="/plans" style="width:100%;margin-top:10px">อัปเกรดแพลน</a>`, (d, close) => {
+      api('/limits/history').then(h => { if (h.length) d.querySelector('#rsh').innerHTML = `<details class="rst-h2"><summary>ประวัติรีเซ็ตลิมิต</summary>${h.map(r => `<div class="rst-row"><span>${r.kind === 'grant' ? 'ได้รับสิทธิ์ ' + esc(r.scope || '') + ' ×' + (r.n || 1) : r.kind === 'use' ? 'ใช้สิทธิ์ ' + esc(r.scope || '') : 'แอดมินรีเซ็ตให้'}</span><small>${when(r.created_at)}</small></div>`).join('')}</details>`; }).catch(() => {});
       d.querySelectorAll('.rst-b').forEach(btn => btn.onclick = async () => {
         const x = list.find(y => y.k === btn.dataset.k);
         if (!await confirmSheet(`รีเซ็ตลิมิต: ${x.label}? จะใช้ 1 สิทธิ์`, { title: 'รีเซ็ตลิมิต', ok: 'รีเซ็ต' })) return;
