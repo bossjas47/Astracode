@@ -562,15 +562,20 @@ async function pricing() {
     app.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { per = b.dataset.per; localStorage.setItem('per', per); draw(); });
     app.querySelectorAll('[data-off]').forEach(b => b.onclick = () => { localStorage.setItem('offcmp', b.dataset.off); draw(); });
     app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); draw(); });
+    // คำนวณที่เซิร์ฟเวอร์ (/pricing/calc) เพื่อไม่ต้องส่งราคาทุนโมเดลมาให้เบราว์เซอร์
+    let calcT = 0, calcSeq = 0;
     const calc = () => {
-      const m = d.models.find(x => x.id === +$('#cm').value); if (!m) return;
-      const n = Math.max(0, +$('#cn').value || 0), i = Math.max(0, +$('#ci').value || 0), o = Math.max(0, +$('#co').value || 0), c = Math.min(100, Math.max(0, +$('#cc').value || 0)) / 100;
-      const per1 = (i * (1 - c) * m.in + i * c * m.cache + o * m.out) / 1e6, month = per1 * n * 30;
-      const weekUnits = n * 7 * (i * (1 - c) * m.lw.in + i * c * m.lw.cache + o * m.lw.out) / 1e6; // วิธีนับเดียวกับระบบลิมิต: ต้นทุนจริง (บาท)
-      const fit = d.plans.filter(p => m.plans.includes(p.id) && p.limit_week);
-      $('#cr').innerHTML = `<div class="kpis"><div class="kpi"><div class="muted">ต่อข้อความ</div><div class="stat">${curSign()}${money(toCur(per1))}</div></div>
-        <div class="kpi"><div class="muted">ต่อเดือน (30 วัน)</div><div class="stat">${curSign()}${money(toCur(month))}</div></div></div>
-        ${fit.length ? `<div class="tw"><table class="tbl"><tr><th>แพลน</th><th>ราคา/เดือน</th><th>ใช้ลิมิตต่อสัปดาห์</th></tr>${fit.map(p => { const pct = weekUnits / p.limit_week * 100; return `<tr><td>${esc(p.name)}</td><td>${p.price ? fmtPlanPrice(p.price) : 'ฟรี'}</td><td class="${pct > 100 ? 'bad' : pct > 80 ? 'warn' : 'ok'}">${pct > 999 ? '>999' : Math.round(pct)}%${pct > 100 ? ' (ไม่พอ)' : ''}</td></tr>`; }).join('')}</table></div>` : '<p class="muted">โมเดลนี้ยังไม่อยู่ในแพลนไหน</p>'}`;
+      clearTimeout(calcT);
+      calcT = setTimeout(async () => {
+        const m = d.models.find(x => x.id === +$('#cm')?.value); if (!m) return;
+        const seq = ++calcSeq; let r;
+        try { r = await api('/pricing/calc', { method: 'POST', body: { model_id: m.id, n: $('#cn').value, i: $('#ci').value, o: $('#co').value, c: $('#cc').value } }); } catch { return; }
+        if (seq !== calcSeq || !$('#cr')) return;
+        const fit = d.plans.filter(p => m.plans.includes(p.id) && p.limit_week);
+        $('#cr').innerHTML = `<div class="kpis"><div class="kpi"><div class="muted">ต่อข้อความ</div><div class="stat">${curSign()}${money(toCur(r.per1))}</div></div>
+        <div class="kpi"><div class="muted">ต่อเดือน (30 วัน)</div><div class="stat">${curSign()}${money(toCur(r.month))}</div></div></div>
+        ${fit.length ? `<div class="tw"><table class="tbl"><tr><th>แพลน</th><th>ราคา/เดือน</th><th>ใช้ลิมิตต่อสัปดาห์</th></tr>${fit.map(p => { const pct = r.plans.find(x => x.id === p.id)?.pct || 0; return `<tr><td>${esc(p.name)}</td><td>${p.price ? fmtPlanPrice(p.price) : 'ฟรี'}</td><td class="${pct > 100 ? 'bad' : pct > 80 ? 'warn' : 'ok'}">${pct > 999 ? '>999' : Math.round(pct)}%${pct > 100 ? ' (ไม่พอ)' : ''}</td></tr>`; }).join('')}</table></div>` : '<p class="muted">โมเดลนี้ยังไม่อยู่ในแพลนไหน</p>'}`;
+      }, 150);
     };
     ['#cm', '#cn', '#ci', '#co', '#cc'].forEach(s => $(s).oninput = calc); calc();
   };

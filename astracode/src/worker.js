@@ -286,7 +286,7 @@ const toAnthropicPart = p => {
   }
   return null;
 };
-async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice } = {}) {
+async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId } = {}) {
   const key = env[m.key_name];
   if (!key) throw new Error('missing key ' + m.key_name);
   if (m.provider === 'anthropic') {
@@ -362,8 +362,12 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
     const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(`upstream ${res.status}: ${JSON.stringify(d.error || d).slice(0, 300)}`);
     const item = d.data?.[0]; let src;
-    if (item?.b64_json) src = 'data:image/' + (item.b64_json.startsWith('iVBOR') ? 'png' : 'jpeg') + ';base64,' + item.b64_json; else if (item?.url) src = item.url; else throw new Error('ไม่ได้รูปกลับมา');
-    if (src.length > 1.8e6) throw new Error('รูปที่ได้ใหญ่เกินจะบันทึกในแชต ลองใช้โมเดลหรือขนาดที่เล็กลง');
+    if (item?.b64_json) {
+      const mime = item.b64_json.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
+      if (userId && item.b64_json.length > 300e3) src = await putImage(env, userId, mime, item.b64_json); // ใหญ่: เก็บเป็นไฟล์ในฐานข้อมูล ข้อความในแชตเป็นแค่ลิงก์
+      else if (item.b64_json.length > 1.8e6) throw new Error('รูปที่ได้ใหญ่เกินจะบันทึก ลองใช้ขนาดที่เล็กลง');
+      else src = `data:${mime};base64,` + item.b64_json;
+    } else if (item?.url) src = item.url; else throw new Error('ไม่ได้รูปกลับมา');
     yield { t: `![${prompt.slice(0, 80).replace(/[\[\]]/g, '')}](${src})` };
     yield { usage: { fresh: 0, read: 0, write: 0, out: 1e6 } }; // 1 รูป = 1M "token" จึงคิดตามทุน output ต่อรูป
   } else if (m.provider === 'responses') { // OpenAI Responses API (/responses): โมเดลรุ่นใหม่ที่ไม่รับ /chat/completions
@@ -505,6 +509,20 @@ async function imagePrompt(env, code) {
     ? '\n\nImage generation is available. When the project needs a real picture (hero, banner, product photo, illustration), write a line on its own: IMAGE <detailed English description> -> images/<name>.jpg (up to 2 per reply), then STOP the reply (no path= blocks, READ or RUN lines in the same reply). The page creates the image, saves it in the project and tells you its path; then use it, e.g. <img src="images/<name>.jpg" alt="..."> or CSS url(images/<name>.jpg). Do not use IMAGE for icons or simple shapes: use CSS or inline SVG for those.'
     : '\n\nImage generation is available. When the user asks you to draw, create or generate an image, end your reply with ONE block (and only then):\n```image\n<detailed English description of the image>\n```\nThe page creates the image right below your reply. Never say you cannot create images.';
 }
+// รูปที่สร้างในแชต: เก็บเป็นก้อนละ ~900K ตัวอักษร (D1 แถวละไม่เกิน ~2MB) ไม่ต้องมี R2 · เสิร์ฟที่ /api/img/<uid>/<key>.png|jpg
+// shortcut: ยังไม่มีงานลบรูปเก่า (ลบตอนลบบัญชีเท่านั้น) ถ้ารูปสะสมมากให้เพิ่มลบตามอายุใน cron
+const IMG_CHUNK = 900e3, IMG_MAX = 8e6;
+let imgTable;
+const ensureImgTable = env => imgTable ||= env.DB.prepare('CREATE TABLE IF NOT EXISTS chat_images (key TEXT NOT NULL, n INTEGER NOT NULL, user_id INTEGER NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (key, n))').run();
+async function putImage(env, uid, mime, b64s) {
+  if (b64s.length > IMG_MAX) throw new Error('รูปที่ได้ใหญ่เกินไป');
+  await ensureImgTable(env);
+  const key = rand(12), now = Date.now(), ops = [];
+  for (let i = 0, n = 0; i < b64s.length; i += IMG_CHUNK, n++) ops.push(env.DB.prepare('INSERT INTO chat_images VALUES (?,?,?,?,?,?)').bind(key, n, uid, mime, b64s.slice(i, i + IMG_CHUNK), now));
+  await env.DB.batch(ops);
+  return `/api/img/${uid}/${key}.${mime === 'image/png' ? 'png' : 'jpg'}`;
+}
+const modelDown = async (env, id) => (await env.DB.prepare("SELECT COUNT(*) n FROM events WHERE kind='error' AND model_id=? AND created_at>?").bind(id, Date.now() - 300e3).first()).n >= 3;
 async function webSearch(env, q) { // Tavily
   if (!env.TAVILY_KEY || (await getSetting(env, 'search_enabled')) === '0') return [];
   try {
@@ -640,13 +658,18 @@ async function runChat(env, J, send, st) {
       }
     }
   }
+  // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำต่อหน้าผู้ใช้
+  if (model.fallback_id && await modelDown(env, model.id)) {
+    const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
+    if (fb && !await modelDown(env, fb.id)) { model = fb; await send({ fallback: fb.name }); }
+  }
   let msgs = hist, imgs = imgs0, beat = Date.now();
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     let part = '', ru = null;
     const tcs = new Map(), anthIdx = new Map();
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined })) {
+        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined, userId: u.id })) {
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
           if (e.t) { out += e.t; part += e.t; await send({ t: e.t }); }
@@ -748,7 +771,9 @@ function isSafeMcpUrl(raw) {
   if (u.protocol !== 'https:' || u.username || u.password) return null;
   const h = u.hostname.toLowerCase();
   if (!h || h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal') || h === '[::1]') return null;
-  if (/^(127\.|10\.|192\.168\.|0\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return null;
+  if (h === 'localhost.' || h.endsWith('.localhost') || h.endsWith('.localdomain') || h.endsWith('.intranet') || h.endsWith('.lan')) return null;
+  if (/^(127\.|10\.|192\.168\.|0\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|198\.1[89]\.|192\.0\.0\.|2[2-5]\d\.)/.test(h)) return null; // รวม CGNAT, benchmark, multicast/สงวน
+  // shortcut: ตรวจแค่ชื่อโฮสต์ ไม่ได้ resolve DNS (กัน DNS rebinding ไม่ได้) · Workers เชื่อมต่อช่วง IP ภายในไม่ได้อยู่แล้ว ถ้าจะเข้มขึ้นให้ตรวจผล DoH ก่อนเรียก
   if (/^\d+$/.test(h) || h.includes(':')) return null;
   return u.href;
 }
@@ -1666,8 +1691,16 @@ function secure(res) {
   return r;
 }
 
+// กันยิงรัวจากคนที่ยังไม่ล็อกอิน: นับในหน่วยความจำของ isolate (ไม่เขียน D1 ทุกคำขอ) · shortcut: ไม่แชร์ข้าม isolate จึงเป็นเพดานหยาบ ถ้าต้องเข้มกว่านี้ใช้ Cloudflare Rate Limiting rule
+const burst = new Map();
+function burstHit(key, max, ms) {
+  const now = Date.now(); let e = burst.get(key);
+  if (!e || e.t < now) { if (burst.size > 5000) burst.clear(); e = { n: 0, t: now + ms }; burst.set(key, e); }
+  return ++e.n > max;
+}
 async function route(req, env, ctx, url, path, M) {
   let r;
+  if (path.startsWith('/api/') && !/(?:^|;\s*)sid=/.test(req.headers.get('cookie') || '') && burstHit('anon:' + ip(req, env), 240, 60e3)) return err('ส่งคำขอถี่เกินไป รอสักครู่', 429);
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้
         const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min', 'model_icons', 'picker_filter', 'picker_mult', 'picker_logos']);
@@ -1675,6 +1708,16 @@ async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/blog') return json((await env.DB.prepare('SELECT slug,title,summary,cover,created_at FROM posts WHERE published=1 ORDER BY created_at DESC LIMIT 100').all()).results);
       if (path.startsWith('/api/blog/')) { const p = await env.DB.prepare('SELECT slug,title,summary,body,cover,created_at FROM posts WHERE slug=? AND published=1').bind(path.slice(10)).first(); return p ? json(p) : err('ไม่พบบทความ', 404); }
+      if (path === '/api/pricing/calc' && M === 'POST') { // เครื่องคิดเลขหน้าราคา: คำนวณฝั่งเซิร์ฟเวอร์ ไม่ส่งราคาทุนออกไป
+        if (await limited(env, 'pcalc:' + ip(req, env), 120, 60e3)) return err('คำนวณถี่เกินไป รอสักครู่', 429);
+        const b = await req.json(), m = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1 AND public=1').bind(+b.model_id).first();
+        if (!m) return err('ไม่พบโมเดล', 404);
+        const num = (v, max) => Math.min(max, Math.max(0, +v || 0)), n = num(b.n, 1e5), i = num(b.i, 2e6), o = num(b.o, 2e6), c = num(b.c, 100) / 100, p = await priceOf(env, m);
+        const per1 = (i * (1 - c) * p.in + i * c * p.cache + o * p.out) / 1e6;
+        const weekUnits = n * 7 * (i * (1 - c) * m.cost_in + i * c * m.cost_cache + o * m.cost_out) / 1e6 * limMult(m); // วิธีนับเดียวกับระบบลิมิต: ต้นทุนจริง × ตัวคูณโมเดล
+        const pls = (await env.DB.prepare('SELECT p.id, p.limit_week FROM plans p JOIN plan_models pm ON pm.plan_id=p.id WHERE pm.model_id=? AND p.active=1 AND p.limit_week>0').bind(m.id).all()).results;
+        return json({ per1, month: per1 * n * 30, plans: pls.map(x => ({ id: x.id, pct: weekUnits / x.limit_week * 100 })) });
+      }
       if (path === '/api/status') return json(await status(env));
       if ((r = path.match(/^\/api\/share\/([a-f0-9]{12,48})$/))) {
         const c = await env.DB.prepare('SELECT id,title,created_at FROM chats WHERE share_token=?').bind(r[1]).first();
@@ -1705,7 +1748,7 @@ async function route(req, env, ctx, url, path, M) {
           models: await Promise.all(ms.results.map(async m => {
             const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
             return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lim: limMult(m), note: m.note,
-              in: p.in, out: p.out, cache: p.cache, cache_write: p.write, lw: { in: m.cost_in, out: m.cost_out, cache: m.cost_cache }, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
+              in: p.in, out: p.out, cache: p.cache, cache_write: p.write, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
               official: official[m.id] || null, plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
           })),
         });
@@ -1930,10 +1973,10 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     const b = await req.json();
     if (u.role === 'admin') return err('บัญชีแอดมินลบเองไม่ได้');
     if (String(b.confirm || '').trim().toLowerCase() !== u.email) return err('อีเมลไม่ตรง', 401);
-    await creditsInit(env); // ให้ตารางสิทธิ์รีเซ็ตมีอยู่ก่อนลบ
+    await creditsInit(env); await ensureImgTable(env); // ให้ตารางสิทธิ์รีเซ็ตและตารางรูปมีอยู่ก่อนลบ
     const c = 'SELECT id FROM chats WHERE user_id=?1', pj = 'SELECT id FROM projects WHERE user_id=?1';
     await DB.batch([`DELETE FROM messages WHERE chat_id IN (${c})`, 'DELETE FROM chats WHERE user_id=?1', `DELETE FROM project_files WHERE project_id IN (${pj})`, `DELETE FROM file_versions WHERE project_id IN (${pj})`,
-      'DELETE FROM projects WHERE user_id=?1', 'DELETE FROM team_members WHERE user_id=?1', 'DELETE FROM mcp_servers WHERE user_id=?1', 'DELETE FROM skills WHERE user_id=?1', 'DELETE FROM reset_grants WHERE user_id=?1', 'DELETE FROM reset_credits WHERE user_id=?1', 'DELETE FROM memories WHERE user_id=?1', 'DELETE FROM folders WHERE user_id=?1', 'DELETE FROM api_keys WHERE user_id=?1', 'DELETE FROM sessions WHERE user_id=?1',
+      'DELETE FROM projects WHERE user_id=?1', 'DELETE FROM chat_images WHERE user_id=?1', 'DELETE FROM team_members WHERE user_id=?1', 'DELETE FROM mcp_servers WHERE user_id=?1', 'DELETE FROM skills WHERE user_id=?1', 'DELETE FROM reset_grants WHERE user_id=?1', 'DELETE FROM reset_credits WHERE user_id=?1', 'DELETE FROM memories WHERE user_id=?1', 'DELETE FROM folders WHERE user_id=?1', 'DELETE FROM api_keys WHERE user_id=?1', 'DELETE FROM sessions WHERE user_id=?1',
       `DELETE FROM ticket_msgs WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)`, 'DELETE FROM tickets WHERE user_id=?1', 'DELETE FROM tokens WHERE user_id=?1',
       "UPDATE users SET email='deleted-'||id||'@deleted.local', pass_hash='x', banned=1, gh_token=NULL, totp_secret=NULL, google_id=NULL, line_id=NULL, fb_uid=NULL, instructions='' WHERE id=?1", // เก็บแถวผู้ใช้ไว้เพราะประวัติการเงินต้องเก็บตามกฎหมาย
     ].map(q => DB.prepare(q).bind(u.id)));
@@ -1967,10 +2010,13 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     return json({ ...t, msgs: (await DB.prepare('SELECT admin,body,created_at FROM ticket_msgs WHERE ticket_id=? ORDER BY id').bind(t.id).all()).results });
   }
   if (path === '/api/image' && M === 'POST') return await imageGen(req, env, u);
-  if ((r = path.match(/^\/api\/img\/(\d+)\/([\w-]+\.png)$/))) {
+  if ((r = path.match(/^\/api\/img\/(\d+)\/([\w-]+)\.(png|jpg)$/))) {
     if (+r[1] !== u.id && u.role !== 'admin') return err('not found', 404);
-    const o = env.SLIPS && await env.SLIPS.get(`img/${r[1]}/${r[2]}`);
-    return o ? new Response(o.body, { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=31536000' } }) : err('not found', 404);
+    const o = env.SLIPS && await env.SLIPS.get(`img/${r[1]}/${r[2]}.${r[3]}`), cc = { 'cache-control': 'private, max-age=31536000' };
+    if (o) return new Response(o.body, { headers: { 'content-type': 'image/' + (r[3] === 'jpg' ? 'jpeg' : 'png'), ...cc } });
+    await ensureImgTable(env);
+    const rows = (await DB.prepare('SELECT mime,data FROM chat_images WHERE key=? AND user_id=? ORDER BY n').bind(r[2], +r[1]).all()).results;
+    return rows.length ? new Response(unb64(rows.map(x => x.data).join('')), { headers: { 'content-type': rows[0].mime, ...cc } }) : err('not found', 404);
   }
   if (path === '/api/team') {
     const tm = await DB.prepare('SELECT t.*, tm.role, p.name plan_name, p.limit_week, p.price plan_price, p.id pid FROM team_members tm JOIN teams t ON t.id=tm.team_id LEFT JOIN plans p ON p.id=t.plan_id WHERE tm.user_id=? ORDER BY t.expires DESC LIMIT 1').bind(u.id).first();
@@ -2167,8 +2213,8 @@ async function imageGen(req, env, u) {
   let src;
   if (b.inline) return json({ src: 'data:image/png;base64,' + b64(bytes), usage: await usageStatus(env, u, plan) }); // โหมด Code: เบราว์เซอร์ย่อรูปแล้วเก็บเป็นไฟล์ในโปรเจกต์เอง
   if (env.SLIPS) { const name = rand(12) + '.png'; await env.SLIPS.put(`img/${u.id}/${name}`, bytes, { httpMetadata: { contentType: 'image/png' } }); src = `/api/img/${u.id}/${name}`; }
-  else src = 'data:image/png;base64,' + b64(bytes); // ไม่มี R2: ส่งกลับอย่างเดียว ไม่เก็บ
-  if (b.chat_id && env.SLIPS && await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(b.chat_id, u.id).first())
+  else src = await putImage(env, u.id, 'image/png', b64(bytes)); // ไม่มี R2: เก็บเป็นก้อนในฐานข้อมูล
+  if (b.chat_id && await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(b.chat_id, u.id).first())
     await env.DB.batch([...(b.silent ? [] : [env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'user', '🎨 ' + prompt, Date.now())]), // silent = AI สั่งสร้างเอง ไม่มีข้อความฝั่งผู้ใช้
       env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'assistant', `![${prompt.slice(0, 80).replace(/[\[\]]/g, '')}](${src})`, Date.now())]);
   return json({ src, usage: await usageStatus(env, u, plan) });
@@ -2373,17 +2419,18 @@ async function backup(env) {
 // ---------- หน้าสถานะระบบ ----------
 async function status(env) {
   const now = Date.now(), from = now - 30 * DAY, day = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`;
-  const [models, ok, bad] = await Promise.all([
+  const [models, ok, bad, recent] = await Promise.all([
     env.DB.prepare('SELECT id,name FROM models WHERE active=1 AND public=1 ORDER BY sort').all(),
     env.DB.prepare(`SELECT model_id, ${day('created_at')} d, COUNT(*) n FROM usage WHERE created_at>=? GROUP BY model_id, d`).bind(from).all(),
     env.DB.prepare(`SELECT model_id, ${day('created_at')} d, COUNT(*) n, MAX(created_at) last FROM events WHERE kind='error' AND created_at>=? GROUP BY model_id, d`).bind(from).all(),
+    env.DB.prepare("SELECT model_id, COUNT(*) n FROM events WHERE kind='error' AND created_at>? GROUP BY model_id").bind(now - 300e3).all(),
   ]);
   const today = Math.floor((now + BKK) / DAY);
   return { updated: now, models: models.results.map(m => {
     const days = Array.from({ length: 30 }, (_, i) => { const d = today - 29 + i, o = ok.results.find(x => x.model_id === m.id && x.d === d)?.n || 0, e = bad.results.find(x => x.model_id === m.id && x.d === d)?.n || 0; return { d: d * DAY, ok: o, err: e }; });
-    const last = Math.max(0, ...bad.results.filter(x => x.model_id === m.id).map(x => x.last));
+    const last = Math.max(0, ...bad.results.filter(x => x.model_id === m.id).map(x => x.last)), n5 = recent.results.find(x => x.model_id === m.id)?.n || 0;
     const o = days.reduce((a, x) => a + x.ok, 0), e = days.reduce((a, x) => a + x.err, 0);
-    return { name: m.name, uptime: o + e ? Math.round(o / (o + e) * 1000) / 10 : 100, down: now - last < 900e3, days };
+    return { name: m.name, uptime: o + e ? Math.round(o / (o + e) * 1000) / 10 : 100, down: now - last < 900e3, state: n5 >= 3 ? 'down' : now - last < 900e3 ? 'degraded' : 'ok', days }; // down = ผิดพลาด ≥3 ครั้งใน 5 นาที (ระบบสลับไปโมเดลสำรองเอง) · degraded = มี error ใน 15 นาที
   }) };
 }
 
