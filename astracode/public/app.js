@@ -251,13 +251,21 @@ async function landing() {
       <div class="tile"><div class="stat">${ic('globe')}</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
       <a class="tile link" href="/developers"><div class="stat">${ic('braces')}</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
     </div></div>
-    <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
+    <div class="band" id="cmp"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>
     <div class="band"><h2>คำถามที่พบบ่อย</h2>${faqHTML()}</div>
     ${posts.length ? `<div class="band"><h2>บทความล่าสุด</h2><div class="grid">${posts.slice(0, 3).map(postTile).join('')}</div></div>` : ''}
     ${footer()}</div>`);
   const plBtn = $('a[href="#plans"]'); if (plBtn) plBtn.onclick = e => { e.preventDefault(); $('#plans')?.scrollIntoView({ behavior: 'smooth' }); };
-  app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); landing(); });
+  // สลับสกุลเงิน: วาดใหม่เฉพาะส่วนแพลนกับตารางเทียบ ไม่โหลดทั้งหน้า (กันหน้าสะดุด/ภาพแตกบนมือถือ)
+  const bindCur = () => app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => {
+    localStorage.setItem('cur', b.dataset.cur);
+    const y = scrollY;
+    $('#plans').innerHTML = `<h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}`;
+    $('#cmp').innerHTML = `<h2>เทียบแพลน</h2>${compareTable(plans)}`;
+    bindCur(); scrollTo(0, y);
+  });
+  bindCur();
   bindInstall();
   homeFx();
 }
