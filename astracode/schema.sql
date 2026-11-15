@@ -219,6 +219,7 @@ CREATE TABLE IF NOT EXISTS team_members (
   user_id INTEGER NOT NULL,
   role TEXT NOT NULL DEFAULT 'member',
   joined_at INTEGER NOT NULL,
+  cap_pct REAL,                             -- เพดานต่อคน (% ของงบสัปดาห์ทีม) ใช้กับทีมที่ใช้งบรวม
   PRIMARY KEY (team_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS team_members_user ON team_members(user_id);
