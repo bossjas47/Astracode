@@ -41,8 +41,8 @@ spacing:
   lg: "28px"
 components:
   button-primary:
-    backgroundColor: "{colors.clay}"
-    textColor: "#1f1410"
+    backgroundColor: "rgba(255,255,255,0.24)"
+    textColor: "#ffffff"
     rounded: "{rounded.pill}"
     padding: "0 28px"
     height: "44px"
@@ -73,13 +73,13 @@ Surfaces are translucent sheets over a slowly drifting warm light (clay, soft vi
 **Key Characteristics:**
 - Warm black (#12100e) page; the ambient light is fixed behind content on Home.
 - Glass on floating or grouped surfaces only: nav, cards, tiles, showcase, controls.
-- Clay primary action with dark text (white on Clay is about 3:1, so it is not used).
+- Primary action is a brighter clear-glass capsule (24% white, white text, soft white glow); secondary actions are the same capsule at 4% fill.
 - Motion: drifting ambient light, pointer sheen on tiles, scroll reveal. All stop under `prefers-reduced-motion`.
 
 ## Colors
 
 ### Primary
-- **Clay** (#d97757): primary button, user chat bubble, featured-plan outline.
+- **Clay** (#d97757): accent for focus, team note and decorative light. It never fills a button.
 - **Clay Light** (#e8a183): links and stat figures.
 
 ### Neutral
@@ -89,7 +89,7 @@ Surfaces are translucent sheets over a slowly drifting warm light (clay, soft vi
 - **Go Green** (#30d158), **Caution Yellow** (#ffd500), **Alert Red** (#ff453a).
 
 ### Named Rules
-**The One Warm Light Rule.** Clay is the only saturated accent; the violet and sand in the ambient light stay behind the glass and never reach a control.
+**The Clear Action Rule.** Actions are glass, not color. Clay stays a quiet accent for links and figures; the violet and sand in the ambient light stay behind the glass.
 
 ## Typography
 
@@ -110,7 +110,7 @@ Centered column, max 980px, 16px gutters. Home bands have no frame: the glass ti
 
 ## Elevation & Depth
 
-Glass depth: `backdrop-filter: blur(24px) saturate(180%)`, a 135deg white gradient fill (11% to 3%), `inset 0 1px 0 rgba(255,255,255,.28)` for the specular edge, `0 8px 32px rgba(0,0,0,.3)` drop. The featured plan adds a Clay ring and glow.
+Glass depth: `backdrop-filter: blur(24px) saturate(180%)`, a 135deg white gradient fill (11% to 3%), `inset 0 1px 0 rgba(255,255,255,.28)` for the specular edge, `0 8px 32px rgba(0,0,0,.3)` drop. The featured plan adds a white ring and glow.
 
 ### Named Rules
 **The Glass Needs Light Rule.** Glass only on surfaces that sit over the ambient light or over content; flat panels inside a glass card stay flat.
@@ -122,7 +122,7 @@ Capsules (9999px) for buttons, tabs, chips and pills; 28px for cards and the sho
 ## Components
 
 ### Buttons
-- **Primary:** Clay gradient, dark text, inset top highlight, Clay glow; lifts 1px on hover, scales to .97 on press.
+- **Primary:** clear glass, 24% white fill, 45% white border, bold white text, inset top highlight, faint white glow; lifts 1px on hover, scales to .97 on press.
 - **Glass:** translucent capsule with the glass border; fills to 12% white on hover.
 
 ### Inputs / Fields
@@ -143,6 +143,6 @@ Capsules (9999px) for buttons, tabs, chips and pills; 28px for cards and the sho
 
 ### Don't:
 - **Don't** stack glass on glass beyond one level, or blur the whole page.
-- **Don't** put white text on Clay.
+- **Don't** fill a button with Clay or any saturated color; keep actions clear glass.
 - **Don't** change copy or behavior while restyling.
 - **Don't** break the CSP: no inline scripts, no new script origins beyond cdn.jsdelivr.net.
