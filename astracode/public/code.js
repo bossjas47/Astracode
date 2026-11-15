@@ -351,9 +351,10 @@ function showRun(on) { $('.ide').dataset.run = on ? '1' : ''; if (on && matchMed
 // ลิ้นชักไฟล์ (มือถือ): ปุ่มเมนูมุมซ้ายบน / แท็บ "ไฟล์" ด้านล่าง
 function drawer(on) { const ide = $('.ide'); if (!ide) return; ide.dataset.drawer = on ? '1' : ''; $('#burger')?.setAttribute('aria-expanded', !!on); }
 // รูปแบบ AI บนมือถือ (ผู้ใช้เลือกในตั้งค่า): page = หน้าแยก · sheet = แผ่นลอยทับโค้ด · bar = แถบสั่งเร็วใต้โค้ด + แผ่นลอย · split = แบ่งจอบน-ล่าง
-const AI_MODES = [['page', 'หน้าแยก', 'สลับไปหน้า AI เต็มจอ (แบบเดิม)'], ['sheet', 'แผ่นลอยทับโค้ด', 'ปุ่ม AI เปิดแผ่นครึ่งจอ ยังเห็นโค้ดด้านบน'], ['bar', 'แถบสั่งเร็วใต้โค้ด', 'พิมพ์คำสั่งใต้โค้ด ผลตอบกลับเปิดในแผ่นครึ่งจอ'], ['split', 'แบ่งจอ บน-ล่าง', 'โค้ดอยู่บน AI อยู่ล่างตลอดเวลา']];
+const AI_MODES = [['page', 'หน้าแยก', 'สลับไปหน้า AI เต็มจอ (แบบเดิม)'], ['sheet', 'แผ่นลอยทับโค้ด', 'ปุ่ม AI เปิดแผ่นครึ่งจอ ยังเห็นโค้ดด้านบน'], ['bar', 'แถบสั่งเร็วใต้โค้ด', 'พิมพ์คำสั่งใต้โค้ด เลือกโมเดล/Effort ได้ และทำให้อัตโนมัติทั้งหมด (ใช้การแก้ไข รัน ตรวจผล)'], ['split', 'แบ่งจอ บน-ล่าง', 'โค้ดอยู่บน AI อยู่ล่างตลอดเวลา']];
 const aiMode = () => { const m = localStorage.getItem('aimode'); return AI_MODES.some(x => x[0] === m) ? m : 'split'; }; // ค่าเริ่มต้น = แบ่งจอ
 const isPhone = () => matchMedia('(max-width: 999px)').matches;
+const barAuto = () => isPhone() && aiMode() === 'bar'; // แถบสั่งเร็ว = ทำอัตโนมัติทั้งหมด: ใช้การแก้ไข รันคำสั่งที่ AI ขอ แล้วรัน+จับภาพตรวจผลให้ AI แก้ต่อ (สูงสุด 3 รอบ)
 function openAI(on = true) {
   const ide = $('.ide'); if (!ide) return; const m = aiMode();
   if (!isPhone() || m === 'page') return setPane(on ? 'ai' : 'code');
@@ -446,6 +447,7 @@ function cUI() {
   $('#ceff').hidden = !efs.length;
   if (efs.length && !efs.includes($('#ceffort').value)) $('#ceffort').value = efs[0];
   $('#ceff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
+  $('#bmdl').innerHTML = $('#cmdl').innerHTML; $('#beff').innerHTML = $('#ceff').innerHTML; $('#beff').hidden = !efs.length; // แถบสั่งเร็วใช้ค่าเดียวกับกล่อง AI
   $('#cflags').innerHTML = (IDE.autoApply ? `<button type="button" class="flag" data-flag="autoapply" aria-label="ปิด Auto-apply">${ic('check', 'sm')}Auto-apply${ic('x', 'sm')}</button>` : '')
     + (IDE.autoMode ? `<button type="button" class="flag" data-flag="auto" aria-label="ปิดตรวจผลเอง">${ic('eye', 'sm')}ตรวจผลเอง${ic('x', 'sm')}</button>` : '')
     + (IDE.skills.length && _skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
@@ -645,10 +647,10 @@ async function codeSend(auto) {
   IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
   // โหมดอัตโนมัติ: ใช้การแก้ไขทันที แล้วให้ AI ดูผลลัพธ์เอง (สูงสุด 3 รอบ)
   // Auto-apply: ใช้การแก้ไขทันที (และรันคำสั่งที่ AI ขอ) · ตรวจผลเอง: ใช้การแก้ไข แล้วรัน + จับภาพให้ AI ดู (สูงสุด 3 รอบ)
-  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content) : [], autoOn = IDE.autoApply || IDE.autoMode;
+  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content) : [], autoOn = IDE.autoApply || IDE.autoMode || barAuto();
   try {
     if (autoOn && runs.length && (IDE.round ?? 0) < 5) await runForAI(ai, runs);
-    else if (autoOn && ch.length) { for (const c of ch) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, ai); if (IDE.autoMode && (IDE.round ?? 0) < 3) await check(); }
+    else if (autoOn && ch.length) { for (const c of ch) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, ai); if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < 3) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
 }
 
@@ -823,7 +825,8 @@ async function codeView(id) {
           <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">ประวัติ</button><button id="save" aria-label="บันทึก">Save</button></div>
         <div id="editor" class="ide-editor"></div>
         <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
-        <form class="cmdbar" id="cmdbar"><input id="cmdi" placeholder="สั่ง AI แก้ไฟล์นี้ เช่น เพิ่มปุ่มรีเซ็ต" aria-label="สั่ง AI" autocomplete="off"><button aria-label="ส่ง">${ic('up')}</button></form>
+        <form class="cmdbar" id="cmdbar"><div class="cmd-opts"><button type="button" id="bmdl" aria-haspopup="dialog"></button><button type="button" id="beff" aria-haspopup="dialog"></button><span class="muted">อัตโนมัติ: แก้ไฟล์ · รัน · ตรวจผล</span></div>
+          <div class="cmd-in"><input id="cmdi" placeholder="สั่ง AI แก้ไฟล์นี้ เช่น เพิ่มปุ่มรีเซ็ต" aria-label="สั่ง AI" autocomplete="off"><button aria-label="ส่ง">${ic('up')}</button></div></form>
         <div class="mkeys" id="mkeys">${[['Tab', '  '], ['{ }', '{}', 1], ['( )', '()', 1], ['[ ]', '[]', 1], ['=>', ' => '], [';', ';'], ['" "', '""', 1], ["' '", "''", 1], ['< >', '<>', 1], ['/', '/'], ['=', ' = ']].map(([l, v, o]) => `<button type="button" data-ins="${esc(v)}" data-off="${o || 0}">${esc(l)}</button>`).join('')}</div>
         <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">ผลลัพธ์</button><button data-rtab="con">คอนโซล</button><button data-rtab="term">เทอร์มินัล</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
           <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ">${ic('eye', 'sm')} เต็มจอ</button><button id="stop">${ic('stop')} หยุด</button><button id="clr">ล้าง</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
@@ -851,7 +854,7 @@ async function codeView(id) {
 
   $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); };
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
-  $('#cmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools;
+  $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools;
   $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
     else if (f === 'mc') { IDE.mcps = IDE.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('cmcps', JSON.stringify(IDE.mcps)); cUI(); } else if (f) { setOpt(f, false); cUI(); } };
   $('#clim').innerHTML = limHTML(me.usage); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();

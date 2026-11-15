@@ -1034,15 +1034,20 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
   .ide[data-aimode="sheet"] .ide-ai, .ide[data-aimode="bar"] .ide-ai { display: flex; position: fixed; left: 0; right: 0; bottom: calc(54px + env(safe-area-inset-bottom)); height: 54vh; z-index: 50; border: 0; border-top: 1px solid var(--hair); border-radius: 22px 22px 0 0; transform: translateY(115%); transition: transform .3s ease; background-color: rgba(26, 23, 20, .96); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: 0 -10px 40px rgba(0, 0, 0, .5); }
   .ide[data-ai="1"][data-aimode="sheet"] .ide-ai, .ide[data-ai="1"][data-aimode="bar"] .ide-ai { transform: none; }
   .ide[data-aimode="sheet"] #aiclose, .ide[data-aimode="bar"] #aiclose { display: inline-grid; }
-  .ide[data-aimode="bar"][data-pane="code"] .cmdbar { display: flex; }
+  .ide[data-aimode="bar"][data-pane="code"] .cmdbar { display: flex; flex-direction: column; gap: 6px; }
   .ide[data-aimode="split"] .ide-body { grid-template-rows: minmax(0, 1fr) minmax(0, 46%); }
   .ide[data-aimode="split"][data-pane="code"] .ide-ai { display: flex; border: 0; border-top: 1px solid var(--hair); }
   .cmdbar { flex: none; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--hair); background: var(--graphite); }
   .cmdbar input { flex: 1; min-width: 0; min-height: 40px; border-radius: 9999px; padding: 0 14px; font-size: 14px; }
-  .cmdbar button { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .24); color: #fff; display: inline-grid; place-items: center; cursor: pointer; }
-  .cmdbar button .ic { width: 18px; height: 18px; }
+  .cmd-in button { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .24); color: #fff; display: inline-grid; place-items: center; cursor: pointer; }
+  .cmd-in button .ic { width: 18px; height: 18px; }
 }
 /* code page: tighter file list / menu text */
 .ide .tname { font-size: 13px; } .ide .tmenu button { font-size: 13px; padding: 9px 14px; }
 .ide .tname, .ide .tmore { min-height: 36px; }
 @media (max-width: 999px) { .ide .ide-files .tname { min-height: 38px; } .ide .tmore { width: 38px; height: 38px; } .dr-head b { font-size: 16px; } .ftools .btn.sm { font-size: 12px; } }
+.cmd-in { display: flex; gap: 8px; align-items: center; }
+.cmd-opts { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.cmd-opts button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border-radius: 9999px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .05); color: var(--porcelain); font: 500 12px var(--font); cursor: pointer; }
+.cmd-opts button[hidden] { display: none; }
+.cmd-opts .muted { flex: none; font-size: 11.5px; white-space: nowrap; }
