@@ -1491,6 +1491,7 @@ function secure(res) {
 }
 
 async function route(req, env, ctx, url, path, M) {
+  let r;
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้
         const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min']);
@@ -1592,7 +1593,6 @@ async function route(req, env, ctx, url, path, M) {
         await env.DB.prepare('UPDATE users SET gh_token=?, gh_login=? WHERE id=?').bind(await seal(env, token), who.login, u.id).run();
         return json({ ok: true, login: who.login });
       }
-      let r;
       if ((r = path.match(/^\/api\/chats\/(\d+)\/share$/))) {
         if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
         if (M === 'DELETE') { await env.DB.prepare('UPDATE chats SET share_token=NULL WHERE id=?').bind(r[1]).run(); return json({ ok: true }); }
