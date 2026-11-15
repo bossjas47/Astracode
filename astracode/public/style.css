@@ -853,3 +853,4 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 [data-page=home] #plans .price small { font-size: 13px; font-family: var(--font); }
 @supports not (backdrop-filter: blur(1px)) { .nav, .card, .tile, .showcase { background-color: rgba(34, 30, 26, .92); } }
 @media (prefers-reduced-motion: reduce) { [data-page=home]::before { animation: none; } [data-page=home] .rv { opacity: 1; transform: none; } }
+@media (max-width: 520px) { .nav { gap: 4px; padding: 0 10px; overflow-x: auto; scrollbar-width: none; } .nav::-webkit-scrollbar { display: none; } .nav a.l { padding: 12px 5px; white-space: nowrap; } .nav .btn { flex: none; } }
