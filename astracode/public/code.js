@@ -58,7 +58,7 @@ async function codeHome() {
 // ---------- ตัวแก้โค้ด ----------
 const edTheme = () => CM.EditorView.theme({
   '&': { height: '100%', backgroundColor: '#0d0b09' },
-  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 13px)', lineHeight: '1.5' },
+  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 12px)', lineHeight: '1.5' },
   '.cm-gutters': { backgroundColor: '#14110f', border: 'none', color: '#a39a8d' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: '#ffffff0d' },
   '.cm-panels': { backgroundColor: '#221e1a', color: '#f4efe8' },
@@ -149,15 +149,17 @@ function drawTree() {
 }
 const icon = p => { const e = p.split('.').pop().toLowerCase(), k = { html: 'web', htm: 'web', css: 'palette', js: 'filecode', mjs: 'filecode', ts: 'filecode', tsx: 'filecode', jsx: 'filecode', py: 'py', json: 'braces2', md: 'filetext' }[e] || 'file'; return ic(k, 'f-' + e); };
 function menu(btn, path, folder) {
-  document.querySelector('.tmenu')?.remove();
+  const open = document.querySelector('.tmenu'), same = open && open.previousElementSibling === btn.closest('.trow');
+  open?.remove(); if (same) return; // กดซ้ำที่ปุ่มเดิม = ปิดเมนู
   const m = document.createElement('div'); m.className = 'tmenu';
-  m.innerHTML = folder ? '<button data-a="new">+ ไฟล์ในโฟลเดอร์นี้</button><button data-a="ren">เปลี่ยนชื่อโฟลเดอร์</button><button data-a="del" class="bad">ลบโฟลเดอร์</button>'
+  m.innerHTML = folder ? '<button data-a="new">+ ไฟล์ในโฟลเดอร์นี้</button><button data-a="nfold">+ โฟลเดอร์ย่อย</button><button data-a="ren">เปลี่ยนชื่อโฟลเดอร์</button><button data-a="del" class="bad">ลบโฟลเดอร์</button>'
     : `<button data-a="ai">${IDE.ctx.has(path) ? 'เอาออกจาก AI' : 'ส่งให้ AI ดู'}</button><button data-a="ren">เปลี่ยนชื่อ / ย้าย</button><button data-a="dup">ทำสำเนา</button><button data-a="del" class="bad">Delete</button>`;
   btn.closest('.trow').after(m);
   m.onclick = async e => {
     const a = e.target.dataset.a; if (!a) return; m.remove();
     try {
       if (a === 'new') return newFile(path);
+      if (a === 'nfold') return newFolder(path);
       if (a === 'ai') { IDE.ctx.has(path) ? IDE.ctx.delete(path) : IDE.ctx.add(path); drawCtx(); return; }
       if (a === 'dup') { const to = await promptSheet('ชื่อไฟล์สำเนา', path.replace(/(\.\w+)?$/, '-copy$1'), { title: 'ทำสำเนาไฟล์', ok: 'Create' }); if (to) await writeFiles([{ path: to, content: content(path) }]); return; }
       if (a === 'del') {
@@ -182,6 +184,14 @@ async function newFile(dir = '') {
   const p = await promptSheet('ระบุพาธและชื่อไฟล์ (เช่น src/app.js)', dir, { title: 'สร้างไฟล์ใหม่', ok: 'Create' }); if (!p || p.endsWith('/')) return;
   if (has(p)) return openFile(p);
   try { await writeFiles([{ path: p, content: '' }]); openFile(p); } catch (x) { setStatus(x.message, true); }
+}
+// โฟลเดอร์ในโปรเจกต์ = พาธของไฟล์ จึงสร้างโฟลเดอร์ว่างด้วยไฟล์ .gitkeep (git เก็บโฟลเดอร์ว่างไม่ได้ ใช้วิธีเดียวกัน)
+async function newFolder(parent = '') {
+  const n = await promptSheet('ชื่อโฟลเดอร์ (เช่น src หรือ src/utils)', parent, { title: 'สร้างโฟลเดอร์ใหม่', ok: 'Create' }); if (!n) return;
+  const dir = n.trim().replace(/^\/+|\/+$/g, '');
+  if (!dir || /\.\.|\/\/|[\\<>:"|?*\x00-\x1f]/.test(dir)) return setStatus('ชื่อโฟลเดอร์ไม่ถูกต้อง', true);
+  if ([...IDE.files.keys()].some(p => p.startsWith(dir + '/'))) { IDE.closed.delete(dir + '/'); return drawTree(); }
+  try { await writeFiles([{ path: dir + '/.gitkeep', content: '' }]); IDE.closed.delete(dir + '/'); drawTree(); } catch (x) { setStatus(x.message, true); }
 }
 async function writeFiles(files) { // นำเข้าหลายไฟล์ แล้วอัปเดตหน้าจอ
   await api(`/projects/${IDE.pid}/import`, { method: 'POST', body: { files } });
@@ -351,13 +361,13 @@ function openAI(on = true) {
   ide.dataset.ai = on ? '1' : ''; if (on) setTimeout(() => $('#ct')?.focus(), 320);
 }
 function applyEditorPrefs() {
-  document.documentElement.style.setProperty('--cfs', (+localStorage.getItem('cfont') || 13) + 'px');
+  document.documentElement.style.setProperty('--cfs', (+localStorage.getItem('cfont') || 12) + 'px');
   const ide = $('.ide'); if (ide) { ide.dataset.aimode = aiMode(); ide.dataset.ai = ''; }
   IDE.view?.requestMeasure();
 }
 function editorSettings() {
-  const fs = +localStorage.getItem('cfont') || 13, mode = aiMode(), wrapOn = localStorage.getItem('wrap') !== '0';
-  sheet('ตั้งค่าตัวแก้ไข', `<label for="fsr">ขนาดตัวอักษรในตัวแก้ไข <b id="fsv">${fs}px</b></label><input type="range" id="fsr" min="11" max="18" step="1" value="${fs}" style="padding:0;min-height:32px">
+  const fs = +localStorage.getItem('cfont') || 12, mode = aiMode(), wrapOn = localStorage.getItem('wrap') !== '0';
+  sheet('ตั้งค่าตัวแก้ไข', `<label for="fsr">ขนาดตัวอักษรในตัวแก้ไข <b id="fsv">${fs}px</b></label><input type="range" id="fsr" min="10" max="18" step="1" value="${fs}" style="padding:0;min-height:32px">
     <label class="tg" style="margin-top:12px"><input type="checkbox" id="wrp" ${wrapOn ? 'checked' : ''}><span><b>ตัดบรรทัดยาว</b><small class="muted">ข้อความที่ยาวเกินจอจะขึ้นบรรทัดใหม่</small></span></label>
     <label style="margin:16px 0 6px">รูปแบบ AI บนมือถือ</label>${AI_MODES.map(([v, t, d]) => optHTML(v, t, d, v === mode)).join('')}`, (d, close) => {
     d.querySelector('#fsr').oninput = e => { localStorage.setItem('cfont', e.target.value); d.querySelector('#fsv').textContent = e.target.value + 'px'; applyEditorPrefs(); };
@@ -804,7 +814,7 @@ async function codeView(id) {
         <div class="dr-head"><div><a href="/code" class="dr-back">‹ โปรเจกต์ทั้งหมด</a><b>${esc(d.name)}</b></div><button type="button" class="icon-btn sm" id="edset" aria-label="ตั้งค่าตัวแก้ไข">${ic('settings')}</button></div>
         <div class="dr-find"><input id="tfilter" type="search" placeholder="ค้นหาชื่อไฟล์" aria-label="ค้นหาชื่อไฟล์" autocomplete="off"></div><div id="recent" class="recent"></div>
         <div id="tree" class="tree"></div>
-        <div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">Upload</button>
+        <div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="nfold">+ Folder</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">Upload</button>
         <button class="btn out sm" id="zin">Import zip</button><button class="btn out sm" id="zout">Export zip</button>
         <input type="file" id="uplf" multiple hidden><input type="file" id="zinf" accept=".zip,application/zip" hidden></div></aside>
       <div class="ide-scrim" id="idescrim"></div>
@@ -834,6 +844,8 @@ async function codeView(id) {
   const first = has('index.html') ? 'index.html' : [...IDE.files.keys()][0];
   if (first) openFile(first); else refresh();
   setStatus('บันทึกแล้ว ✓'); applyEditorPrefs();
+  if (!IDE.menuClose) { IDE.menuClose = true; document.addEventListener('click', e => { if (!e.target.closest('.tmenu, .tmore')) document.querySelector('.tmenu')?.remove(); }); }
+  $('#nfold').onclick = () => newFolder();
   $('#tfilter').oninput = e => { IDE.filter = e.target.value; drawTree(); drawRecent(); }; $('#edset').onclick = editorSettings; $('#aiclose').onclick = () => openAI(false);
   $('#cmdbar').onsubmit = e => { e.preventDefault(); const i = $('#cmdi'), v = i.value.trim(); if (!v || IDE.busy) return; $('#ct').value = v; $('#ct').dispatchEvent(new Event('input')); i.value = ''; openAI(true); codeSend(); };
 
