@@ -17,7 +17,6 @@ database_id = "723ec871-4ab3-48be-804e-7ef04e90564f"   # ได้จาก: npx
 # bucket_name = "astracode-slips"
 
 # [vars]  (ตั้ง ADMIN_EMAIL ใน dashboard ของ Worker แทน จะได้ไม่ถูกเขียนทับตอน deploy)
-# ADMIN_EMAIL = "salisam417@gmail.com"   # อีเมลนี้สมัครแล้วได้สิทธิ์แอดมิน
 
 # ตอบแชตต่อเบื้องหลังแม้ผู้ใช้ปิดจอ (Durable Object แบบ SQLite ใช้ได้ในแผนฟรี)
 [[durable_objects.bindings]]

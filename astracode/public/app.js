@@ -228,7 +228,9 @@ async function landing() {
         </div>
       </div>
     </div></section>
-    <div class="wrap"><div class="band"><h2>ออกแบบมาเพื่อมือถือ</h2><div class="grid">
+    <div class="wrap">
+    <div class="band" id="plans"><h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}</div>
+    <div class="band facts"><h2>ออกแบบมาเพื่อมือถือ</h2><div class="grid">
       <div class="tile"><div class="stat">5+</div><div class="muted">ผู้ให้บริการ AI ชั้นนำ สลับได้ในแชตเดียว</div></div>
       <div class="tile"><div class="stat">PWA</div><div class="muted">เพิ่มลงหน้าจอหลัก ใช้เหมือนแอปจริง</div></div>
       <div class="tile"><div class="stat">%</div><div class="muted">เห็นลิมิตชัดเจน รีเซ็ตทุก 4 ชั่วโมงและทุกสัปดาห์</div></div>
@@ -240,7 +242,6 @@ async function landing() {
       <div class="tile"><div class="stat">${ic('globe')}</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
       <a class="tile link" href="/developers"><div class="stat">${ic('braces')}</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
     </div></div>
-    <div class="band" id="plans"><h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}</div>
     <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>
     <div class="band"><h2>คำถามที่พบบ่อย</h2>${faqHTML()}</div>
@@ -249,6 +250,17 @@ async function landing() {
   const plBtn = $('a[href="#plans"]'); if (plBtn) plBtn.onclick = e => { e.preventDefault(); $('#plans')?.scrollIntoView({ behavior: 'smooth' }); };
   app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); landing(); });
   bindInstall();
+  homeFx();
+}
+
+// ลูกเล่นหน้าแรก: แสงตามเมาส์ที่ hero และขอบการ์ด, เลื่อนแล้วค่อยๆ โผล่ (ปิดเองเมื่อผู้ใช้ตั้งลดการเคลื่อนไหว)
+function homeFx() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const hero = $('.hero');
+  hero?.addEventListener('pointermove', e => { const r = hero.getBoundingClientRect(); hero.style.setProperty('--hx', e.clientX - r.left + 'px'); hero.style.setProperty('--hy', e.clientY - r.top + 'px'); });
+  app.addEventListener('pointermove', e => { const t = e.target.closest?.('.tile'); if (!t) return; const r = t.getBoundingClientRect(); t.style.setProperty('--mx', e.clientX - r.left + 'px'); t.style.setProperty('--my', e.clientY - r.top + 'px'); });
+  const io = new IntersectionObserver(es => es.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target); } }), { threshold: .12 });
+  app.querySelectorAll('.wrap > .band').forEach(b => { b.classList.add('rv'); io.observe(b); });
 }
 
 // ---------- เข้าสู่ระบบ / สมัคร / ลืมรหัส / 2FA ----------
