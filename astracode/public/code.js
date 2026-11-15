@@ -57,11 +57,11 @@ async function codeHome() {
 
 // ---------- ตัวแก้โค้ด ----------
 const edTheme = () => CM.EditorView.theme({
-  '&': { height: '100%', backgroundColor: '#000' },
+  '&': { height: '100%', backgroundColor: '#0d0b09' },
   '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: matchMedia('(pointer:coarse)').matches ? '16px' : '13px', lineHeight: '1.55' },
-  '.cm-gutters': { backgroundColor: '#0e0e0e', border: 'none', color: '#6e6e73' },
+  '.cm-gutters': { backgroundColor: '#14110f', border: 'none', color: '#6f665b' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: '#ffffff0d' },
-  '.cm-panels': { backgroundColor: '#1d1d1f', color: '#f5f5f7' },
+  '.cm-panels': { backgroundColor: '#221e1a', color: '#f4efe8' },
   '.cm-ghost': { color: '#6e6e73', cursor: 'pointer' },
 }, { dark: true });
 const wrap = new CM.Compartment(), ghostC = new CM.Compartment();
