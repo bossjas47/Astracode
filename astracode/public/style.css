@@ -951,3 +951,44 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .hero .row { align-items: center; row-gap: 10px; } .hero .row > .seg { margin-bottom: 0; }
 /* ชื่อแบรนด์ ASTRACODE ตัวพิมพ์ใหญ่ทุกหน้า */
 .logo, .hero .name, .foot b { text-transform: uppercase; }
+
+/* ---------- top-right of the page nav: limit ring, wallet, account / log in + sign up ---------- */
+.nav .nav-r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.nav .nav-r .btn { white-space: nowrap; }
+.nav-lim, .nav-wal { height: 36px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border-radius: 9999px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .06); color: var(--porcelain); font: 500 13px var(--font); cursor: pointer; white-space: nowrap; }
+.nav-lim:hover, .nav-wal:hover { background: rgba(255, 255, 255, .12); }
+.nav-av { width: 36px; height: 36px; flex: none; display: inline-grid; place-items: center; border-radius: 50%; background: rgba(217, 119, 87, .22); border: 1px solid rgba(217, 119, 87, .55); color: var(--porcelain); font: 600 14px var(--font); }
+@media (max-width: 440px) { .nav .nav-login { display: none; } .nav-wal { display: none; } }
+@media (pointer: coarse) { .nav-lim, .nav-wal { min-height: 44px; } .nav-av { width: 44px; height: 44px; } }
+
+/* ---------- account page ---------- */
+.acc-head { display: flex; align-items: center; gap: 16px; padding: 32px 0 8px; }
+.acc-av { width: 64px; height: 64px; flex: none; display: grid; place-items: center; border-radius: 50%; font: 600 26px var(--display); color: var(--porcelain); background: radial-gradient(circle at 30% 25%, rgba(217, 119, 87, .55), rgba(217, 119, 87, .14)); border: 1px solid rgba(217, 119, 87, .55); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3); }
+.acc-id h1 { margin: 0; font: 600 30px/1.1 var(--display); }
+.acc-id p { margin: 4px 0 0; color: var(--ash); font-size: 14px; word-break: break-all; }
+.acc-act { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 4px; }
+.acc-nav { position: sticky; top: 56px; z-index: 10; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 12px -16px 0; padding: 10px 16px; background-color: rgba(18, 16, 14, .72); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); }
+.acc-nav::-webkit-scrollbar { display: none; }
+.acc-nav a { flex: none; min-height: 36px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 9999px; border: 1px solid var(--hair); color: var(--ash); font: 500 13px var(--font); transition: background-color .25s, color .25s; }
+.acc-nav a:hover { color: var(--porcelain); background: rgba(255, 255, 255, .08); }
+.acc-ov { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 0; }
+.acc-big { display: flex; flex-direction: column; gap: 6px; padding: 20px; border-radius: 24px; border: 1px solid var(--hair); background-color: rgba(34, 30, 26, .6); background-image: linear-gradient(135deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .02)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14); }
+.acc-big > span.muted:first-child { font-size: 13px; }
+.acc-big b { font: 600 30px/1.1 var(--display); letter-spacing: -.3px; overflow-wrap: anywhere; }
+.acc-big .btn { align-self: flex-start; margin-top: 6px; }
+.acc-c { padding: 22px 20px; border-radius: 24px; scroll-margin-top: 120px; }
+.acc-t { font: 600 18px var(--display); margin: 0 0 14px; }
+.acc-c label:not(.tg) { display: block; margin-top: 12px; font-size: 13px; color: var(--ash); }
+.acc-c .row { align-items: stretch; }
+.acc-c .row input { min-width: 0; }
+.acc-meter { padding: 12px 0; }
+.acc-meter + .acc-meter { border-top: 1px solid var(--hair); }
+.am-h { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 15px; }
+.am-h b { font: 600 24px var(--display); }
+.bar1.lg { height: 10px; border-radius: 9999px; }
+.bar1.lg div { border-radius: 9999px; }
+.acc-meter.hi .bar1 div { background: var(--yellow); } .acc-meter.full .bar1 div { background: var(--red); }
+.acc-meter small { display: block; margin-top: 8px; font-size: 12.5px; }
+.acc .mem { background: rgba(255, 255, 255, .04); border: 1px solid var(--hair); }
+.acc .ubar i { background: linear-gradient(var(--link), var(--blue)); }
+@media (max-width: 420px) { .acc-big { padding: 16px; } .acc-big b { font-size: 26px; } }

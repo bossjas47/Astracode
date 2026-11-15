@@ -170,12 +170,17 @@ async function copy(text, btn) {
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
 const navL = (h, t, i) => `<a class="l${curl().pathname === h ? ' on' : ''}" href="${h}">${ic(i)}<span>${t}</span></a>`;
-const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="เมนู" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a></div>
+// มุมขวาบน: ล็อกอินแล้ว = วงแหวนลิมิต (กดเปิดรายละเอียด) + ยอด Wallet + ปุ่มบัญชี · ยังไม่ล็อกอิน = Log in + Get started free
+const navRight = () => me
+  ? `<div class="nav-r"><button type="button" class="nav-lim" aria-label="ลิมิตการใช้งาน">${limHTML(me.usage)}</button><a class="nav-wal" href="/plans?topup=1" aria-label="เติม Wallet">฿${baht(me.balance)}</a><a class="nav-av" href="/account" aria-label="บัญชี ${esc(me.email)}">${esc((me.email || '?')[0].toUpperCase())}</a></div>`
+  : '<div class="nav-r"><a class="btn out sm nav-login" href="/login">Log in</a><a class="btn blue sm" href="/login">Get started free</a></div>';
+const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="เมนู" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="ปิดเมนู">${ic('x')}</button></div>
   ${me ? `${navL('/chat', 'แชต', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}${me.role === 'admin' ? navL('/admin', 'หลังบ้าน', 'dash') : ''}<span class="sp"></span>${navL('/account', 'บัญชี', 'user')}`
-       : `${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}<span class="sp"></span><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
+       : `${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}<span class="sp"></span><a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
+  if (e.target.closest?.('.nav-lim') && me) return limitSheet();
   const n = e.target.closest?.('.nav'); if (!n) return;
   const open = e.target.closest('.nav-btn:not(.nav-x)') ? !n.classList.contains('open') : false;
   if (e.target.closest('.nav-btn, .nav-scrim, .nav-panel a')) { n.classList.toggle('open', open); n.querySelector('.nav-btn')?.setAttribute('aria-expanded', open); }

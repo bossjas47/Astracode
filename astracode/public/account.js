@@ -1,7 +1,8 @@
 // AstraCode: หน้าบัญชี (แพลน, Wallet, ชวนเพื่อน, ความจำ, ความปลอดภัย, ข้อมูลส่วนตัว)
 LIBS.qr = [CDN + 'qrcode-generator@1.4.4/qrcode.js', 'sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k'];
 const TX_KIND = { topup: 'เติมเงิน', coupon: 'คูปอง', referral: 'ชวนเพื่อน', plan: 'ซื้อแพลน', renew: 'ต่ออายุอัตโนมัติ', overflow: 'ใช้เกินลิมิต', api: 'API', admin: 'ปรับโดยแอดมิน' };
-const h3 = t => `<div style="font:600 19px var(--display);margin-bottom:8px">${t}</div>`;
+const h3 = t => `<div class="acc-t">${t}</div>`;
+const meterRow = (label, p, sub) => `<div class="acc-meter ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}"><div class="am-h"><span>${label}</span><b>${p}%</b></div><div class="bar1 lg"><div style="width:${Math.min(100, p)}%"></div></div><small class="muted">${sub}</small></div>`;
 const sw = (id, on, label, hint) => `<label class="tg"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span><b>${label}</b><small class="muted">${hint}</small></span></label>`;
 
 const kfmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n || 0);
@@ -22,25 +23,28 @@ PAGES.account = async function account() {
   await loadMe();
   const [w, mems, ud, tm] = await Promise.all([api('/wallet'), api('/memories'), api('/usage/daily'), api('/team').catch(() => ({ team: null }))]);
   const u = me.usage, refLink = `${location.origin}/login?ref=${me.ref_code}`;
-  page(nav() + `<div class="wrap" style="max-width:640px"><section class="hero" style="padding:48px 0 16px"><h1>บัญชี</h1>
-    <p>${esc(me.email)}</p>
-    <div class="row" style="justify-content:center;margin-top:16px">
+  page(nav() + `<div class="wrap acc" style="max-width:680px">
+    <section class="acc-head"><div class="acc-av" aria-hidden="true">${esc((me.email || '?')[0].toUpperCase())}</div>
+      <div class="acc-id"><h1>บัญชี</h1><p>${esc(me.email)}</p></div></section>
+    <div class="acc-act">
       <a class="btn blue sm" href="/chat">${ic('msg', 'sm')} Open chat</a>
       <a class="btn out sm" href="/plans">${ic('layers', 'sm')} Plans / Top up</a>
       <button class="btn red sm" id="outTop">Log out</button>
-    </div></section>
+    </div>
+    <nav class="acc-nav" aria-label="ส่วนในหน้านี้"><a href="#sec-usage">การใช้งาน</a><a href="#sec-team">ทีม</a><a href="#sec-wallet">Wallet</a><a href="#sec-ai">AI ของคุณ</a><a href="#sec-security">ความปลอดภัย</a><a href="#sec-data">ข้อมูล</a></nav>
 
-    <div class="card"><div class="grid">
-      <div class="tile"><div class="muted">แพลน</div><div class="stat">${esc(me.plan.name)}</div><div class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</div></div>
-      ${u.use4h === false ? '' : `<div class="tile"><div class="muted">ลิมิต 4 ชม.</div><div class="stat">${u.pct4h}%</div><div class="muted">รีเซ็ต ${u.reset4h ? when(u.reset4h) : '-'}</div></div>`}
-      <div class="tile"><div class="muted">ลิมิตสัปดาห์</div><div class="stat">${u.pctWeek}%</div><div class="muted">รีเซ็ต ${when(u.resetWeek)}</div></div>
-      <div class="tile"><div class="muted">Wallet</div><div class="stat">฿${baht(w.balance)}</div><a href="/plans?topup=1">เติมเงิน</a></div>
-    </div></div>
+    <div class="acc-ov">
+      <div class="acc-big"><span class="muted">Wallet</span><b>฿${baht(w.balance)}</b><a class="btn blue sm" href="/plans?topup=1">Top up</a></div>
+      <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span></div>
+    </div>
+    <div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
+      ${u.use4h === false ? '' : meterRow('รอบ 4 ชม.', u.pct4h, u.reset4h ? 'รีเซ็ต ' + when(u.reset4h) : 'เริ่มนับเมื่อส่งข้อความแรก')}
+      ${meterRow('รอบสัปดาห์', u.pctWeek, 'รีเซ็ต ' + when(u.resetWeek))}</div>
 
-    <div class="card">${h3('การใช้งาน 30 วันล่าสุด')}${usageHTML(ud)}</div>
+    <div class="card acc-c" id="sec-usage">${h3('การใช้งาน 30 วันล่าสุด')}${usageHTML(ud)}</div>
 
     
-    <div class="card">${h3('ทีม (Team Plan)')}
+    <div class="card acc-c" id="sec-team">${h3('ทีม (Team Plan)')}
       ${tm.team ? `
         <p style="margin:0 0 8px"><b>${esc(tm.team.name)}</b> · <span class="pill">${tm.team.role === 'owner' ? 'หัวหน้าทีม' : 'สมาชิก'}</span> · <span class="muted">${tm.members.length}/${tm.team.max_seats} คน · ${tm.team.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'}</span></p>
         <p class="muted" style="margin:0 0 12px">แพลน ${esc(tm.team.plan_name || me.plan.name)} · หมดอายุ ${when(tm.team.expires)}</p>
@@ -58,39 +62,38 @@ PAGES.account = async function account() {
       `}
     </div>
 
-    <div class="card">${h3('Wallet')}
+    <div class="card acc-c" id="sec-wallet">${h3('Wallet')}
       ${sw('overflow', me.wallet_overflow, 'ใช้ Wallet เมื่อลิมิตเต็ม', 'แชตต่อได้ คิดตามราคาต่อ token จริง')}
       ${me.plan.expires ? sw('renew', me.auto_renew, 'ต่ออายุแพลนอัตโนมัติ', 'ตัดเงินจาก Wallet ก่อนหมดอายุ 1 วัน ถ้ายอดพอ') : ''}
       <form id="cp" class="row" style="flex-wrap:nowrap;margin-top:12px"><input name="code" placeholder="โค้ดคูปองเครดิต" autocapitalize="characters" required><button class="btn out sm">Apply coupon</button></form><div class="err" id="cpe"></div>
       ${w.tx.length ? `<details class="faq" style="margin-top:8px"><summary>ประวัติ Wallet</summary><div class="tw"><table class="tbl"><tr><th>วันที่</th><th>รายการ</th><th>จำนวน</th><th>คงเหลือ</th></tr>
         ${w.tx.map(t => `<tr><td>${when(t.created_at)}</td><td>${TX_KIND[t.kind] || esc(t.kind)}${t.ref ? ` <span class="muted">${esc(t.ref)}</span>` : ''}</td><td class="${t.amount < 0 ? 'bad' : 'ok'}">${t.amount < 0 ? '-' : '+'}฿${money(Math.abs(t.amount))}</td><td>฿${baht(t.balance_after)}</td></tr>`).join('')}</table></div></details>` : ''}</div>
 
-    ${w.bonus > 0 ? `<div class="card">${h3('ชวนเพื่อน')}<p class="muted">เพื่อนสมัครผ่านลิงก์นี้ แล้วจ่ายเงินครั้งแรก รับเครดิตคนละ ฿${baht(w.bonus)}</p>
+    ${w.bonus > 0 ? `<div class="card acc-c" id="sec-ref">${h3('ชวนเพื่อน')}<p class="muted">เพื่อนสมัครผ่านลิงก์นี้ แล้วจ่ายเงินครั้งแรก รับเครดิตคนละ ฿${baht(w.bonus)}</p>
       <div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(refLink)}" id="ref"><button class="btn out sm" id="cpref">Copy</button></div>
       <p class="muted" style="margin:8px 0 0">ชวนแล้ว ${w.referred} คน · จ่ายแล้ว ${w.referred_paid} คน</p></div>` : ''}
 
-    <div class="card">${h3('ปรับ AI ให้เป็นของคุณ')}
+    <div class="card acc-c" id="sec-ai">${h3('ปรับ AI ให้เป็นของคุณ')}
       <label>คำสั่งส่วนตัว (ส่งไปกับทุกแชต)</label><textarea id="ins" rows="4" maxlength="3000" placeholder="เช่น ตอบสั้นๆ เป็นภาษาไทย ฉันเป็นนักพัฒนา Python">${esc(me.instructions || '')}</textarea>
       <button class="btn out sm" id="insave">Save</button> <span id="insok"></span>
       <label style="margin-top:16px">ความจำ (${mems.length}/50)</label>
       <div id="mems">${mems.map(m => `<div class="mem"><span>${esc(m.text)}</span><button data-mem="${m.id}" aria-label="ลบ">${ic('x')}</button></div>`).join('') || '<p class="muted">ยังไม่มี กด "จำไว้" ใต้ข้อความในแชต หรือเพิ่มเองด้านล่าง</p>'}</div>
       <form id="memf" class="row" style="flex-wrap:nowrap"><input name="text" maxlength="300" placeholder="เช่น ฉันชื่อแซม ทำงานด้านการตลาด" required><button class="btn out sm">Add</button></form></div>
 
-    <div class="card">${h3('ความปลอดภัย')}
+    <div class="card acc-c" id="sec-security">${h3('ความปลอดภัย')}
       <div class="row"><button class="btn out sm" id="pw">Email password reset link</button><span id="pe"></span></div>
       <div id="tfa" style="margin-top:20px"></div>
       ${me.line ? '<p class="muted" style="margin:16px 0 0">เชื่อม LINE แล้ว</p>' : ''}</div>
 
-    <div class="card">${h3('API สำหรับนักพัฒนา')}<p class="muted">สร้าง API key แล้วเรียกโมเดลทั้งหมดแบบ OpenAI จ่ายจาก Wallet</p><a class="btn out sm" href="/developers">Manage API keys</a></div>
+    <div class="card acc-c" id="sec-api">${h3('API สำหรับนักพัฒนา')}<p class="muted">สร้าง API key แล้วเรียกโมเดลทั้งหมดแบบ OpenAI จ่ายจาก Wallet</p><a class="btn out sm" href="/developers">Manage API keys</a></div>
 
-    <div class="card">${h3('ข้อมูลของคุณ')}
+    <div class="card acc-c" id="sec-data">${h3('ข้อมูลของคุณ')}
       <div class="row"><a class="btn out sm" href="/api/me/export" download>Download all data</a><a class="btn out sm" href="/support">Contact us</a><button class="btn out sm danger" id="del">Delete account</button></div></div>
 
-    <div class="row" style="justify-content:center;margin:24px 0"><button class="btn out" id="out">Log out</button></div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>${footer()}</div>`);
 
   const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
-  $('#out').onclick = doOut; $('#outTop').onclick = doOut;
+  $('#outTop').onclick = doOut;
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew');
   $('#cp').onsubmit = async e => {
