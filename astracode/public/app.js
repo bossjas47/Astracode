@@ -2,6 +2,14 @@
 const $ = s => document.querySelector(s);
 const app = $('#app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const getCur = () => localStorage.getItem('cur') === 'USD' ? 'USD' : 'THB';
+const usdRate = () => (+site.usd_rate > 0 ? +site.usd_rate : 34.5);
+const curSign = () => getCur() === 'USD' ? '$' : '฿';
+const toCur = thb => getCur() === 'USD' ? Number(thb || 0) / usdRate() : Number(thb || 0);
+const fmtPlanPrice = thb => getCur() === 'USD' ? '$' + toCur(thb).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '฿' + baht(thb);
+const curSegHTML = () => `<div class="seg" role="group" aria-label="สกุลเงิน" style="margin-left:6px"><button type="button" data-cur="THB" class="${getCur() === 'THB' ? 'on' : ''}">฿ THB</button><button type="button" data-cur="USD" class="${getCur() === 'USD' ? 'on' : ''}">$ USD</button></div>`;
+
 const baht = n => ((Math.round(Number(n || 0) * 100) / 100) || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 }); // || 0 กัน "-0"
 const num = n => Number(n || 0).toLocaleString('th-TH');
 const when = t => t ? new Date(t).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
@@ -170,7 +178,7 @@ function planTiles(plans, sel, period) {
   return `<div class="grid">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
     ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}
     <div style="font:600 19px var(--display)">${esc(p.name)}</div>
-    <div class="price">${p.price > 0 ? '฿' + baht(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') : ''}</small></div>
+    <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') : ''}</small></div>
     ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
     ${p.seats > 1 ? `<div style="font-size:12.5px;color:var(--link);font-weight:500">ทีม · สูงสุด ${p.seats} คน (${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'})</div>` : ''}<div class="muted">${esc(p.description)}</div>
     <ul class="feat-list">${p.models.map(m => `<li>${esc(m.name)} <span class="muted">~${num(m.week)} ข้อความ/สัปดาห์</span></li>`).join('')}${p.api_limit ? '<li><span class="ok">✓</span> ใช้ API Key หักจากลิมิตแพลน</li>' : ''}</ul></div>`).join('')}</div>
@@ -179,7 +187,7 @@ function planTiles(plans, sel, period) {
 function compareTable(plans) {
   const names = [...new Set(plans.flatMap(p => p.models.map(m => m.name)))];
   return `<div class="tw"><table class="cmp"><tr><th></th>${plans.map(p => `<th>${esc(p.name)}</th>`).join('')}</tr>
-    <tr><td>ราคา/เดือน</td>${plans.map(p => `<td>${p.price > 0 ? '฿' + baht(p.price) : 'ฟรี'}</td>`).join('')}</tr>
+    <tr><td>ราคา/เดือน</td>${plans.map(p => `<td>${p.price > 0 ? fmtPlanPrice(p.price) : 'ฟรี'}</td>`).join('')}</tr>
     ${names.map(n => `<tr><td>${esc(n)}</td>${plans.map(p => { const m = p.models.find(x => x.name === n); return `<td>${m ? '~' + num(m.week) : '<span class="muted">—</span>'}</td>`; }).join('')}</tr>`).join('')}
     <tr><td>จำนวนผู้ใช้</td>${plans.map(p => `<td>${p.seats > 1 ? `${p.seats} คน (${p.shared_pool ? 'งบรวม' : 'แยกโควตา'})` : '1 คน'}</td>`).join('')}</tr>
     <tr><td>API Key</td>${plans.map(p => `<td>${p.api_limit ? '<span class="ok">หักลิมิตแพลนได้</span>' : '<span class="muted">หัก Wallet</span>'}</td>`).join('')}</tr>
@@ -232,13 +240,14 @@ async function landing() {
       <div class="tile"><div class="stat">${ic('globe')}</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
       <a class="tile link" href="/developers"><div class="stat">${ic('braces')}</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
     </div></div>
-    <div class="band" id="plans"><h2>แพลน</h2>${planTiles(plans)}</div>
+    <div class="band" id="plans"><h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}</div>
     <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>
     <div class="band"><h2>คำถามที่พบบ่อย</h2>${faqHTML()}</div>
     ${posts.length ? `<div class="band"><h2>บทความล่าสุด</h2><div class="grid">${posts.slice(0, 3).map(postTile).join('')}</div></div>` : ''}
     ${footer()}</div>`);
-  $('a[href="#plans"]').onclick = e => { e.preventDefault(); $('#plans').scrollIntoView({ behavior: 'smooth' }); };
+  const plBtn = $('a[href="#plans"]'); if (plBtn) plBtn.onclick = e => { e.preventDefault(); $('#plans')?.scrollIntoView({ behavior: 'smooth' }); };
+  app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); landing(); });
   bindInstall();
 }
 
@@ -368,7 +377,7 @@ const PAY_STATUS = { pending: '<span class="warn">รออนุมัติ</s
 async function plansPage() {
   const plans = await api('/plans');
   const hasYear = plans.some(p => p.price_year > 0);
-  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1></section>${planTiles(plans)}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">สมัครเพื่อเริ่มใช้</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>${footer()}</div>`); return; }
+  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans)}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">สมัครเพื่อเริ่มใช้</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>${footer()}</div>`); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
   const pays = await api('/pay');
   let sel = null, period = 'month', coupon = null, tab = qs().get('topup') ? 'topup' : 'plan';
   const priceOf = p => period === 'year' && p.price_year ? p.price_year : p.price;
@@ -379,12 +388,12 @@ async function plansPage() {
     const p = plans.find(x => x.id === sel), total = p ? Math.max(0, priceOf(p) - (coupon?.discount || 0)) : 0;
     page(nav() + `<div class="wrap"><section class="hero" style="padding:48px 0 24px"><h1>${tab === 'topup' ? 'เติมเงิน Wallet' : 'เลือกแพลน'}</h1>
       <p>แพลนปัจจุบัน: ${esc(me.plan.name)}${me.plan.expires ? ' · หมดอายุ ' + when(me.plan.expires) : ''} · Wallet ฿${baht(me.balance)}</p>
-      <div class="seg" style="margin-top:12px"><button data-tab="plan" class="${tab === 'plan' ? 'on' : ''}">ซื้อแพลน</button><button data-tab="topup" class="${tab === 'topup' ? 'on' : ''}">เติม Wallet</button></div></section>
+      <div class="row" style="justify-content:center;margin-top:12px"><div class="seg" style="margin:0"><button data-tab="plan" class="${tab === 'plan' ? 'on' : ''}">ซื้อแพลน</button><button data-tab="topup" class="${tab === 'topup' ? 'on' : ''}">เติม Wallet</button></div>${curSegHTML()}</div></section>
       ${tab === 'plan' ? `
         ${hasYear ? `<div style="text-align:center;margin-bottom:16px"><div class="seg"><button data-per="month" class="${period === 'month' ? 'on' : ''}">รายเดือน</button><button data-per="year" class="${period === 'year' ? 'on' : ''}">รายปี</button></div></div>` : ''}
         ${planTiles(plans.filter(x => x.price > 0 && (period === 'month' || x.price_year > 0)), sel, period)}
         ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : '30 วัน'}</div>
-          <div class="price" style="margin:8px 0">${coupon?.discount ? `<s class="muted" style="font-size:20px">฿${baht(priceOf(p))}</s> ` : ''}฿${baht(total)}</div>
+          <div class="price" style="margin:8px 0">${coupon?.discount ? `<s class="muted" style="font-size:20px">${fmtPlanPrice(priceOf(p))}</s> ` : ''}${fmtPlanPrice(total)}${getCur() === 'USD' && total > 0 ? `<div class="muted" style="font-size:13px;margin-top:4px">ยอดโอน PromptPay: ฿${baht(total)}</div>` : ''}</div>
           <form id="cf" class="row" style="max-width:400px;margin:0 auto;flex-wrap:nowrap"><input name="code" placeholder="โค้ดคูปอง" value="${esc(coupon?.code || '')}" autocapitalize="characters"><button class="btn out sm">ใช้</button></form>
           <div class="err" id="ce"></div>
           ${me.balance >= total && total > 0 ? `<button class="btn blue" id="wpay" style="margin:12px 0">จ่ายด้วย Wallet (฿${baht(me.balance)})</button><p class="muted">หรือโอนผ่าน PromptPay</p>` : ''}
@@ -399,6 +408,7 @@ async function plansPage() {
         ${pays.map(x => `<tr><td>${when(x.created_at)}</td><td>${x.kind === 'topup' ? 'เติม Wallet' : esc(x.plan_name) + (x.period === 'year' ? ' (รายปี)' : '')}</td><td>฿${baht(x.amount)}</td><td>${PAY_STATUS[x.status]}</td><td>${x.status === 'approved' ? `<a href="/receipt?id=${x.id}">ใบเสร็จ</a>` : ''}</td></tr>`).join('')}</table></div></div>` : ''}
       ${footer()}</div>`);
     app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; draw(); });
+    app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); draw(); });
     app.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { period = b.dataset.per; coupon = null; if (sel && !plans.find(x => x.id === sel)?.price_year && period === 'year') sel = null; draw(); });
     app.querySelectorAll('[data-plan]').forEach(t => t.onclick = () => { sel = +t.dataset.plan; coupon = null; draw(); $('#pay')?.scrollIntoView({ behavior: 'smooth' }); });
     $('#cf')?.addEventListener('submit', async e => {
@@ -467,11 +477,11 @@ const money = v => v === 0 ? '0' : v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3
 async function pricing() {
   const d = await api('/pricing');
   let per = localStorage.getItem('per') || 'M';
-  const unit = () => per === 'M' ? 'ต่อ 1M token' : 'ต่อ 1K token', f = v => money(per === 'M' ? v : v / 1000);
+  const unit = () => per === 'M' ? 'ต่อ 1M token' : 'ต่อ 1K token', f = v => money(toCur(per === 'M' ? v : v / 1000));
   const planName = id => d.plans.find(p => p.id === id)?.name;
   const day = t => new Date(t).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
   const period = p => 'โปรโมชั่น' + (p.start && p.end ? ` ${day(p.start)} – ${day(p.end)}` : p.end ? 'ถึง ' + day(p.end) : p.start ? 'ตั้งแต่ ' + day(p.start) : '');
-  const cell = (m, k) => `<b>${m.promo ? `<s class="muted">฿${f(m.promo[k])}</s> ` : ''}฿${f(m[k])}</b>`;
+  const cell = (m, k) => `<b>${m.promo ? `<s class="muted">${curSign()}${f(m.promo[k])}</s> ` : ''}${curSign()}${f(m[k])}</b>`;
   const card = m => `<div class="pc ${m.promo ? 'promo' : ''}"><div class="pc-h"><b>${esc(m.name)}</b><span class="pc-tags">${m.promo ? `<span class="pill sale">ลด ${m.promo.pct}%</span>` : ''}${m.vision ? '<span class="pill">อ่านรูป</span>' : ''}${m.effort ? '<span class="pill">Thinking</span>' : ''}</span></div>
     ${m.promo ? `<p class="sale-t">${period(m.promo)}</p>` : ''}
     ${m.note ? `<p class="muted">${esc(m.note)}</p>` : ''}
@@ -484,8 +494,8 @@ async function pricing() {
     <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
   const draw = () => {
     page(nav() + `<div class="wrap"><section class="hero" style="padding:56px 0 24px"><div class="name">AstraCode</div><h1>ราคาต่อ token</h1>
-      <p>ราคาของแต่ละโมเดล เป็นบาท${unit()} โมเดลที่แพงกว่าจะใช้ลิมิตแพลนเร็วกว่า</p>
-      <div class="seg" role="group" aria-label="หน่วย"><button data-per="M" class="${per === 'M' ? 'on' : ''}">ต่อ 1M token</button><button data-per="K" class="${per === 'K' ? 'on' : ''}">ต่อ 1K token</button></div></section>
+      <p>ราคาของแต่ละโมเดล เป็น${getCur() === 'USD' ? 'ดอลลาร์ ($)' : 'บาท (฿)'} ${unit()} โมเดลที่แพงกว่าจะใช้ลิมิตแพลนเร็วกว่า</p>
+      <div class="row" style="justify-content:center"><div class="seg" style="margin:0" role="group" aria-label="หน่วย"><button data-per="M" class="${per === 'M' ? 'on' : ''}">ต่อ 1M token</button><button data-per="K" class="${per === 'K' ? 'on' : ''}">ต่อ 1K token</button></div>${curSegHTML()}</div></section>
       <div class="pgrid">${d.models.map(card).join('') || '<p class="muted">ยังไม่มีโมเดล</p>'}</div>
       ${d.note ? `<p class="muted" style="text-align:center;margin:20px auto;max-width:640px;white-space:pre-wrap">${esc(d.note)}</p>` : ''}
       <div class="band"><h2>คำนวณค่าใช้จ่าย</h2><div class="calc">
@@ -504,15 +514,16 @@ async function pricing() {
       ].map(([q, a]) => `<details class="faq"><summary>${q}</summary><p>${a}</p></details>`).join('')}</div>
       ${footer()}</div>`);
     app.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { per = b.dataset.per; localStorage.setItem('per', per); draw(); });
+    app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); draw(); });
     const calc = () => {
       const m = d.models.find(x => x.id === +$('#cm').value); if (!m) return;
       const n = Math.max(0, +$('#cn').value || 0), i = Math.max(0, +$('#ci').value || 0), o = Math.max(0, +$('#co').value || 0), c = Math.min(100, Math.max(0, +$('#cc').value || 0)) / 100;
       const per1 = (i * (1 - c) * m.in + i * c * m.cache + o * m.out) / 1e6, month = per1 * n * 30;
       const weekUnits = n * 7 * (i * (1 - c) * m.lw.in + i * c * m.lw.cache + o * m.lw.out) / 1e6; // วิธีนับเดียวกับระบบลิมิต: ต้นทุนจริง (บาท)
       const fit = d.plans.filter(p => m.plans.includes(p.id) && p.limit_week);
-      $('#cr').innerHTML = `<div class="kpis"><div class="kpi"><div class="muted">ต่อข้อความ</div><div class="stat">฿${money(per1)}</div></div>
-        <div class="kpi"><div class="muted">ต่อเดือน (30 วัน)</div><div class="stat">฿${money(month)}</div></div></div>
-        ${fit.length ? `<div class="tw"><table class="tbl"><tr><th>แพลน</th><th>ราคา/เดือน</th><th>ใช้ลิมิตต่อสัปดาห์</th></tr>${fit.map(p => { const pct = weekUnits / p.limit_week * 100; return `<tr><td>${esc(p.name)}</td><td>${p.price ? '฿' + baht(p.price) : 'ฟรี'}</td><td class="${pct > 100 ? 'bad' : pct > 80 ? 'warn' : 'ok'}">${pct > 999 ? '>999' : Math.round(pct)}%${pct > 100 ? ' (ไม่พอ)' : ''}</td></tr>`; }).join('')}</table></div>` : '<p class="muted">โมเดลนี้ยังไม่อยู่ในแพลนไหน</p>'}`;
+      $('#cr').innerHTML = `<div class="kpis"><div class="kpi"><div class="muted">ต่อข้อความ</div><div class="stat">${curSign()}${money(toCur(per1))}</div></div>
+        <div class="kpi"><div class="muted">ต่อเดือน (30 วัน)</div><div class="stat">${curSign()}${money(toCur(month))}</div></div></div>
+        ${fit.length ? `<div class="tw"><table class="tbl"><tr><th>แพลน</th><th>ราคา/เดือน</th><th>ใช้ลิมิตต่อสัปดาห์</th></tr>${fit.map(p => { const pct = weekUnits / p.limit_week * 100; return `<tr><td>${esc(p.name)}</td><td>${p.price ? fmtPlanPrice(p.price) : 'ฟรี'}</td><td class="${pct > 100 ? 'bad' : pct > 80 ? 'warn' : 'ok'}">${pct > 999 ? '>999' : Math.round(pct)}%${pct > 100 ? ' (ไม่พอ)' : ''}</td></tr>`; }).join('')}</table></div>` : '<p class="muted">โมเดลนี้ยังไม่อยู่ในแพลนไหน</p>'}`;
     };
     ['#cm', '#cn', '#ci', '#co', '#cc'].forEach(s => $(s).oninput = calc); calc();
   };
