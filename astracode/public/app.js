@@ -576,7 +576,7 @@ async function pricing() {
       <div><span>Cache read</span>${cell(m, 'cache')}</div>
       ${m.cache_write ? `<div><span>Cache write</span>${cell(m, 'cache_write')}</div>` : ''}
     </div>
-    <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}${m.lim !== 1 ? ` · หักจริง ×${m.lim}` : ''}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
+    <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}${m.lim != null && m.lim !== 1 ? ` · หักจริง ×${m.lim}` : ''}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
   const draw = () => {
     page(nav() + `<div class="wrap"><section class="hero" style="padding:56px 0 24px"><div class="name">AstraCode</div><h1>ราคาต่อ token</h1>
       <p>ราคาของแต่ละโมเดล เป็น${getCur() === 'USD' ? 'ดอลลาร์ ($)' : 'บาท (฿)'} ${unit()} โมเดลที่แพงกว่าจะใช้ลิมิตแพลนเร็วกว่า</p>

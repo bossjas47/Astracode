@@ -12,6 +12,7 @@ const html = `<!DOCTYPE html>
 </style></head><body><div id="app"></div>
 <script>window.DEMO = true;</script>
 <script>${safe(r('demo/mock.js'))}</script>
+<script>${safe(r('public/theme.js'))}</script>
 <script>${safe(r('public/app.js'))}</script>
 <script>${safe(r('public/chat.js'))}</script>
 <script>${safe(r('public/admin.js'))}</script>

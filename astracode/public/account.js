@@ -31,7 +31,7 @@ PAGES.account = async function account() {
       <a class="btn out sm" href="/plans">${ic('layers', 'sm')} Plans / Top up</a>
       <button class="btn red sm" id="outTop">Log out</button>
     </div>
-    <nav class="acc-nav" aria-label="ส่วนในหน้านี้"><a href="#sec-usage">การใช้งาน</a><a href="#sec-team">ทีม</a><a href="#sec-wallet">Wallet</a><a href="#sec-ai">AI ของคุณ</a><a href="#sec-security">ความปลอดภัย</a><a href="#sec-data">ข้อมูล</a></nav>
+    <nav class="acc-nav" aria-label="ส่วนในหน้านี้"><a href="#sec-usage">การใช้งาน</a><a href="#sec-team">ทีม</a><a href="#sec-wallet">Wallet</a><a href="#sec-look">การแสดงผล</a><a href="#sec-ai">AI ของคุณ</a><a href="#sec-security">ความปลอดภัย</a><a href="#sec-data">ข้อมูล</a></nav>
 
     <div class="acc-ov">
       <div class="acc-big"><span class="muted">Wallet</span><b>฿${baht(w.balance)}</b><a class="btn blue sm" href="/plans?topup=1">Top up</a></div>
@@ -77,6 +77,10 @@ PAGES.account = async function account() {
       <div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(refLink)}" id="ref" aria-label="ลิงก์ชวนเพื่อน"><button class="btn out sm" id="cpref">Copy</button></div>
       <p class="muted" style="margin:8px 0 0">ชวนแล้ว ${w.referred} คน · จ่ายแล้ว ${w.referred_paid} คน</p></div>` : ''}
 
+    <div class="card acc-c" id="sec-look">${h3('การแสดงผล')}
+      <label>ธีม</label><div class="seg" id="seg-theme" role="group" aria-label="ธีม">${[['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button type="button" data-t="${k}" class="${(localStorage.getItem('theme') || 'dark') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <label>ขนาดตัวอักษรในแชต</label><div class="seg" id="seg-fs" role="group" aria-label="ขนาดตัวอักษร">${[['s', 'S'], ['m', 'M'], ['l', 'L']].map(([k, l]) => `<button type="button" data-f="${k}" class="${(localStorage.getItem('fsize') || 'm') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+
     <div class="card acc-c" id="sec-ai">${h3('ปรับ AI ให้เป็นของคุณ')}
       <label>คำสั่งส่วนตัว (ส่งไปกับทุกแชต)</label><textarea id="ins" rows="4" maxlength="3000" placeholder="เช่น ตอบสั้นๆ เป็นภาษาไทย ฉันเป็นนักพัฒนา Python">${esc(me.instructions || '')}</textarea>
       <button class="btn out sm" id="insave">Save</button> <span id="insok"></span>
@@ -99,6 +103,8 @@ PAGES.account = async function account() {
 
   const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
   $('#outTop').onclick = doOut;
+  const pickSeg = (sel, attr, key) => document.querySelectorAll(sel + ' button').forEach(b => b.onclick = () => { localStorage.setItem(key, b.dataset[attr]); window.applyTheme?.(); document.querySelectorAll(sel + ' button').forEach(x => x.classList.toggle('on', x === b)); });
+  pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize');
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew');
   $('#cp').onsubmit = async e => {
