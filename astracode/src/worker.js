@@ -1,5 +1,5 @@
 // AstraCode API — Cloudflare Worker + D1 + R2
-const SYSTEM = 'You are AstraCode, a helpful AI assistant. Reply in the user\'s language. Use Markdown. You have no tools: never output JSON tool calls; if you really need the user to choose or decide something, end your reply with ONE block (use it only then, otherwise just proceed):\n```ask\nQuestion in one line?\n- Option 1\n- Option 2\n```\nGive 2-4 short options. The page shows them as buttons plus a box for a custom answer, so do not repeat the options in your text. When the user asks for a file (CSV, Excel, Markdown, HTML, JSON, code, Word…), put the whole file in one fenced code block whose info string is the language then file=<name.ext>, e.g. ```csv file=sales.csv — the page shows a download button. For Excel write CSV content with file=<name>.xlsx. For Word write a full HTML document with file=<name>.doc. For PDF write HTML with file=<name>.html and tell the user to print it to PDF. Write file names in English without spaces.';
+const SYSTEM = 'You are AstraCode, a helpful AI assistant. Reply in the user\'s language. Use Markdown. You have no tools: never output JSON tool calls; if you really need the user to choose or decide something, end your reply with ONE block (use it only then, otherwise just proceed):\n```ask\nQuestion in one line?\n- Option 1\n- Option 2\n```\nGive 2-4 short options. The page shows them as buttons plus a box for a custom answer, so do not repeat the options in your text. When the user asks for a file (CSV, Excel, Markdown, HTML, JSON, code, Word…), put the whole file in one fenced code block whose info string is the language then file=<name.ext>, e.g. ```csv file=sales.csv — the page shows a download button. For Excel write CSV content with file=<name>.xlsx. For Word write a full HTML document with file=<name>.doc. For PDF write HTML with file=<name>.html and tell the user to print it to PDF. Write file names in English without spaces. When the user states a lasting personal fact or preference that is not already in the remembered list (name, job, preferred style or language, ongoing project), end your reply with ONE block, rarely and never for one-off requests:\n```remember\nOne short sentence in the user\'s language\n```\nThe page shows it as a button the user may tap to save it.';
 const SYSTEM_CODE = `You are AstraCode, a senior software engineer working inside the user's project. Reply in the user's language and keep explanations short.
 When you create or change a file, output the COMPLETE new content of that file in one fenced code block whose info string is the language followed by path=<relative path>, for example:
 \`\`\`js path=src/app.js
@@ -19,7 +19,8 @@ READ path=<relative path>   (full content of one file; up to 10 READ lines at on
 GREP <regex>                (search every file, returns path:line: text)
 LIST <folder/>              (files under a folder, with sizes)
 Read every file you need before editing it. Never guess what a file contains. Do not mix READ/GREP/LIST lines with path= blocks in the same reply.
-To run a terminal command, write a line RUN <command> (up to 3 per reply) and then STOP; the output comes back in the next message. You may put path= blocks before RUN lines in the same reply: they are applied first. Commands run in a browser Node.js emulator (Node 20 APIs): npm install <pkg>, npm test, npm run <script>, node <file>.js, npx-style CLIs from node_modules/.bin, ls, cat, echo. Not available: git, python, pip, sudo, node -e, node -v, native addons. Use RUN to test your changes when the project has tests or runnable scripts.`;
+To run a terminal command, write a line RUN <command> (up to 3 per reply) and then STOP; the output comes back in the next message. You may put path= blocks before RUN lines in the same reply: they are applied first. Commands run in a browser Node.js emulator (Node 20 APIs): npm install <pkg>, npm test, npm run <script>, node <file>.js, npx-style CLIs from node_modules/.bin, ls, cat, echo. Not available: git, python, pip, sudo, node -e, node -v, native addons. Use RUN to test your changes when the project has tests or runnable scripts.
+Before you finish, re-read what you wrote: every import/require resolves to a real file or package, every function and variable you use is defined, brackets and quotes are balanced, JSON files are valid, and existing behavior you did not mean to change still works. Fix problems in the same reply; do not hand back code you have not checked. In the last line, say in one short sentence what you checked.`;
 const HISTORY = 20, HISTORY_CODE = 8; // ข้อความย้อนหลังที่ส่งให้โมเดล (โหมด Code ส่งน้อยกว่าเพราะมีไฟล์ยาว)
 const LOCK_MS = 45e3; // ล็อกตอบทีละข้อความ: ต่ออายุทุก 15 วินาทีระหว่างตอบ ถ้า Worker ถูกตัดกลางคัน (ผู้ใช้ปิดจอ) ล็อกหมดใน 45 วินาที
 const H4 = 4 * 3600e3, DAY = 864e5, BKK = 7 * 3600e3;
@@ -429,7 +430,7 @@ async function systemFor(env, u, base, sources, skillIds = []) {
   let sys = base;
   if (u.instructions?.trim()) sys += `\n\nUser's custom instructions (follow them):\n${u.instructions.trim().slice(0, 3000)}`;
   const mem = (await env.DB.prepare('SELECT text FROM memories WHERE user_id=? ORDER BY id LIMIT 50').bind(u.id).all()).results;
-  if (mem.length) sys += `\n\nThings the user asked you to remember:\n${mem.map(x => '- ' + x.text).join('\n')}`;
+  if (mem.length) sys += `\n\nThings the user asked you to remember (use them naturally when relevant; do not recite them or mention that you remember):\n${mem.map(x => '- ' + x.text).join('\n')}`;
   const sids = Array.isArray(skillIds) ? skillIds.map(Number).filter(x => x > 0).slice(0, 3) : [];
   if (sids.length) {
     const sks = (await env.DB.prepare(`SELECT name,content FROM skills WHERE id IN (${sids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...sids, u.id).all().catch(() => ({ results: [] }))).results;
@@ -438,6 +439,9 @@ async function systemFor(env, u, base, sources, skillIds = []) {
   if (sources?.length) sys += `\n\nWeb search results (today is ${new Date().toISOString().slice(0, 10)}). Use them when relevant and cite as [1], [2]:\n` + sources.map((x, i) => `[${i + 1}] ${x.title} (${x.url})\n${x.content}`).join('\n\n');
   return sys;
 }
+// ค้นเว็บอัตโนมัติเมื่อคำถามดูเป็นข้อมูลสด (ข่าว ราคา อากาศ ผลแข่ง เวอร์ชันล่าสุด) · แอดมินปิดได้ที่ search_auto · shortcut: ใช้ regex ไม่เรียกโมเดลจัดประเภท ถ้าพลาดบ่อยค่อยเปลี่ยนเป็นโมเดลเล็ก
+const FRESH = /ล่าสุด|วันนี้|ตอนนี้|เมื่อวาน|พรุ่งนี้|ข่าว|ราคา(?:ทอง|น้ำมัน|หุ้น|บิทคอยน์|ล่าสุด)|อัตราแลกเปลี่ยน|สภาพอากาศ|พยากรณ์|ผลบอล|ผลการแข่งขัน|ปัจจุบัน|\b(?:latest|today|tonight|news|current(?:ly)?|right now|this (?:week|month|year)|weather|score|release date|stock price)\b|\b202[5-9]\b/i;
+const autoSearch = async (env, text) => typeof text === 'string' && FRESH.test(text) && (await getSetting(env, 'search_auto')) !== '0';
 async function webSearch(env, q) { // Tavily
   if (!env.TAVILY_KEY || (await getSetting(env, 'search_enabled')) === '0') return [];
   try {
@@ -556,7 +560,7 @@ async function runChat(env, J, send, st) {
   let imgs0 = J.images;
   let out = '', think = '', usage = null, model = m;
   await send({ chat_id: cid, model: m.name, overflow: !!overflow });
-  const sources = J.search && !pid ? await webSearch(env, hist.at(-1).content) : [];
+  const sources = !pid && (J.search || await autoSearch(env, hist.at(-1).content)) ? await webSearch(env, hist.at(-1).content) : [];
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
   const projIns = pid ? (await env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid).first())?.instructions?.trim() : '';
   const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, sources, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : ''); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
@@ -1244,7 +1248,7 @@ const TABLES = {
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published'],
 };
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
-  'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
+  'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
   'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices'];
 

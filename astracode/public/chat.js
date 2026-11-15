@@ -167,6 +167,7 @@ async function chatView(id) {
     if (b.classList.contains('run-code')) openCanvas(b.closest('.code').querySelector('code').textContent);
     if (b.dataset.edit != null) editMsg(+b.dataset.edit);
     if (b.dataset.mem != null) remember(chat.msgs[+b.dataset.mem], b);
+    if (b.dataset.rem != null) remember({ content: parseMem(chat.msgs[+b.dataset.rem].content).mem }, b);
     if (b.dataset.copy) copy(chat.msgs[+b.dataset.copy].content, b);
     if (b.dataset.regen != null) send({ regenerate: true });
     if (b.dataset.s != null) { t.value = SUGGEST[+b.dataset.s]; t.focus(); t.oninput(); }
@@ -287,6 +288,15 @@ function drawSide() {
     if (d.fdel) { if (!await confirmSheet('ลบโฟลเดอร์นี้? แชตข้างในจะย้ายออกมา ไม่ถูกลบ', { title: 'ลบโฟลเดอร์', ok: 'ลบโฟลเดอร์', danger: true })) return; await api('/folders/' + d.fdel, { method: 'DELETE' }); loadSide(); }
   };
 }
+// บล็อก ```remember ที่ AI เสนอให้จำ → แยกออกจากข้อความ แสดงเป็นปุ่มให้ผู้ใช้กดยืนยัน (ไม่บันทึกเอง)
+function parseMem(content, streaming) {
+  let s = String(content || ''), mem = '';
+  s = s.replace(/```remember[ \t]*\n([\s\S]*?)```/g, (_, b) => { mem ||= b.trim().slice(0, 200); return ''; });
+  const open = s.search(/```remember/);
+  if (open >= 0) s = s.slice(0, open);
+  else if (streaming) s = s.replace(/`{1,3}(?:r(?:e(?:m(?:e(?:m(?:b(?:er?)?)?)?)?)?)?)?$/, ''); // ครึ่งรั้วที่ยังพิมพ์ไม่จบ
+  return { text: s.trim(), mem };
+}
 async function remember(m, btn) {
   const text = await promptSheet('ให้ AI จำเรื่องนี้ไว้ในทุกแชต (แก้ได้)', m.content.replace(FILE_RE, '').trim().slice(0, 300), { title: 'บันทึกความจำ', ok: 'จำไว้' });
   if (!text?.trim()) return;
@@ -383,9 +393,9 @@ function msgHTML(m, i, isNew) {
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts">${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} แก้ไข</button>` : ''}<button data-mem="${i}">จำไว้</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  const { text, asks } = parseAsk(m.content, m.streaming);
+  const { text: t0, mem } = parseMem(m.content, m.streaming), { text, asks } = parseAsk(t0, m.streaming);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
-  return `<div class="msg ai ${isNew ? 'new' : ''}">${thinkHTML(m)}${mcpH}<div class="b">${text ? md(text) : m.thinking || asks.length ? '' : DOTS}</div>${askHTML(asks, last && !m.streaming)}${sourcesHTML(m)}
+  return `<div class="msg ai ${isNew ? 'new' : ''}">${thinkHTML(m)}${mcpH}<div class="b">${text ? md(text) : m.thinking || asks.length ? '' : DOTS}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">คัดลอก</button>${last && !chat.busy ? '<button data-regen>ตอบใหม่</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
