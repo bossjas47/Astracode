@@ -1,0 +1,9 @@
+{
+  "appId": "xyz.panderx.astracode",
+  "appName": "AstraCode",
+  "webDir": "www",
+  "server": {
+    "url": "https://astracode.panderx.xyz",
+    "cleartext": false
+  }
+}

@@ -200,8 +200,8 @@ function menu(btn, path, folder) {
   const open = document.querySelector('.tmenu'), same = open && open.previousElementSibling === btn.closest('.trow');
   open?.remove(); if (same) return; // กดซ้ำที่ปุ่มเดิม = ปิดเมนู
   const m = document.createElement('div'); m.className = 'tmenu';
-  m.innerHTML = folder ? '<button data-a="new">+ ไฟล์ในโฟลเดอร์นี้</button><button data-a="nfold">+ โฟลเดอร์ย่อย</button><button data-a="ren">เปลี่ยนชื่อโฟลเดอร์</button><button data-a="del" class="bad">ลบโฟลเดอร์</button>'
-    : `<button data-a="ren">เปลี่ยนชื่อ / ย้าย</button><button data-a="dup">ทำสำเนา</button><button data-a="del" class="bad">Delete</button>`;
+  m.innerHTML = folder ? '<button data-a="new">+ ไฟล์ในโฟลเดอร์นี้</button><button data-a="nfold">+ โฟลเดอร์ย่อย</button><button data-a="ren">Rename folder</button><button data-a="del" class="bad">Delete folder</button>'
+    : `<button data-a="ren">Rename / Move</button><button data-a="dup">Duplicate</button><button data-a="del" class="bad">Delete</button>`;
   btn.closest('.trow').after(m);
   m.onclick = async e => {
     const a = e.target.dataset.a; if (!a) return; m.remove();
@@ -640,7 +640,7 @@ function changeCards(m, i) {
     const d = !c.del && cur != null && !same ? lineDiff(cur, c.content) : null;
     const tag = c.del ? '<span class="bad">ลบ</span>' : cur == null ? '<span class="ok">ไฟล์ใหม่</span>' : d ? `<span class="ok">+${d.add}</span> <span class="bad">−${d.del}</span>` : '';
     return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span>${tag}
-      ${same ? '<span class="muted">ใช้แล้ว ✓</span>' : `${c.del ? '' : `<button data-diff="${i}:${k}">ดู diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'ลบไฟล์' : 'Apply'}</button>`}</div>`;
+      ${same ? '<span class="muted">ใช้แล้ว ✓</span>' : `${c.del ? '' : `<button data-diff="${i}:${k}">View diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'Delete file' : 'Apply'}</button>`}</div>`;
   }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(c => (c.del ? has(c.path) : content(c.path) !== c.content || !has(c.path))).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply all</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} Undo this batch</button>` : ''}</div></div>`;
 }
 async function apply(c, msg) {
@@ -845,7 +845,7 @@ async function gitPanel() {
     return;
   }
   if (!IDE.gh) {
-    gb.innerHTML = `<p class="muted">เชื่อมอยู่กับ <b>@${esc(acct.login)}</b> · <button class="linkb" id="gdis">ยกเลิกการเชื่อม</button></p>
+    gb.innerHTML = `<p class="muted">เชื่อมอยู่กับ <b>@${esc(acct.login)}</b> · <button class="linkb" id="gdis">Unlink</button></p>
       <h3>เชื่อมโปรเจกต์นี้กับ repo</h3><form id="gl" class="form2"><div><label>Repo</label><input name="repo" placeholder="owner/repo" required></div>
       <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">Connect repo</button></div></form>
       <p class="muted">เชื่อมแล้วกด Pull ก่อน เพื่อรวมไฟล์ใน repo กับไฟล์ในโปรเจกต์นี้</p><p class="gmsg"></p>`;
@@ -946,14 +946,14 @@ async function codeView(id) {
       <div class="ide-scrim" id="idescrim"></div>
       <section class="ide-main"><div class="ide-tabs" id="tabs"></div>
         <div class="ide-tools"><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
-          <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">ประวัติ</button><button id="save" aria-label="บันทึก">Save</button></div>
+          <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">History</button><button id="save" aria-label="บันทึก">Save</button></div>
         <div id="editor" class="ide-editor"></div><div id="imgview" class="imgview" hidden></div>
         <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
         <form class="cmdbar" id="cmdbar"><div class="cmd-opts"><button type="button" id="bmdl" aria-haspopup="dialog"></button><button type="button" id="beff" aria-haspopup="dialog"></button><span class="muted">อัตโนมัติ: แก้ไฟล์ · รัน · ตรวจผล</span></div>
           <div class="cmd-in"><input id="cmdi" placeholder="สั่ง AI แก้ไฟล์นี้ เช่น เพิ่มปุ่มรีเซ็ต" aria-label="สั่ง AI" autocomplete="off"><button aria-label="ส่ง">${ic('up')}</button></div></form>
         <div class="mkeys" id="mkeys">${[['Tab', '  '], ['{ }', '{}', 1], ['( )', '()', 1], ['[ ]', '[]', 1], ['=>', ' => '], [';', ';'], ['" "', '""', 1], ["' '", "''", 1], ['< >', '<>', 1], ['/', '/'], ['=', ' = ']].map(([l, v, o]) => `<button type="button" data-ins="${esc(v)}" data-off="${o || 0}">${esc(l)}</button>`).join('')}</div>
-        <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">ผลลัพธ์</button><button data-rtab="con">คอนโซล</button><button data-rtab="term">เทอร์มินัล</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
-          <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ">${ic('eye', 'sm')} เต็มจอ</button><button id="stop">${ic('stop')} หยุด</button><button id="clr">ล้าง</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
+        <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">Output</button><button data-rtab="con">Console</button><button data-rtab="term">Terminal</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
+          <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ">${ic('eye', 'sm')} Fullscreen</button><button id="stop">${ic('stop')} Stop</button><button id="clr">Clear</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
           <div id="out" class="run-out"><p class="muted" style="padding:16px">กด รัน เพื่อดูผล</p></div><div id="console" class="console" hidden></div><div id="term" class="term" hidden><pre id="term-o"></pre><form id="term-f"><span>$</span><input id="term-i" placeholder="npm install lodash / npm test / node app.js" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="คำสั่ง"></form></div></div></section>
       <aside class="ide-ai"><div class="ai-h"><b class="ai-t">${ic('sparkles')} AI</b><span class="sp"></span><button class="lim" id="clim" aria-label="ลิมิตการใช้งาน"></button><button class="icon-btn sm" id="chist" aria-label="ประวัติแชตโปรเจกต์" title="ประวัติแชต">${ic('more')}</button><button class="icon-btn sm" id="cnew" aria-label="แชตใหม่">${ic('newchat')}</button>
         <button type="button" class="icon-btn sm" id="aiclose" aria-label="ปิดแผง AI">${ic('x')}</button>
