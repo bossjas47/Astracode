@@ -161,3 +161,11 @@ test('feedback votes and reports are stored per user and shown to admin', async 
   await t.json('/api/admin/reports/' + q.data.reports[0].id, { method: 'PUT', cookie: adm.cookie, body: { status: 'done' } });
   assert.equal((await t.json('/api/admin/quality', { cookie: adm.cookie })).data.reports[0].status, 'done');
 });
+
+test('turnstile: when configured, login without a token is rejected before reaching Firebase', async () => {
+  const t = await makeEnv({ TURNSTILE_SECRET: 's', TURNSTILE_URL: 'http://127.0.0.1:9/never' });
+  const r = await t.json('/api/auth', { method: 'POST', body: { action: 'login', email: 'a@b.co', password: '12345678' } });
+  assert.equal(r.status, 400); assert.match(r.data.error, /บอท/);
+  const off = await makeEnv(); const r2 = await off.json('/api/auth', { method: 'POST', body: { action: 'login', email: 'a@b.co', password: 'x' } });
+  assert.notEqual(r2.data?.error?.includes?.('บอท'), true);
+});
