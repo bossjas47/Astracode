@@ -52,13 +52,17 @@ PAGES.account = async function account() {
           <form id="tnamef" class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input name="name" value="${esc(tm.team.name)}" maxlength="60" placeholder="ชื่อทีม" required><button class="btn out sm">Rename team</button></form>
           <label>โค้ดเชิญเข้าทีม</label>
           <div class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input readonly value="${esc(tm.team.invite_code)}" id="tcode"><button type="button" class="btn out sm" id="cptc">Copy</button><button type="button" class="btn out sm" id="regtc">Shuffle</button></div>
-          <form id="taddf" class="row" style="flex-wrap:nowrap;margin-bottom:12px"><input name="email" type="email" placeholder="เพิ่มสมาชิกด้วยอีเมล" required><button class="btn blue sm">Add member</button></form>
+          <form id="taddf" class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input name="email" type="email" placeholder="เพิ่มสมาชิกที่มีบัญชีอยู่แล้ว (อีเมล)" required><button class="btn out sm">Add member</button></form>
+          <form id="tinvf" class="row" style="flex-wrap:nowrap;margin-bottom:12px"><input name="email" type="email" placeholder="ส่งคำเชิญทางอีเมล (ยังไม่มีบัญชีก็ได้)" required><button class="btn blue sm">Send invite</button></form>
+          <div class="row" style="margin-bottom:14px"><a class="btn blue sm" href="/plans?team=1&plan=${tm.team.plan_id}">Renew team plan</a><a class="btn out sm" href="/plans?team=1">Upgrade package</a></div>
         ` : ''}
-        <div id="tmemlist">${tm.members.map(m => `<div class="mem"><span>${esc(m.email)} <small class="muted">${m.role === 'owner' ? '(หัวหน้าทีม)' : ''}</small></span>
-          ${(tm.team.role === 'owner' && m.role !== 'owner') || (tm.team.role !== 'owner' && m.email === me.email) ? `<button data-rmm="${m.id}" aria-label="นำออก">${ic('x')}</button>` : ''}</div>`).join('')}</div>
+        ${tm.team.role === 'owner' ? '<p class="muted" style="margin:0 0 8px;font-size:12.5px">แถบด้านล่างคือการใช้ 7 วันล่าสุดของแต่ละคน (% ของงบสัปดาห์ของแพลน)</p>' : ''}
+        <div id="tmemlist">${tm.members.map(m => `<div class="mem tm"><span>${esc(m.email)} <small class="muted">${m.role === 'owner' ? '(หัวหน้าทีม)' : ''}</small></span>
+          ${(tm.team.role === 'owner' && m.role !== 'owner') || (tm.team.role !== 'owner' && m.email === me.email) ? `<button data-rmm="${m.id}" aria-label="นำออก">${ic('x')}</button>` : ''}
+          ${tm.team.role === 'owner' ? `<div class="mu"><div class="bar1"><div style="width:${Math.min(100, m.wk_pct || 0)}%"></div></div><b>${m.wk_pct || 0}%</b>${tm.team.shared_pool && m.role !== 'owner' ? `<select data-cap="${m.id}" aria-label="เพดานต่อคน"><option value="">ไม่จำกัด</option>${[10, 25, 50, 75].map(v => `<option value="${v}" ${m.cap_pct === v ? 'selected' : ''}>เพดาน ${v}%</option>`).join('')}</select>` : ''}</div>` : ''}</div>`).join('')}</div>
       ` : `
         <p class="muted">ยังไม่ได้อยู่ในทีม ซื้อแพลนทีมได้ที่ <a href="/plans">หน้าแพลน</a> หรือใส่โค้ดเชิญเพื่อเข้าร่วมทีม</p>
-        <form id="tjoinf" class="row" style="flex-wrap:nowrap"><input name="code" placeholder="โค้ดเชิญทีม (เช่น A1B2C3D4)" autocapitalize="characters" required><button class="btn blue sm">Join team</button></form>
+        <form id="tjoinf" class="row" style="flex-wrap:nowrap"><input name="code" placeholder="โค้ดเชิญทีม (เช่น A1B2C3D4)" value="${esc((qs().get('join') || '').toUpperCase().slice(0, 12))}" autocapitalize="characters" required><button class="btn blue sm">Join team</button></form>
       `}
     </div>
 
@@ -135,6 +139,16 @@ PAGES.account = async function account() {
     e.preventDefault();
     try { await api('/team/add', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('เพิ่มสมาชิกแล้ว', 'ok'); boot(); }
     catch (x) { toast(x.message, 'bad'); }
+  });
+  $('#tinvf')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { const r = await api('/team/invite', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast(r.sent ? 'ส่งคำเชิญแล้ว' : 'ยังส่งอีเมลไม่ได้ (ระบบอีเมลไม่พร้อม) ให้ส่งโค้ดเชิญเอง', r.sent ? 'ok' : 'bad'); e.target.reset(); }
+    catch (x) { toast(x.message, 'bad'); }
+  });
+  $('#tmemlist')?.addEventListener('change', async e => {
+    const c = e.target.closest('[data-cap]'); if (!c) return;
+    try { await api('/team/members/' + c.dataset.cap, { method: 'PUT', body: { cap_pct: c.value ? +c.value : null } }); toast('ตั้งเพดานแล้ว', 'ok'); }
+    catch (x) { toast(x.message, 'bad'); boot(); }
   });
   $('#tmemlist')?.addEventListener('click', async e => {
     const b = e.target.closest('[data-rmm]'); if (!b) return;

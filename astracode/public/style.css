@@ -992,3 +992,6 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .acc .mem { background: rgba(255, 255, 255, .04); border: 1px solid var(--hair); }
 .acc .ubar i { background: linear-gradient(var(--link), var(--blue)); }
 @media (max-width: 420px) { .acc-big { padding: 16px; } .acc-big b { font-size: 26px; } }
+.mem.tm { flex-wrap: wrap; row-gap: 8px; }
+.mem .mu { flex-basis: 100%; display: flex; align-items: center; gap: 10px; padding: 0 8px 4px 0; font-size: 12px; }
+.mem .mu .bar1 { flex: 1; } .mem .mu select { min-height: 32px; width: auto; padding: 0 8px; font-size: 12px; border-radius: 9999px; }

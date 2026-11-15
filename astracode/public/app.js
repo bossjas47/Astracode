@@ -193,7 +193,7 @@ function planTiles(plans, sel, period) {
   return `<div class="grid">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
     ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}
     <div style="font:600 19px var(--display)">${esc(p.name)}</div>
-    <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') : ''}</small></div>
+    <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') : ''}</small></div>
     ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
     ${p.seats > 1 ? `<div style="font-size:12.5px;color:var(--link);font-weight:500">ทีม · สูงสุด ${p.seats} คน (${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'})</div>` : ''}<div class="muted">${esc(p.description)}</div>
     <ul class="feat-list">${p.models.map(m => `<li>${esc(m.name)} <span class="muted">~${num(m.week)} ข้อความ/สัปดาห์</span></li>`).join('')}${p.api_limit ? '<li><span class="ok">✓</span> ใช้ API Key หักจากลิมิตแพลน</li>' : ''}</ul></div>`).join('')}</div>
@@ -412,9 +412,10 @@ const PAY_STATUS = { pending: '<span class="warn">รออนุมัติ</s
 async function plansPage() {
   const plans = await api('/plans');
   const hasYear = plans.some(p => p.price_year > 0);
-  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans)}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>${footer()}</div>`); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
+  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans.filter(x => x.seats <= 1))}${plans.some(x => x.seats > 1) ? `<h2 style="text-align:center;margin:36px 0 4px">แพลนทีม</h2><p class="muted" style="text-align:center;margin:0 0 16px">หนึ่งแพ็กเกจ ใช้ร่วมกันหลายคน</p>${planTiles(plans.filter(x => x.seats > 1))}` : ''}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>${footer()}</div>`); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
   const pays = await api('/pay');
-  let sel = null, period = 'month', coupon = null, tab = qs().get('topup') ? 'topup' : 'plan';
+  const hasTeam = plans.some(x => x.seats > 1), wantPlan = +qs().get('plan') || null;
+  let aud = hasTeam && (qs().get('team') || me.plan.team) ? 'team' : 'solo', sel = plans.find(x => x.id === wantPlan && x.price > 0)?.id || null, period = 'month', coupon = null, tab = qs().get('topup') ? 'topup' : 'plan';
   const priceOf = p => period === 'year' && p.price_year ? p.price_year : p.price;
   const qr = amount => me.promptpay_id ? `<p class="muted">สแกนจ่ายผ่าน PromptPay แล้วอัปโหลดสลิป</p><img class="qr" alt="QR PromptPay" src="https://promptpay.io/${encodeURIComponent(me.promptpay_id)}/${amount}.png">` : '<p class="warn">ยังไม่ได้ตั้งค่า PromptPay</p>';
   const slipForm = label => `<form id="f" style="max-width:400px;margin:16px auto 0"><label>รูปสลิป</label><input type="file" name="slip" accept="image/*" required style="border-radius:20px">
@@ -426,7 +427,9 @@ async function plansPage() {
       <div class="row" style="justify-content:center;margin-top:12px"><div class="seg" style="margin:0"><button data-tab="plan" class="${tab === 'plan' ? 'on' : ''}">ซื้อแพลน</button><button data-tab="topup" class="${tab === 'topup' ? 'on' : ''}">เติม Wallet</button></div>${curSegHTML()}</div></section>
       ${tab === 'plan' ? `
         ${hasYear ? `<div style="text-align:center;margin-bottom:16px"><div class="seg"><button data-per="month" class="${period === 'month' ? 'on' : ''}">รายเดือน</button><button data-per="year" class="${period === 'year' ? 'on' : ''}">รายปี</button></div></div>` : ''}
-        ${planTiles(plans.filter(x => x.price > 0 && (period === 'month' || x.price_year > 0)), sel, period)}
+        ${hasTeam ? `<div style="text-align:center;margin-bottom:16px"><div class="seg"><button data-aud="solo" class="${aud === 'solo' ? 'on' : ''}">แพลนส่วนตัว</button><button data-aud="team" class="${aud === 'team' ? 'on' : ''}">แพลนทีม</button></div></div>` : ''}
+        ${aud === 'team' ? '<p class="muted" style="text-align:center;margin:-4px 0 16px">แพ็กเกจเดียว ใช้ร่วมกันหลายคน ซื้อแล้วคุณเป็นหัวหน้าทีม เชิญสมาชิกได้ที่หน้าบัญชี</p>' : ''}
+        ${planTiles(plans.filter(x => x.price > 0 && (aud === 'team' ? x.seats > 1 : x.seats <= 1) && (period === 'month' || x.price_year > 0)), sel, period)}
         ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : '30 วัน'}</div>
           <div class="price" style="margin:8px 0">${coupon?.discount ? `<s class="muted" style="font-size:20px">${fmtPlanPrice(priceOf(p))}</s> ` : ''}${fmtPlanPrice(total)}${getCur() === 'USD' && total > 0 ? `<div class="muted" style="font-size:13px;margin-top:4px">ยอดโอน PromptPay: ฿${baht(total)}</div>` : ''}</div>
           <form id="cf" class="row" style="max-width:400px;margin:0 auto;flex-wrap:nowrap"><input name="code" placeholder="โค้ดคูปอง" value="${esc(coupon?.code || '')}" autocapitalize="characters"><button class="btn out sm">ใช้</button></form>
@@ -444,6 +447,7 @@ async function plansPage() {
       ${footer()}</div>`);
     app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; draw(); });
     app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); draw(); });
+    app.querySelectorAll('[data-aud]').forEach(b => b.onclick = () => { aud = b.dataset.aud; sel = null; coupon = null; draw(); });
     app.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { period = b.dataset.per; coupon = null; if (sel && !plans.find(x => x.id === sel)?.price_year && period === 'year') sel = null; draw(); });
     app.querySelectorAll('[data-plan]').forEach(t => t.onclick = () => { sel = +t.dataset.plan; coupon = null; draw(); $('#pay')?.scrollIntoView({ behavior: 'smooth' }); });
     $('#cf')?.addEventListener('submit', async e => {

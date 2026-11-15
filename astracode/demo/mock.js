@@ -15,6 +15,8 @@
       { id: 4, name: 'Plus', price: 299, price_year: 3050, limit_4h: 8, limit_week: 30, description: 'DeepSeek + Claude Sonnet', sort: 3, active: 1, model_ids: [1, 2] },
       { id: 5, name: 'Pro', price: 599, price_year: 6110, limit_4h: 20, limit_week: 70, description: 'ใช้ Sonnet หนักขึ้น', sort: 4, active: 1, model_ids: [1, 2] },
       { id: 6, name: 'Max', price: 1290, price_year: 13160, limit_4h: 50, limit_week: 170, description: 'ทุกโมเดล', sort: 5, active: 1, model_ids: [1, 2] },
+      { id: 7, name: 'Team 5', price: 1490, price_year: 15200, limit_4h: 30, limit_week: 100, seats: 5, shared_pool: 1, description: 'ทีมเล็ก 5 คน แบ่งงบเดียวกัน', sort: 6, active: 1, model_ids: [1, 2] },
+      { id: 8, name: 'Team 10', price: 2790, price_year: 28500, limit_4h: 30, limit_week: 100, seats: 10, shared_pool: 0, description: 'ทีม 10 คน ได้โควตาเต็มคนละชุด', sort: 7, active: 1, model_ids: [1, 2] },
     ],
     chats: [{ id: 1, title: 'ตัวอย่าง: วางแผนเที่ยวเชียงใหม่', msgs: [
       { role: 'user', content: 'ช่วยวางแผนเที่ยวเชียงใหม่ 2 วันหน่อย' },
@@ -34,6 +36,7 @@
       'main.py': 'print("สวัสดี AstraCode")\n',
     } }],
     nextProject: 2,
+    team: typeof window !== 'undefined' && window.DEMO_TEAM ? { team: { id: 1, name: 'ทีมตัวอย่าง', plan_name: 'Team 5', plan_id: 7, expires: Date.now() + 20 * 864e5, max_seats: 5, shared_pool: true, role: 'owner', invite_code: 'A1B2C3D4' }, members: [{ id: 1, email: 'a@b.co', role: 'owner', wk_pct: 12.5 }, { id: 2, email: 'som@example.com', role: 'member', wk_pct: 41, cap_pct: 50 }, { id: 3, email: 'nok@example.com', role: 'member', wk_pct: 6.2, cap_pct: null }] } : null,
     grants: [{ k: 'all', label: 'ทั้งหมด (ทุกโมเดล)', n: 2 }, { k: 'v:DeepSeek', label: 'ค่าย DeepSeek', n: 1, exp: Date.now() + 3 * 864e5 }], balance: 120, memories: [{ id: 1, text: 'ฉันชอบคำตอบสั้นๆ เป็นภาษาไทย' }], folders: [{ id: 1, name: 'งาน' }], keys: [], instructions: '', overflow: false, renew: false, totp: false,
     tickets: [{ id: 1, user_id: 1, subject: 'สอบถามเรื่องแพลนรายปี', status: 'answered', created_at: now() - 2 * DAY, updated_at: now() - DAY, msgs: [{ admin: 0, body: 'แพลนรายปีลดกี่เปอร์เซ็นต์ครับ', created_at: now() - 2 * DAY }, { admin: 1, body: 'ประหยัดประมาณ 2 เดือนครับ ดูได้ที่หน้าแพลน กดแท็บรายปี', created_at: now() - DAY }] }],
     coupons: [{ code: 'WELCOME20', kind: 'percent', value: 20, max_uses: 100, used: 12, expires: null, note: 'ลูกค้าใหม่', active: 1 }, { code: 'GIFT50', kind: 'credit', value: 50, max_uses: 0, used: 3, expires: null, note: '', active: 1 }],
@@ -162,6 +165,7 @@
       const u0 = S.users[0];
       if (path === '/api/me' && M === 'PUT') { if ('instructions' in body) S.instructions = body.instructions; if ('wallet_overflow' in body) S.overflow = body.wallet_overflow; if ('auto_renew' in body) S.renew = body.auto_renew; return res({ ok: true }); }
       if (path === '/api/usage/daily') { const days = []; for (let i = 9; i >= 0; i--) { const n = 3 + (i * 7) % 11, tin = n * 900, tout = n * 400; days.push({ d: new Date(Date.now() + 7 * 3600e3 - i * 864e5).toISOString().slice(0, 10), n, tin, tout, units: n * 50000, pct: Math.round(n * 12) / 10 }); } return res({ days, models: [{ name: 'DeepSeek V4', n: 40, tok: 52000 }, { name: 'Sonnet 5.5', n: 9, tok: 21000 }] }); }
+      if (path === '/api/team' && M === 'GET') return res(S.team ? S.team : { team: null });
       if (path === '/api/wallet') return res({ balance: S.balance, ref_code: 'DEMO1234', referred: 3, referred_paid: 1, bonus: 20, tx: [...S.tx].reverse() });
       if (path === '/api/memories') { if (M === 'POST') { const m = { id: Date.now(), text: body.text }; S.memories.push(m); return res(m); } return res(S.memories); }
       if ((r = path.match(/^\/api\/memories\/(\d+)$/))) { S.memories = S.memories.filter(m => m.id !== +r[1]); return res({ ok: true }); }
@@ -198,7 +202,7 @@
       return res({ note: S.settings.price_note || 'หน้าเดโม: ราคาคำนวณจากทุน + markup 30%', plans: S.plans.map(({ id, name, price, limit_week }) => ({ id, name, price, limit_week })),
         models: S.models.filter(m => m.active).map(m => ({ official: (() => { try { return JSON.parse(S.settings.official_prices || '{}')[m.id] || null; } catch { return null; } })(), id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lw: { in: m.cost_in, out: m.cost_out, cache: m.cost_cache }, note: m.note || '',
           ...(() => { const b = { in: m.price_in ?? r(m.cost_in), out: m.price_out ?? r(m.cost_out), cache: m.price_cache ?? r(m.cost_cache), cache_write: m.price_cache_write ?? r(m.cost_cache_write) }, off = m.promo_pct > 0 ? 1 - m.promo_pct / 100 : 1; return { ...Object.fromEntries(Object.entries(b).map(([k, v]) => [k, Math.round(v * off * 10000) / 10000])), promo: off < 1 ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, ...b } : null }; })(), plans: S.plans.filter(p => p.model_ids.includes(m.id)).map(p => p.id) })) }); }
-    if (path === '/api/plans') return res(S.plans.filter(p => p.active).sort((a, b) => a.sort - b.sort).map(p => ({ id: p.id, name: p.name, price: p.price, price_year: p.price_year, description: p.description, models: est(p), featured: String(p.id) === S.settings.featured_plan })));
+    if (path === '/api/plans') return res(S.plans.filter(p => p.active).sort((a, b) => a.sort - b.sort).map(p => ({ id: p.id, name: p.name, price: p.price, price_year: p.price_year, description: p.description, seats: p.seats || 1, shared_pool: p.shared_pool || 0, models: est(p), featured: String(p.id) === S.settings.featured_plan })));
     if (path === '/api/auth') { if (body.action === 'forgot') return res({ ok: true }); if (!/^[^\s@]+@[^\s@]+$/.test(body.email) || String(body.password).length < 8) return err('ใส่อีเมล และรหัสผ่านอย่างน้อย 8 ตัว (เดโม: อะไรก็ได้)'); S.logged = true; S.email = body.email; S.users[0].email = S.email; return res({ ok: true }); }
     if (!S.logged) return err('กรุณาเข้าสู่ระบบ', 401);
     if (path === '/api/logout') { S.logged = false; return res({ ok: true }); }

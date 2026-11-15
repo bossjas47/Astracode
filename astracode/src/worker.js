@@ -164,7 +164,11 @@ async function usageStatus(env, u, plan) {
         COALESCE(SUM(CASE WHEN created_at>=?2 THEN units END),0) uw
       FROM usage WHERE user_id IN (SELECT user_id FROM team_members WHERE team_id=?3) AND created_at>=?4`).bind(s4 || 1e18, sw || 1e18, plan._team.id, Math.min(s4 || 1e18, sw || 1e18)).first() : { u4: 0, uw: 0 };
     const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 1000) / 10) : 100;
-    return win4(plan, { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY });
+    let pw = pct(r.uw, plan.limit_week);
+    // เพดานต่อคนที่หัวหน้าทีมตั้ง (% ของงบสัปดาห์ของทีม): ใช้ถึงเพดานนี้แล้วคนนั้นเต็ม แม้งบทีมยังเหลือ
+    const cap = sw && plan.limit_week > 0 ? (await env.DB.prepare('SELECT cap_pct FROM team_members WHERE team_id=? AND user_id=?').bind(plan._team.id, u.id).first())?.cap_pct : 0;
+    if (cap > 0) { const mu = (await env.DB.prepare('SELECT COALESCE(SUM(units),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(u.id, sw).first()).x; pw = Math.max(pw, pct(mu, plan.limit_week * cap / 100)); }
+    return win4(plan, { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pw, reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY });
   }
   const w = await env.DB.prepare('SELECT sess_start,week_start FROM users WHERE id=?').bind(u.id).first() || {}; // อ่านใหม่เสมอ เพราะเพิ่งอาจเริ่มรอบตอนบันทึกการใช้งาน
   const s4 = w.sess_start && now < w.sess_start + H4 && w.sess_start >= r0 ? w.sess_start : null, sw = w.week_start && now < w.week_start + 7 * DAY && w.week_start >= r0 ? w.week_start : null;
@@ -180,7 +184,7 @@ const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4h: null
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 let colsDone;
 const ensureCols = env => colsDone ||= (async () => {
-  for (const q of ['ALTER TABLE plans ADD COLUMN use_4h INTEGER', 'ALTER TABLE models ADD COLUMN use_mult REAL', 'ALTER TABLE models ADD COLUMN promo_mult REAL'])
+  for (const q of ['ALTER TABLE plans ADD COLUMN use_4h INTEGER', 'ALTER TABLE models ADD COLUMN use_mult REAL', 'ALTER TABLE models ADD COLUMN promo_mult REAL', 'ALTER TABLE team_members ADD COLUMN cap_pct REAL'])
     try { await env.DB.prepare(q).run(); } catch { /* มีคอลัมน์แล้ว */ }
 })();
 // ตัวคูณหน่วยลิมิตของโมเดล: ช่วงโปรใช้ promo_mult (ถ้าตั้ง) ไม่งั้นใช้ use_mult · ว่าง = 1
@@ -1909,11 +1913,13 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     return o ? new Response(o.body, { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=31536000' } }) : err('not found', 404);
   }
   if (path === '/api/team') {
-    const tm = await DB.prepare('SELECT t.*, tm.role, p.name plan_name FROM team_members tm JOIN teams t ON t.id=tm.team_id LEFT JOIN plans p ON p.id=t.plan_id WHERE tm.user_id=? ORDER BY t.expires DESC LIMIT 1').bind(u.id).first();
+    const tm = await DB.prepare('SELECT t.*, tm.role, p.name plan_name, p.limit_week, p.price plan_price, p.id pid FROM team_members tm JOIN teams t ON t.id=tm.team_id LEFT JOIN plans p ON p.id=t.plan_id WHERE tm.user_id=? ORDER BY t.expires DESC LIMIT 1').bind(u.id).first();
     if (M === 'GET') {
       if (!tm) return json({ team: null });
-      const members = (await DB.prepare('SELECT u.id, u.email, tm.role, tm.joined_at FROM team_members tm JOIN users u ON u.id=tm.user_id WHERE tm.team_id=? ORDER BY tm.role DESC, tm.joined_at').bind(tm.id).all()).results;
-      return json({ team: { id: tm.id, name: tm.name, plan_name: tm.plan_name, expires: tm.expires, max_seats: tm.max_seats, shared_pool: !!tm.shared_pool, role: tm.role, invite_code: tm.role === 'owner' ? tm.invite_code : null }, members });
+      const own = tm.role === 'owner', members = (await DB.prepare('SELECT u.id, u.email, tm.role, tm.joined_at, tm.cap_pct, (SELECT COALESCE(SUM(g.units),0) FROM usage g WHERE g.user_id=u.id AND g.created_at>=?2) wk FROM team_members tm JOIN users u ON u.id=tm.user_id WHERE tm.team_id=?1 ORDER BY tm.role DESC, tm.joined_at').bind(tm.id, Date.now() - 7 * DAY).all()).results;
+      // หัวหน้าทีมเห็นการใช้ 7 วันล่าสุดของทุกคน (% ของงบสัปดาห์ของแพลน) · สมาชิกเห็นแค่รายชื่อ
+      members.forEach(m => { if (own) m.wk_pct = tm.limit_week > 0 ? Math.round(m.wk / tm.limit_week * 1000) / 10 : 0; else { delete m.cap_pct; } delete m.wk; });
+      return json({ team: { id: tm.id, name: tm.name, plan_name: tm.plan_name, plan_id: tm.pid, expires: tm.expires, max_seats: tm.max_seats, shared_pool: !!tm.shared_pool, role: tm.role, invite_code: own ? tm.invite_code : null }, members });
     }
     if (M === 'PUT') {
       if (!tm || tm.role !== 'owner') return err('เฉพาะหัวหน้าทีมเท่านั้น', 403);
@@ -1944,6 +1950,26 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     if (cnt >= tm.max_seats) return err(`ทีมเต็มแล้ว (สูงสุด ${tm.max_seats} คน)`);
     await DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'member',?)").bind(tm.id, target.id, Date.now()).run();
     return json({ ok: true });
+  }
+  if ((r = path.match(/^\/api\/team\/members\/(\d+)$/)) && M === 'PUT') { // เพดานต่อคน (% ของงบสัปดาห์ทีม) เฉพาะทีมที่ใช้งบรวม
+    const tm = await DB.prepare("SELECT t.* FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=? AND tm.role='owner'").bind(u.id).first();
+    if (!tm) return err('เฉพาะหัวหน้าทีมเท่านั้น', 403);
+    if (!tm.shared_pool) return err('แพลนนี้แยกโควตาต่อคนอยู่แล้ว ไม่ต้องตั้งเพดาน');
+    const cap = (await req.json()).cap_pct;
+    if (cap != null && !(cap > 0 && cap <= 100)) return err('เพดานต้องอยู่ระหว่าง 1–100%');
+    const ch = await DB.prepare("UPDATE team_members SET cap_pct=? WHERE team_id=? AND user_id=? AND role!='owner'").bind(cap ?? null, tm.id, +r[1]).run();
+    return ch.meta.changes ? json({ ok: true }) : err('ไม่พบสมาชิกคนนี้', 404);
+  }
+  if (path === '/api/team/invite' && M === 'POST') { // ส่งคำเชิญทางอีเมล: ลิงก์พาไปล็อกอินแล้วเข้าทีมด้วยโค้ด
+    const tm = await DB.prepare("SELECT t.* FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=? AND tm.role='owner' AND t.expires>?").bind(u.id, Date.now()).first();
+    if (!tm) return err('เฉพาะหัวหน้าทีมที่ยังไม่หมดอายุเท่านั้น', 403);
+    const email = String((await req.json()).email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return err('อีเมลไม่ถูกต้อง');
+    if ((await DB.prepare('SELECT COUNT(*) n FROM team_members WHERE team_id=?').bind(tm.id).first()).n >= tm.max_seats) return err(`ทีมเต็มแล้ว (สูงสุด ${tm.max_seats} คน)`);
+    if (await limited(env, 'tinv:' + u.id, 20, DAY)) return err('ส่งคำเชิญวันนี้ครบแล้ว ลองใหม่พรุ่งนี้', 429);
+    const link = origin(req, env) + '/login?next=' + encodeURIComponent('/account?join=' + tm.invite_code);
+    const sent = await mail(env, email, 'AstraCode: คุณได้รับเชิญเข้าทีม ' + tm.name.slice(0, 60), mailBox('คุณได้รับเชิญเข้าทีม', `${esc(u.email)} เชิญคุณเข้าทีม “${esc(tm.name.slice(0, 60))}” ล็อกอินหรือสมัครแล้วระบบจะพาเข้าทีมให้ทันที`, 'เข้าร่วมทีม', link));
+    return json({ ok: true, sent });
   }
   if ((r = path.match(/^\/api\/team\/members\/(\d+)$/)) && M === 'DELETE') {
     const targetId = +r[1];

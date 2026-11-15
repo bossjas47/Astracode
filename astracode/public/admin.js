@@ -31,7 +31,7 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>' };
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -202,7 +202,8 @@ const ADMIN = {
     let tm; $('#q').oninput = () => { clearTimeout(tm); tm = setTimeout(load, 250); }; load();
   },
 
-  async plans(box, reload) { return editors('plans', box, reload); },
+  async plans(box, reload) { return editors('plans', box, reload, 'solo'); },
+  async teamplans(box, reload) { return editors('plans', box, reload, 'team'); }, // แพลนที่ seats > 1: ผู้ซื้อเป็นหัวหน้าทีม เชิญสมาชิกเอง
 
   async profit(box) {
     const days = +(localStorage.getItem('adm-pdays') || 30), d = await api('/admin/profit?days=' + days), t = d.total, w = d.wallet;
@@ -426,13 +427,13 @@ const ADMIN = {
 };
 
 // แพลน/โมเดล: แสดงเป็นรายการ กดเพื่อแก้ไข
-async function editors(tab, box, reload) {
-  const rows = await api('/admin/' + tab), models = tab === 'posts' ? [] : tab === 'models' ? rows : await api('/admin/models');
+async function editors(tab, box, reload, kind) {
+  const rows = (await api('/admin/' + tab)).filter(r => !kind || (kind === 'team' ? r.seats > 1 : !(r.seats > 1))), models = tab === 'posts' ? [] : tab === 'models' ? rows : await api('/admin/models');
   const summary = r => tab === 'posts' ? `<b>${esc(r.title)}</b><span class="muted">/blog/${esc(r.slug)} · ${r.published ? 'เผยแพร่แล้ว' : 'ฉบับร่าง'} · ${when(r.created_at)}</span>`
     : tab === 'plans'
     ? `<b>${esc(r.name)}</b><span class="muted">${r.price > 0 ? '฿' + baht(r.price) + '/เดือน' : 'ฟรี'} · ฿${+r.limit_week.toFixed(2)}/สัปดาห์ · ${r.use_4h === 0 ? 'ปิดรอบ 4 ชม.' : '฿' + +r.limit_4h.toFixed(2) + '/4 ชม.'} · ต้นทุนสูงสุด ฿${Math.round(r.limit_week * 4.33)}/เดือน${r.price > 0 ? ` (${Math.round(r.limit_week * 4.33 / r.price * 100)}% ของราคา)` : ''} · ${r.model_ids.length} โมเดล</span>`
     : `<b>${esc(r.name)}</b><span class="muted">${esc(r.api_model)} · ×${r.multiplier}${r.cap_pct > 0 ? ` · เพดาน ${r.cap_pct}%` : ''}${r.use_mult != null && r.use_mult !== 1 ? ` · หักลิมิต ×${r.use_mult}` : ''}${r.promo_mult != null ? ` · โปรหัก ×${r.promo_mult}` : ''} · ${r.price_in != null ? `ขาย ${r.price_in}/${r.price_out ?? '-'}` : 'ราคาอัตโนมัติ'}${r.promo_pct > 0 ? ` · <span class="warn">โปร -${r.promo_pct}%${r.promo_end ? ' ถึง ' + new Date(r.promo_end).toLocaleDateString('th-TH') : ''}</span>` : ''}${r.public ? '' : ' · ซ่อนจากหน้าราคา'} · ${r.has_key ? '<span class="ok">key พร้อม</span>' : '<span class="bad">ไม่พบ key</span>'}${r.vision ? ' · อ่านรูป' : ''}${r.effort !== 'none' ? ' · effort' : ''}</span>`;
-  const form = (r = { active: 1, public: 1, use_4h: 1, model_ids: [] }) => `<form class="ed-f" data-id="${r.id || ''}"><div class="form2 ${tab === 'posts' ? 'one' : ''}">${FIELDS[tab].map(([k, l, t]) => `<div><label>${l}</label>${t === 'b' ? `<label class="sw"><input type="checkbox" name="${k}" ${r[k] ? 'checked' : ''}><span></span></label>`
+  const form = (r = { active: 1, public: 1, use_4h: 1, model_ids: [], ...(kind === 'team' ? { seats: 5, shared_pool: 1 } : kind ? { seats: 1 } : {}) }) => `<form class="ed-f" data-id="${r.id || ''}"><div class="form2 ${tab === 'posts' ? 'one' : ''}">${FIELDS[tab].map(([k, l, t]) => `<div><label>${l}</label>${t === 'b' ? `<label class="sw"><input type="checkbox" name="${k}" ${r[k] ? 'checked' : ''}><span></span></label>`
       : Array.isArray(t) ? `<select name="${k}">${t.map(o => `<option ${r[k] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`
       : t === 'm' ? `<select name="${k}"><option value="">ไม่มี</option>${models.filter(m => m.id !== r.id).map(m => `<option value="${m.id}" ${r[k] === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`
       : t === 't' ? `<textarea name="${k}" rows="12">${esc(r[k] ?? '')}</textarea>`
@@ -443,7 +444,7 @@ async function editors(tab, box, reload) {
     <div class="row" style="margin-top:16px"><button class="btn blue sm">Save</button>${r.id ? `<button type="button" class="btn red sm" data-del="${r.id}">Delete</button>` : ''}<span class="ok sv"></span></div></form>`;
   box.innerHTML = `<p class="muted hint">${tab === 'posts' ? 'เขียนด้วย Markdown · บทความที่เผยแพร่จะขึ้นที่ /blog, หน้าแรก และ sitemap.xml' : tab === 'plans'
     ? 'ลิมิตหักตามต้นทุนจริงของแต่ละข้อความ (ราคาทุนของโมเดล) แล้วแสดงเป็น % · งบเป็นบาท: รอบ 4 ชม. เริ่มนับตอนส่งข้อความแรก, รอบสัปดาห์เริ่มตอนใช้ครั้งแรกแล้วรีเซ็ตหลัง 7 วัน · ต้นทุนสูงสุด/เดือน = งบสัปดาห์ × 4.33 (กรณีผู้ใช้ใช้เต็มทุกสัปดาห์)'
-    : 'key ใส่ที่ Worker → Settings → Variables and Secrets (Type: Secret) · Claude ใช้รูปแบบ anthropic ตัวอื่นใช้ openai'}</p>
+    : 'key ใส่ที่ Worker → Settings → Variables and Secrets (Type: Secret) · Claude ใช้รูปแบบ anthropic ตัวอื่นใช้ openai'}${kind === 'team' ? ' · แพลนทีม: ราคาเป็นแพ็กเกจเดียวต่อทีม ตั้งจำนวนคน 2 ขึ้นไป · ติ๊ก "ใช้งบลิมิตร่วมกัน" = ทุกคนแบ่งงบเดียวกัน (หัวหน้าตั้งเพดานต่อคนได้) ไม่ติ๊ก = แต่ละคนได้โควตาเต็มของแพลน · คนซื้อกลายเป็นหัวหน้าทีมและเชิญสมาชิกเองที่หน้าบัญชี' : ''}</p>
     <div class="ed-list">${rows.map(r => `<details class="ed"><summary>${summary(r)}${r.active ? '' : '<span class="pill">ปิดอยู่</span>'}</summary>${form(r)}</details>`).join('')}
     <details class="ed add"><summary><b>+ เพิ่ม${{ plans: 'แพลน', models: 'โมเดล', posts: 'บทความ' }[tab]}</b></summary>${tab === 'models' ? `<label>เริ่มจากเทมเพลต</label><select class="preset"><option value="">— เลือกผู้ให้บริการ —</option>${Object.keys(PRESETS).map(k => `<option>${k}</option>`).join('')}</select>` : ''}${form(tab === 'posts' ? { published: 0 } : undefined)}</details></div>`;
   box.querySelector('.preset')?.addEventListener('change', e => { // เติมค่าตามผู้ให้บริการ แก้ต่อได้
@@ -455,6 +456,7 @@ async function editors(tab, box, reload) {
     FIELDS[tab].forEach(([k, , t]) => body[k] = t === 'b' ? (fd.get(k) ? 1 : 0) : t === 'n' ? +fd.get(k) : t === 'o' || t === 'm' ? (fd.get(k) === '' ? null : +fd.get(k))
       : t === 'd' ? (fd.get(k) ? Date.parse(fd.get(k) + (k.endsWith('end') ? 'T23:59:59.999+07:00' : 'T00:00:00+07:00')) : null) : fd.get(k)); // วันที่ตามเวลาไทย
     if (tab === 'plans') body.model_ids = fd.getAll('m').map(Number);
+    if (kind === 'team') body.seats = Math.max(2, body.seats || 2); else if (kind) { body.seats = 1; body.shared_pool = 0; } // แยกแพลนทีม/ส่วนตัวตามแท็บ
     try { await api(`/admin/${tab}${f.dataset.id ? '/' + f.dataset.id : ''}`, { method: f.dataset.id ? 'PUT' : 'POST', body }); if (f.dataset.id) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700); } else reload(); }
     catch (x) { toast(x.message, 'bad'); }
   });
