@@ -168,21 +168,24 @@ const ADMIN = {
   },
 
   async users(box) {
-    const plans = await api('/admin/plans');
+    const [plans, models] = await Promise.all([api('/admin/plans'), api('/admin/models')]);
+    const vendors = [...new Set(models.map(m => String(m.name).trim().split(/\s+/)[0]))];
     box.innerHTML = `<details class="ed gift"><summary><b>${ic('refresh')} แจกรีเซ็ตลิมิต</b><span class="muted">รีเซ็ตให้ทันที หรือแจกปุ่มรีเซ็ตให้ผู้ใช้กดเอง (เลือกค่าย/โมเดลได้)</span></summary>
       <form id="rlf" class="ed-f"><label>รูปแบบ</label><select name="mode"><option value="grant">แจกปุ่มรีเซ็ต (ผู้ใช้กดเอง เลือกค่าย/โมเดลได้)</option><option value="now">รีเซ็ตทันที (ล้างทุกโมเดล)</option></select>
-        <input name="n" type="number" min="1" max="50" value="1" placeholder="จำนวนสิทธิ์ต่อคน"><label>แจกให้</label><select name="who"><option value="all">ผู้ใช้ทุกคน</option>${plans.map(p => `<option value="plan:${p.id}">ทุกคนในแพลน ${esc(p.name)}</option>`).join('')}<option value="email">ผู้ใช้คนเดียว (ใส่อีเมล)</option></select>
+        <input name="n" type="number" min="1" max="50" value="1" placeholder="จำนวนสิทธิ์ต่อคน">
+        <label class="gs">ขอบเขตที่ผู้ใช้จะรีเซ็ตได้ (เลือกตอนแจก ผู้ใช้เปลี่ยนเองไม่ได้)</label><select name="scope" class="gs"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${models.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select>
+        <label>แจกให้</label><select name="who"><option value="all">ผู้ใช้ทุกคน</option>${plans.map(p => `<option value="plan:${p.id}">ทุกคนในแพลน ${esc(p.name)}</option>`).join('')}<option value="email">ผู้ใช้คนเดียว (ใส่อีเมล)</option></select>
         <input name="email" type="email" placeholder="อีเมลผู้ใช้" hidden>
         <div class="row" style="margin-top:12px"><button class="btn blue sm">ยืนยัน</button><span class="ok sv"></span></div></form></details>
       <div class="toolbar"><input id="q" placeholder="ค้นหาอีเมล" aria-label="ค้นหาอีเมล"></div><div id="ul"></div>`;
     const rf = $('#rlf');
     rf.who.onchange = () => { rf.email.hidden = rf.who.value !== 'email'; rf.email.required = !rf.email.hidden; };
-    rf.mode.onchange = () => { rf.n.hidden = rf.mode.value !== 'grant'; }; rf.mode.onchange();
+    rf.mode.onchange = () => { const g = rf.mode.value === 'grant'; rf.n.hidden = !g; rf.querySelectorAll('.gs').forEach(e => e.hidden = !g); }; rf.mode.onchange();
     rf.onsubmit = async e => {
       e.preventDefault(); const t = rf.who.value, label = rf.who.selectedOptions[0].textContent;
-      const grant = rf.mode.value === 'grant', n = +rf.n.value || 1, who = t === 'email' ? rf.email.value : label;
-      if (!await confirmSheet(grant ? `แจกปุ่มรีเซ็ต ${n} ครั้ง ให้ ${who}?` : `รีเซ็ตลิมิตให้ ${who}?`, { title: grant ? 'แจกปุ่มรีเซ็ต' : 'รีเซ็ตลิมิต', ok: grant ? 'แจก' : 'รีเซ็ต' })) return;
-      try { const r = await api(grant ? '/admin/reset-credits' : '/admin/reset-limits', { method: 'POST', body: { target: t.split(':')[0], plan_id: +t.split(':')[1] || null, email: rf.email.value, n } }); rf.querySelector('.sv').textContent = grant ? `✓ แจกแล้ว ${num(r.count)} คน` : `✓ รีเซ็ตแล้ว ${num(r.count)} คน`; }
+      const grant = rf.mode.value === 'grant', n = +rf.n.value || 1, who = t === 'email' ? rf.email.value : label, sv = rf.scope.value, scope = sv.startsWith('v:') ? { vendor: sv.slice(2) } : sv.startsWith('m:') ? { model_id: +sv.slice(2) } : null, sl = rf.scope.selectedOptions[0].textContent;
+      if (!await confirmSheet(grant ? `แจกปุ่มรีเซ็ต ${n} ครั้ง (${sl}) ให้ ${who}?` : `รีเซ็ตลิมิตให้ ${who}?`, { title: grant ? 'แจกปุ่มรีเซ็ต' : 'รีเซ็ตลิมิต', ok: grant ? 'แจก' : 'รีเซ็ต' })) return;
+      try { const r = await api(grant ? '/admin/reset-credits' : '/admin/reset-limits', { method: 'POST', body: { target: t.split(':')[0], plan_id: +t.split(':')[1] || null, email: rf.email.value, n, scope } }); rf.querySelector('.sv').textContent = grant ? `✓ แจกแล้ว ${num(r.count)} คน` : `✓ รีเซ็ตแล้ว ${num(r.count)} คน`; }
       catch (x) { toast(x.message, 'bad'); }
     };
     const load = async () => {

@@ -206,11 +206,28 @@ async function resetUsage(env, uid, scope) {
   return 1;
 }
 // สิทธิ์กดรีเซ็ตที่แอดมินแจก (ใช้แล้วหมดไป) · สร้างตารางเองครั้งแรก ไม่ต้องรัน migration
+// reset_credits = สิทธิ์รีเซ็ต "ทั้งหมด" (นับจำนวน) · reset_grants = สิทธิ์ที่แอดมินกำหนดขอบเขตไว้ (ค่าย หรือโมเดลเดียว) แถวละ 1 สิทธิ์
 let creditsReady = false;
-async function creditsOf(env, uid) {
-  if (!creditsReady) { await env.DB.prepare('CREATE TABLE IF NOT EXISTS reset_credits (user_id INTEGER PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)').run(); creditsReady = true; }
-  return (await env.DB.prepare('SELECT n FROM reset_credits WHERE user_id=?').bind(uid).first())?.n || 0;
+async function creditsInit(env) {
+  if (creditsReady) return;
+  await env.DB.batch([
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS reset_credits (user_id INTEGER PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS reset_grants (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, vendor TEXT, model_id INTEGER, created_at INTEGER NOT NULL)'),
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS reset_grants_user ON reset_grants(user_id)'),
+  ]);
+  creditsReady = true;
 }
+// รายการสิทธิ์ของผู้ใช้ แยกตามขอบเขต: [{k:'all'|'v:DeepSeek'|'m:12', label, n}]
+async function creditList(env, uid) {
+  await creditsInit(env);
+  const [all, gs] = await Promise.all([
+    env.DB.prepare('SELECT n FROM reset_credits WHERE user_id=?').bind(uid).first(),
+    env.DB.prepare('SELECT g.vendor, g.model_id, m.name mname, COUNT(*) n FROM reset_grants g LEFT JOIN models m ON m.id=g.model_id WHERE g.user_id=? GROUP BY g.vendor, g.model_id').bind(uid).all(),
+  ]);
+  return [...(all?.n > 0 ? [{ k: 'all', label: 'ทั้งหมด (ทุกโมเดล)', n: all.n }] : []),
+    ...gs.results.map(g => g.vendor ? { k: 'v:' + g.vendor, label: 'ค่าย ' + g.vendor, n: g.n } : { k: 'm:' + g.model_id, label: 'โมเดล ' + (g.mname || g.model_id), n: g.n })];
+}
+const creditsOf = async (env, uid) => (await creditList(env, uid)).reduce((a, x) => a + x.n, 0);
 // ต้นทุนโดยประมาณของ 1 ข้อความทั่วไป (context 20K อยู่ใน cache, ส่งใหม่ 1K, ตอบ 1K) ใช้ประมาณจำนวนข้อความต่อสัปดาห์
 const msgCost = m => (20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6;
 const allowedModels = (env, planId) => env.DB.prepare(
@@ -1389,8 +1406,14 @@ async function admin(req, env, path, url, me) {
     let count;
     if (credits) {
       const n = Math.min(50, Math.max(1, Math.round(+b.n || 1)));
-      await creditsOf(env, 0); // สร้างตารางถ้ายังไม่มี
-      count = (await DB.prepare(`INSERT INTO reset_credits (user_id,n) SELECT id,?1 FROM users WHERE banned=0 AND ${where} ON CONFLICT(user_id) DO UPDATE SET n=n+?1`).bind(n, ...args).run()).meta.changes; // ?1 = จำนวนที่แจก, ? ที่เหลือใน where นับต่อจาก ?1
+      await creditsInit(env);
+      const sc = b.scope?.vendor ? { vendor: String(b.scope.vendor).replace(/[%_]/g, '').trim().slice(0, 40) } : b.scope?.model_id ? { model_id: +b.scope.model_id } : null;
+      if (sc?.model_id && !await DB.prepare('SELECT 1 FROM models WHERE id=?').bind(sc.model_id).first()) return err('ไม่พบโมเดล', 404);
+      if (sc?.vendor === '') return err('เลือกค่ายที่จะแจก');
+      if (sc) { // สิทธิ์ที่จำกัดขอบเขต: 1 แถวต่อ 1 สิทธิ์ (n รอบ)
+        count = 0;
+        for (let i = 0; i < n; i++) count = (await DB.prepare(`INSERT INTO reset_grants (user_id,vendor,model_id,created_at) SELECT id,?1,?2,?3 FROM users WHERE banned=0 AND ${where}`).bind(sc.vendor ?? null, sc.model_id ?? null, now, ...args).run()).meta.changes; // ? ใน where นับต่อจาก ?3
+      } else count = (await DB.prepare(`INSERT INTO reset_credits (user_id,n) SELECT id,?1 FROM users WHERE banned=0 AND ${where} ON CONFLICT(user_id) DO UPDATE SET n=n+?1`).bind(n, ...args).run()).meta.changes; // ?1 = จำนวนที่แจก, ? ที่เหลือใน where นับต่อจาก ?1
     } else count = (await DB.prepare(`UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE banned=0 AND ${where}`).bind(now, ...args).run()).meta.changes;
     if (b.target === 'email' && !count) return err('ไม่พบผู้ใช้อีเมลนี้');
     await ctxAudit(credits ? 'grant reset credits' : 'reset limits', { target: b.target, plan_id: b.plan_id, email: b.email, n: b.n, count });
@@ -1583,7 +1606,7 @@ async function route(req, env, ctx, url, path, M) {
           email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
-          usage: await usageStatus(env, u, plan), reset_credits: await creditsOf(env, u.id), models: await allowedModels(env, plan.id),
+          usage: await usageStatus(env, u, plan), reset_credits: await creditsOf(env, u.id), reset_list: await creditList(env, u.id), models: await allowedModels(env, plan.id),
           promptpay_id: await getSetting(env, 'promptpay_id'),
         });
       }
@@ -1655,20 +1678,22 @@ async function route(req, env, ctx, url, path, M) {
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
 async function userRoutes(req, env, ctx, url, path, M, u) {
   const DB = env.DB; let r;
-  if (path === '/api/limits/reset' && M === 'POST') { // ผู้ใช้กดใช้ปุ่มรีเซ็ตที่แอดมินแจกให้ (1 ครั้ง = 1 สิทธิ์)
-    const b = await req.json(), plan = await planOf(env, u);
+  if (path === '/api/limits/reset' && M === 'POST') { // ผู้ใช้กดใช้สิทธิ์รีเซ็ตที่แอดมินแจก · ขอบเขตกำหนดโดยแอดมินตอนแจก ผู้ใช้เลือกเองไม่ได้ (ส่งแค่ k ของสิทธิ์ที่มีอยู่)
+    const b = await req.json(), plan = await planOf(env, u), k = String(b.k || '');
     if (plan?._team?.shared_pool) return err('แพลนทีมใช้ลิมิตรวมกัน รีเซ็ตเองไม่ได้ ติดต่อแอดมิน', 400);
-    const sc = b.scope?.vendor || b.scope?.model_id ? b.scope : null;
-    if (sc?.model_id && !await DB.prepare('SELECT 1 FROM models WHERE id=?').bind(+sc.model_id).first()) return err('ไม่พบโมเดล', 404);
-    if (sc?.vendor) { const v = String(sc.vendor).replace(/[%_]/g, '').trim().slice(0, 40); if (!v || !await DB.prepare("SELECT 1 FROM models WHERE lower(name)=lower(?1) OR lower(name) LIKE lower(?1)||' %'").bind(v).first()) return err('ไม่พบค่ายนี้', 404); }
     if (await limited(env, 'rst:' + u.id, 10, 60e3)) return err('กดเร็วเกินไป รอสักครู่', 429);
-    await creditsOf(env, u.id);
-    const used = await DB.prepare('UPDATE reset_credits SET n=n-1 WHERE user_id=? AND n>0').bind(u.id).run(); // หักก่อน ถ้าไม่มีสิทธิ์ changes = 0
+    await creditsInit(env);
+    let sc = null, used;
+    if (k === 'all') used = await DB.prepare('UPDATE reset_credits SET n=n-1 WHERE user_id=? AND n>0').bind(u.id).run(); // หักก่อน ถ้าไม่มีสิทธิ์ changes = 0
+    else if (k.startsWith('v:') || k.startsWith('m:')) {
+      const v = k.startsWith('v:'); sc = v ? { vendor: k.slice(2) } : { model_id: +k.slice(2) };
+      used = await DB.prepare(`DELETE FROM reset_grants WHERE id=(SELECT id FROM reset_grants WHERE user_id=?1 AND ${v ? 'vendor=?2' : 'model_id=?2'} LIMIT 1)`).bind(u.id, v ? sc.vendor : sc.model_id).run();
+    } else return err('เลือกสิทธิ์ที่จะใช้');
     if (!used.meta.changes) return err('ไม่มีสิทธิ์รีเซ็ตเหลือ', 403);
     await resetUsage(env, u.id, sc);
     await audit(env, u, 'use reset credit', sc || 'all');
-    const u2 = await DB.prepare('SELECT * FROM users WHERE id=?').bind(u.id).first();
-    return json({ ok: true, left: await creditsOf(env, u.id), usage: await usageStatus(env, u2, plan) });
+    const u2 = await DB.prepare('SELECT * FROM users WHERE id=?').bind(u.id).first(), list = await creditList(env, u.id);
+    return json({ ok: true, credits: list, left: list.reduce((a, x) => a + x.n, 0), usage: await usageStatus(env, u2, plan) });
   }
   if (path === '/api/me' && M === 'PUT') {
     const b = await req.json();

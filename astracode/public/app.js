@@ -814,23 +814,21 @@ async function mcpSheet(selectedIds, onChange) {
 }
 
 function limitSheet() {
-  const u = me.usage, cr = me.reset_credits || 0, vendors = [...new Map(me.models.map(m => [vendorOf(m.name).toLowerCase(), vendorOf(m.name)])).values()];
-  const reset = cr > 0 ? `<div class="rst"><div class="rst-h"><b>ปุ่มรีเซ็ตลิมิต</b><span class="pill">เหลือ ${cr} ครั้ง</span></div>
-    <p class="muted" style="font-size:13px;margin:6px 0 10px">เลือกว่าจะล้างลิมิตของอะไร แล้วกดรีเซ็ต (ใช้ 1 สิทธิ์ต่อครั้ง)</p>
-    <select id="rsc"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดล)</option>`).join('')}${me.models.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select>
-    <button class="btn blue" id="rsb" style="width:100%;margin-top:10px">รีเซ็ตลิมิต</button><div class="err" id="rse"></div></div>` : '';
+  const u = me.usage, list = me.reset_list || [];
+  const reset = list.length ? `<div class="rst"><div class="rst-h"><b>ปุ่มรีเซ็ตลิมิต</b></div>
+    <p class="muted" style="font-size:13px;margin:6px 0 10px">แอดมินแจกสิทธิ์รีเซ็ตให้ กดปุ่มด้านล่างเพื่อใช้ (1 สิทธิ์ต่อครั้ง)</p>
+    ${list.map(x => `<button class="btn blue rst-b" data-k="${esc(x.k)}"><span>รีเซ็ต: ${esc(x.label)}</span><span class="pill">เหลือ ${x.n}</span></button>`).join('')}<div class="err" id="rse"></div></div>` : '';
   sheet('ลิมิตการใช้งาน', `<p class="muted" style="margin:0 0 12px">แพลน ${esc(me.plan.name)}</p><div class="meters big">${meters(u)}</div>
     <p class="muted" style="font-size:13px">ลิมิต 4 ชม. รีเซ็ต ${u.reset4h ? when(u.reset4h) : 'เมื่อเริ่มใช้'} · ลิมิตสัปดาห์รีเซ็ต ${when(u.resetWeek)}</p>${reset}
-    <a class="btn ${cr > 0 ? 'out' : 'blue'}" href="/plans" style="width:100%;margin-top:10px">อัปเกรดแพลน</a>`, (d, close) => {
-      d.querySelector('#rsb')?.addEventListener('click', async () => {
-        const sel = d.querySelector('#rsc'), v = sel.value, label = sel.selectedOptions[0].textContent;
-        const scope = v.startsWith('v:') ? { vendor: v.slice(2) } : v.startsWith('m:') ? { model_id: +v.slice(2) } : null;
-        if (!await confirmSheet(`รีเซ็ตลิมิต: ${label}? จะใช้ 1 สิทธิ์`, { title: 'รีเซ็ตลิมิต', ok: 'รีเซ็ต' })) return;
+    <a class="btn ${list.length ? 'out' : 'blue'}" href="/plans" style="width:100%;margin-top:10px">อัปเกรดแพลน</a>`, (d, close) => {
+      d.querySelectorAll('.rst-b').forEach(btn => btn.onclick = async () => {
+        const x = list.find(y => y.k === btn.dataset.k);
+        if (!await confirmSheet(`รีเซ็ตลิมิต: ${x.label}? จะใช้ 1 สิทธิ์`, { title: 'รีเซ็ตลิมิต', ok: 'รีเซ็ต' })) return;
         try {
-          const r = await api('/limits/reset', { method: 'POST', body: { scope } });
-          me.reset_credits = r.left; me.usage = r.usage; const lim = $('#lim') || $('#clim'); if (lim) lim.innerHTML = limHTML(r.usage);
-          toast('รีเซ็ตลิมิตแล้ว: ' + label); close(); limitSheet();
-        } catch (x) { d.querySelector('#rse').textContent = x.message; }
+          const r = await api('/limits/reset', { method: 'POST', body: { k: x.k } });
+          me.reset_list = r.credits; me.reset_credits = r.left; me.usage = r.usage; const lim = $('#lim') || $('#clim'); if (lim) lim.innerHTML = limHTML(r.usage);
+          toast('รีเซ็ตลิมิตแล้ว: ' + x.label); close(); limitSheet();
+        } catch (e) { d.querySelector('#rse').textContent = e.message; }
       });
     });
 }
