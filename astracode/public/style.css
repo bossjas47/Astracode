@@ -874,4 +874,5 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 @media (prefers-reduced-motion: reduce) { .nav .nav-panel, .nav .nav-scrim { transition: none; } }
 
 /* plan tiles: solid warm fill instead of per-tile backdrop blur (many blurred layers re-painted on a currency switch caused pixel glitches on phones) */
-[data-page=home] #plans .tile.plan { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: rgba(30, 26, 22, .92); }
+.tile.plan { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: rgba(30, 26, 22, .92); }
+.view.still { animation: none; }

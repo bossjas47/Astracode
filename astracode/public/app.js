@@ -181,7 +181,8 @@ document.addEventListener('click', e => {
   if (e.target.closest('.nav-btn, .nav-scrim, .nav-panel a')) { n.classList.toggle('open', open); n.querySelector('.nav-btn')?.setAttribute('aria-expanded', open); }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelector('.nav.open')?.classList.remove('open'); });
-const page = html => { app.innerHTML = `<div class="view">${html}</div>`; };
+// วาดซ้ำหน้าเดิม (เช่น สลับสกุลเงิน): ไม่เล่นแอนิเมชันเข้าหน้าซ้ำ และคงตำแหน่งที่เลื่อนอยู่
+const page = html => { const again = !!app.querySelector('.view'), y = scrollY; app.innerHTML = `<div class="view${again ? ' still' : ''}">${html}</div>`; if (again) scrollTo(0, y); };
 
 function planTiles(plans, sel, period) {
   return `<div class="grid">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">

@@ -111,15 +111,16 @@ async function chatView(id) {
   $('#eff').onclick = () => effortSheet('#effort', curModel());
   $('#plus').onclick = toolSheet;
   $('#mic')?.addEventListener('click', () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return toast('เบราว์เซอร์นี้ไม่รองรับพิมพ์ด้วยเสียง ลอง Chrome หรือ Safari', 'err');
     const btn = $('#mic');
     if (chat.rec) { chat.rec.stop(); return; }
     const rec = new SR(); rec.lang = 'th-TH'; rec.interimResults = true; chat.rec = rec;
     const base = t.value ? t.value + ' ' : '';
     btn.classList.add('rec');
     rec.onresult = e => { t.value = base + [...e.results].map(r => r[0].transcript).join(''); t.oninput(); };
-    rec.onend = rec.onerror = () => { chat.rec = null; btn.classList.remove('rec'); };
-    rec.start();
+    rec.onerror = e => { const m = { 'not-allowed': 'ยังไม่ได้อนุญาตให้ใช้ไมโครโฟน เปิดสิทธิ์ที่การตั้งค่าเบราว์เซอร์แล้วลองใหม่', 'service-not-allowed': 'ยังไม่ได้อนุญาตให้ใช้ไมโครโฟน เปิดสิทธิ์ที่การตั้งค่าเบราว์เซอร์แล้วลองใหม่', 'no-speech': 'ไม่ได้ยินเสียง ลองพูดอีกครั้ง', 'audio-capture': 'ไม่พบไมโครโฟน', 'network': 'พิมพ์ด้วยเสียงใช้ไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่' }[e.error]; if (m) toast(m, 'err'); };
+    rec.onend = () => { chat.rec = null; btn.classList.remove('rec'); };
+    try { rec.start(); } catch { chat.rec = null; btn.classList.remove('rec'); toast('เริ่มพิมพ์ด้วยเสียงไม่ได้ ลองใหม่อีกครั้ง', 'err'); }
   });
   $('#lim').onclick = limitSheet;
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'web') toggleWeb(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }

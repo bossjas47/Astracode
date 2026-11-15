@@ -1486,7 +1486,7 @@ function secure(res) {
   h.set('x-frame-options', 'DENY');
   h.set('referrer-policy', 'strict-origin-when-cross-origin');
   h.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
-  h.set('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+  h.set('permissions-policy', 'camera=(), microphone=(self), geolocation=()');
   return r;
 }
 
