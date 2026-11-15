@@ -878,28 +878,28 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .view.still { animation: none; }
 
 /* ---------- model picker: vendor logos, big tap rows, vendor filter ---------- */
-.vchips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 12px; scrollbar-width: none; }
+.vchips { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 8px; scrollbar-width: none; }
 .vchips::-webkit-scrollbar { display: none; }
-.vchips button { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 9999px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .05); color: var(--ash); font: 500 14px var(--font); cursor: pointer; transition: background-color .35s ease, color .35s ease; }
+.vchips button { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border-radius: 9999px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .05); color: var(--ash); font: 500 13px var(--font); cursor: pointer; transition: background-color .35s ease, color .35s ease; }
 .vchips button.on { background: var(--porcelain); color: #1f1410; border-color: var(--porcelain); }
-.vlogo { flex: none; width: 44px; height: 44px; display: inline-grid; place-items: center; border-radius: 14px; background: rgba(255, 255, 255, .08); border: 1px solid var(--hair); color: var(--porcelain); }
-.vlogo svg { width: 24px; height: 24px; fill: currentColor; }
-.vlogo .ic { width: 22px; height: 22px; }
-.vlogo img { width: 26px; height: 26px; object-fit: contain; }
-.vlogo b { font: 600 18px var(--display); }
-.vlogo.xs { width: 24px; height: 24px; border-radius: 8px; border: 0; background: none; }
-.vlogo.xs svg { width: 18px; height: 18px; } .vlogo.xs img { width: 20px; height: 20px; } .vlogo.xs b { font-size: 14px; }
+.vlogo { flex: none; width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 10px; background: rgba(255, 255, 255, .08); border: 1px solid var(--hair); color: var(--porcelain); }
+.vlogo svg { width: 19px; height: 19px; fill: currentColor; }
+.vlogo .ic { width: 18px; height: 18px; }
+.vlogo img { width: 21px; height: 21px; object-fit: contain; }
+.vlogo b { font: 600 15px var(--display); }
+.vlogo.xs { width: 20px; height: 20px; border-radius: 8px; border: 0; background: none; }
+.vlogo.xs svg { width: 15px; height: 15px; } .vlogo.xs img { width: 16px; height: 16px; } .vlogo.xs b { font-size: 12px; }
 .vchips button.on .vlogo { color: #1f1410; }
-.vopt { width: 100%; display: flex; align-items: center; gap: 14px; min-height: 68px; padding: 12px 14px; margin-bottom: 8px; border-radius: 20px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .04); color: var(--porcelain); text-align: left; cursor: pointer; transition: background-color .35s ease, border-color .35s ease, transform .35s cubic-bezier(.2, .8, .2, 1); }
+.vopt { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 12px; margin-bottom: 6px; border-radius: 14px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .04); color: var(--porcelain); text-align: left; cursor: pointer; transition: background-color .35s ease, border-color .35s ease, transform .35s cubic-bezier(.2, .8, .2, 1); }
 .vopt:hover { background: rgba(255, 255, 255, .08); } .vopt:active { transform: scale(.985); }
 .vopt[hidden] { display: none; }
 .vopt.on { border-color: rgba(255, 255, 255, .6); background: rgba(255, 255, 255, .1); }
-.vtxt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.vtxt b { font: 600 17px/1.3 var(--font); }
-.vtxt small { color: var(--ash); font-size: 13px; line-height: 1.4; }
-.vmult { flex: none; padding: 4px 10px; border-radius: 9999px; background: rgba(255, 255, 255, .08); border: 1px solid var(--hair); font: 600 13px var(--font); font-variant-numeric: tabular-nums; }
-.vck { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--porcelain); color: #1f1410; }
-.vck .ic { width: 14px; height: 14px; }
+.vtxt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.vtxt b { font: 600 15px/1.3 var(--font); }
+.vtxt small { color: var(--ash); font-size: 12px; line-height: 1.35; }
+.vmult { flex: none; padding: 2px 8px; border-radius: 9999px; background: rgba(255, 255, 255, .08); border: 1px solid var(--hair); font: 600 12px var(--font); font-variant-numeric: tabular-nums; }
+.vck { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--porcelain); color: #1f1410; }
+.vck .ic { width: 12px; height: 12px; }
 
 /* limit sheet: grant-able reset button */
 .rst { margin-top: 14px; padding: 14px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .06); }
