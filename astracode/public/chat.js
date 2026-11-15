@@ -81,7 +81,7 @@ async function chatView(id) {
       </div>
     </aside>
     <div class="main"><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
-      <div class="ctitle"><b id="ctl">แชตใหม่</b><small id="ctok"></small></div>
+      <div class="ctitle"><b id="ctl">Chat</b><small id="ctok"></small></div>
       <button class="lim" id="lim" aria-label="ลิมิตการใช้งาน"></button>
       <a class="icon-btn sm" href="/chat" data-new aria-label="แชตใหม่">${ic('newchat')}</a>
       <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select><select id="model2" hidden>${opt(localStorage.getItem('model2'))}</select>
@@ -193,6 +193,8 @@ function openCanvas(code) {
   }
 }
 
+// คำทักหน้าแชตว่าง: สุ่มทุกครั้งที่เปิด
+const HELLO = ['วันนี้ให้ช่วยอะไรดี', 'ว่ามา เดี๋ยวปั่นให้', 'สมองพร้อม นิ้วพร้อม รอแค่โจทย์', 'เมนูวันนี้: ถามมาเลย เสิร์ฟไว', 'อยากรู้อะไร ถามได้ ไม่คิดตังค์ค่าสงสัย', 'โหมดเทพเปิดอยู่ มีอะไรให้ซัด', 'พิมพ์มาเลย เดี๋ยวคิดให้ครึ่งนึง (ล้อเล่น คิดให้หมด)', 'วันนี้จะเขียนโค้ด แปลภาษา หรือแค่คุยเล่น', 'ถามมาเลย ไม่มีคำถามโง่ มีแต่คำตอบเด้งๆ', 'ว่างอยู่พอดี มีอะไรให้ช่วยไหม', 'ใส่โจทย์ลงไป เดี๋ยวจัดให้ตามสั่ง', 'เริ่มจากตรงไหนดี เล่ามาเลย'];
 function modelUI() {
   const m = curModel(), m2 = me.models.find(x => x.id === +$('#model2').value);
   $('#mdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
@@ -231,7 +233,7 @@ async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api(
 // หัวแชต: ชื่อ + token รวมของแชตนี้
 function head() {
   const ctl = $('#ctl'); if (!ctl) return;
-  ctl.textContent = chat.compare ? 'เทียบ 2 โมเดล' : chat.chats.find(c => c.id === chat.id)?.title || 'แชตใหม่';
+  ctl.textContent = chat.compare ? 'เทียบ 2 โมเดล' : chat.chats.find(c => c.id === chat.id)?.title || 'Chat';
   const n = chat.compare ? 0 : chat.msgs.reduce((a, m) => a + (m.tin || 0) + (m.tout || 0), 0);
   $('#ctok').textContent = n ? `${kTok(n)} token` : '';
 }
@@ -397,7 +399,7 @@ function compareHTML() { // โหมดเทียบ: แต่ละรอ�
 function renderAll() {
   const box = $('#msgs'); if (!box) return;
   box.innerHTML = chat.compare ? compareHTML() : chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
-    : `<div class="empty"><div class="stat">วันนี้ให้ช่วยอะไรดี</div><div>เลือกโมเดลที่มุมซ้ายล่าง แล้วพิมพ์ได้เลย</div>
+    : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>เลือกโมเดลที่มุมซ้ายล่าง แล้วพิมพ์ได้เลย</div>
        <div class="chips">${['อธิบายให้เข้าใจง่าย', 'ช่วยเขียนโค้ด', 'สรุปข้อความ', 'แปลภาษา'].map((s, i) => `<button data-s="${i}">${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight; head(); renderRich(box);
 }
