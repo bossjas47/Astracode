@@ -1099,3 +1099,13 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .acts button[data-vote].on { color: var(--porcelain); background: rgba(255, 255, 255, .14); border-radius: 9999px; }
 .rep { padding: 12px 0; border-top: 1px solid var(--hair); display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .rep.done { opacity: .55; }
+
+/* skeleton while a page loads */
+.skel { padding-top: 24px; display: flex; flex-direction: column; gap: 14px; }
+.sk { border-radius: 14px; background: linear-gradient(90deg, rgba(255, 255, 255, .04) 25%, rgba(255, 255, 255, .1) 50%, rgba(255, 255, 255, .04) 75%) 0 0 / 200% 100%; animation: shimmer 1.6s linear infinite; }
+.sk.h { height: 36px; width: 55%; } .sk.p { height: 16px; width: 80%; } .sk.p.s { width: 50%; } .sk.b { height: 96px; }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+.pill.sale { background: rgba(255, 99, 88, .2); color: #ff9a92; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.skip { position: absolute; left: -999px; top: 8px; z-index: 100; background: var(--porcelain); color: #111; padding: 10px 16px; border-radius: 9999px; }
+.skip:focus { left: 12px; }

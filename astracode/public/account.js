@@ -51,7 +51,7 @@ PAGES.account = async function account() {
         ${tm.team.role === 'owner' ? `
           <form id="tnamef" class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input name="name" value="${esc(tm.team.name)}" maxlength="60" placeholder="ชื่อทีม" required><button class="btn out sm">Rename team</button></form>
           <label>โค้ดเชิญเข้าทีม</label>
-          <div class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input readonly value="${esc(tm.team.invite_code)}" id="tcode"><button type="button" class="btn out sm" id="cptc">Copy</button><button type="button" class="btn out sm" id="regtc">Shuffle</button></div>
+          <div class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input readonly value="${esc(tm.team.invite_code)}" id="tcode" aria-label="โค้ดเชิญเข้าทีม"><button type="button" class="btn out sm" id="cptc">Copy</button><button type="button" class="btn out sm" id="regtc">Shuffle</button></div>
           <form id="taddf" class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input name="email" type="email" placeholder="เพิ่มสมาชิกที่มีบัญชีอยู่แล้ว (อีเมล)" required><button class="btn out sm">Add member</button></form>
           <form id="tinvf" class="row" style="flex-wrap:nowrap;margin-bottom:12px"><input name="email" type="email" placeholder="ส่งคำเชิญทางอีเมล (ยังไม่มีบัญชีก็ได้)" required><button class="btn blue sm">Send invite</button></form>
           <div class="row" style="margin-bottom:14px"><a class="btn blue sm" href="/plans?team=1&plan=${tm.team.plan_id}">Renew team plan</a><a class="btn out sm" href="/plans?team=1">Upgrade package</a></div>
@@ -74,7 +74,7 @@ PAGES.account = async function account() {
         ${w.tx.map(t => `<tr><td>${when(t.created_at)}</td><td>${TX_KIND[t.kind] || esc(t.kind)}${t.ref ? ` <span class="muted">${esc(t.ref)}</span>` : ''}</td><td class="${t.amount < 0 ? 'bad' : 'ok'}">${t.amount < 0 ? '-' : '+'}฿${money(Math.abs(t.amount))}</td><td>฿${baht(t.balance_after)}</td></tr>`).join('')}</table></div></details>` : ''}</div>
 
     ${w.bonus > 0 ? `<div class="card acc-c" id="sec-ref">${h3('ชวนเพื่อน')}<p class="muted">เพื่อนสมัครผ่านลิงก์นี้ แล้วจ่ายเงินครั้งแรก รับเครดิตคนละ ฿${baht(w.bonus)}</p>
-      <div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(refLink)}" id="ref"><button class="btn out sm" id="cpref">Copy</button></div>
+      <div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(refLink)}" id="ref" aria-label="ลิงก์ชวนเพื่อน"><button class="btn out sm" id="cpref">Copy</button></div>
       <p class="muted" style="margin:8px 0 0">ชวนแล้ว ${w.referred} คน · จ่ายแล้ว ${w.referred_paid} คน</p></div>` : ''}
 
     <div class="card acc-c" id="sec-ai">${h3('ปรับ AI ให้เป็นของคุณ')}

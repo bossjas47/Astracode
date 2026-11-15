@@ -76,7 +76,7 @@ const wrap = new CM.Compartment(), ghostC = new CM.Compartment();
 const ghostExt = () => localStorage.getItem('ghost') === '0' || window.DEMO ? [] : CM.ghost((prefix, suffix) => api('/complete', { method: 'POST', body: { prefix, suffix, path: IDE.active } }).then(r => r.text));
 function extensions(path) {
   return [
-    edTheme(), CM.basicSetup, CM.oneDark, CM.lang(path), // ธีมของเราไว้ก่อน oneDark เพื่อให้ชนะ
+    edTheme(), CM.basicSetup, CM.oneDark, CM.lang(path), CM.EditorView.contentAttributes.of({ 'aria-label': 'ตัวแก้ไขโค้ด', 'aria-multiline': 'true' }), // ธีมของเราไว้ก่อน oneDark เพื่อให้ชนะ
     wrap.of(localStorage.getItem('wrap') === '0' ? [] : CM.EditorView.lineWrapping), ghostC.of(ghostExt()),
     CM.keymap.of([CM.indentWithTab, { key: 'Mod-s', preventDefault: true, run: () => { saveNow(); return true; } }]),
     CM.EditorView.updateListener.of(u => { if (u.docChanged) markDirty(path); if (u.selectionSet || u.docChanged) { const b = $('#selai'); if (b) b.hidden = u.state.selection.main.empty; } }),
@@ -936,7 +936,7 @@ async function codeView(id) {
       <button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} Run</button></header>
     <div class="ide-body">
       <aside class="ide-files">
-        <div class="dr-tabs" role="tablist"><button type="button" data-dr="ai" aria-label="AI">${ic('sparkles')}</button><button type="button" data-dr="files" class="on" aria-label="ไฟล์">${ic('folder')}</button><button type="button" data-dr="find" aria-label="ค้นหาทั้งโปรเจกต์">${ic('search')}</button><button type="button" data-dr="git" aria-label="GitHub">${ic('branch')}</button><a href="/account" aria-label="บัญชี">${ic('user')}</a></div>
+        <div class="dr-tabs"><button type="button" data-dr="ai" aria-label="AI">${ic('sparkles')}</button><button type="button" data-dr="files" class="on" aria-label="ไฟล์">${ic('folder')}</button><button type="button" data-dr="find" aria-label="ค้นหาทั้งโปรเจกต์">${ic('search')}</button><button type="button" data-dr="git" aria-label="GitHub">${ic('branch')}</button><a href="/account" aria-label="บัญชี">${ic('user')}</a></div>
         <div class="dr-head"><div><b>${esc(d.name)}</b><div class="dr-links"><a href="/code" class="dr-back">‹ Projects</a><a href="/chat" class="dr-exit">Exit Code mode</a></div></div><button type="button" class="icon-btn sm" id="edset" aria-label="ตั้งค่าตัวแก้ไข">${ic('settings')}</button></div>
         <div class="dr-find"><input id="tfilter" type="search" placeholder="ค้นหาชื่อไฟล์" aria-label="ค้นหาชื่อไฟล์" autocomplete="off"></div><div id="recent" class="recent"></div>
         <div id="tree" class="tree"></div>

@@ -188,6 +188,20 @@ async function copy(text, btn) {
   const o = btn.textContent; btn.textContent = 'คัดลอกแล้ว ✓'; setTimeout(() => btn.textContent = o, 1500);
 }
 
+// ---------- การเข้าถึง (a11y): ใส่ชื่อให้ช่องกรอก/ตัวเลือกที่ไม่มีป้าย และทำให้ตารางที่เลื่อนได้โฟกัสด้วยแป้นพิมพ์ ----------
+// ใช้ข้อความ label ที่อยู่ก่อนหน้าช่อง (หรือ placeholder) เป็นชื่อ · ทำงานกับทุกหน้า/แผ่นที่วาดทีหลังผ่าน MutationObserver
+function a11yFix(root = document) {
+  root.querySelectorAll('input:not([type=hidden]):not([aria-label]):not([aria-labelledby]), select:not([aria-label]):not([aria-labelledby]), textarea:not([aria-label]):not([aria-labelledby])').forEach(el => {
+    if (el.id && root.querySelector(`label[for="${CSS.escape(el.id)}"]`) || el.closest('label') || el.title) return;
+    let l = el.previousElementSibling; while (l && l.tagName !== 'LABEL') l = l.previousElementSibling && l.previousElementSibling.tagName === 'LABEL' ? l.previousElementSibling : null;
+    const t = (l?.textContent || el.getAttribute('placeholder') || el.name || '').trim().slice(0, 80);
+    if (t) el.setAttribute('aria-label', t);
+  });
+  root.querySelectorAll('.tw:not([tabindex])').forEach(el => { el.tabIndex = 0; el.setAttribute('role', 'region'); el.setAttribute('aria-label', 'ตาราง เลื่อนได้'); });
+}
+let a11yT = 0;
+if (typeof MutationObserver !== 'undefined') new MutationObserver(() => { clearTimeout(a11yT); a11yT = setTimeout(() => a11yFix(), 120); }).observe(document.documentElement, { childList: true, subtree: true });
+
 // ---------- ส่วนที่ใช้ซ้ำ ----------
 const navL = (h, t, i) => `<a class="l${curl().pathname === h ? ' on' : ''}" href="${h}">${ic(i)}<span>${t}</span></a>`;
 // มุมขวาบน: ล็อกอินแล้ว = วงแหวนลิมิต (กดเปิดรายละเอียด) + ยอด Wallet + ปุ่มบัญชี · ยังไม่ล็อกอิน = Log in + Get started free
@@ -918,6 +932,7 @@ function setUrl(p, replace) {
 }
 function go(p) { if (window.DEMO) { setUrl(p); boot(); } else location.href = p; }
 const PAGES = {
+  notfound: () => page(nav() + `<section class="hero" style="padding:96px 0 32px"><div class="name">404</div><h1>ไม่พบหน้านี้</h1><p>ลิงก์อาจพิมพ์ผิด หรือหน้านี้ถูกย้ายไปแล้ว</p><div class="row" style="justify-content:center;margin-top:16px"><a class="btn blue" href="/">Home</a><a class="btn out" href="/chat">Open Chat</a></div></section>${footer()}`),
   home: () => landing(),
   login: () => me ? go(qs().get('next') || '/chat') : auth(),
   plans: plansPage, terms, pricing,
@@ -956,8 +971,11 @@ function showPreview(code) {
   document.body.append(d);
 }
 const postTile = p => `<a class="tile link post" href="/blog/${encodeURIComponent(p.slug)}">${p.cover?.startsWith('/') ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : ''}<div style="font:600 19px var(--display)">${esc(p.title)}</div><div class="muted">${esc(p.summary)}</div><div class="muted" style="font-size:12px">${when(p.created_at).split(' ')[0]}</div></a>`;
+// โครงหน้าระหว่างโหลดข้อมูล (แสดงเมื่อช้ากว่า 250ms เพื่อไม่ให้กะพริบ)
+const SKEL = '<div class="wrap skel"><div class="sk h"></div><div class="sk p"></div><div class="sk p s"></div><div class="sk b"></div><div class="sk b"></div></div>';
 async function boot() {
   document.querySelector('.shade')?.remove();
+  const skT = setTimeout(() => { if (!app.querySelector('.view')) app.innerHTML = nav() + SKEL; }, 250);
   try {
     if (site.maintenance === '1' && me?.role !== 'admin' && !OPEN_IN_MAINTENANCE.includes(pageName()))
       page(nav() + `<section class="hero"><h1>ปิดปรับปรุงชั่วคราว</h1><p>เรากำลังอัปเกรดระบบ กลับมาใหม่อีกสักครู่ · <a href="/status">ดูสถานะระบบ</a></p></section>`);
@@ -965,8 +983,9 @@ async function boot() {
     banner();
   }
   catch (x) {
+    clearTimeout(skT);
     if (!me) return go('/login?next=' + encodeURIComponent(here()));
-    page(nav() + `<p class="err" style="text-align:center;margin:48px">${esc(x.message)}</p>`);
+    page(nav() + `<div style="text-align:center;margin:48px 16px"><p class="err">${esc(x.message)}</p><button class="btn out" onclick="location.reload()">Try again</button></div>`);
   }
 }
 if (window.DEMO) addEventListener('click', e => { // เดโม: ลิงก์ภายในเว็บสลับหน้าโดยไม่โหลดใหม่
@@ -978,4 +997,8 @@ addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = 
 const domReady = new Promise(r => document.readyState === 'loading' ? addEventListener('DOMContentLoaded', r) : r());
 const loadSite = async () => { site = await api('/settings/public').catch(() => ({})); };
 Promise.all([loadMe(), loadSite(), domReady]).then(boot);
-if ('serviceWorker' in navigator && !window.DEMO) navigator.serviceWorker.register('/sw.js').catch(() => {});
+if ('serviceWorker' in navigator && !window.DEMO) {
+  const had = !!navigator.serviceWorker.controller; // ครั้งแรกที่ติดตั้งไม่ต้องแจ้ง
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) toast('มีเวอร์ชันใหม่แล้ว รีเฟรชหน้าเพื่ออัปเดต', 'ok'); });
+}
