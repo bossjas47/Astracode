@@ -13,6 +13,8 @@ const html = `<!DOCTYPE html>
 <script>window.DEMO = true;</script>
 <script>${safe(r('demo/mock.js'))}</script>
 <script>${safe(r('public/theme.js'))}</script>
+<script>${safe(r('public/i18n-en.js'))}</script>
+<script>${safe(r('public/i18n.js'))}</script>
 <script>${safe(r('public/app.js'))}</script>
 <script>${safe(r('public/chat.js'))}</script>
 <script>${safe(r('public/admin.js'))}</script>

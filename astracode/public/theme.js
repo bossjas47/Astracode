@@ -7,6 +7,8 @@
     const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'light' ? '#faf7f2' : '#12100e';
     root.style.setProperty('--msgfs', ({ s: '13.5px', m: '15px', l: '17px' })[get('fsize') || 'm'] || '15px');
   };
+  window.LANG = get('lang') === 'en' ? 'en' : 'th';
+  if (window.LANG === 'en') document.write('<script src="/i18n-en.js"><\/script><script src="/i18n.js"><\/script>'); // แปลทั้งเว็บเป็นอังกฤษ (โหลดแบบซิงก์ เพื่อไม่ให้เห็นภาษาไทยแวบก่อน)
   apply(); mq.addEventListener?.('change', apply);
   window.applyTheme = apply;
   addEventListener('DOMContentLoaded', apply);

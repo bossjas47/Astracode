@@ -114,7 +114,7 @@ async function chatView(id) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return toast('เบราว์เซอร์นี้ไม่รองรับพิมพ์ด้วยเสียง ลอง Chrome หรือ Safari', 'err');
     const btn = $('#mic');
     if (chat.rec) { chat.rec.stop(); return; }
-    const rec = new SR(); rec.lang = 'th-TH'; rec.interimResults = true; chat.rec = rec;
+    const rec = new SR(); rec.lang = LOC; rec.interimResults = true; chat.rec = rec;
     const base = t.value ? t.value + ' ' : '';
     btn.classList.add('rec');
     rec.onresult = e => { t.value = base + [...e.results].map(r => r[0].transcript).join(''); t.oninput(); };

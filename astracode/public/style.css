@@ -1132,3 +1132,4 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 :root[data-theme="light"] .waitx span { background: linear-gradient(90deg, var(--ash) 0, var(--ash) 35%, #000 50%, var(--ash) 65%, var(--ash) 100%) 0 0 / 200% 100%; -webkit-background-clip: text; background-clip: text; }
 /* chat text size (S / M / L from the account page) */
 .msg .b { font-size: var(--msgfs, 15px); }
+.langseg { margin: 8px 12px; align-self: flex-start; }

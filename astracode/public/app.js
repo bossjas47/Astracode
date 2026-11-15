@@ -10,9 +10,10 @@ const toCur = thb => getCur() === 'USD' ? Number(thb || 0) / usdRate() : Number(
 const fmtPlanPrice = thb => getCur() === 'USD' ? '$' + toCur(thb).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '฿' + baht(thb);
 const curSegHTML = () => `<div class="seg" role="group" aria-label="สกุลเงิน" style="margin-left:6px"><button type="button" data-cur="THB" class="${getCur() === 'THB' ? 'on' : ''}">฿ THB</button><button type="button" data-cur="USD" class="${getCur() === 'USD' ? 'on' : ''}">$ USD</button></div>`;
 
-const baht = n => ((Math.round(Number(n || 0) * 100) / 100) || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 }); // || 0 กัน "-0"
-const num = n => Number(n || 0).toLocaleString('th-TH');
-const when = t => t ? new Date(t).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
+const LOC = window.LANG === 'en' ? 'en-GB' : 'th-TH'; // รูปแบบตัวเลขและวันที่ตามภาษา
+const baht = n => ((Math.round(Number(n || 0) * 100) / 100) || 0).toLocaleString(LOC, { maximumFractionDigits: 2 }); // || 0 กัน "-0"
+const num = n => Number(n || 0).toLocaleString(LOC);
+const when = t => t ? new Date(t).toLocaleString(LOC, { dateStyle: 'medium', timeStyle: 'short' }) : '-';
 // ระหว่างรอคำตอบที่ยังไม่มีข้อความ/ความคิด: ข้อความวนเปลี่ยนทุก 3 วินาที (โมเดลสร้างรูปใช้ชุดข้อความของการวาดภาพ)
 const WAIT = { text: ['กำลังทำอยู่นะ', 'กำลังคิด', 'กำลังไตร่ตรอง'], image: ['กำลังทำอยู่นะ', 'กำลังวาดภาพ', 'กำลังเก็บรายละเอียด'] };
 const waitHTML = m => `<span class="waitx" role="status" aria-label="กำลังตอบ">${WAIT[m?.model === 'สร้างรูป' || (typeof me !== 'undefined' && me?.models?.find(x => x.name === m?.model)?.provider === 'image') ? 'image' : 'text'].map(t => `<span>${t}...</span>`).join('')}<small class="waitslow">ใช้เวลานานกว่าปกติ · ถ้ารอนานเกินไป กดปุ่มหยุด แล้วลองใหม่หรือเปลี่ยนโมเดล</small></span>`;
@@ -209,10 +210,13 @@ const navRight = () => me
   ? `<div class="nav-r"><button type="button" class="nav-lim" aria-label="ลิมิตการใช้งาน">${limHTML(me.usage)}</button><a class="nav-wal" href="/plans?topup=1" aria-label="เติม Wallet">฿${baht(me.balance)}</a><a class="nav-av" href="/account" aria-label="บัญชี ${esc(me.email)}">${esc((me.email || '?')[0].toUpperCase())}</a></div>`
   : '<div class="nav-r"><a class="btn out sm nav-login" href="/login">Log in</a><a class="btn blue sm" href="/login">Get started free</a></div>';
 const cfToken = () => document.querySelector('[name=cf-turnstile-response]')?.value || ''; // โทเคน Turnstile ที่วิดเจ็ตใส่ในฟอร์ม
+// สลับภาษา ไทย / English (โหลดหน้าใหม่เพื่อใช้ภาษาใหม่ทั้งหน้า)
+const langSeg = () => `<div class="seg langseg" role="group" aria-label="Language" data-notr><button type="button" data-lang="th" class="${window.LANG === 'en' ? '' : 'on'}">ไทย</button><button type="button" data-lang="en" class="${window.LANG === 'en' ? 'on' : ''}">English</button></div>`;
+document.addEventListener('click', e => { const b = e.target.closest?.('[data-lang]'); if (!b || b.dataset.lang === (window.LANG || 'th')) return; try { localStorage.setItem('lang', b.dataset.lang); } catch { /* ไม่มีที่เก็บ */ } location.reload(); });
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="เมนู" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="ปิดเมนู">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'แชต', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}${me.role === 'admin' ? navL('/admin', 'หลังบ้าน', 'dash') : ''}<span class="sp"></span>${navL('/account', 'บัญชี', 'user')}`
-       : `${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}<span class="sp"></span><a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
+  ${me ? `${navL('/chat', 'แชต', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}${me.role === 'admin' ? navL('/admin', 'หลังบ้าน', 'dash') : ''}<span class="sp"></span>${langSeg()}${navL('/account', 'บัญชี', 'user')}`
+       : `${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
   if (e.target.closest?.('.nav-lim') && me) return limitSheet();
@@ -557,7 +561,7 @@ async function pricing() {
   let per = localStorage.getItem('per') || 'M';
   const unit = () => per === 'M' ? 'ต่อ 1M token' : 'ต่อ 1K token', f = v => money(toCur(per === 'M' ? v : v / 1000));
   const planName = id => d.plans.find(p => p.id === id)?.name;
-  const day = t => new Date(t).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+  const day = t => new Date(t).toLocaleDateString(LOC, { day: 'numeric', month: 'short', year: '2-digit' });
   const period = p => 'โปรโมชั่น' + (p.start && p.end ? ` ${day(p.start)} – ${day(p.end)}` : p.end ? 'ถึง ' + day(p.end) : p.start ? 'ตั้งแต่ ' + day(p.start) : '');
   const hasOff = d.models.some(m => m.official), showOff = () => hasOff && localStorage.getItem('offcmp') !== '0';
   // เทียบราคาทางการ (ตั้งเป็น USD ต่อ 1M token ในหลังบ้าน) กับราคาของเรา: ถูกกว่า/แพงกว่ากี่ %
