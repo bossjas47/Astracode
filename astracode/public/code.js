@@ -560,9 +560,28 @@ function codeTools() {
 }
 
 // ---------- AI ----------
+// บล็อกโค้ดที่ AI ตั้งใจให้เป็นไฟล์: ใช้ ```lang path=ชื่อ ตามที่สั่ง · โมเดลบางตัวไม่ทำตาม จึงรับรูปแบบใกล้เคียงด้วย (ชื่อไฟล์ใน info string หรือหัวข้อบรรทัดเหนือบล็อก เช่น ## `index.html`)
+const NOT_FILE_LANG = /^(?:bash|sh|shell|zsh|console|cmd|powershell|ps1|diff|patch|text|txt|log|output)$/i;
+const FILE_NAME = /^[\w][\w./-]{0,150}\.[A-Za-z0-9]{1,8}$/;
 function changesOf(text) {
   const map = new Map();
-  for (const m of text.matchAll(/```[^\n`]*?\bpath=([^\s`]+)[^\n]*\n([\s\S]*?)\n?```/g)) map.set(m[1], { path: m[1], content: m[2].replace(/\n?$/, '\n') });
+  text = String(text || '');
+  let last = 0;
+  for (const m of text.matchAll(/```([^\n`]*)\n([\s\S]*?)\n?```/g)) {
+    const info = m[1].trim(), before = text.slice(last, m.index); last = m.index + m[0].length;
+    let path = info.match(/\bpath=([^\s`]+)/)?.[1];
+    if (!path) {
+      const [lang, ...rest] = info.split(/\s+/);
+      if (NOT_FILE_LANG.test(lang)) continue;
+      path = rest.map(x => x.replace(/^(?:file|filename|title|name)=["']?|["']$/g, '')).find(x => FILE_NAME.test(x));
+      if (!path) { // บรรทัดไม่ว่างสุดท้ายเหนือบล็อก: หัวข้อหรือตัวหนาที่ขึ้นต้นด้วยชื่อไฟล์
+        const line = before.split('\n').map(x => x.trim()).filter(Boolean).at(-1) || '';
+        const f = line.length < 160 && line.match(/^(?:#{1,6}\s*|\*{1,2}|(?:file|ไฟล์)\s*[:：]?\s*)?[`*]*([\w][\w./-]{0,150}\.[A-Za-z0-9]{1,8})[`*]*(?=$|[\s:：(（\-–—])/i);
+        if (f && FILE_NAME.test(f[1]) && !/^https?:/i.test(f[1])) path = f[1];
+      }
+    }
+    if (path) map.set(path, { path, content: m[2].replace(/\n?$/, '\n') });
+  }
   for (const m of text.matchAll(/^DELETE path=(\S+)/gm)) map.set(m[1], { path: m[1], del: true });
   return [...map.values()];
 }
@@ -901,8 +920,8 @@ async function codeView(id) {
         <div id="cmsgs" class="msgs"></div>
         <div class="compose"><div class="err" id="ce"></div>
           <form id="cf" class="cbox"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea>
-            <div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="อัปโหลดไฟล์เข้าโปรเจกต์">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
-              <span id="cflags"></span><button class="send" id="cgo" aria-label="ส่ง">${ic('up')}</button></div></form></div></aside>
+            <div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="อัปโหลดไฟล์เข้าโปรเจกต์">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
+              <button class="send" id="cgo" aria-label="ส่ง">${ic('up')}</button></div></form></div></aside>
     </div>
     <nav class="ide-nav">${[['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['ai', 'sparkles', 'AI'], ['run', 'play', 'ผลลัพธ์']].map(([k, i, l]) => `<button data-pane-btn="${k}" class="${k === 'code' ? 'on' : ''}"><span>${ic(i)}</span>${l}</button>`).join('')}</nav></div>`;
 

@@ -90,11 +90,11 @@ async function chatView(id) {
       <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div>
         <form id="f" class="cbox"><input type="file" id="file" multiple hidden>
           <textarea id="t" rows="1" placeholder="ถามอะไรก็ได้" aria-label="ข้อความ"></textarea>
-          <div class="crow"><button type="button" class="cb" id="plus" aria-label="แนบไฟล์และเครื่องมือ">${ic('plus')}</button>${('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? `<button type="button" class="cb" id="mic" aria-label="พิมพ์ด้วยเสียง">${ic('mic')}</button>` : ''}
+          <div id="flags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="plus" aria-label="แนบไฟล์และเครื่องมือ">${ic('plus')}</button>${('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? `<button type="button" class="cb" id="mic" aria-label="พิมพ์ด้วยเสียง">${ic('mic')}</button>` : ''}
             <button type="button" class="cb pick" id="mdl" aria-haspopup="dialog"></button>
             <button type="button" class="cb pick" id="mdl2" aria-haspopup="dialog" hidden></button>
             <button type="button" class="cb pick" id="eff" aria-haspopup="dialog"></button>
-            <span id="flags"></span>
+            
             <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div></div>
     <aside class="canvas" id="canvas" hidden>
       <div class="cv-h"><b>Canvas</b><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">แสดงผล</button><button type="button" data-cv="code">โค้ด</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>

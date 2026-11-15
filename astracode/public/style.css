@@ -1080,3 +1080,12 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .side .item.on { background: rgba(255, 255, 255, .11); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), inset 3px 0 0 var(--blue); }
 .side .item.on a { color: #fff; font-weight: 500; }
 .side .item:not(.on):hover { background: rgba(255, 255, 255, .06); }
+
+/* composer: flags (web search, skills, auto-apply...) on their own line; chips never clip their arrows */
+.cflags { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 6px; }
+.cflags:empty { display: none; }
+.crow:has(> .send) > #eff, .crow:has(> .send) > #ceff, .crow:has(> .send) > #beff { flex: none; }
+.crow:has(> .send) > #mdl, .crow:has(> .send) > #mdl2, .crow:has(> .send) > #cmdl { flex: 0 1 auto; min-width: 0; }
+#mic .ic { width: 22px; height: 22px; }
+.cb.pick { overflow: hidden; }
+.cb .ic { flex: none; }

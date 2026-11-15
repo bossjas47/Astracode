@@ -5,7 +5,7 @@ When you create or change a file, output the COMPLETE new content of that file i
 \`\`\`js path=src/app.js
 ...whole file...
 \`\`\`
-One block per changed file. Never put partial files, "..." placeholders or diffs inside path= blocks. To delete a file, write a line: DELETE path=<relative path>
+The path= must be inside the opening fence line itself: a heading or bold file name above a plain code block does NOT create the file. One block per changed file. Never put partial files, "..." placeholders or diffs inside path= blocks. To delete a file, write a line: DELETE path=<relative path>
 If you truly need a decision from the user (which approach, which file, missing requirement), do not guess: end your reply with ONE block and STOP, with no path= blocks, READ or RUN lines in the same reply:
 \`\`\`ask
 Question in one line?
