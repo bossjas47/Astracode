@@ -511,7 +511,14 @@ async function pricing() {
   const planName = id => d.plans.find(p => p.id === id)?.name;
   const day = t => new Date(t).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
   const period = p => 'โปรโมชั่น' + (p.start && p.end ? ` ${day(p.start)} – ${day(p.end)}` : p.end ? 'ถึง ' + day(p.end) : p.start ? 'ตั้งแต่ ' + day(p.start) : '');
-  const cell = (m, k) => `<b>${m.promo ? `<s class="muted">${curSign()}${f(m.promo[k])}</s> ` : ''}${curSign()}${f(m[k])}</b>`;
+  const hasOff = d.models.some(m => m.official), showOff = () => hasOff && localStorage.getItem('offcmp') !== '0';
+  // เทียบราคาทางการ (ตั้งเป็น USD ต่อ 1M token ในหลังบ้าน) กับราคาของเรา: ถูกกว่า/แพงกว่ากี่ %
+  const offLine = (m, k) => {
+    const o = +m.official?.[k]; if (!showOff() || !(o > 0) || !(m[k] > 0)) return '';
+    const thb = o * usdRate(), pct = Math.round((1 - m[k] / thb) * 100);
+    return `<small class="oc">ทางการ ${curSign()}${f(thb)} · <span class="${pct >= 0 ? 'ok' : 'bad'}">${pct === 0 ? 'เท่ากัน' : pct > 0 ? 'ถูกกว่า ' + pct + '%' : 'แพงกว่า ' + -pct + '%'}</span></small>`;
+  };
+  const cell = (m, k) => `<span class="pc-v"><b>${m.promo ? `<s class="muted">${curSign()}${f(m.promo[k])}</s> ` : ''}${curSign()}${f(m[k])}</b>${offLine(m, k)}</span>`;
   const card = m => `<div class="pc ${m.promo ? 'promo' : ''}"><div class="pc-h"><b>${esc(m.name)}</b><span class="pc-tags">${m.promo ? `<span class="pill sale">ลด ${m.promo.pct}%</span>` : ''}${m.vision ? '<span class="pill">อ่านรูป</span>' : ''}${m.effort ? '<span class="pill">Thinking</span>' : ''}</span></div>
     ${m.promo ? `<p class="sale-t">${period(m.promo)}</p>` : ''}
     ${m.note ? `<p class="muted">${esc(m.note)}</p>` : ''}
@@ -525,7 +532,7 @@ async function pricing() {
   const draw = () => {
     page(nav() + `<div class="wrap"><section class="hero" style="padding:56px 0 24px"><div class="name">AstraCode</div><h1>ราคาต่อ token</h1>
       <p>ราคาของแต่ละโมเดล เป็น${getCur() === 'USD' ? 'ดอลลาร์ ($)' : 'บาท (฿)'} ${unit()} โมเดลที่แพงกว่าจะใช้ลิมิตแพลนเร็วกว่า</p>
-      <div class="row" style="justify-content:center"><div class="seg" style="margin:0" role="group" aria-label="หน่วย"><button data-per="M" class="${per === 'M' ? 'on' : ''}">ต่อ 1M token</button><button data-per="K" class="${per === 'K' ? 'on' : ''}">ต่อ 1K token</button></div>${curSegHTML()}</div></section>
+      <div class="row" style="justify-content:center">${hasOff ? `<div class="seg" style="margin:0" role="group" aria-label="เทียบราคาทางการ"><button data-off="1" class="${showOff() ? 'on' : ''}">เทียบราคาทางการ</button><button data-off="0" class="${showOff() ? '' : 'on'}">ไม่เทียบ</button></div>` : ''}<div class="seg" style="margin:0" role="group" aria-label="หน่วย"><button data-per="M" class="${per === 'M' ? 'on' : ''}">ต่อ 1M token</button><button data-per="K" class="${per === 'K' ? 'on' : ''}">ต่อ 1K token</button></div>${curSegHTML()}</div></section>
       <div class="pgrid">${d.models.map(card).join('') || '<p class="muted">ยังไม่มีโมเดล</p>'}</div>
       ${d.note ? `<p class="muted" style="text-align:center;margin:20px auto;max-width:640px;white-space:pre-wrap">${esc(d.note)}</p>` : ''}
       <div class="band"><h2>คำนวณค่าใช้จ่าย</h2><div class="calc">
@@ -544,6 +551,7 @@ async function pricing() {
       ].map(([q, a]) => `<details class="faq"><summary>${q}</summary><p>${a}</p></details>`).join('')}</div>
       ${footer()}</div>`);
     app.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { per = b.dataset.per; localStorage.setItem('per', per); draw(); });
+    app.querySelectorAll('[data-off]').forEach(b => b.onclick = () => { localStorage.setItem('offcmp', b.dataset.off); draw(); });
     app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); draw(); });
     const calc = () => {
       const m = d.models.find(x => x.id === +$('#cm').value); if (!m) return;

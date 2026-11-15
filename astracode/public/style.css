@@ -942,3 +942,8 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .rst-e { font: 400 11px var(--font); opacity: .8; }
 .rst-h2 { margin-top: 12px; } .rst-h2 summary { cursor: pointer; color: var(--ash); font-size: 13px; min-height: 36px; display: flex; align-items: center; }
 .rst-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--hair); font-size: 13px; } .rst-row small { color: var(--ash); flex: none; }
+
+/* pricing: official vs ours */
+.pc-v { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.pc-v .oc { font: 400 12px var(--font); color: var(--ash); white-space: nowrap; }
+.pc-v .oc .ok { color: var(--green); } .pc-v .oc .bad { color: var(--red); }

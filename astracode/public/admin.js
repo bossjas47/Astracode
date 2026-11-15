@@ -342,6 +342,19 @@ const ADMIN = {
       };
     };
     draw(); box.prepend(card);
+    // ราคาทางการ (USD ต่อ 1M token) ไว้เทียบในหน้าราคา: ว่าง = ไม่เทียบโมเดลนั้น
+    let off = {}; try { off = JSON.parse(s.official_prices || '{}') || {}; } catch { /* ค่าเสีย เริ่มใหม่ */ }
+    const oc = document.createElement('details'); oc.className = 'ed'; oc.style.marginBottom = '16px';
+    oc.innerHTML = `<summary><b>${ic('tag')} ราคาทางการ (เทียบในหน้าราคา)</b><span class="muted">ใส่ราคาของเจ้าของโมเดลเป็นดอลลาร์ต่อ 1M token ว่าง = ไม่เทียบ</span></summary>
+      <form id="off" class="ed-f"><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>Input $</th><th>Output $</th><th>Cache read $</th><th>Cache write $</th></tr>
+      ${ms.map(m => `<tr><td>${esc(m.name)}</td>${['in', 'out', 'cache', 'write'].map(k => `<td><input type="number" step="any" min="0" data-m="${m.id}" data-k="${k === 'write' ? 'cache_write' : k}" value="${off[m.id]?.[k === 'write' ? 'cache_write' : k] ?? ''}" style="min-width:76px"></td>`).join('')}</tr>`).join('')}</table></div>
+      <div class="row" style="margin-top:12px"><button class="btn blue sm">บันทึก</button><span class="ok sv"></span></div></form>`;
+    oc.querySelector('#off').onsubmit = async e => {
+      e.preventDefault(); const out = {};
+      oc.querySelectorAll('input[data-m]').forEach(i => { const v = parseFloat(i.value); if (v > 0) (out[i.dataset.m] ||= {})[i.dataset.k] = v; });
+      try { await api('/admin/settings', { method: 'PUT', body: { official_prices: JSON.stringify(out) } }); oc.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; } catch (x) { toast(x.message, 'bad'); }
+    };
+    card.after(oc);
   },
 
   async settings(box) {

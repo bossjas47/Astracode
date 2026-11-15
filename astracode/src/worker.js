@@ -1218,7 +1218,7 @@ const TABLES = {
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
-  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos'];
+  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices'];
 
 async function admin(req, env, path, url, me) {
   const M = req.method, DB = env.DB;
@@ -1594,6 +1594,7 @@ async function route(req, env, ctx, url, path, M) {
           env.DB.prepare('SELECT id,name,price,limit_week FROM plans WHERE active=1 ORDER BY sort').all(),
           env.DB.prepare('SELECT * FROM plan_models').all(),
         ]);
+        let official = {}; try { official = JSON.parse(await getSetting(env, 'official_prices') || '{}') || {}; } catch { /* ค่าเสีย ไม่แสดงเทียบ */ }
         return json({
           note: await getSetting(env, 'price_note'),
           plans: ps.results, // limit_week = งบต้นทุนต่อสัปดาห์ (บาท) ใช้คำนวณ % ในเครื่องคิดเลข
@@ -1601,7 +1602,7 @@ async function route(req, env, ctx, url, path, M) {
             const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
             return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, note: m.note,
               in: p.in, out: p.out, cache: p.cache, cache_write: p.write, lw: { in: m.cost_in, out: m.cost_out, cache: m.cost_cache }, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
-              plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
+              official: official[m.id] || null, plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
           })),
         });
       }
