@@ -1069,3 +1069,14 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .iv-meta b { word-break: break-all; }
 .ide-main.isimg .mkeys, .ide-main.isimg .ide-tools, .ide-main.isimg .cmdbar { display: none; }
 .imgview { place-items: start center; }
+
+/* waiting text: cycles through phrases with a soft shimmer instead of bouncing dots */
+.waitx { display: inline-grid; padding: 8px 0; font-size: 14.5px; }
+.waitx span { grid-area: 1 / 1; opacity: 0; white-space: nowrap; background: linear-gradient(90deg, var(--ash) 0, var(--ash) 35%, #fff 50%, var(--ash) 65%, var(--ash) 100%) 0 0 / 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; animation: waitFade 9s infinite, shimmer 1.8s linear infinite; }
+.waitx span:nth-child(2) { animation-delay: 3s, 0s; } .waitx span:nth-child(3) { animation-delay: 6s, 0s; }
+@keyframes waitFade { 0% { opacity: 0; transform: translateY(5px); } 5%, 30% { opacity: 1; transform: none; } 35%, 100% { opacity: 0; transform: translateY(-5px); } }
+@media (prefers-reduced-motion: reduce) { .waitx span { animation: none; } .waitx span:first-child { opacity: 1; background: none; -webkit-text-fill-color: var(--ash); color: var(--ash); } }
+/* current chat in the sidebar */
+.side .item.on { background: rgba(255, 255, 255, .11); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), inset 3px 0 0 var(--blue); }
+.side .item.on a { color: #fff; font-weight: 500; }
+.side .item:not(.on):hover { background: rgba(255, 255, 255, .06); }

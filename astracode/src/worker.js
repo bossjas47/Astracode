@@ -261,7 +261,7 @@ const creditsOf = async (env, uid) => (await creditList(env, uid)).reduce((a, x)
 // ต้นทุนโดยประมาณของ 1 ข้อความทั่วไป (context 20K อยู่ใน cache, ส่งใหม่ 1K, ตอบ 1K) ใช้ประมาณจำนวนข้อความต่อสัปดาห์
 const msgCost = m => (20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6;
 const allowedModels = (env, planId) => env.DB.prepare(
-  'SELECT m.id,m.name,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 ORDER BY m.sort').bind(planId).all().then(r => r.results);
+  'SELECT m.id,m.name,m.provider,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 ORDER BY m.sort').bind(planId).all().then(r => r.results);
 
 // ---------- AI providers ----------
 // คืน async generator: {t:text} ระหว่างทาง, {usage:{fresh,read,write,out}} ตอนจบ
