@@ -250,6 +250,17 @@ async function landing() {
   const plBtn = $('a[href="#plans"]'); if (plBtn) plBtn.onclick = e => { e.preventDefault(); $('#plans')?.scrollIntoView({ behavior: 'smooth' }); };
   app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); landing(); });
   bindInstall();
+  homeFx();
+}
+
+// ลูกเล่นหน้าแรก: แสงตามเมาส์ที่ hero และขอบการ์ด, เลื่อนแล้วค่อยๆ โผล่ (ปิดเองเมื่อผู้ใช้ตั้งลดการเคลื่อนไหว)
+function homeFx() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const hero = $('.hero');
+  hero?.addEventListener('pointermove', e => { const r = hero.getBoundingClientRect(); hero.style.setProperty('--hx', e.clientX - r.left + 'px'); hero.style.setProperty('--hy', e.clientY - r.top + 'px'); });
+  app.addEventListener('pointermove', e => { const t = e.target.closest?.('.tile'); if (!t) return; const r = t.getBoundingClientRect(); t.style.setProperty('--mx', e.clientX - r.left + 'px'); t.style.setProperty('--my', e.clientY - r.top + 'px'); });
+  const io = new IntersectionObserver(es => es.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target); } }), { threshold: .12 });
+  app.querySelectorAll('.wrap > .band').forEach(b => { b.classList.add('rv'); io.observe(b); });
 }
 
 // ---------- เข้าสู่ระบบ / สมัคร / ลืมรหัส / 2FA ----------
