@@ -58,7 +58,7 @@ async function codeHome() {
 // ---------- ตัวแก้โค้ด ----------
 const edTheme = () => CM.EditorView.theme({
   '&': { height: '100%', backgroundColor: '#0d0b09' },
-  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '13px', lineHeight: '1.5' },
+  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 13px)', lineHeight: '1.5' },
   '.cm-gutters': { backgroundColor: '#14110f', border: 'none', color: '#a39a8d' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: '#ffffff0d' },
   '.cm-panels': { backgroundColor: '#221e1a', color: '#f4efe8' },
@@ -100,13 +100,22 @@ async function saveNow() {
 }
 function setStatus(t, bad) { IDE.status = t; const s = $('#ide-status'); if (s) { s.textContent = t; s.classList.toggle('bad', !!bad); } }
 
+// ไฟล์ที่เปิดล่าสุด (เรียงใหม่สุดก่อน เก็บต่อโปรเจกต์ในเครื่อง) แสดงเป็นชิปบนต้นไม้ไฟล์
+function drawRecent() {
+  const el = $('#recent'); if (!el) return;
+  const list = (IDE.recent || []).filter(has).slice(0, 5);
+  el.innerHTML = (IDE.filter || '').trim() || list.length < 2 ? '' : `<span class="muted">เปิดล่าสุด</span>${list.map(p => `<button type="button" data-file="${esc(p)}" class="${p === IDE.active ? 'on' : ''}">${esc(p.split('/').pop())}</button>`).join('')}`;
+  el.querySelectorAll('[data-file]').forEach(b => b.onclick = () => openFile(b.dataset.file));
+}
 function openFile(path) {
   if (!has(path)) return;
+  IDE.recent = [path, ...(IDE.recent || []).filter(x => x !== path)].slice(0, 8);
+  try { localStorage.setItem('recent:' + IDE.pid, JSON.stringify(IDE.recent)); } catch { /* ไม่มีที่เก็บ ไม่เป็นไร */ }
   if (IDE.active && IDE.view) IDE.states.set(IDE.active, IDE.view.state);
   IDE.view.setState(stateFor(path));
   IDE.active = path;
   if (!IDE.open.includes(path)) IDE.open.push(path);
-  drawTabs(); drawTree(); drawCtx(); setPane('code'); drawer(false);
+  drawTabs(); drawTree(); drawRecent(); drawCtx(); setPane('code'); drawer(false);
 }
 function closeTab(path) {
   IDE.open = IDE.open.filter(p => p !== path);
@@ -124,14 +133,15 @@ function drawTabs() {
 // ---------- ต้นไม้ไฟล์ ----------
 function drawTree() {
   const root = {};
-  for (const p of [...IDE.files.keys()].sort()) { let n = root; const parts = p.split('/'); parts.forEach((x, i) => { if (i === parts.length - 1) (n.__f ||= []).push(p); else n = n[x] ||= {}; }); }
+  const q = (IDE.filter || '').trim().toLowerCase();
+  for (const p of [...IDE.files.keys()].sort().filter(x => !q || x.toLowerCase().includes(q))) { let n = root; const parts = p.split('/'); parts.forEach((x, i) => { if (i === parts.length - 1) (n.__f ||= []).push(p); else n = n[x] ||= {}; }); }
   const row = (depth, inner) => `<div class="trow" style="padding-left:${8 + depth * 14}px">${inner}</div>`;
   const walk = (n, prefix, depth) => Object.keys(n).filter(k => k !== '__f').sort().map(d => {
-    const full = prefix + d + '/', closed = IDE.closed.has(full);
+    const full = prefix + d + '/', closed = !q && IDE.closed.has(full);
     return row(depth, `<button class="tname" data-fold="${esc(full)}">${ic(closed ? 'right' : 'down', 'sm')}${ic('folder')} ${esc(d)}</button><button class="tmore" data-dmenu="${esc(full)}" aria-label="ตัวเลือกโฟลเดอร์">${ic('more')}</button>`)
       + (closed ? '' : walk(n[d], full, depth + 1));
   }).join('') + (n.__f || []).map(p => row(depth, `<button class="tname ${p === IDE.active ? 'on' : ''}" data-file="${esc(p)}">${icon(p)} ${esc(p.split('/').pop())}</button><button class="tmore" data-fmenu="${esc(p)}" aria-label="ตัวเลือกไฟล์">${ic('more')}</button>`)).join('');
-  $('#tree').innerHTML = walk(root, '', 0) || '<p class="muted" style="padding:12px">ยังไม่มีไฟล์</p>';
+  $('#tree').innerHTML = walk(root, '', 0) || `<p class="muted" style="padding:12px">${q ? 'ไม่พบไฟล์ที่ตรงกับคำค้น' : 'ยังไม่มีไฟล์'}</p>`;
   $('#tree').querySelectorAll('[data-file]').forEach(b => b.onclick = () => openFile(b.dataset.file));
   $('#tree').querySelectorAll('[data-fold]').forEach(b => b.onclick = () => { const f = b.dataset.fold; IDE.closed.has(f) ? IDE.closed.delete(f) : IDE.closed.add(f); drawTree(); });
   $('#tree').querySelectorAll('[data-fmenu]').forEach(b => b.onclick = () => menu(b, b.dataset.fmenu, false));
@@ -330,7 +340,33 @@ function runTab(t) {
 function showRun(on) { $('.ide').dataset.run = on ? '1' : ''; if (on && matchMedia('(max-width: 999px)').matches) setPane('run'); }
 // ลิ้นชักไฟล์ (มือถือ): ปุ่มเมนูมุมซ้ายบน / แท็บ "ไฟล์" ด้านล่าง
 function drawer(on) { const ide = $('.ide'); if (!ide) return; ide.dataset.drawer = on ? '1' : ''; $('#burger')?.setAttribute('aria-expanded', !!on); }
+// รูปแบบ AI บนมือถือ (ผู้ใช้เลือกในตั้งค่า): page = หน้าแยก · sheet = แผ่นลอยทับโค้ด · bar = แถบสั่งเร็วใต้โค้ด + แผ่นลอย · split = แบ่งจอบน-ล่าง
+const AI_MODES = [['page', 'หน้าแยก', 'สลับไปหน้า AI เต็มจอ (แบบเดิม)'], ['sheet', 'แผ่นลอยทับโค้ด', 'ปุ่ม AI เปิดแผ่นครึ่งจอ ยังเห็นโค้ดด้านบน'], ['bar', 'แถบสั่งเร็วใต้โค้ด', 'พิมพ์คำสั่งใต้โค้ด ผลตอบกลับเปิดในแผ่นครึ่งจอ'], ['split', 'แบ่งจอ บน-ล่าง', 'โค้ดอยู่บน AI อยู่ล่างตลอดเวลา']];
+const aiMode = () => { const m = localStorage.getItem('aimode'); return AI_MODES.some(x => x[0] === m) ? m : 'page'; };
+const isPhone = () => matchMedia('(max-width: 999px)').matches;
+function openAI(on = true) {
+  const ide = $('.ide'); if (!ide) return; const m = aiMode();
+  if (!isPhone() || m === 'page') return setPane(on ? 'ai' : 'code');
+  if (m === 'split') { setPane('code'); if (on) $('#ct')?.focus(); return; }
+  ide.dataset.ai = on ? '1' : ''; if (on) setTimeout(() => $('#ct')?.focus(), 320);
+}
+function applyEditorPrefs() {
+  document.documentElement.style.setProperty('--cfs', (+localStorage.getItem('cfont') || 13) + 'px');
+  const ide = $('.ide'); if (ide) { ide.dataset.aimode = aiMode(); ide.dataset.ai = ''; }
+  IDE.view?.requestMeasure();
+}
+function editorSettings() {
+  const fs = +localStorage.getItem('cfont') || 13, mode = aiMode(), wrapOn = localStorage.getItem('wrap') !== '0';
+  sheet('ตั้งค่าตัวแก้ไข', `<label for="fsr">ขนาดตัวอักษรในตัวแก้ไข <b id="fsv">${fs}px</b></label><input type="range" id="fsr" min="11" max="18" step="1" value="${fs}" style="padding:0;min-height:32px">
+    <label class="tg" style="margin-top:12px"><input type="checkbox" id="wrp" ${wrapOn ? 'checked' : ''}><span><b>ตัดบรรทัดยาว</b><small class="muted">ข้อความที่ยาวเกินจอจะขึ้นบรรทัดใหม่</small></span></label>
+    <label style="margin:16px 0 6px">รูปแบบ AI บนมือถือ</label>${AI_MODES.map(([v, t, d]) => optHTML(v, t, d, v === mode)).join('')}`, (d, close) => {
+    d.querySelector('#fsr').oninput = e => { localStorage.setItem('cfont', e.target.value); d.querySelector('#fsv').textContent = e.target.value + 'px'; applyEditorPrefs(); };
+    d.querySelector('#wrp').onchange = e => { if (e.target.checked !== (localStorage.getItem('wrap') !== '0')) $('#wrapb').click(); };
+    d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = () => { localStorage.setItem('aimode', b.dataset.v); applyEditorPrefs(); close(); toast('เปลี่ยนรูปแบบ AI แล้ว', 'ok'); });
+  });
+}
 function setPane(p) {
+  if (p === 'ai' && isPhone() && aiMode() !== 'page') { openAI(); p = 'code'; }
   IDE.pane = p; const ide = $('.ide'); if (!ide) return;
   ide.dataset.pane = p;
   document.querySelectorAll('[data-pane-btn]').forEach(b => b.classList.toggle('on', b.dataset.paneBtn === p));
@@ -756,7 +792,7 @@ async function codeView(id) {
   const d = await api('/projects/' + id);
   IDE.node?.f.remove(); IDE.node = null; // เทอร์มินัลของโปรเจกต์ก่อน
   Object.assign(IDE, { pid: d.id, name: d.name, instructions: d.instructions || '', gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,
-    dirty: new Set(), ctx: new Set(), autoActive: true, msgs: [], chatId: null, busy: false, logs: [], frame: null });
+    dirty: new Set(), ctx: new Set(), filter: '', recent: (() => { try { return JSON.parse(localStorage.getItem('recent:' + d.id) || '[]'); } catch { return []; } })(), autoActive: true, msgs: [], chatId: null, busy: false, logs: [], frame: null });
   if (IDE.worker) { IDE.worker.terminate(); IDE.worker = null; }
   const saved = localStorage.getItem('model');
   app.innerHTML = `<div class="ide view" data-pane="code">
@@ -765,7 +801,8 @@ async function codeView(id) {
     <div class="ide-body">
       <aside class="ide-files">
         <div class="dr-tabs" role="tablist"><button type="button" data-dr="ai" aria-label="AI">${ic('sparkles')}</button><button type="button" data-dr="files" class="on" aria-label="ไฟล์">${ic('folder')}</button><button type="button" data-dr="find" aria-label="ค้นหาทั้งโปรเจกต์">${ic('search')}</button><button type="button" data-dr="git" aria-label="GitHub">${ic('branch')}</button><a href="/account" aria-label="บัญชี">${ic('user')}</a></div>
-        <div class="dr-head"><a href="/code" class="dr-back">‹ โปรเจกต์ทั้งหมด</a><b>${esc(d.name)}</b></div>
+        <div class="dr-head"><div><a href="/code" class="dr-back">‹ โปรเจกต์ทั้งหมด</a><b>${esc(d.name)}</b></div><button type="button" class="icon-btn sm" id="edset" aria-label="ตั้งค่าตัวแก้ไข">${ic('settings')}</button></div>
+        <div class="dr-find"><input id="tfilter" type="search" placeholder="ค้นหาชื่อไฟล์" aria-label="ค้นหาชื่อไฟล์" autocomplete="off"></div><div id="recent" class="recent"></div>
         <div id="tree" class="tree"></div>
         <div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">Upload</button>
         <button class="btn out sm" id="zin">Import zip</button><button class="btn out sm" id="zout">Export zip</button>
@@ -776,11 +813,13 @@ async function codeView(id) {
           <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">ประวัติ</button><button id="save" aria-label="บันทึก">Save</button></div>
         <div id="editor" class="ide-editor"></div>
         <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
+        <form class="cmdbar" id="cmdbar"><input id="cmdi" placeholder="สั่ง AI แก้ไฟล์นี้ เช่น เพิ่มปุ่มรีเซ็ต" aria-label="สั่ง AI" autocomplete="off"><button aria-label="ส่ง">${ic('up')}</button></form>
         <div class="mkeys" id="mkeys">${[['Tab', '  '], ['{ }', '{}', 1], ['( )', '()', 1], ['[ ]', '[]', 1], ['=>', ' => '], [';', ';'], ['" "', '""', 1], ["' '", "''", 1], ['< >', '<>', 1], ['/', '/'], ['=', ' = ']].map(([l, v, o]) => `<button type="button" data-ins="${esc(v)}" data-off="${o || 0}">${esc(l)}</button>`).join('')}</div>
         <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">ผลลัพธ์</button><button data-rtab="con">คอนโซล</button><button data-rtab="term">เทอร์มินัล</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
           <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ">${ic('eye', 'sm')} เต็มจอ</button><button id="stop">${ic('stop')} หยุด</button><button id="clr">ล้าง</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
           <div id="out" class="run-out"><p class="muted" style="padding:16px">กด รัน เพื่อดูผล</p></div><div id="console" class="console" hidden></div><div id="term" class="term" hidden><pre id="term-o"></pre><form id="term-f"><span>$</span><input id="term-i" placeholder="npm install lodash / npm test / node app.js" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="คำสั่ง"></form></div></div></section>
       <aside class="ide-ai"><div class="ai-h"><b class="ai-t">${ic('sparkles')} AI</b><span class="sp"></span><button class="lim" id="clim" aria-label="ลิมิตการใช้งาน"></button><button class="icon-btn sm" id="chist" aria-label="ประวัติแชตโปรเจกต์" title="ประวัติแชต">${ic('more')}</button><button class="icon-btn sm" id="cnew" aria-label="แชตใหม่">${ic('newchat')}</button>
+        <button type="button" class="icon-btn sm" id="aiclose" aria-label="ปิดแผง AI">${ic('x')}</button>
         <select id="cmodel" hidden>${me.models.map(m => `<option value="${m.id}" ${String(m.id) === saved ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
         <select id="ceffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></div>
         <div id="cmsgs" class="msgs"></div>
@@ -794,7 +833,9 @@ async function codeView(id) {
   IDE.view = new CM.EditorView({ parent: $('#editor'), state: CM.EditorState.create({ doc: '' }) });
   const first = has('index.html') ? 'index.html' : [...IDE.files.keys()][0];
   if (first) openFile(first); else refresh();
-  setStatus('บันทึกแล้ว ✓');
+  setStatus('บันทึกแล้ว ✓'); applyEditorPrefs();
+  $('#tfilter').oninput = e => { IDE.filter = e.target.value; drawTree(); drawRecent(); }; $('#edset').onclick = editorSettings; $('#aiclose').onclick = () => openAI(false);
+  $('#cmdbar').onsubmit = e => { e.preventDefault(); const i = $('#cmdi'), v = i.value.trim(); if (!v || IDE.busy) return; $('#ct').value = v; $('#ct').dispatchEvent(new Event('input')); i.value = ''; openAI(true); codeSend(); };
 
   $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); };
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
@@ -802,9 +843,9 @@ async function codeView(id) {
   $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
     else if (f === 'mc') { IDE.mcps = IDE.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('cmcps', JSON.stringify(IDE.mcps)); cUI(); } else if (f) { setOpt(f, false); cUI(); } };
   $('#clim').innerHTML = limHTML(me.usage); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();
-  document.querySelectorAll('[data-pane-btn]').forEach(b => b.onclick = () => { if (b.dataset.paneBtn === 'files') return drawer(true); if (b.dataset.paneBtn === 'run') showRun(true); setPane(b.dataset.paneBtn); });
+  document.querySelectorAll('[data-pane-btn]').forEach(b => b.onclick = () => { if (b.dataset.paneBtn === 'files') return drawer(true); if (b.dataset.paneBtn === 'run') showRun(true); if (b.dataset.paneBtn === 'ai') return openAI(!(aiMode() !== 'page' && isPhone() && $('.ide').dataset.ai)); setPane(b.dataset.paneBtn); });
   $('#burger').onclick = () => drawer(!$('.ide').dataset.drawer); $('#idescrim').onclick = () => drawer(false);
-  document.querySelectorAll('[data-dr]').forEach(b => b.onclick = () => { const k = b.dataset.dr; if (k === 'files') return; drawer(false); if (k === 'ai') setPane('ai'); else if (k === 'find') $('#gfind').click(); else if (k === 'git') $('#git').click(); });
+  document.querySelectorAll('[data-dr]').forEach(b => b.onclick = () => { const k = b.dataset.dr; if (k === 'files') return; drawer(false); if (k === 'ai') openAI(true); else if (k === 'find') $('#gfind').click(); else if (k === 'git') $('#git').click(); });
   $('.ide-files').addEventListener('click', e => { if (e.target.closest('.dr-back, .dr-tabs a')) drawer(false); });
   $('#term-f').onsubmit = async e => { e.preventDefault(); const i = $('#term-i'), cmd = i.value.trim(); if (!cmd || IDE.termBusy) return; i.value = ''; IDE.termBusy = true; try { await nodeRun(cmd); } finally { IDE.termBusy = false; i.focus(); } };
   $('#run').onclick = run; $('#git').onclick = () => gitPanel(); $('#stop').onclick = stopRun; $('#clr').onclick = () => { IDE.logs = []; $('#console').innerHTML = ''; };

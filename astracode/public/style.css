@@ -1010,7 +1010,8 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
   .dr-tabs button, .dr-tabs a { width: 48px; height: 44px; display: inline-grid; place-items: center; border: 0; border-radius: 12px; background: none; color: var(--ash); cursor: pointer; }
   .dr-tabs .ic { width: 22px; height: 22px; }
   .dr-tabs button.on { color: var(--porcelain); background: rgba(255, 255, 255, .12); box-shadow: inset 0 -2px 0 var(--blue); }
-  .dr-head { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 8px; }
+  .dr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 12px 8px 16px; }
+  .dr-head > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .dr-head b { font: 600 17px var(--display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dr-back { font-size: 12.5px; color: var(--ash); }
   .ide-files .ftools { order: 0; border-bottom: 0; border-top: 1px solid var(--hair); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
@@ -1018,4 +1019,26 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
   .ide .ide-files .tree { padding: 6px 10px 12px; }
   .ide-files .tname { min-height: 44px; }
   .ide-nav button[data-pane-btn="files"] { display: flex; }
+}
+
+.dr-find { padding: 8px 10px 4px; flex: none; }
+.dr-find input { width: 100%; min-height: 38px; font-size: 14px; border-radius: 9999px; padding: 0 14px; }
+.recent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 12px 2px; flex: none; }
+.recent:empty { display: none; }
+.recent .muted { font-size: 12px; margin-right: 2px; }
+.recent button { min-height: 28px; padding: 0 10px; border-radius: 9999px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .05); color: var(--porcelain); font: 400 12px var(--font); cursor: pointer; }
+.recent button.on { border-color: var(--blue); color: var(--link); }
+.cmdbar, #aiclose { display: none; }
+@media (max-width: 999px) {
+  /* AI modes: sheet / bar float over the code, split docks it below */
+  .ide[data-aimode="sheet"] .ide-ai, .ide[data-aimode="bar"] .ide-ai { display: flex; position: fixed; left: 0; right: 0; bottom: calc(54px + env(safe-area-inset-bottom)); height: 54vh; z-index: 50; border: 0; border-top: 1px solid var(--hair); border-radius: 22px 22px 0 0; transform: translateY(115%); transition: transform .3s ease; background-color: rgba(26, 23, 20, .96); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: 0 -10px 40px rgba(0, 0, 0, .5); }
+  .ide[data-ai="1"][data-aimode="sheet"] .ide-ai, .ide[data-ai="1"][data-aimode="bar"] .ide-ai { transform: none; }
+  .ide[data-aimode="sheet"] #aiclose, .ide[data-aimode="bar"] #aiclose { display: inline-grid; }
+  .ide[data-aimode="bar"][data-pane="code"] .cmdbar { display: flex; }
+  .ide[data-aimode="split"] .ide-body { grid-template-rows: minmax(0, 1fr) minmax(0, 46%); }
+  .ide[data-aimode="split"][data-pane="code"] .ide-ai { display: flex; border: 0; border-top: 1px solid var(--hair); }
+  .cmdbar { flex: none; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--hair); background: var(--graphite); }
+  .cmdbar input { flex: 1; min-width: 0; min-height: 40px; border-radius: 9999px; padding: 0 14px; font-size: 14px; }
+  .cmdbar button { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .24); color: #fff; display: inline-grid; place-items: center; cursor: pointer; }
+  .cmdbar button .ic { width: 18px; height: 18px; }
 }
