@@ -68,12 +68,25 @@ function blocks(text) {
   return out;
 }
 const blocks_ = lines => blocks(lines.join('\n').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'"));
+function hlCode(raw) {
+  const re = /(\/\*[\s\S]*?\*\/|\/\/[^\n]*|#[^\n]*)|('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`)|\b(const|let|var|function|return|if|else|elif|for|while|switch|case|break|continue|import|export|from|default|async|await|def|class|try|catch|finally|throw|new|typeof|in|of|as|pass|raise|with|yield|true|false|null|undefined|None|True|False|SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|JOIN|ON|ORDER|BY|LIMIT)\b|\b(\d+(?:\.\d+)?)\b/g;
+  let out = '', last = 0;
+  for (const m of String(raw).matchAll(re)) {
+    if (m.index > last) out += esc(raw.slice(last, m.index));
+    const cls = m[1] ? 'tk-c' : m[2] ? 'tk-s' : m[3] ? 'tk-k' : 'tk-n';
+    out += `<span class="${cls}">${esc(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + esc(raw.slice(last));
+}
 function md(s) {
   return String(s).split(/```/).map((part, i) => {
     if (!(i % 2)) return blocks(part);
     const nl = part.indexOf('\n'), info = nl >= 0 ? part.slice(0, nl).trim() : '', lang = info.split(/\s/)[0];
     const file = info.match(/\bfile=(\S+)/)?.[1]; // AI ทำเป็นไฟล์ให้ดาวน์โหลด: ```csv file=data.csv
-    return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} แสดงผล</button>` : ''}<button class="cp-code">คัดลอก</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' ดาวน์โหลด' : ''}</button></div><pre><code>${esc(nl >= 0 ? part.slice(nl + 1) : part)}</code></pre></div>`;
+    const raw = nl >= 0 ? part.slice(nl + 1) : part;
+    const body = /^(json|csv|txt|text|md|markdown)$/i.test(lang) || file ? esc(raw) : hlCode(raw);
+    return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} แสดงผล</button>` : ''}<button class="cp-code">คัดลอก</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' ดาวน์โหลด' : ''}</button></div><pre><code>${body}</code></pre></div>`;
   }).join('');
 }
 // แยกบล็อกคำถามของ AI ให้ใช้ร่วมกันทั้งหน้า Chat และหน้า Code
@@ -186,7 +199,16 @@ async function landing() {
   page(nav() + `<section class="hero"><div class="name">AstraCode</div>
     <h1>AI ทุกตัว<br>ในมือถือเครื่องเดียว</h1>
     <p>ChatGPT, Claude, Gemini, DeepSeek และ Kimi ในเว็บเดียว เปิดบนมือถือได้ทันที ไม่ต้องลงแอป</p>
-    <div class="row" style="justify-content:center"><a class="btn blue" href="/login">เริ่มใช้ฟรี</a><a class="btn out" href="#plans">ดูแพลน</a></div></section>
+    <div class="row" style="justify-content:center"><a class="btn blue" href="/login">เริ่มใช้ฟรี</a><a class="btn out" href="#plans">ดูแพลน</a></div>
+    <div class="showcase" aria-hidden="true">
+      <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="ring" style="--p:24"></i>24%</span></div>
+      <div class="sc-chat">
+        <div class="sc-u">เขียนฟังก์ชัน Python เช็กเลขเฉพาะ พร้อมตัวอย่างทดสอบ</div>
+        <div class="sc-a"><span class="sc-pill" style="margin-bottom:8px;display:inline-flex;gap:6px;align-items:center">${ic('sparkles', 'sm')} Thinking · 2 วินาที</span>
+          ${md('```python\ndef is_prime(n: int) -> bool:\n    if n < 2:\n        return False\n    return all(n % i != 0 for i in range(2, int(n**0.5) + 1))\n```')}
+        </div>
+      </div>
+    </div></section>
     <div class="wrap"><div class="band"><h2>ออกแบบมาเพื่อมือถือ</h2><div class="grid">
       <div class="tile"><div class="stat">5+</div><div class="muted">ผู้ให้บริการ AI ชั้นนำ สลับได้ในแชตเดียว</div></div>
       <div class="tile"><div class="stat">PWA</div><div class="muted">เพิ่มลงหน้าจอหลัก ใช้เหมือนแอปจริง</div></div>
@@ -352,11 +374,11 @@ async function plansPage() {
     });
     const submit = async (fd, btn, errBox) => {
       btn.disabled = true;
-      try { const r = await api('/pay', { method: 'POST', body: fd }); await loadMe(); if (r.approved) go(`/receipt?id=${r.id}`); else { alert('ส่งสลิปแล้ว รอแอดมินตรวจ'); boot(); } }
+      try { const r = await api('/pay', { method: 'POST', body: fd }); await loadMe(); if (r.approved) go(`/receipt?id=${r.id}`); else { toast('ส่งสลิปแล้ว รอแอดมินตรวจ', 'ok'); boot(); } }
       catch (x) { errBox.textContent = x.message; btn.disabled = false; }
     };
     const planFd = () => { const fd = new FormData(); fd.append('plan_id', sel); fd.append('period', period); if (coupon) fd.append('coupon', coupon.code); return fd; };
-    $('#wpay')?.addEventListener('click', e => { if (!confirm(`ตัดเงิน ฿${baht(total)} จาก Wallet?`)) return; const fd = planFd(); fd.append('wallet', '1'); submit(fd, e.target, $('#ce')); });
+    $('#wpay')?.addEventListener('click', async e => { if (!await confirmSheet(`ตัดเงิน ฿${baht(total)} จาก Wallet เพื่อเปิดแพลนนี้?`, { title: 'ยืนยันการชำระเงิน', ok: 'จ่ายเลย' })) return; const fd = planFd(); fd.append('wallet', '1'); submit(fd, e.target, $('#ce')); });
     $('#free')?.addEventListener('click', e => submit(planFd(), e.target, $('#ce')));
     const amt = $('#amt');
     if (amt) {
@@ -475,7 +497,7 @@ async function downloadCode(b) {
   a.href = URL.createObjectURL(new Blob([ext === 'csv' ? '﻿' + text : text], { type: (MIME[ext] || 'text/plain') + ';charset=utf-8' })); // BOM: Excel อ่าน CSV ภาษาไทยได้
   a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-document.addEventListener('click', e => { const b = e.target.closest('.dl-code'); if (b) downloadCode(b).catch(x => alert('ดาวน์โหลดไม่ได้: ' + x.message)); });
+document.addEventListener('click', e => { const b = e.target.closest('.dl-code'); if (b) downloadCode(b).catch(x => toast('ดาวน์โหลดไม่ได้: ' + x.message, 'bad')); });
 
 // ---------- ส่วนเลือกแบบแอปมือถือ (แชต + โหมด Code) ----------
 const limHTML = u => { const p = Math.max(u.pct4h, u.pctWeek); return `<i class="ring ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"></i>${Math.round(p)}%`; };
@@ -490,6 +512,37 @@ function sheet(title, html, bind) {
   d.onkeydown = e => { if (e.key === 'Escape') close(); };
   document.body.append(d); (d.querySelector('.opt.on') || d.querySelector('.sheet-b button, .sheet-b a'))?.focus();
   bind?.(d, close);
+}
+function toast(msg, kind = '') {
+  document.querySelector('.toast')?.remove();
+  const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = msg;
+  document.body.append(t); setTimeout(() => t.remove(), 2800);
+}
+function confirmSheet(msg, { title = 'ยืนยัน', ok = 'ตกลง', cancel = 'ยกเลิก', danger = false } = {}) {
+  return new Promise(res => {
+    let done = false;
+    sheet(title, `<div class="sheet-form"><p class="sheet-msg">${esc(msg)}</p><div class="sheet-acts"><button type="button" class="btn out" data-c>${esc(cancel)}</button><button type="button" class="btn ${danger ? 'red' : 'blue'}" data-ok>${esc(ok)}</button></div></div>`, (d, close) => {
+      const fin = v => { if (done) return; done = true; close(); res(v); };
+      d.querySelector('[data-ok]').onclick = () => fin(true);
+      d.querySelector('[data-c]').onclick = () => fin(false);
+      d.querySelector('.x').onclick = () => fin(false);
+      d.addEventListener('click', e => { if (e.target === d) fin(false); });
+    });
+  });
+}
+function promptSheet(msg, def = '', { title = 'กรอกข้อมูล', placeholder = '', ok = 'บันทึก', cancel = 'ยกเลิก', type = 'text' } = {}) {
+  return new Promise(res => {
+    let done = false;
+    sheet(title, `<form class="sheet-form"><p class="sheet-msg">${esc(msg)}</p><input name="val" type="${esc(type)}" value="${esc(def)}" placeholder="${esc(placeholder)}" required><div class="sheet-acts"><button type="button" class="btn out" data-c>${esc(cancel)}</button><button class="btn blue">${esc(ok)}</button></div></form>`, (d, close) => {
+      const inp = d.querySelector('input[name=val]');
+      setTimeout(() => { inp.focus(); inp.select(); }, 30);
+      const fin = v => { if (done) return; done = true; close(); res(v); };
+      d.querySelector('form').onsubmit = e => { e.preventDefault(); fin(inp.value); };
+      d.querySelector('[data-c]').onclick = () => fin(null);
+      d.querySelector('.x').onclick = () => fin(null);
+      d.addEventListener('click', e => { if (e.target === d) fin(null); });
+    });
+  });
 }
 const optHTML = (v, title, desc, on) => `<button class="opt ${on ? 'on' : ''}" data-v="${esc(v)}"><span class="opt-t">${title}</span><span class="opt-d">${desc}</span>${on ? `<i>${ic('check')}</i>` : ''}</button>`;
 const pickTo = sel => (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { const s = $(sel); s.value = b.dataset.v; s.dispatchEvent(new Event('change')); close(); });

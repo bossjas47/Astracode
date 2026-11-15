@@ -62,7 +62,7 @@ async function chatView(id) {
       <input id="search" placeholder="ค้นหาแชต" aria-label="ค้นหาแชต" style="min-height:36px;font-size:14px">
       <div class="list" id="list"></div>
       <button class="btn out sm" id="newf" style="margin:4px 12px">+ โฟลเดอร์</button>
-      <nav class="side-links"><a href="/code">${ic('code')} Code</a><a href="/pricing">${ic('tag')} ราคา</a><a href="/blog">${ic('news')} บล็อก</a><a href="/developers">${ic('braces')} API</a><a href="/status">${ic('activity')} สถานะระบบ</a><a href="/support">${ic('mail')} ติดต่อเรา</a>${me.role === 'admin' ? `<a href="/admin">${ic('dash')} หลังบ้าน</a>` : ''}</nav>
+      <nav class="side-links"><a href="/code">${ic('code')} Code</a><a href="/pricing">${ic('tag')} ราคา</a><a href="/developers">${ic('braces')} API</a><a href="/support">${ic('mail')} ติดต่อเรา</a>${me.role === 'admin' ? `<a href="/admin">${ic('dash')} หลังบ้าน</a>` : ''}</nav>
       <a class="l muted" href="/plans" style="padding:8px 12px">${esc(me.plan.name)} · อัปเกรด</a>
       <a class="l muted" href="/account" style="padding:8px 12px">${esc(me.email)}</a></aside>
     <div class="main"><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
@@ -72,6 +72,7 @@ async function chatView(id) {
       <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select><select id="model2" hidden>${opt(localStorage.getItem('model2'))}</select>
       <select id="effort" hidden>${EFFORTS.map(([v]) => `<option value="${v}" ${v === (localStorage.getItem('effort') || '') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="msgs" id="msgs"></div>
+      <button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button>
       <div class="compose"><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div>
         <form id="f" class="cbox"><input type="file" id="file" multiple hidden>
           <textarea id="t" rows="1" placeholder="ถามอะไรก็ได้" aria-label="ข้อความ"></textarea>
@@ -94,7 +95,7 @@ async function chatView(id) {
   $('#lim').onclick = limitSheet;
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'web') toggleWeb(); if (f === 'cmp') toggleCompare(); };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#newf').onclick = async () => { const name = prompt('ชื่อโฟลเดอร์'); if (name?.trim()) { await api('/folders', { method: 'POST', body: { name } }); loadSide(); } };
+  $('#newf').onclick = async () => { const name = await promptSheet('ตั้งชื่อโฟลเดอร์ใหม่', '', { title: 'สร้างโฟลเดอร์', ok: 'สร้าง' }); if (name?.trim()) { await api('/folders', { method: 'POST', body: { name } }); loadSide(); toast('สร้างโฟลเดอร์แล้ว', 'ok'); } };
   $('#search').oninput = drawSide;
   const t = $('#t');
   t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
@@ -108,6 +109,8 @@ async function chatView(id) {
   t.onpaste = e => { const fs = [...e.clipboardData.files]; if (fs.length) { e.preventDefault(); addFiles(fs); } };
   const answer = e => { const a = askAnswer(e); if (a != null && !chat.busy) { e.preventDefault?.(); t.value = a; t.oninput(); send(); } return a != null; };
   $('#msgs').onkeydown = answer;
+  $('#msgs').onscroll = () => { const b = $('#msgs'), sd = $('#sdown'); if (b && sd) sd.hidden = nearBottom(b); };
+  $('#sdown').onclick = () => { const b = $('#msgs'); b?.scrollTo({ top: b.scrollHeight, behavior: 'smooth' }); };
   $('#msgs').onclick = e => {
     if (answer(e)) return;
     const b = e.target.closest('button'); if (!b) return;
@@ -160,7 +163,7 @@ const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000)
 function drawSide() {
   const q = ($('#search')?.value || '').toLowerCase(), list = $('#list'); if (!list) return;
   const item = c => `<div class="item ${c.id === chat.id ? 'on' : ''}" data-id="${c.id}"><a href="/chat?id=${c.id}" data-chat="${c.id}">${esc(c.title)}</a>
-    <button data-mv="${c.id}" aria-label="ย้ายไปโฟลเดอร์">${ic('more')}</button><button data-ren="${c.id}" aria-label="เปลี่ยนชื่อ">${ic('pen')}</button><button data-del="${c.id}" aria-label="ลบ">${ic('trash')}</button></div>`;
+    <button data-cmenu="${c.id}" aria-label="ตัวเลือกแชต">${ic('more')}</button></div>`;
   const shown = chat.chats.filter(c => c.title.toLowerCase().includes(q)), open = JSON.parse(localStorage.getItem('fopen') || '{}');
   list.innerHTML = chat.folders.map(f => { const cs = shown.filter(c => c.folder_id === f.id); return q && !cs.length ? '' : `<details class="folder" data-f="${f.id}" ${open[f.id] || q ? 'open' : ''}><summary><span>${ic('folder')} ${esc(f.name)}</span><small class="muted">${cs.length}</small><button data-fren="${f.id}" aria-label="เปลี่ยนชื่อโฟลเดอร์">${ic('pen')}</button><button data-fdel="${f.id}" aria-label="ลบโฟลเดอร์">${ic('trash')}</button></summary>${cs.map(item).join('') || '<p class="muted" style="padding:4px 12px;font-size:13px">ว่าง</p>'}</details>`; }).join('')
     + (shown.filter(c => !chat.folders.some(f => f.id === c.folder_id)).map(item).join('') || (chat.chats.length ? '' : '<p class="muted" style="padding:8px 12px">ยังไม่มีแชต</p>'));
@@ -169,40 +172,52 @@ function drawSide() {
     const b = e.target.closest('button'); if (!b) return;
     e.preventDefault(); e.stopPropagation();
     const d = b.dataset;
-    if (d.del) { if (!confirm('ลบแชตนี้?')) return; await api('/chats/' + d.del, { method: 'DELETE' }); if (chat.id === +d.del) openChat(null); else loadSide(); }
-    if (d.ren) { const c = chat.chats.find(x => x.id === +d.ren), title = prompt('ชื่อแชต', c.title); if (title?.trim()) { await api('/chats/' + c.id, { method: 'PUT', body: { title } }); loadSide(); } }
-    if (d.fren) { const f = chat.folders.find(x => x.id === +d.fren), name = prompt('ชื่อโฟลเดอร์', f.name); if (name?.trim()) { await api('/folders/' + f.id, { method: 'PUT', body: { name } }); loadSide(); } }
-    if (d.fdel) { if (!confirm('ลบโฟลเดอร์? แชตข้างในจะย้ายออกมา ไม่ถูกลบ')) return; await api('/folders/' + d.fdel, { method: 'DELETE' }); loadSide(); }
-    if (d.mv) { // แทนปุ่มด้วยตัวเลือกโฟลเดอร์
-      const c = chat.chats.find(x => x.id === +d.mv), row = b.closest('.item');
-      if (!chat.folders.length) return alert('ยังไม่มีโฟลเดอร์ กด "+ โฟลเดอร์" ก่อน');
-      row.insertAdjacentHTML('beforeend', `<select class="mvsel" aria-label="ย้ายไปโฟลเดอร์"><option value="">— ไม่มีโฟลเดอร์ —</option>${chat.folders.map(f => `<option value="${f.id}" ${c.folder_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`);
-      const sel = row.querySelector('.mvsel'); sel.focus();
-      sel.onchange = async () => { await api('/chats/' + c.id, { method: 'PUT', body: { folder_id: +sel.value || null } }); loadSide(); };
-      sel.onblur = () => setTimeout(() => sel.remove(), 200);
+    if (d.cmenu) {
+      const c = chat.chats.find(x => x.id === +d.cmenu); if (!c) return;
+      sheet(c.title, optHTML('ren', ic('pen') + 'เปลี่ยนชื่อแชต', 'แก้ไขชื่อที่แสดงในแถบด้านข้าง')
+        + optHTML('mv', ic('folder') + 'ย้ายไปโฟลเดอร์', c.folder_id ? 'เปลี่ยนหรือเอาออกจากโฟลเดอร์' : 'จัดเก็บเข้าโฟลเดอร์')
+        + optHTML('del', ic('trash') + 'ลบแชตนี้', 'ลบข้อความทั้งหมดในแชตนี้อย่างถาวร'), (sd, close) => {
+        sd.querySelector('[data-v=ren]').onclick = async () => { close(); const title = await promptSheet('ชื่อแชตใหม่', c.title, { title: 'เปลี่ยนชื่อแชต' }); if (title?.trim()) { await api('/chats/' + c.id, { method: 'PUT', body: { title } }); loadSide(); } };
+        sd.querySelector('[data-v=mv]').onclick = () => {
+          close();
+          if (!chat.folders.length) return toast('ยังไม่มีโฟลเดอร์ กด "+ โฟลเดอร์" ก่อน');
+          sheet('ย้ายไปโฟลเดอร์', optHTML('', ic('x') + 'ไม่มีโฟลเดอร์', 'แสดงนอกโฟลเดอร์', !c.folder_id)
+            + chat.folders.map(f => optHTML(f.id, ic('folder') + esc(f.name), '', c.folder_id === f.id)).join(''), (fd, fclose) => {
+            fd.querySelectorAll('[data-v]').forEach(x => x.onclick = async () => { fclose(); await api('/chats/' + c.id, { method: 'PUT', body: { folder_id: +x.dataset.v || null } }); loadSide(); toast('ย้ายแชตแล้ว', 'ok'); });
+          });
+        };
+        sd.querySelector('[data-v=del]').onclick = async () => { close(); if (!await confirmSheet(`ลบแชต "${c.title}" อย่างถาวร?`, { title: 'ลบแชต', ok: 'ลบ', danger: true })) return; await api('/chats/' + c.id, { method: 'DELETE' }); if (chat.id === c.id) openChat(null); else loadSide(); toast('ลบแชตแล้ว'); };
+      });
     }
+    if (d.fren) { const f = chat.folders.find(x => x.id === +d.fren), name = await promptSheet('ชื่อโฟลเดอร์ใหม่', f.name, { title: 'เปลี่ยนชื่อโฟลเดอร์' }); if (name?.trim()) { await api('/folders/' + f.id, { method: 'PUT', body: { name } }); loadSide(); } }
+    if (d.fdel) { if (!await confirmSheet('ลบโฟลเดอร์นี้? แชตข้างในจะย้ายออกมา ไม่ถูกลบ', { title: 'ลบโฟลเดอร์', ok: 'ลบโฟลเดอร์', danger: true })) return; await api('/folders/' + d.fdel, { method: 'DELETE' }); loadSide(); }
   };
 }
 async function remember(m, btn) {
-  const text = prompt('ให้ AI จำเรื่องนี้ไว้ในทุกแชต (แก้ได้)', m.content.replace(FILE_RE, '').trim().slice(0, 300));
+  const text = await promptSheet('ให้ AI จำเรื่องนี้ไว้ในทุกแชต (แก้ได้)', m.content.replace(FILE_RE, '').trim().slice(0, 300), { title: 'บันทึกความจำ', ok: 'จำไว้' });
   if (!text?.trim()) return;
-  try { await api('/memories', { method: 'POST', body: { text } }); btn.textContent = 'จำแล้ว ✓'; } catch (x) { alert(x.message); }
+  try { await api('/memories', { method: 'POST', body: { text } }); btn.textContent = 'จำแล้ว ✓'; toast('บันทึกความจำแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); }
 }
 function exportMenu() {
   const title = chat.chats.find(c => c.id === chat.id)?.title || 'แชต AstraCode';
-  if (!chat.msgs.length) return alert('ยังไม่มีข้อความให้ส่งออก');
-  const kind = prompt('ส่งออกเป็น\n1 = Markdown (.md)\n2 = PDF (พิมพ์)', '1'); if (!kind) return;
-  if (kind.trim() === '2') { document.body.classList.add('printing'); print(); setTimeout(() => document.body.classList.remove('printing'), 500); return; }
+  if (!chat.msgs.length) return toast('ยังไม่มีข้อความให้ส่งออก');
+  sheet('ส่งออกแชต', optHTML('md', ic('filetext') + 'Markdown (.md)', 'บันทึกเป็นไฟล์ข้อความพร้อมจัดรูปแบบ')
+    + optHTML('pdf', ic('download') + 'PDF (พิมพ์)', 'เปิดหน้าพิมพ์ / บันทึกเป็น PDF'), (d, close) => {
+    d.querySelector('[data-v=pdf]').onclick = () => { close(); document.body.classList.add('printing'); print(); setTimeout(() => document.body.classList.remove('printing'), 500); };
+    d.querySelector('[data-v=md]').onclick = () => {
+      close();
   const md_ = `# ${title}\n\n` + chat.msgs.map(m => m.role === 'user'
     ? `## คุณ\n\n${m.content.replace(FILE_RE, (_, n) => `\n📄 ${n}`).trim()}`
     : `## AI${m.model ? ` (${m.model})` : ''}\n\n${m.content}${m.sources?.length ? '\n\nแหล่งที่มา:\n' + m.sources.map(s => `- [${s.title}](${s.url})`).join('\n') : ''}`).join('\n\n---\n\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md_], { type: 'text/markdown' }));
   a.download = title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) + '.md'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+  });
 }
 async function genImage() {
   if (chat.busy) return;
   if (chat.compare) return showErr('ปิดโหมดเทียบก่อนสร้างรูป');
-  const t = $('#t'), prompt_ = t.value.trim() || prompt('อยากได้รูปแบบไหน');
+  const t = $('#t'), prompt_ = t.value.trim() || await promptSheet('บรรยายรูปที่ต้องการสร้าง', '', { title: 'สร้างรูปด้วย AI', placeholder: 'เช่น แมวส้มใส่แว่นกันแดด สไตล์อนิเมะ', ok: 'สร้างรูป' });
   if (!prompt_?.trim()) return;
   t.value = ''; t.style.height = 'auto'; $('#e').textContent = '';
   chat.msgs.push({ role: 'user', content: '🎨 ' + prompt_ }); appendMsg(chat.msgs.at(-1));

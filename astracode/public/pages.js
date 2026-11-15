@@ -38,10 +38,10 @@ PAGES.developers = async () => {
     app.querySelectorAll('.kset').forEach(f => f.onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(f);
       try { await api('/keys/' + f.dataset.k, { method: 'PUT', body: { budget: fd.get('budget'), models: fd.getAll('m') } }); keys.splice(0, keys.length, ...await api('/keys')); draw(); }
-      catch (x) { alert(x.message); }
+      catch (x) { toast(x.message, 'bad'); }
     });
     app.querySelectorAll('[data-rk]').forEach(b => b.onclick = async () => {
-      if (!confirm('ยกเลิก key นี้? แอปที่ใช้อยู่จะเรียกไม่ได้ทันที')) return;
+      if (!await confirmSheet('ยกเลิก API key นี้? แอปที่ใช้อยู่จะเรียกไม่ได้ทันที', { title: 'ยกเลิก API key', ok: 'ยกเลิก key', danger: true })) return;
       await api('/keys/' + b.dataset.rk, { method: 'DELETE' }); keys.splice(0, keys.length, ...await api('/keys')); draw();
     });
   };

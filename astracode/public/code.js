@@ -44,11 +44,11 @@ async function codeHome() {
     } catch (x) { msg.innerHTML = `<span class="bad">${esc(x.message)}</span>`; e.submitter.disabled = false; if (id) api('/projects/' + id, { method: 'DELETE' }); }
   };
   app.querySelectorAll('[data-ren]').forEach(b => b.onclick = async () => {
-    const p = list.find(x => x.id === +b.dataset.ren), name = prompt('ชื่อโปรเจกต์', p.name);
+    const p = list.find(x => x.id === +b.dataset.ren), name = await promptSheet('ตั้งชื่อโปรเจกต์ใหม่', p.name, { title: 'เปลี่ยนชื่อโปรเจกต์' });
     if (name?.trim()) { await api('/projects/' + p.id, { method: 'PUT', body: { name } }); codeHome(); }
   });
   app.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-    if (!confirm('ลบโปรเจกต์นี้ ไฟล์และแชตทั้งหมดจะหายถาวร?')) return;
+    if (!await confirmSheet('ลบโปรเจกต์นี้? ไฟล์และแชตทั้งหมดจะหายถาวร', { title: 'ลบโปรเจกต์', ok: 'ลบถาวร', danger: true })) return;
     await api('/projects/' + b.dataset.del, { method: 'DELETE' }); codeHome();
   });
 }
@@ -147,16 +147,16 @@ function menu(btn, path, folder) {
     try {
       if (a === 'new') return newFile(path);
       if (a === 'ai') { IDE.ctx.has(path) ? IDE.ctx.delete(path) : IDE.ctx.add(path); drawCtx(); return; }
-      if (a === 'dup') { const to = prompt('ชื่อไฟล์สำเนา', path.replace(/(\.\w+)?$/, '-copy$1')); if (to) await writeFiles([{ path: to, content: content(path) }]); return; }
+      if (a === 'dup') { const to = await promptSheet('ชื่อไฟล์สำเนา', path.replace(/(\.\w+)?$/, '-copy$1'), { title: 'ทำสำเนาไฟล์', ok: 'สร้าง' }); if (to) await writeFiles([{ path: to, content: content(path) }]); return; }
       if (a === 'del') {
-        if (!confirm(`ลบ ${path} ?`)) return;
+        if (!await confirmSheet(`ลบ ${path} ?`, { title: 'ยืนยันการลบ', ok: 'ลบ', danger: true })) return;
         await saveNow();
         await api(`/projects/${IDE.pid}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
         for (const p of [...IDE.files.keys()]) if (folder ? p.startsWith(path) : p === path) dropFile(p);
         return refresh();
       }
       if (a === 'ren') {
-        const to = prompt(folder ? 'ชื่อโฟลเดอร์ใหม่ (พาธเต็ม)' : 'ชื่อไฟล์ใหม่ (ใส่ / เพื่อย้ายเข้าโฟลเดอร์)', folder ? path.slice(0, -1) : path);
+        const to = await promptSheet(folder ? 'ชื่อโฟลเดอร์ใหม่ (พาธเต็ม)' : 'ชื่อไฟล์ใหม่ (ใส่ / เพื่อย้ายเข้าโฟลเดอร์)', folder ? path.slice(0, -1) : path, { title: 'เปลี่ยนชื่อ / ย้าย' });
         if (!to || to === path) return;
         await saveNow();
         await api(`/projects/${IDE.pid}/rename`, { method: 'POST', body: { from: path, to: folder ? to.replace(/\/?$/, '/') : to } });
@@ -167,7 +167,7 @@ function menu(btn, path, folder) {
 }
 function dropFile(p) { IDE.files.delete(p); IDE.states.delete(p); IDE.dirty.delete(p); IDE.ctx.delete(p); if (IDE.open.includes(p)) closeTab(p); }
 async function newFile(dir = '') {
-  const p = prompt('ชื่อไฟล์ (เช่น src/app.js)', dir); if (!p || p.endsWith('/')) return;
+  const p = await promptSheet('ระบุพาธและชื่อไฟล์ (เช่น src/app.js)', dir, { title: 'สร้างไฟล์ใหม่', ok: 'สร้าง' }); if (!p || p.endsWith('/')) return;
   if (has(p)) return openFile(p);
   try { await writeFiles([{ path: p, content: '' }]); openFile(p); } catch (x) { setStatus(x.message, true); }
 }
@@ -601,7 +601,7 @@ async function versions() {
     if (e.target.closest('[data-x]')) return box.remove();
     const b = e.target.closest('[data-v]'); if (!b) return;
     const v = await api(`/projects/${IDE.pid}/versions/${b.dataset.v}`);
-    if (v.content === content(p)) return alert('เวอร์ชันนี้เหมือนไฟล์ปัจจุบัน');
+    if (v.content === content(p)) return toast('เวอร์ชันนี้เหมือนไฟล์ปัจจุบัน');
     box.remove(); showDiff({ path: p, content: v.content }, 'กู้คืนเวอร์ชันนี้');
   };
 }
@@ -628,7 +628,7 @@ async function gitPanel() {
       <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">เชื่อม repo</button></div></form>
       <p class="muted">เชื่อมแล้วกด Pull ก่อน เพื่อรวมไฟล์ใน repo กับไฟล์ในโปรเจกต์นี้</p><p class="gmsg"></p>`;
     gb.querySelector('#gl').onsubmit = async e => { e.preventDefault(); try { const r = await api(`/projects/${IDE.pid}/github`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); IDE.gh = { repo: r.repo, branch: r.branch }; $('#git').textContent = '⑂ ' + r.branch; gitPanel(); } catch (x) { say(x.message, 1); } };
-    gb.querySelector('#gdis').onclick = async () => { if (confirm('ยกเลิกการเชื่อม GitHub?')) { await api('/github', { method: 'DELETE' }); gitPanel(); } };
+    gb.querySelector('#gdis').onclick = async () => { if (await confirmSheet('ยกเลิกการเชื่อมบัญชี GitHub?', { title: 'ยกเลิกการเชื่อม', ok: 'ยกเลิกการเชื่อม', danger: true })) { await api('/github', { method: 'DELETE' }); gitPanel(); } };
     return;
   }
   await saveNow();
@@ -669,12 +669,12 @@ async function gitPanel() {
     const sel = gb.querySelector('#gbs'); IDE.gh.default = b.default;
     sel.innerHTML = b.branches.map(n => `<option ${n === b.current ? 'selected' : ''}>${esc(n)}</option>`).join('');
     sel.onchange = async () => {
-      if (!confirm(`สลับไป branch "${sel.value}"? ต้อง Pull ใหม่เพื่อรวมไฟล์`)) { sel.value = IDE.gh.branch; return; }
+      if (!await confirmSheet(`สลับไป branch "${sel.value}"? ต้อง Pull ใหม่เพื่อรวมไฟล์`, { title: 'สลับ Branch', ok: 'สลับ' })) { sel.value = IDE.gh.branch; return; }
       try { await api(`/projects/${IDE.pid}/github/switch`, { method: 'POST', body: { branch: sel.value } }); setBranch(sel.value); gitPanel(); } catch (x) { say(x.message, 1); }
     };
   }).catch(x => say(x.message, 1));
   gb.querySelector('#gnb').onclick = async () => {
-    const name = prompt('ชื่อ branch ใหม่ (สร้างจากคอมมิตที่ sync ล่าสุด)', 'feature/'); if (!name?.trim()) return;
+    const name = await promptSheet('ชื่อ branch ใหม่ (สร้างจากคอมมิตที่ sync ล่าสุด)', 'feature/', { title: 'สร้าง Branch ใหม่', ok: 'สร้าง' }); if (!name?.trim()) return;
     try { await api(`/projects/${IDE.pid}/github/branch`, { method: 'POST', body: { name: name.trim() } }); setBranch(name.trim()); gitPanel(); } catch (x) { say(x.message, 1); }
   };
   gb.querySelector('#gpr').onclick = () => {
@@ -688,7 +688,7 @@ async function gitPanel() {
   };
   gb.querySelector('#gf').onclick = status;
   gb.querySelector('#gp').onclick = () => pull();
-  gb.querySelector('#gun').onclick = async () => { if (!confirm('ยกเลิกการเชื่อม repo? ไฟล์ในโปรเจกต์ยังอยู่ครบ')) return; await api(`/projects/${IDE.pid}/github`, { method: 'DELETE' }); IDE.gh = null; $('#git').textContent = '⑂ Git'; gitPanel(); };
+  gb.querySelector('#gun').onclick = async () => { if (!await confirmSheet('ยกเลิกการเชื่อม repo? ไฟล์ในโปรเจกต์ยังอยู่ครบ', { title: 'ยกเลิกการเชื่อม Repo', ok: 'ยกเลิก' })) return; await api(`/projects/${IDE.pid}/github`, { method: 'DELETE' }); IDE.gh = null; $('#git').textContent = '⑂ Git'; gitPanel(); };
   gb.querySelector('#gc').onsubmit = async e => {
     e.preventDefault(); await saveNow(); e.submitter.disabled = true; say('กำลัง push...');
     try {

@@ -66,26 +66,26 @@ PAGES.account = async function account() {
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>${footer()}</div>`);
 
   $('#out').onclick = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
-  const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; alert(x.message); } });
+  const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew');
   $('#cp').onsubmit = async e => {
     e.preventDefault();
-    try { const r = await api('/coupon/redeem', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); alert(`เติมเครดิต ฿${baht(r.amount)} แล้ว`); boot(); }
+    try { const r = await api('/coupon/redeem', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast(`เติมเครดิต ฿${baht(r.amount)} แล้ว`, 'ok'); boot(); }
     catch (x) { $('#cpe').textContent = x.message; }
   };
   $('#cpref')?.addEventListener('click', e => copy($('#ref').value, e.target));
   $('#insave').onclick = async () => { await api('/me', { method: 'PUT', body: { instructions: $('#ins').value } }); $('#insok').innerHTML = '<span class="ok">บันทึกแล้ว</span>'; };
   $('#mems').onclick = async e => { const b = e.target.closest('[data-mem]'); if (!b) return; await api('/memories/' + b.dataset.mem, { method: 'DELETE' }); b.parentElement.remove(); };
-  $('#memf').onsubmit = async e => { e.preventDefault(); try { await api('/memories', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); boot(); } catch (x) { alert(x.message); } };
+  $('#memf').onsubmit = async e => { e.preventDefault(); try { await api('/memories', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); boot(); } catch (x) { toast(x.message, 'bad'); } };
   $('#pw').onclick = async e => { // รหัสผ่านอยู่ใน Firebase
     e.target.disabled = true;
     try { await api('/auth', { method: 'POST', body: { action: 'forgot', email: me.email } }); $('#pe').innerHTML = '<span class="ok">ส่งแล้ว ดูในอีเมล</span>'; }
     catch (x) { $('#pe').innerHTML = `<span class="bad">${esc(x.message)}</span>`; e.target.disabled = false; }
   };
   $('#del').onclick = async () => {
-    const v = prompt(`ลบบัญชีถาวร: แชต โปรเจกต์ ความจำ และ API key จะหายทั้งหมด และเงินใน Wallet จะใช้ไม่ได้อีก\n\nพิมพ์อีเมล ${me.email} เพื่อยืนยัน`);
+    const v = await promptSheet(`แชต โปรเจกต์ ความจำ และ API key จะหายทั้งหมด และเงินใน Wallet จะใช้ไม่ได้อีก\n\nพิมพ์อีเมล ${me.email} เพื่อยืนยัน`, '', { title: 'ลบบัญชีถาวร', placeholder: me.email, ok: 'ลบบัญชีถาวร' });
     if (!v) return;
-    try { await api('/me/delete', { method: 'POST', body: { confirm: v } }); me = null; alert('ลบบัญชีแล้ว'); go('/'); } catch (x) { alert(x.message); }
+    try { await api('/me/delete', { method: 'POST', body: { confirm: v } }); me = null; toast('ลบบัญชีแล้ว'); go('/'); } catch (x) { toast(x.message, 'bad'); }
   };
   tfa();
   bindInstall();
