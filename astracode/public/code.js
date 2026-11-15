@@ -4,7 +4,7 @@ const IDE = {
   pid: null, name: '', files: new Map(), states: new Map(), open: [], active: null, view: null,
   dirty: new Set(), saveT: null, status: '', closed: new Set(),
   chatId: null, msgs: [], busy: false, ctrl: null, ctx: new Set(), autoActive: true,
-  worker: null, frame: null, logs: [], runTab: 'out', pane: 'code',
+  worker: null, frame: null, logs: [], runTab: 'out', pane: 'code', skills: JSON.parse(localStorage.getItem('cskills') || '[]'), mcps: JSON.parse(localStorage.getItem('cmcps') || '[]'),
 };
 const TREE_RE = /\n\n\[ไฟล์ทั้งหมดในโปรเจกต์\]\n[\s\S]*?(?=\n\n\[\[file:|$)/;
 const CHECK_RE = /\n\n\[คำสั่งตรวจ\]\n[\s\S]*?(?=\n\n\[ไฟล์ทั้งหมดในโปรเจกต์\]|\n\n\[\[file:|$)/;
@@ -17,7 +17,9 @@ async function codeHome() {
   const list = await api('/projects');
   page(nav() + `<div class="wrap"><section class="hero" style="padding:48px 0 24px"><div class="name">AstraCode</div><h1>Code</h1>
     <p>เขียนโค้ดบนมือถือ มี AI ช่วยแก้ไฟล์ รัน HTML, JavaScript และ Python ได้ในเบราว์เซอร์</p></section>
-    <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px"><button class="btn blue">+ สร้างโปรเจกต์</button></form>
+    <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px">
+      <select name="template" style="width:auto;min-width:160px"><option value="starter">เว็บเริ่มต้น (HTML/CSS/JS/Py)</option><option value="tailwind">HTML + Tailwind CSS</option><option value="node">Node.js (package.json)</option><option value="python">Python</option><option value="empty">โปรเจกต์ว่าง</option></select>
+      <button class="btn blue">+ สร้างโปรเจกต์</button></form>
     <details class="card clone"><summary><b>${ic('branch')} Clone จาก GitHub</b> <span class="muted">ดึง repo มาเป็นโปรเจกต์ใหม่</span></summary>
       <form id="cf2" class="form2" style="margin-top:12px"><div><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required></div>
       <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">Clone</button></div></form>
@@ -29,7 +31,7 @@ async function codeHome() {
       || '<p class="muted" style="text-align:center">ยังไม่มีโปรเจกต์ สร้างอันแรกได้เลย ระบบจะใส่ไฟล์ตัวอย่างให้</p>'}</div>${footer()}</div>`);
   $('#nf').onsubmit = async e => {
     e.preventDefault(); e.submitter.disabled = true;
-    try { const r = await api('/projects', { method: 'POST', body: { name: new FormData(e.target).get('name') } }); go('/code?p=' + r.id); }
+    try { const r = await api('/projects', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); go('/code?p=' + r.id); }
     catch (x) { $('#e').textContent = x.message; e.submitter.disabled = false; }
   };
   $('#cf2').onsubmit = async e => {
@@ -70,7 +72,7 @@ function extensions(path) {
     edTheme(), CM.basicSetup, CM.oneDark, CM.lang(path), // ธีมของเราไว้ก่อน oneDark เพื่อให้ชนะ
     wrap.of(localStorage.getItem('wrap') === '0' ? [] : CM.EditorView.lineWrapping), ghostC.of(ghostExt()),
     CM.keymap.of([CM.indentWithTab, { key: 'Mod-s', preventDefault: true, run: () => { saveNow(); return true; } }]),
-    CM.EditorView.updateListener.of(u => { if (u.docChanged) markDirty(path); }),
+    CM.EditorView.updateListener.of(u => { if (u.docChanged) markDirty(path); if (u.selectionSet || u.docChanged) { const b = $('#selai'); if (b) b.hidden = u.state.selection.main.empty; } }),
   ];
 }
 function stateFor(path) {
@@ -233,9 +235,10 @@ const CAPTURE = `<script>(()=>{const s=(t,a)=>parent.postMessage({log:t,msg:a.ma
 function log(type, msg) {
   IDE.logs.push({ type, msg }); if (IDE.logs.length > 500) IDE.logs.shift();
   const c = $('#console'); if (!c) return;
-  c.insertAdjacentHTML('beforeend', `<div class="cl ${type}">${esc(msg)}</div>`); c.scrollTop = c.scrollHeight;
+  const fix = type === 'error' ? ` <button type="button" class="btn-fix" data-fix="${esc(msg)}">แก้ด้วย AI</button>` : '';
+  c.insertAdjacentHTML('beforeend', `<div class="cl ${type}"><span>${esc(msg)}</span>${fix}</div>`); c.scrollTop = c.scrollHeight;
 }
-function buildHtml(htmlPath, jsPath) {
+function buildHtml(htmlPath, jsPath, forExport = false) {
   const entryIsMod = jsPath && /\bmjs$|\bexport\s|\bimport\s/m.test(content(jsPath));
   let html = htmlPath ? content(htmlPath) : `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script${entryIsMod ? ' type="module"' : ''} src="${jsPath}"></script></body></html>`;
   const dirOf = f => f ? f.replace(/[^/]*$/, '') : '';
@@ -268,7 +271,8 @@ function buildHtml(htmlPath, jsPath) {
       return `<script${a}${b}>\n${body.replace(/<\/script/gi, '<\\/script')}\n</script>`;
     })
     .replace(/<script\b([^>]*\btype\s*=\s*["']module["'][^>]*)>([\s\S]*?)<\/script>/gi, (m, attrs, body) => /src=/.test(attrs) ? m : `<script${attrs}>${rewriteMod(body, dir).replace(/<\/script/gi, '<\\/script')}</script>`);
-  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + CAPTURE + importMap) : CAPTURE + importMap + html;
+  const headAdd = (forExport ? '' : CAPTURE) + importMap;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + headAdd) : headAdd + html;
 }
 async function run() {
   await saveNow();
@@ -356,7 +360,9 @@ addEventListener('message', e => {
 });
 function termOut(text, cls = '') {
   const t = $('#term-o'); if (!t) return;
-  t.insertAdjacentHTML('beforeend', `<span class="${cls}">${esc(text)}</span>`); t.scrollTop = t.scrollHeight;
+  t.insertAdjacentHTML('beforeend', `<span class="${cls}">${esc(text)}</span>`);
+  if (cls === 'err' && text.trim()) t.insertAdjacentHTML('beforeend', ` <button type="button" class="btn-fix" data-fix="${esc(text.slice(0, 1500))}">แก้ด้วย AI</button>\n`);
+  t.scrollTop = t.scrollHeight;
 }
 // รันคำสั่ง: ส่งไฟล์โปรเจกต์ไปด้วย ไฟล์ที่คำสั่งสร้าง/แก้ (ยกเว้น node_modules) จะถูกบันทึกกลับเข้าโปรเจกต์
 async function nodeRun(cmd) {
@@ -375,7 +381,7 @@ async function nodeRun(cmd) {
 const PATH_OK = p => p && !p.startsWith('node_modules/') && p.length < 200;
 // AI สั่ง RUN: ใช้การแก้ไขของข้อความนั้นก่อน แล้วรัน แล้วส่งผลกลับให้ AI
 async function runForAI(msg, cmds) {
-  for (const c of changesOf(msg.content)) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c);
+  for (const c of changesOf(msg.content)) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, IDE.msgs[ref[0]]);
   msg.ran = true; drawAI();
   const cut = s => s.length > 6000 ? s.slice(0, 2000) + '\n…(ตัดกลาง)…\n' + s.slice(-4000) : s;
   let text = '[ผลการรันคำสั่ง]';
@@ -388,21 +394,44 @@ async function runForAI(msg, cmds) {
 function cUI() {
   const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
   $('#cmdl').innerHTML = `<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
-  $('#ceff').hidden = !m || m.effort === 'none';
+  const efs = modelEfforts(m);
+  $('#ceff').hidden = !efs.length;
+  if (efs.length && !efs.includes($('#ceffort').value)) $('#ceffort').value = efs[0];
   $('#ceff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
   $('#cflags').innerHTML = (IDE.autoApply ? `<button type="button" class="flag" data-flag="autoapply" aria-label="ปิด Auto-apply">${ic('check', 'sm')}Auto-apply${ic('x', 'sm')}</button>` : '')
-    + (IDE.autoMode ? `<button type="button" class="flag" data-flag="auto" aria-label="ปิดตรวจผลเอง">${ic('eye', 'sm')}ตรวจผลเอง${ic('x', 'sm')}</button>` : '');
+    + (IDE.autoMode ? `<button type="button" class="flag" data-flag="auto" aria-label="ปิดตรวจผลเอง">${ic('eye', 'sm')}ตรวจผลเอง${ic('x', 'sm')}</button>` : '')
+    + (IDE.skills.length && _skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
+    + (IDE.mcps.length && _mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
 }
 function setOpt(k, on) { localStorage.setItem(k, on ? '1' : '0'); if (k === 'auto') IDE.autoMode = on; else IDE.autoApply = on; }
 function codeTools() {
   sheet('เครื่องมือ AI', optHTML('autoapply', ic('check') + 'Auto-apply', 'ใช้การแก้ไฟล์ของ AI ทันที และรันคำสั่งที่ AI ขอ ไม่ต้องกดเอง', IDE.autoApply)
     + optHTML('auto', ic('eye') + 'ตรวจผลเองอัตโนมัติ', 'ใช้การแก้ไข แล้วรัน + จับภาพหน้าจอให้ AI ดูและแก้ต่อ สูงสุด 3 รอบ', IDE.autoMode)
     + optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
+    + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
+    + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
+    + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
+    + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
+    + optHTML('exphtml', ic('download') + 'ส่งออก HTML ไฟล์เดียว', 'รวม HTML/CSS/JS เป็นไฟล์เดียวพร้อมเปิดใช้งาน')
     + optHTML('term', ic('terminal') + 'เปิดเทอร์มินัล', 'พิมพ์คำสั่ง npm / node เอง'),
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const v = b.dataset.v;
       if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
       if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
+      if (v === 'mcp') mcpSheet(IDE.mcps, ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); cUI(); });
+      if (v === 'skl') skillsSheet(IDE.skills, ids => { IDE.skills = ids; localStorage.setItem('cskills', JSON.stringify(ids)); cUI(); });
+      if (v === 'rules') {
+        sheet('กฎประจำโปรเจกต์', `<form class="sheet-form" id="rf"><p class="sheet-msg">AI จะอ่านกฎนี้ทุกครั้งที่สั่งงานในโปรเจกต์นี้ (เช่น Stack, สไตล์โค้ด, ข้อห้าม)</p><textarea name="instructions" rows="5" maxlength="3000" placeholder="เช่น ใช้ Vanilla JS + Tailwind CSS, ตอบสั้นๆ">${esc(IDE.instructions || '')}</textarea><div class="sheet-acts"><button type="button" class="btn out" data-c>ยกเลิก</button><button class="btn blue">บันทึกกฎ</button></div></form>`, (sd, sclose) => {
+          sd.querySelector('[data-c]').onclick = sclose;
+          sd.querySelector('#rf').onsubmit = async ev => {
+            ev.preventDefault(); const ins = new FormData(ev.target).get('instructions');
+            await api('/projects/' + IDE.pid, { method: 'PUT', body: { instructions: ins } });
+            IDE.instructions = ins; sclose(); toast('บันทึกกฎโปรเจกต์แล้ว', 'ok');
+          };
+        });
+      }
+      if (v === 'prm') promptLibSheet(p => { const ct = $('#ct'); ct.value = p + ct.value; ct.oninput(); ct.focus(); });
+      if (v === 'exphtml') { const hp = has('index.html') ? 'index.html' : (/\.html?$/i.test(IDE.active || '') ? IDE.active : null); const jp = !hp && /\.m?js$/i.test(IDE.active || '') ? IDE.active : null; if (!hp && !jp) return toast('ต้องมี index.html หรือไฟล์ .html/.js', 'bad'); const out = buildHtml(hp, jp, true); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out], { type: 'text/html;charset=utf-8' })); a.download = (IDE.name || 'astracode').replace(/[^\wก-๙-]+/g, '_') + '.html'; a.click(); toast('ส่งออกไฟล์ HTML แล้ว', 'ok'); }
       if (v === 'term') { showRun(true); runTab('term'); setTimeout(() => $('#term-i')?.focus(), 50); }
     }));
 }
@@ -452,9 +481,13 @@ function changeCards(m, i) {
     const tag = c.del ? '<span class="bad">ลบ</span>' : cur == null ? '<span class="ok">ไฟล์ใหม่</span>' : d ? `<span class="ok">+${d.add}</span> <span class="bad">−${d.del}</span>` : '';
     return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span>${tag}
       ${same ? '<span class="muted">ใช้แล้ว ✓</span>' : `${c.del ? '' : `<button data-diff="${i}:${k}">ดู diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'ลบไฟล์' : 'Apply'}</button>`}</div>`;
-  }).join('')}${ch.filter(c => (c.del ? has(c.path) : content(c.path) !== c.content || !has(c.path))).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply ทั้งหมด</button>` : ''}</div>`;
+  }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(c => (c.del ? has(c.path) : content(c.path) !== c.content || !has(c.path))).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply ทั้งหมด</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} ย้อนกลับชุดนี้</button>` : ''}</div></div>`;
 }
-async function apply(c) {
+async function apply(c, msg) {
+  if (msg) {
+    msg._prev ||= [];
+    if (!msg._prev.some(x => x.path === c.path)) msg._prev.push({ path: c.path, existed: has(c.path), prev: has(c.path) ? content(c.path) : '' });
+  }
   if (c.del) {
     if (!has(c.path)) return;
     await api(`/projects/${IDE.pid}/file?path=${encodeURIComponent(c.path)}`, { method: 'DELETE' }); dropFile(c.path);
@@ -477,9 +510,21 @@ function showDiff(c, label = 'Apply') {
   box.querySelector('#dapply').onclick = async () => { box.remove(); await apply(c); };
 }
 // บรรทัด READ / GREP / LIST ที่ AI ใช้อ่านไฟล์ → แสดงเป็นป้ายเล็กๆ
-const TOOL_LABEL = { READ: ['filetext', 'อ่าน'], GREP: ['search', 'ค้นหา'], LIST: ['folder', 'ดูไฟล์ใน'], RUN: ['terminal', 'รัน'] };
-const toolsMd = t => md(t.replace(/^[ \t]*(READ|GREP|LIST|RUN)\b[ \t]*(?:path=)?(.*)$/gm, (_, op, a) => `\u0001${op}\u0002${a.trim()}\u0003`))
-  .replace(/\u0001(\w+)\u0002([^\u0003]*)\u0003/g, (_, op, a) => `<span class="tool">${ic(TOOL_LABEL[op][0], 'sm')}${TOOL_LABEL[op][1]} <code>${a || '/'}</code></span>`);
+const TOOL_LABEL = { READ: ['filetext', 'อ่านไฟล์'], GREP: ['search', 'ค้นหา'], LIST: ['folder', 'ดูโฟลเดอร์'], RUN: ['terminal', 'รันคำสั่ง'] };
+function stepsOf(text) {
+  const out = [];
+  for (const m of String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(/^[ \t]*(READ|GREP|LIST|RUN)\b[ \t]*(?:path=)?(.*)$/gm)) {
+    out.push({ op: m[1], arg: m[2].trim() });
+  }
+  return out;
+}
+const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/^[ \t]*(READ|GREP|LIST|RUN)\b.*$/gm, '')).join('```').replace(/\n{3,}/g, '\n\n').trim();
+function stepsBar(m, i) {
+  const s = stepsOf(m.content); if (!s.length) return '';
+  const cnt = k => s.filter(x => x.op === k).length;
+  const parts = [['READ', 'อ่าน', 'ไฟล์'], ['GREP', 'ค้นหา', 'จุด'], ['LIST', 'ดู', 'โฟลเดอร์'], ['RUN', 'รัน', 'คำสั่ง']].map(([k, v, u]) => cnt(k) ? `${v} ${cnt(k)} ${u}` : '').filter(Boolean);
+  return `<button type="button" class="steps-bar" data-steps="${i}">${ic('terminal', 'sm')}<span>${parts.join(', ')}</span>${ic('right', 'sm')}</button>`;
+}
 const runCard = (m, i) => { const r = runsOf(m.content); return r.length ? `<div class="changes runs"><span class="muted">AI ขอรันคำสั่ง</span>${r.map(c => `<code>${esc(c)}</code>`).join('')}${m.ran ? '<span class="muted">รันแล้ว ✓</span>' : `<button class="btn blue sm" data-runai="${i}">${ic('terminal', 'sm')} รันแล้วส่งผลให้ AI</button>`}</div>` : ''; };
 function aiMsgHTML(m, i) {
   if (m.role === 'user') {
@@ -487,7 +532,9 @@ function aiMsgHTML(m, i) {
     return `<div class="msg user ${m.auto ? 'auto' : ''}"><div class="b">${m.imgs ? `<div class="mimgs shot">${m.imgs.map(d => `<img src="${d}" alt="ภาพหน้าจอผลลัพธ์">`).join('')}</div>` : ''}${esc(m.content.replace(FILE_RE, '').replace(TREE_RE, '').replace(CHECK_RE, '').replace(/\n\n\[แนบรูป \d+ รูป\]/, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${icon(f[1])} <span>${esc(f[1])}</span></span>`).join('')}</div>` : ''}</div></div>`;
   }
   const ask = parseAsk(m.content, m.streaming);
-  return `<div class="msg ai">${thinkHTML(m)}<div class="b">${ask.text ? toolsMd(ask.text) : m.thinking || ask.asks.length ? '' : DOTS}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
+  const cleanBody = stripTools(ask.text);
+  const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
+  return `<div class="msg ai">${thinkHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : DOTS}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
     + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}<button data-copy="${i}">คัดลอก</button></div>`}</div>`;
 }
 function drawAI() {
@@ -495,7 +542,7 @@ function drawAI() {
   box.innerHTML = IDE.msgs.length ? IDE.msgs.map(aiMsgHTML).join('')
     : `<div class="empty" style="padding-top:24px"><div class="stat" style="font-size:22px">ให้ AI ช่วยเขียนโค้ด</div><div class="muted">AI อ่านได้ทุกไฟล์ในโปรเจกต์ และแก้ไฟล์ให้ได้ กด Apply เพื่อใช้การแก้ไข</div>
       <div class="chips">${['อธิบายโค้ดไฟล์นี้', 'หาบั๊กและแก้ให้', 'เพิ่มคอมเมนต์ภาษาไทย', 'ทำให้หน้าเว็บสวยขึ้น'].map(s => `<button data-cs="${s}">${s}</button>`).join('')}</div></div>`;
-  box.scrollTop = box.scrollHeight;
+  box.scrollTop = box.scrollHeight; renderRich(box);
 }
 function codeStop() {
   IDE.round = 99;
@@ -524,19 +571,20 @@ async function codeSend(auto) {
   IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop');
   let raf = 0, started = false;
   try {
-    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null };
+    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps };
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal, body: JSON.stringify(reqBody) });
     if (!r.ok) { const d = await r.json(); throw new Error(r.status === 429 && d.pct4h != null ? 'ลิมิตเต็มแล้ว' : d.error); }
     started = true;
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
     for (;;) {
       const { done, value } = await rd.read(); if (done) break;
-      buf += dec.decode(value, { stream: true });
+      buf += dec.decode(value, { stream: true }).replace(/\r\n/g, '\n');
       let k; while ((k = buf.indexOf('\n\n')) >= 0) {
         const line = buf.slice(0, k); buf = buf.slice(k + 2);
         if (!line.startsWith('data: ')) continue;
         const d = JSON.parse(line.slice(6));
         if (d.chat_id) IDE.chatId = d.chat_id;
+        if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) { const stick = nearBottom(b); paintStreaming(last, ai); if (stick) b.scrollTop = b.scrollHeight; } }); }
         if (d.error) $('#ce').textContent = d.error;
         if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); }
@@ -552,7 +600,7 @@ async function codeSend(auto) {
   const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content) : [], autoOn = IDE.autoApply || IDE.autoMode;
   try {
     if (autoOn && runs.length && (IDE.round ?? 0) < 5) await runForAI(ai, runs);
-    else if (autoOn && ch.length) { for (const c of ch) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c); if (IDE.autoMode && (IDE.round ?? 0) < 3) await check(); }
+    else if (autoOn && ch.length) { for (const c of ch) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, ai); if (IDE.autoMode && (IDE.round ?? 0) < 3) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
 }
 
@@ -705,7 +753,7 @@ async function codeView(id) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   const d = await api('/projects/' + id);
   IDE.node?.f.remove(); IDE.node = null; // เทอร์มินัลของโปรเจกต์ก่อน
-  Object.assign(IDE, { pid: d.id, name: d.name, gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,
+  Object.assign(IDE, { pid: d.id, name: d.name, instructions: d.instructions || '', gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,
     dirty: new Set(), ctx: new Set(), autoActive: true, msgs: [], chatId: null, busy: false, logs: [], frame: null });
   if (IDE.worker) { IDE.worker.terminate(); IDE.worker = null; }
   const saved = localStorage.getItem('model');
@@ -713,17 +761,19 @@ async function codeView(id) {
     <header class="ide-bar"><a class="icon-btn sm" href="/code" aria-label="กลับไปหน้าโปรเจกต์">‹</a><b class="pname">${esc(d.name)}</b><span id="ide-status" class="muted"></span><span style="flex:1"></span>
       <button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} รัน</button></header>
     <div class="ide-body">
-      <aside class="ide-files"><div class="ftools"><button class="btn out sm" id="nfile">+ ไฟล์</button><button class="btn out sm" id="upl">อัปโหลด</button>
+      <aside class="ide-files"><div class="ftools"><button class="btn out sm" id="nfile">+ ไฟล์</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">อัปโหลด</button>
         <button class="btn out sm" id="zin">นำเข้า zip</button><button class="btn out sm" id="zout">ส่งออก zip</button>
         <input type="file" id="uplf" multiple hidden><input type="file" id="zinf" accept=".zip,application/zip" hidden></div><div id="tree" class="tree"></div></aside>
       <section class="ide-main"><div class="ide-tabs" id="tabs"></div>
         <div class="ide-tools"><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
           <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">ประวัติ</button><button id="save" aria-label="บันทึก">บันทึก</button></div>
         <div id="editor" class="ide-editor"></div>
+        <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
+        <div class="mkeys" id="mkeys">${[['Tab', '  '], ['{ }', '{}', 1], ['( )', '()', 1], ['[ ]', '[]', 1], ['=>', ' => '], [';', ';'], ['" "', '""', 1], ["' '", "''", 1], ['< >', '<>', 1], ['/', '/'], ['=', ' = ']].map(([l, v, o]) => `<button type="button" data-ins="${esc(v)}" data-off="${o || 0}">${esc(l)}</button>`).join('')}</div>
         <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">ผลลัพธ์</button><button data-rtab="con">คอนโซล</button><button data-rtab="term">เทอร์มินัล</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
-          <button id="stop">${ic('stop')} หยุด</button><button id="clr">ล้าง</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
+          <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ">${ic('eye', 'sm')} เต็มจอ</button><button id="stop">${ic('stop')} หยุด</button><button id="clr">ล้าง</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
           <div id="out" class="run-out"><p class="muted" style="padding:16px">กด รัน เพื่อดูผล</p></div><div id="console" class="console" hidden></div><div id="term" class="term" hidden><pre id="term-o"></pre><form id="term-f"><span>$</span><input id="term-i" placeholder="npm install lodash / npm test / node app.js" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="คำสั่ง"></form></div></div></section>
-      <aside class="ide-ai"><div class="ai-h"><b class="ai-t">${ic('sparkles')} AI</b><span class="sp"></span><button class="lim" id="clim" aria-label="ลิมิตการใช้งาน"></button><button class="icon-btn sm" id="cnew" aria-label="แชตใหม่">${ic('newchat')}</button>
+      <aside class="ide-ai"><div class="ai-h"><b class="ai-t">${ic('sparkles')} AI</b><span class="sp"></span><button class="lim" id="clim" aria-label="ลิมิตการใช้งาน"></button><button class="icon-btn sm" id="chist" aria-label="ประวัติแชตโปรเจกต์" title="ประวัติแชต">${ic('more')}</button><button class="icon-btn sm" id="cnew" aria-label="แชตใหม่">${ic('newchat')}</button>
         <select id="cmodel" hidden>${me.models.map(m => `<option value="${m.id}" ${String(m.id) === saved ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
         <select id="ceffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></div>
         <div id="cmsgs" class="msgs"></div>
@@ -741,13 +791,14 @@ async function codeView(id) {
 
   $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); };
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
-  $('#cmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = () => effortSheet('#ceffort'); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools;
-  $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f) { setOpt(f, false); cUI(); } };
-  $('#clim').innerHTML = limHTML(me.usage); cUI();
+  $('#cmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools;
+  $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
+    else if (f === 'mc') { IDE.mcps = IDE.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('cmcps', JSON.stringify(IDE.mcps)); cUI(); } else if (f) { setOpt(f, false); cUI(); } };
+  $('#clim').innerHTML = limHTML(me.usage); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();
   document.querySelectorAll('[data-pane-btn]').forEach(b => b.onclick = () => { if (b.dataset.paneBtn === 'run') showRun(true); setPane(b.dataset.paneBtn); });
   $('#term-f').onsubmit = async e => { e.preventDefault(); const i = $('#term-i'), cmd = i.value.trim(); if (!cmd || IDE.termBusy) return; i.value = ''; IDE.termBusy = true; try { await nodeRun(cmd); } finally { IDE.termBusy = false; i.focus(); } };
   $('#run').onclick = run; $('#git').onclick = () => gitPanel(); $('#stop').onclick = stopRun; $('#clr').onclick = () => { IDE.logs = []; $('#console').innerHTML = ''; };
-  $('#hiderun').onclick = () => { showRun(false); setPane('code'); };
+  $('#hiderun').onclick = () => { $('.ide').classList.remove('run-full'); $('#rfull')?.classList.remove('on'); showRun(false); setPane('code'); };
   document.querySelectorAll('[data-rtab]').forEach(b => b.onclick = () => runTab(b.dataset.rtab));
   $('#undo').onclick = () => { CM.undo(IDE.view); IDE.view.focus(); }; $('#redo').onclick = () => { CM.redo(IDE.view); IDE.view.focus(); };
   $('#find').onclick = () => CM.openSearchPanel(IDE.view); $('#save').onclick = saveNow;
@@ -764,6 +815,64 @@ async function codeView(id) {
   $('#zin').onclick = () => $('#zinf').click(); $('#zinf').onchange = async e => { try { await importZip(e.target.files[0]); } catch (x) { setStatus('zip: ' + x.message, true); } e.target.value = ''; };
   $('#zout').onclick = () => exportZip().catch(x => setStatus(x.message, true));
   $('#cnew').onclick = () => { IDE.chatId = null; IDE.msgs = []; drawAI(); };
+  $('#chist').onclick = async () => {
+    const list = await api('/chats?project=' + IDE.pid).catch(() => []);
+    if (!list.length) return toast('ยังไม่มีประวัติแชตในโปรเจกต์นี้');
+    sheet('ประวัติแชตในโปรเจกต์', list.map(c => optHTML(c.id, ic('msg') + esc(c.title), c.id === IDE.chatId ? 'กำลังเปิดอยู่' : '', c.id === IDE.chatId)).join(''), (d, close) => {
+      d.querySelectorAll('[data-v]').forEach(b => b.onclick = async () => {
+        close(); IDE.chatId = +b.dataset.v; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI();
+      });
+    });
+  };
+  $('#rmob').onclick = e => { $('#out').classList.toggle('mob'); e.currentTarget.classList.toggle('on'); };
+  $('#rfull').onclick = e => { $('.ide').classList.toggle('run-full'); e.currentTarget.classList.toggle('on'); };
+  $('.ide-run').addEventListener('click', e => {
+    const b = e.target.closest('[data-fix]'); if (!b || IDE.busy) return;
+    setPane('ai'); IDE.round = 0;
+    codeSend({ text: `ช่วยแก้ error นี้ให้หน่อย (กำลังเปิดไฟล์ ${IDE.active || '-'}):\n\`\`\`\n${b.dataset.fix}\n\`\`\`` });
+  });
+  $('#mkeys').onmousedown = e => e.preventDefault();
+  $('#mkeys').onclick = e => {
+    const b = e.target.closest('[data-ins]'); if (!b || !IDE.view) return;
+    const ins = b.dataset.ins, off = +b.dataset.off || 0, { from, to } = IDE.view.state.selection.main;
+    IDE.view.dispatch({ changes: { from, to, insert: ins }, selection: { anchor: from + ins.length - off } });
+    IDE.view.focus();
+  };
+  $('#selai').onclick = () => {
+    const st = IDE.view?.state, sel = st?.selection.main; if (!sel || sel.empty) return;
+    const code = st.sliceDoc(sel.from, sel.to), l1 = st.doc.lineAt(sel.from).number, l2 = st.doc.lineAt(sel.to).number;
+    const ct = $('#ct'); setPane('ai');
+    ct.value = `จากไฟล์ \`${IDE.active}\` บรรทัด ${l1}${l2 > l1 ? '-' + l2 : ''}:\n\`\`\`\n${code}\n\`\`\`\nช่วย`;
+    ct.oninput(); ct.focus();
+  };
+  $('#gfind').onclick = () => {
+    document.querySelector('.gsearch')?.remove();
+    const box = document.createElement('div'); box.className = 'diffbox gitbox gsearch';
+    box.innerHTML = `<div class="diff-h"><b>${ic('search', 'sm')} ค้นหาทั้งโปรเจกต์</b><span style="flex:1"></span><button class="btn out sm" data-x>ปิด</button></div>
+      <div class="git-b"><input id="gf-i" placeholder="พิมพ์คำหรือชื่อฟังก์ชันที่ต้องการค้นหา..." autofocus><div id="gf-r" style="margin-top:10px"></div></div>`;
+    $('.ide').append(box);
+    const inp = box.querySelector('#gf-i'), res = box.querySelector('#gf-r');
+    setTimeout(() => inp.focus(), 30);
+    box.onclick = e => { if (e.target.closest('[data-x]')) box.remove(); };
+    inp.oninput = () => {
+      const q = inp.value.trim().toLowerCase();
+      if (!q) { res.innerHTML = '<p class="muted">พิมพ์คำที่ต้องการค้นหา</p>'; return; }
+      const hits = [];
+      for (const fp of IDE.files.keys()) {
+        const lines = content(fp).split('\n');
+        for (let i = 0; i < lines.length && hits.length < 80; i++) {
+          if (lines[i].toLowerCase().includes(q)) hits.push({ fp, ln: i + 1, txt: lines[i].trim().slice(0, 120) });
+        }
+      }
+      res.innerHTML = hits.length ? hits.map(h => `<button class="ver" data-go="${esc(h.fp)}" data-ln="${h.ln}"><b>${esc(h.fp)}:${h.ln}</b><span class="muted">${esc(h.txt)}</span></button>`).join('') : '<p class="muted">ไม่พบคำที่ค้นหา</p>';
+      res.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
+        openFile(b.dataset.go);
+        const ln = Math.min(+b.dataset.ln, IDE.view.state.doc.lines), pos = IDE.view.state.doc.line(ln).from;
+        IDE.view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+        IDE.view.focus(); box.remove();
+      });
+    };
+  };
   IDE.autoMode = localStorage.getItem('auto') === '1'; IDE.autoApply = localStorage.getItem('autoapply') === '1';
   const ct = $('#ct');
   ct.oninput = () => { ct.style.height = 'auto'; ct.style.height = ct.scrollHeight + 'px'; };
@@ -783,7 +892,21 @@ async function codeView(id) {
     try {
       if (b.dataset.diff) showDiff(c);
       if (b.dataset.apply) { b.disabled = true; await apply(c); }
-      if (b.dataset.applyall) { b.disabled = true; for (const x of changesOf(IDE.msgs[+b.dataset.applyall].content)) if (x.del ? has(x.path) : content(x.path) !== x.content || !has(x.path)) await apply(x); }
+      if (b.dataset.steps != null) {
+        const steps = stepsOf(IDE.msgs[+b.dataset.steps]?.content);
+        sheet('ขั้นตอนการทำงาน', `<div class="step-tl">${steps.map(s => `<div class="step-i"><span class="step-ic">${ic(TOOL_LABEL[s.op][0], 'sm')}</span><div><b>${TOOL_LABEL[s.op][1]}</b><code>${esc(s.arg || '/')}</code></div></div>`).join('')}</div>`);
+        return;
+      }
+      if (b.dataset.revert != null) {
+        const msg = IDE.msgs[+b.dataset.revert]; if (!msg?._prev?.length) return;
+        if (!await confirmSheet(`ย้อนกลับ ${msg._prev.length} ไฟล์ก่อน AI แก้ในรอบนี้?`, { title: 'ย้อนกลับการแก้ไข', ok: 'ย้อนกลับ' })) return;
+        const writes = [], dels = [];
+        for (const p of msg._prev) { if (p.existed) writes.push({ path: p.path, content: p.prev }); else dels.push(p.path); }
+        if (writes.length) await writeFiles(writes);
+        for (const dp of dels) { await api(`/projects/${IDE.pid}/file?path=${encodeURIComponent(dp)}`, { method: 'DELETE' }); dropFile(dp); }
+        delete msg._prev; refresh(); drawAI(); toast('ย้อนกลับไฟล์เรียบร้อย', 'ok'); return;
+      }
+      if (b.dataset.applyall) { b.disabled = true; for (const x of changesOf(IDE.msgs[+b.dataset.applyall].content)) if (x.del ? has(x.path) : content(x.path) !== x.content || !has(x.path)) await apply(x, IDE.msgs[+b.dataset.applyall]); }
     } catch (x) { $('#ce').textContent = x.message; drawAI(); }
   };
   drawAI();

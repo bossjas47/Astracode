@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS plans (
   limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
   price_year REAL,                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
+  seats INTEGER NOT NULL DEFAULT 1,         -- 1 = เดี่ยว, 2+ = แพลนทีม
+  shared_pool INTEGER NOT NULL DEFAULT 0,   -- 0 = แยกโควตาต่อคน, 1 = ใช้งบรวมทั้งทีม
+  api_limit INTEGER NOT NULL DEFAULT 0,     -- 0 = API Key หักจาก Wallet, 1 = หักจากลิมิตแพลนได้
   sort INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
 );
@@ -56,7 +59,8 @@ CREATE TABLE IF NOT EXISTS models (
   promo_pct REAL, promo_start INTEGER, promo_end INTEGER, -- โปรลดราคา % ช่วงเวลา (unix ms)
   cap_pct INTEGER NOT NULL DEFAULT 0,       -- เพดานโมเดลนี้เป็น % ของงบสัปดาห์ (0 = ไม่จำกัด) เช่น Opus 50
   code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
-  effort TEXT NOT NULL DEFAULT 'none',      -- none | openai | anthropic | deepseek (รูปแบบพารามิเตอร์ effort)
+  effort TEXT NOT NULL DEFAULT 'none',      -- none | openai | anthropic | deepseek | kimi
+  effort_levels TEXT,                       -- คั่นด้วย , เช่น none,low,medium,high,max (ว่าง = ค่าเริ่มต้นค่าย)
   sort INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
 );
@@ -74,9 +78,11 @@ CREATE TABLE IF NOT EXISTS chats (
   created_at INTEGER NOT NULL,
   project_id INTEGER                        -- แชตของโปรเจกต์ (โหมด Code)
   , folder_id INTEGER
-  , summary TEXT, summary_upto INTEGER       -- สรุปข้อความเก่า (ย่อแชตยาว) ถึงข้อความ id นี้
+  , summary TEXT, summary_upto INTEGER
+  , pinned INTEGER NOT NULL DEFAULT 0, share_token TEXT       -- สรุปข้อความเก่า (ย่อแชตยาว) ถึงข้อความ id นี้
 );
 CREATE INDEX IF NOT EXISTS chats_user ON chats(user_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS chats_share ON chats(share_token);
 
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,6 +166,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   updated_at INTEGER NOT NULL,
   gh_repo TEXT, gh_branch TEXT, gh_sha TEXT, -- repo ที่เชื่อม และคอมมิตล่าสุดที่ sync
   gh_synced TEXT                            -- JSON: path → blob sha ตอน sync ล่าสุด
+  , instructions TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id);
 CREATE TABLE IF NOT EXISTS project_files (
@@ -171,7 +178,7 @@ CREATE TABLE IF NOT EXISTS project_files (
 );
 
 -- ระบบเพิ่มเติม (เหมือน migrate-6.sql)
-CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT);
+CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT, use_plan INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS wallet_tx (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount REAL NOT NULL, balance_after REAL NOT NULL, kind TEXT NOT NULL, ref TEXT, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS wallet_tx_user ON wallet_tx(user_id, id);
 CREATE TABLE IF NOT EXISTS coupons (code TEXT PRIMARY KEY, kind TEXT NOT NULL, value REAL NOT NULL, max_uses INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0, expires INTEGER, note TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
@@ -191,3 +198,55 @@ INSERT OR IGNORE INTO settings VALUES ('referral_bonus','20'); INSERT OR IGNORE 
 
 CREATE INDEX IF NOT EXISTS payments_slip_ref ON payments(slip_ref);
 INSERT OR IGNORE INTO settings VALUES ('slip_provider',''); INSERT OR IGNORE INTO settings VALUES ('slip_auto_approve','1'); INSERT OR IGNORE INTO settings VALUES ('slip2go_url',''); INSERT OR IGNORE INTO settings VALUES ('slip2go_receiver_type',''); INSERT OR IGNORE INTO settings VALUES ('slip2go_receiver_account','');
+
+CREATE TABLE IF NOT EXISTS teams (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  owner_id INTEGER NOT NULL,
+  plan_id INTEGER NOT NULL,
+  expires INTEGER NOT NULL,
+  invite_code TEXT UNIQUE NOT NULL,
+  max_seats INTEGER NOT NULL DEFAULT 5,
+  shared_pool INTEGER NOT NULL DEFAULT 0,
+  sess_start INTEGER,
+  week_start INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS team_members (
+  team_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (team_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS team_members_user ON team_members(user_id);
+INSERT OR IGNORE INTO plans (id,name,price,price_year,limit_4h,limit_week,description,seats,shared_pool,sort,active) VALUES
+ (7,'Team',1990,19900,40,150,'แพลนทีม สูงสุด 5 คน (ใช้ได้ทุกโมเดล)',5,0,6,1);
+INSERT OR IGNORE INTO plan_models SELECT 7, id FROM models WHERE active=1;
+
+CREATE TABLE IF NOT EXISTS skills (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS skills_user ON skills(user_id, id);
+INSERT OR IGNORE INTO skills (id,user_id,name,description,content,enabled,created_at) VALUES
+ (1,0,'apple-dark-ui','ออกแบบ UI สไตล์ Apple Dark / Glassmorphism พร้อมโค้ดสะอาด','When designing or writing frontend UI/CSS, strictly follow Apple Dark Design principles: deep obsidian (#050507) and carbon (#18181c) surfaces, hairline 1px rgba(255,255,255,0.09) borders, subtle backdrop-filter blur, SF Pro / Inter / Prompt typography, 12px rounded-rect inputs, 9999px pill buttons, generous whitespace, and zero emojis in UI chrome (use crisp SVG icons instead).',1,0),
+ (2,0,'senior-debugger','วิเคราะห์หาต้นตอของบั๊กอย่างเป็นระบบก่อนแก้โค้ด','When debugging code or errors: 1) Identify the exact root cause before proposing a fix. 2) Check edge cases, async race conditions, null/undefined handling, and state sync. 3) Keep changes minimal, surgical, and explain why the bug happened in 2-3 concise bullet points.',1,0),
+ (3,0,'thai-pro-writer','เขียนและเกลาภาษาไทยให้สละสลวย กระชับ เป็นธรรมชาติ','Write in natural, modern, concise Thai. Avoid stiff translated phrasing, excessive filler words, or robotic openings. Use clear headings and bullet points where helpful.',1,0);
+
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  token_enc TEXT,
+  tools_json TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mcp_user ON mcp_servers(user_id, id);

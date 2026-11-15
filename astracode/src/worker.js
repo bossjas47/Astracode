@@ -132,16 +132,34 @@ async function fbSession(req, env, c, b) { // c มาจาก token ที่�
 
 // ---------- plan + limits ----------
 async function planOf(env, u) {
-  if (u.plan_id && u.plan_expires > Date.now()) {
-    const p = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(u.plan_id).first();
-    if (p) return p;
+  const now = Date.now();
+  let personal = null;
+  if (u.plan_id && u.plan_expires > now) {
+    personal = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(u.plan_id).first();
   }
+  const tm = await env.DB.prepare(`SELECT t.id tid,t.name tname,t.owner_id,t.expires,t.invite_code,t.max_seats,t.shared_pool tshared,tm.role trole,p.*
+    FROM team_members tm JOIN teams t ON t.id=tm.team_id JOIN plans p ON p.id=t.plan_id
+    WHERE tm.user_id=? AND t.expires>? ORDER BY p.limit_week DESC, t.expires DESC LIMIT 1`).bind(u.id, now).first().catch(() => null);
+  if (tm && (!personal || tm.limit_week >= personal.limit_week)) {
+    tm._team = { id: tm.tid, name: tm.tname, owner_id: tm.owner_id, expires: tm.expires, invite_code: tm.invite_code, max_seats: tm.max_seats, shared_pool: !!tm.tshared, role: tm.trole };
+    return tm;
+  }
+  if (personal) return personal;
   return env.DB.prepare('SELECT * FROM plans WHERE price=0 AND active=1 ORDER BY sort LIMIT 1').first();
 }
 // ลิมิตหักตามต้นทุนจริง (บาท) แบบเดียวกับ Claude: รอบสั้นเริ่มนับตอนส่งข้อความแรกและยาว 4 ชม. · รอบสัปดาห์เริ่มตอนใช้ครั้งแรกแล้วรีเซ็ตหลัง 7 วัน
-// sess_start/week_start เป็น NULL = ยังไม่มีรอบที่กำลังนับ (ใช้ 0%)
 async function usageStatus(env, u, plan) {
   const now = Date.now(), r0 = u.usage_reset_at || 0;
+  if (plan?._team?.shared_pool) {
+    const w = await env.DB.prepare('SELECT sess_start,week_start FROM teams WHERE id=?').bind(plan._team.id).first() || {};
+    const s4 = w.sess_start && now < w.sess_start + H4 ? w.sess_start : null, sw = w.week_start && now < w.week_start + 7 * DAY ? w.week_start : null;
+    const r = s4 || sw ? await env.DB.prepare(`SELECT
+        COALESCE(SUM(CASE WHEN created_at>=?1 THEN units END),0) u4,
+        COALESCE(SUM(CASE WHEN created_at>=?2 THEN units END),0) uw
+      FROM usage WHERE user_id IN (SELECT user_id FROM team_members WHERE team_id=?3) AND created_at>=?4`).bind(s4 || 1e18, sw || 1e18, plan._team.id, Math.min(s4 || 1e18, sw || 1e18)).first() : { u4: 0, uw: 0 };
+    const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 1000) / 10) : 100;
+    return { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY };
+  }
   const w = await env.DB.prepare('SELECT sess_start,week_start FROM users WHERE id=?').bind(u.id).first() || {}; // อ่านใหม่เสมอ เพราะเพิ่งอาจเริ่มรอบตอนบันทึกการใช้งาน
   const s4 = w.sess_start && now < w.sess_start + H4 && w.sess_start >= r0 ? w.sess_start : null, sw = w.week_start && now < w.week_start + 7 * DAY && w.week_start >= r0 ? w.week_start : null;
   const r = s4 || sw ? await env.DB.prepare(`SELECT
@@ -152,9 +170,16 @@ async function usageStatus(env, u, plan) {
   return { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY };
 }
 // ข้อความแรกหลังรอบเก่าจบ = เริ่มรอบใหม่
-const touchWindows = (env, uid, now = Date.now()) => env.DB.prepare(`UPDATE users SET
-  sess_start=CASE WHEN sess_start IS NULL OR sess_start+?2<=?1 OR sess_start<usage_reset_at THEN ?1 ELSE sess_start END,
-  week_start=CASE WHEN week_start IS NULL OR week_start+?3<=?1 OR week_start<usage_reset_at THEN ?1 ELSE week_start END WHERE id=?4`).bind(now, H4, 7 * DAY, uid).run();
+async function touchWindows(env, uid, now = Date.now(), plan = null) {
+  await env.DB.prepare(`UPDATE users SET
+    sess_start=CASE WHEN sess_start IS NULL OR sess_start+?2<=?1 OR sess_start<usage_reset_at THEN ?1 ELSE sess_start END,
+    week_start=CASE WHEN week_start IS NULL OR week_start+?3<=?1 OR week_start<usage_reset_at THEN ?1 ELSE week_start END WHERE id=?4`).bind(now, H4, 7 * DAY, uid).run();
+  if (plan?._team?.shared_pool) {
+    await env.DB.prepare(`UPDATE teams SET
+      sess_start=CASE WHEN sess_start IS NULL OR sess_start+?2<=?1 THEN ?1 ELSE sess_start END,
+      week_start=CASE WHEN week_start IS NULL OR week_start+?3<=?1 THEN ?1 ELSE week_start END WHERE id=?4`).bind(now, H4, 7 * DAY, plan._team.id).run();
+  }
+}
 // เพดานโมเดลระดับบน: ใช้ได้ไม่เกิน cap_pct % ของงบสัปดาห์ (เช่น Opus 50%)
 async function capHit(env, u, plan, m) {
   if (!(m.cap_pct > 0) || !(plan.limit_week > 0)) return false;
@@ -166,7 +191,7 @@ async function capHit(env, u, plan, m) {
 // ต้นทุนโดยประมาณของ 1 ข้อความทั่วไป (context 20K อยู่ใน cache, ส่งใหม่ 1K, ตอบ 1K) ใช้ประมาณจำนวนข้อความต่อสัปดาห์
 const msgCost = m => (20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6;
 const allowedModels = (env, planId) => env.DB.prepare(
-  'SELECT m.id,m.name,m.multiplier,m.vision,m.effort,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 ORDER BY m.sort').bind(planId).all().then(r => r.results);
+  'SELECT m.id,m.name,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 ORDER BY m.sort').bind(planId).all().then(r => r.results);
 
 // ---------- AI providers ----------
 // คืน async generator: {t:text} ระหว่างทาง, {usage:{fresh,read,write,out}} ตอนจบ
@@ -233,7 +258,7 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       else if (toolChoice?.function?.name) body.tool_choice = { type: 'tool', name: toolChoice.function.name };
     }
     // shortcut: Max ของ Claude ส่งเป็น high เพราะ effort max ใช้ได้แค่บางรุ่น ถ้ารุ่นที่ใช้รองรับ ให้เปลี่ยนเป็น 'max'
-    if (m.effort === 'anthropic' && effort) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: { low: 'low', high: 'medium', max: 'high' }[effort] }; }
+    if (m.effort === 'anthropic' && effort) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: { minimal: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'max', max: 'max', on: 'medium' }[effort] || 'medium' }; }
     const res = await fetch(m.base_url + '/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
@@ -273,10 +298,11 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       if (toolChoice) body.tool_choice = toolChoice;
     }
     if (maxTokens) body[/api\.openai\.com/.test(m.base_url) ? 'max_completion_tokens' : 'max_tokens'] = maxTokens; // OpenAI รุ่นคิด (GPT-5, o-series) ไม่รับ max_tokens
-    if (m.effort === 'openai' && effort) body.reasoning_effort = { low: 'low', high: 'medium', max: 'high' }[effort];
-    if (m.effort === 'deepseek') { // DeepSeek เปิดคิดเป็นค่าเริ่มต้น จึงต้องปิดเองเมื่อเลือก "เร็ว"
+    if (m.effort === 'openai' && effort) body.reasoning_effort = { on: 'medium', max: 'high' }[effort] || effort;
+    if (m.effort === 'gemini') body.reasoning_effort = effort ? ({ xhigh: 'high', max: 'high', on: 'medium' }[effort] || effort) : 'none';
+    if (m.effort === 'deepseek') { // DeepSeek เปิดคิดเป็นค่าเริ่มต้น จึงต้องปิดเองเมื่อเลือก Instant
       body.thinking = { type: effort ? 'enabled' : 'disabled' };
-      if (effort) body.reasoning_effort = effort; // DeepSeek รับ low / high / max ตรงๆ
+      if (effort) body.reasoning_effort = { on: 'medium', xhigh: 'max', minimal: 'low' }[effort] || effort;
     }
     if (m.effort === 'kimi') body.thinking = { type: effort ? 'enabled' : 'disabled' }; // Kimi K2.5+: เปิด/ปิดคิดอย่างเดียว ไม่มีระดับ
     const res = await fetch(m.base_url + '/chat/completions', {
@@ -285,15 +311,46 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    let usage = null;
+    let usage = null, inThink = false, tagBuf = '';
+    const OPEN_T = ['<think>', '<thought>'], CLOSE_T = ['</think>', '</thought>'];
+    const flushBuf = (final = false) => {
+      const out = [];
+      for (;;) {
+        const tags = inThink ? CLOSE_T : OPEN_T;
+        let hit = -1, hitTag = '';
+        for (const tg of tags) { const idx = tagBuf.indexOf(tg); if (idx >= 0 && (hit < 0 || idx < hit)) { hit = idx; hitTag = tg; } }
+        if (hit >= 0) {
+          const pre = tagBuf.slice(0, hit);
+          if (pre) out.push(inThink ? { th: pre } : { t: pre });
+          tagBuf = tagBuf.slice(hit + hitTag.length);
+          inThink = !inThink;
+          continue;
+        }
+        if (final) {
+          if (tagBuf) out.push(inThink ? { th: tagBuf } : { t: tagBuf });
+          tagBuf = '';
+        } else {
+          // เก็บส่วนท้ายที่อาจเป็นครึ่งหนึ่งของแท็ก <think> / </think> ไว้รอรอบหน้า
+          const keep = Math.max(...tags.map(tg => { for (let k = tg.length - 1; k > 0; k--) if (tagBuf.endsWith(tg.slice(0, k))) return k; return 0; }));
+          const emit = tagBuf.slice(0, tagBuf.length - keep);
+          if (emit) out.push(inThink ? { th: emit } : { t: emit });
+          tagBuf = tagBuf.slice(tagBuf.length - keep);
+        }
+        break;
+      }
+      return out;
+    };
     for await (const e of sse(res)) {
-      const ch = e.choices?.[0], dl = ch?.delta, th = dl?.reasoning_content || dl?.reasoning; // DeepSeek/Kimi/อื่นๆ ส่งความคิดมาทางนี้
+      const ch = e.choices?.[0], dl = ch?.delta;
+      const th = dl?.reasoning_content || dl?.reasoning || dl?.thought || dl?.thinking || (Array.isArray(dl?.reasoning_details) ? dl.reasoning_details.map(x => x?.text || '').join('') : '');
       if (typeof th === 'string' && th) yield { th };
-      const t = dl?.content; if (t) yield { t };
+      const t = dl?.content;
+      if (typeof t === 'string' && t) { tagBuf += t; for (const ev of flushBuf(false)) yield ev; }
       if (Array.isArray(dl?.tool_calls) && dl.tool_calls.length) yield { tc: dl.tool_calls };
       if (ch?.finish_reason) yield { stop_reason: ch.finish_reason };
       if (e.usage || ch?.usage) usage = e.usage || ch.usage; // Kimi ใส่ usage ไว้ใน choices
     }
+    for (const ev of flushBuf(true)) yield ev;
     if (usage) {
       const p = usage.prompt_tokens || 0, d = usage.prompt_tokens_details;
       const read = usage.prompt_cache_hit_tokens ?? d?.cached_tokens ?? usage.cached_tokens ?? 0, write = d?.cache_write_tokens || 0;
@@ -303,11 +360,16 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
 }
 
 // ระบบพรอมต์: คำสั่งส่วนตัว + ความจำ + ผลค้นเว็บ
-async function systemFor(env, u, base, sources) {
+async function systemFor(env, u, base, sources, skillIds = []) {
   let sys = base;
   if (u.instructions?.trim()) sys += `\n\nUser's custom instructions (follow them):\n${u.instructions.trim().slice(0, 3000)}`;
   const mem = (await env.DB.prepare('SELECT text FROM memories WHERE user_id=? ORDER BY id LIMIT 50').bind(u.id).all()).results;
   if (mem.length) sys += `\n\nThings the user asked you to remember:\n${mem.map(x => '- ' + x.text).join('\n')}`;
+  const sids = Array.isArray(skillIds) ? skillIds.map(Number).filter(x => x > 0).slice(0, 3) : [];
+  if (sids.length) {
+    const sks = (await env.DB.prepare(`SELECT name,content FROM skills WHERE id IN (${sids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...sids, u.id).all().catch(() => ({ results: [] }))).results;
+    if (sks?.length) sys += '\n\nActive Skills (follow these instructions carefully):\n' + sks.map(k => `### Skill: ${k.name}\n${k.content.slice(0, 6000)}`).join('\n\n');
+  }
   if (sources?.length) sys += `\n\nWeb search results (today is ${new Date().toISOString().slice(0, 10)}). Use them when relevant and cite as [1], [2]:\n` + sources.map((x, i) => `[${i + 1}] ${x.title} (${x.url})\n${x.content}`).join('\n\n');
   return sys;
 }
@@ -321,11 +383,11 @@ async function webSearch(env, q) { // Tavily
   } catch { return []; }
 }
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
-async function logUsage(env, uid, m, usage, { units = true, wallet = null } = {}) {
+async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null } = {}) {
   const cost = (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6;
   const un = units ? Math.max(cost, 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) · 0 = ไม่หักลิมิตผู้ใช้
   const now = Date.now();
-  if (units) await touchWindows(env, uid, now); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
+  if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)')
     .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now).run();
   let charge = 0;
@@ -353,7 +415,7 @@ async function chat(req, env, u, ctx) {
   if (text.length > 20000) return err('ข้อความยาวเกิน 20,000 ตัวอักษร');
   if (!b.regenerate && !text && !images.length && !files.length) return err('ข้อความว่าง');
   if (!text) text = files.length ? 'อ่านไฟล์นี้' : 'อธิบายรูปนี้';
-  const effort = ['low', 'high', 'max'].includes(b.effort) ? b.effort : null;
+  const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.effort) ? b.effort : null;
   const ephemeral = !!b.ephemeral; // โหมดเทียบโมเดล: ไม่บันทึกแชต
   const plan = await planOf(env, u);
   if (b.model_id === 'auto') b.model_id = await autoModel(env, plan, u, { text, images, files, effort, regenerate: b.regenerate });
@@ -383,7 +445,15 @@ async function chat(req, env, u, ctx) {
   let hist, chatRow = null;
   if (ephemeral) hist = [{ role: 'user', content: saved }];
   else {
-    if (b.regenerate) { // ตอบใหม่: ลบคำตอบล่าสุด แล้วใช้คำถามเดิม
+    if (b.edit_id && cid) { // แก้ไขข้อความเดิมของ user แล้วลบข้อความหลังจากนั้นเพื่อตอบใหม่
+      const target = await env.DB.prepare("SELECT id FROM messages WHERE id=? AND chat_id=? AND role='user'").bind(+b.edit_id, cid).first();
+      if (!target) return err('ไม่พบข้อความที่จะแก้ไข', 404);
+      await env.DB.batch([
+        env.DB.prepare('UPDATE messages SET content=?, model_id=? WHERE id=?').bind(saved, m.id, target.id),
+        env.DB.prepare('DELETE FROM messages WHERE chat_id=? AND id>?').bind(cid, target.id),
+        env.DB.prepare('UPDATE chats SET summary=CASE WHEN summary_upto>=?1 THEN NULL ELSE summary END, summary_upto=CASE WHEN summary_upto>=?1 THEN NULL ELSE summary_upto END WHERE id=?2').bind(target.id, cid),
+      ]);
+    } else if (b.regenerate) { // ตอบใหม่: ลบคำตอบล่าสุด แล้วใช้คำถามเดิม
       const last = cid && await env.DB.prepare('SELECT id,role FROM messages WHERE chat_id=? ORDER BY id DESC LIMIT 1').bind(cid).first();
       if (!last) return err('ไม่มีข้อความให้ตอบใหม่');
       if (last.role === 'assistant') await env.DB.prepare('DELETE FROM messages WHERE id=?').bind(last.id).run();
@@ -397,7 +467,7 @@ async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, summary: chatRow?.summary || null };
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -420,30 +490,70 @@ async function runChat(env, J, send, st) {
   await send({ chat_id: cid, model: m.name, overflow: !!overflow });
   const sources = J.search && !pid ? await webSearch(env, hist.at(-1).content) : [];
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
-  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') : SYSTEM, sources)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : ''); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+  const projIns = pid ? (await env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid).first())?.instructions?.trim() : '';
+  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, sources, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : ''); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+  const mcpTools = [], mcpMap = new Map();
+  if (J.mcp_ids?.length) {
+    const srvs = (await env.DB.prepare(`SELECT * FROM mcp_servers WHERE id IN (${J.mcp_ids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...J.mcp_ids, u.id).all().catch(() => ({ results: [] }))).results;
+    for (const sv of srvs) {
+      const tok = sv.token_enc ? await unseal(env, sv.token_enc).catch(() => null) : null;
+      let list = []; try { list = JSON.parse(sv.tools_json || '[]'); } catch {}
+      for (const t of list) {
+        const safe = `mcp_${sv.id}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48)}`;
+        mcpMap.set(safe, { url: sv.url, tok, name: t.name, server: sv.name });
+        mcpTools.push({ type: 'function', function: { name: safe, description: `[${sv.name}] ${t.description || t.name}`, parameters: t.inputSchema } });
+      }
+    }
+  }
   let msgs = hist, imgs = imgs0, beat = Date.now();
-  for (let round = 0; ; round++) { // โหมด Code: AI ขออ่าน/ค้นไฟล์ได้เอง แล้วตอบต่อ (สูงสุด TOOL_ROUNDS รอบ)
+  for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     let part = '', ru = null;
+    const tcs = new Map(), anthIdx = new Map();
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system })) {
+        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined })) {
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
           if (e.t) { out += e.t; part += e.t; await send({ t: e.t }); }
           if (e.th) { think += e.th; await send({ th: e.th }); }
+          if (e.tc_start) { const idx = tcs.size; anthIdx.set(e.tc_start.index, idx); tcs.set(idx, { id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }); }
+          if (e.tc_delta) { const idx = anthIdx.get(e.tc_delta.index); if (idx != null) tcs.get(idx).function.arguments += e.tc_delta.args; }
+          if (e.tc) for (const d of e.tc) {
+            const idx = d.index ?? 0;
+            if (!tcs.has(idx)) tcs.set(idx, { id: d.id || 'call_' + rand(8), type: 'function', function: { name: d.function?.name || '', arguments: '' } });
+            const c = tcs.get(idx); if (d.id) c.id = d.id; if (d.function?.name) c.function.name += d.function.name; if (d.function?.arguments) c.function.arguments += d.function.arguments;
+          }
           if (e.usage) ru = e.usage;
         }
         break;
       } catch (e) {
         console.log('AI error', model.name, e.message);
         await event(env, 'error', model.id, e.message.slice(0, 300));
-        const fb = !out && !think && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
+        const fb = !out && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
         if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
         await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
         break;
       }
     }
     if (ru) usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : ru;
+    const toolCalls = [...tcs.values()];
+    if (toolCalls.length && !st.gone && round < 5) {
+      msgs = [...msgs, { role: 'assistant', content: part || null, tool_calls: toolCalls }];
+      imgs = [];
+      for (const tc of toolCalls) {
+        const meta = mcpMap.get(tc.function?.name);
+        let resText = 'ไม่พบเครื่องมือนี้', ok = false;
+        if (meta) {
+          let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch {}
+          try { resText = await mcpCall(meta.url, meta.tok, meta.name, args); ok = true; }
+          catch (err) { resText = 'Error: ' + err.message; }
+          await send({ mcp: { server: meta.server, tool: meta.name, ok } });
+        }
+        msgs.push({ role: 'tool', tool_call_id: tc.id, content: resText });
+      }
+      await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + LOCK_MS, lock).run();
+      continue;
+    }
     const reqs = pid && !st.gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
     if (!reqs.length) break;
     const result = await runTools(env, pid, reqs);
@@ -458,7 +568,7 @@ async function runChat(env, J, send, st) {
   const tok = usage && { in: usage.fresh + usage.read + usage.write, out: usage.out };
   if ((out || think) && cid) await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?)')
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).run();
-  if (usage) await logUsage(env, u.id, model, usage, { wallet: overflow });
+  if (usage) await logUsage(env, u.id, model, usage, { wallet: overflow, plan });
   await unlimit(env, lock);
   await send({ done: true, tok, ...(await usageStatus(env, u, plan)) });
   if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
@@ -475,7 +585,7 @@ async function autoModel(env, plan, u, { text, images, files, effort, regenerate
   const s = await getSettings(env, ['auto_cheap_model', 'auto_strong_model']), by = (a, b) => a.multiplier - b.multiplier;
   const cheap = ms.find(m => m.id === +s.auto_cheap_model) || [...ms].sort(by)[0];
   const strong = ms.find(m => m.id === +s.auto_strong_model) || [...ms].sort(by).at(-1);
-  let m = regenerate || images.length || files.length || effort === 'high' || effort === 'max' || text.length > 1200 || HARD_RE.test(text) ? strong : cheap;
+  let m = regenerate || images.length || files.length || ['high', 'xhigh', 'max'].includes(effort) || text.length > 1200 || HARD_RE.test(text) ? strong : cheap;
   if (images.length && !m.vision) m = ms.find(x => x.vision) || m;
   return m.id;
 }
@@ -494,6 +604,64 @@ async function compact(env, u, cid) {
     system: 'Summarize this conversation so an assistant can continue it. Keep: the user\'s goals and preferences, decisions made, facts, names, numbers, file names, code identifiers and unfinished tasks. Drop small talk and long code (say what it does). Write in the same language as the conversation, at most 350 words, as bullet points.' })) { if (e.t) summary += e.t; if (e.usage) usage = e.usage; }
   if (usage) await logUsage(env, u.id, m, usage, { units: false }); // ต้นทุนของเรา ไม่หักลิมิตผู้ใช้
   if (summary.trim()) await env.DB.prepare('UPDATE chats SET summary=?, summary_upto=? WHERE id=?').bind(summary.trim().slice(0, 6000), old.at(-1).id, cid).run();
+}
+
+
+// ---------- Remote MCP (Streamable HTTP / JSON-RPC 2.0) ----------
+function isSafeMcpUrl(raw) {
+  let u; try { u = new URL(String(raw || '').trim()); } catch { return null; }
+  if (u.protocol !== 'https:' || u.username || u.password) return null;
+  const h = u.hostname.toLowerCase();
+  if (!h || h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal') || h === '[::1]') return null;
+  if (/^(127\.|10\.|192\.168\.|0\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return null;
+  if (/^\d+$/.test(h) || h.includes(':')) return null;
+  return u.href;
+}
+async function mcpRpc(url, token, method, params = {}, sessionId = null, notifyOnly = false) {
+  const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'user-agent': 'AstraCode-MCP/1.0' };
+  if (token) headers.authorization = 'Bearer ' + token;
+  if (sessionId) headers['mcp-session-id'] = sessionId;
+  const id = notifyOnly ? undefined : Math.floor(Math.random() * 1e9);
+  const body = notifyOnly ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id, method, params };
+  const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(10000) });
+  const sid = r.headers.get('mcp-session-id') || sessionId;
+  if (notifyOnly) return { data: null, sessionId: sid };
+  if (!r.ok) throw userErr(`MCP ตอบกลับ HTTP ${r.status}: ${(await r.text().catch(() => '')).slice(0, 150)}`, 502);
+  const ct = r.headers.get('content-type') || '';
+  let data = null;
+  if (ct.includes('text/event-stream')) {
+    const txt = await r.text();
+    for (const line of txt.split('\n')) {
+      const l = line.trim();
+      if (l.startsWith('data:')) {
+        try { const o = JSON.parse(l.slice(5).trim()); if (o && (o.id === id || o.result !== undefined || o.error)) data = o; } catch {}
+      }
+    }
+  } else {
+    data = await r.json().catch(() => null);
+  }
+  if (!data) throw userErr('MCP ไม่ได้ส่งข้อมูล JSON-RPC กลับมา', 502);
+  if (data.error) throw userErr('MCP error: ' + (data.error.message || JSON.stringify(data.error)).slice(0, 200), 502);
+  return { data: data.result, sessionId: sid };
+}
+async function mcpSync(url, token) {
+  const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'AstraCode', version: '1.0.0' } });
+  await mcpRpc(url, token, 'notifications/initialized', {}, init.sessionId, true).catch(() => {});
+  const res = await mcpRpc(url, token, 'tools/list', {}, init.sessionId);
+  const tools = (res.data?.tools || []).slice(0, 30).map(t => ({
+    name: String(t.name || '').slice(0, 60),
+    description: String(t.description || '').slice(0, 300),
+    inputSchema: t.inputSchema && typeof t.inputSchema === 'object' ? t.inputSchema : { type: 'object', properties: {} },
+  })).filter(t => t.name);
+  return tools;
+}
+async function mcpCall(url, token, name, args) {
+  const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'AstraCode', version: '1.0.0' } });
+  await mcpRpc(url, token, 'notifications/initialized', {}, init.sessionId, true).catch(() => {});
+  const res = await mcpRpc(url, token, 'tools/call', { name, arguments: args || {} }, init.sessionId);
+  const c = res.data?.content;
+  const txt = Array.isArray(c) ? c.map(x => x?.type === 'text' ? x.text : JSON.stringify(x)).join('\n') : JSON.stringify(res.data ?? '');
+  return String(txt || '(ไม่มีผลลัพธ์)').slice(0, 12000);
 }
 
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
@@ -620,9 +788,23 @@ async function applyPayment(env, p) {
   const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(p.user_id).first();
   if (p.kind === 'topup') await walletAdd(env, u.id, p.amount, 'topup', 'payment#' + p.id);
   else {
-    const days = p.period === 'year' ? 365 : 30;
-    const base = u.plan_id === p.plan_id && u.plan_expires > Date.now() ? u.plan_expires : Date.now(); // ต่ออายุแพลนเดิมต่อท้าย
-    await env.DB.prepare('UPDATE users SET plan_id=?, plan_expires=?, plan_period=? WHERE id=?').bind(p.plan_id, base + days * DAY, p.period, u.id).run();
+    const days = p.period === 'year' ? 365 : 30, now = Date.now();
+    const pl = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(p.plan_id).first();
+    if (pl && pl.seats > 1) {
+      const ex = await env.DB.prepare('SELECT * FROM teams WHERE owner_id=? ORDER BY id DESC LIMIT 1').bind(u.id).first();
+      const base = ex && ex.plan_id === p.plan_id && ex.expires > now ? ex.expires : now;
+      const exp = base + days * DAY;
+      if (ex) {
+        await env.DB.prepare('UPDATE teams SET plan_id=?, expires=?, max_seats=?, shared_pool=? WHERE id=?').bind(pl.id, exp, pl.seats, pl.shared_pool ? 1 : 0, ex.id).run();
+      } else {
+        const t = await env.DB.prepare('INSERT INTO teams (name,owner_id,plan_id,expires,invite_code,max_seats,shared_pool,created_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id')
+          .bind('ทีมของ ' + u.email.split('@')[0], u.id, pl.id, exp, rand(4).toUpperCase(), pl.seats, pl.shared_pool ? 1 : 0, now).first();
+        await env.DB.prepare("INSERT OR IGNORE INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'owner',?)").bind(t.id, u.id, now).run();
+      }
+    } else {
+      const base = u.plan_id === p.plan_id && u.plan_expires > now ? u.plan_expires : now; // ต่ออายุแพลนเดิมต่อท้าย
+      await env.DB.prepare('UPDATE users SET plan_id=?, plan_expires=?, plan_period=? WHERE id=?').bind(p.plan_id, base + days * DAY, p.period, u.id).run();
+    }
   }
   await useCoupon(env, p.coupon, u.id);
   if (u.referred_by && !u.ref_rewarded && !['wallet', 'coupon'].includes(p.slip_key)) { // คนที่ถูกชวนจ่ายเงินจริงครั้งแรก: ได้เครดิตทั้งคู่
@@ -695,6 +877,20 @@ const STARTER = {
   'script.js': "document.getElementById('btn').onclick = () => {\n  console.log('กดปุ่มแล้ว');\n  alert('ทำงานแล้ว!');\n};\n",
   'main.py': 'def greet(name):\n    return f"สวัสดี {name}"\n\nprint(greet("AstraCode"))\n',
 };
+const TEMPLATES = {
+  starter: STARTER,
+  tailwind: {
+    'index.html': '<!DOCTYPE html>\n<html lang="th">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>โปรเจกต์ใหม่</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-zinc-950 text-zinc-100 min-h-screen flex items-center justify-center p-6">\n  <div class="max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-6 text-center space-y-4">\n    <h1 class="text-2xl font-semibold">สวัสดี AstraCode</h1>\n    <button id="btn" class="px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-medium">เริ่มต้น</button>\n  </div>\n  <script type="module" src="script.js"></script>\n</body>\n</html>\n',
+    'script.js': "document.getElementById('btn').onclick = () => console.log('Tailwind starter ready');\n",
+  },
+  node: {
+    'package.json': '{\n  "name": "astracode-app",\n  "version": "1.0.0",\n  "scripts": {\n    "start": "node index.js"\n  }\n}\n',
+    'index.js': 'const name = "AstraCode";\nconsole.log(`Hello from Node.js, ${name}!`);\n',
+  },
+  python: {
+    'main.py': 'def greet(name):\n    return f"สวัสดี {name}"\n\nif __name__ == "__main__":\n    print(greet("AstraCode"))\n',
+  },
+};
 // เก็บเวอร์ชันเก่าของไฟล์ก่อนถูกเขียนทับ (แก้เอง: ทุก 5 นาที, AI/อัปโหลด/Git: ทุกครั้ง) เก็บล่าสุด 30 เวอร์ชันต่อไฟล์
 async function snapshot(env, pid, files, source) {
   const DB = env.DB, now = Date.now(), ops = [];
@@ -717,7 +913,8 @@ async function projects(req, env, u, path, url) {
       if (!name) return err('ตั้งชื่อโปรเจกต์ก่อน');
       if ((await DB.prepare('SELECT COUNT(*) n FROM projects WHERE user_id=?').bind(u.id).first()).n >= PROJECTS_PER_USER) return err(`สร้างได้สูงสุด ${PROJECTS_PER_USER} โปรเจกต์`);
       const id = (await DB.prepare('INSERT INTO projects (user_id,name,created_at,updated_at) VALUES (?,?,?,?) RETURNING id').bind(u.id, name, now, now).first()).id;
-      if (!b.empty) await DB.batch(Object.entries(STARTER).map(([p, c]) => DB.prepare('INSERT INTO project_files VALUES (?,?,?,?)').bind(id, p, c, now)));
+      const tpl = b.empty || b.template === 'empty' ? null : (TEMPLATES[b.template] || STARTER);
+      if (tpl) await DB.batch(Object.entries(tpl).map(([p, c]) => DB.prepare('INSERT INTO project_files VALUES (?,?,?,?)').bind(id, p, c, now)));
       return json({ ok: true, id });
     }
   }
@@ -740,9 +937,14 @@ async function projects(req, env, u, path, url) {
   const valid = f => typeof f?.path === 'string' && PATH_RE.test(f.path) && typeof f.content === 'string' && f.content.length <= FILE_LIMIT;
 
   if (!sub) {
-    if (M === 'GET') return json({ id: p.id, name: p.name, gh: p.gh_repo ? { repo: p.gh_repo, branch: p.gh_branch, synced: p.gh_sha } : null, files: (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all()).results });
+    if (M === 'GET') return json({ id: p.id, name: p.name, instructions: p.instructions || '', gh: p.gh_repo ? { repo: p.gh_repo, branch: p.gh_branch, synced: p.gh_sha } : null, files: (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all()).results });
     if (M === 'PUT') {
-      const name = String((await req.json()).name || '').trim().slice(0, 60);
+      const b = await req.json();
+      if ('instructions' in b) {
+        await DB.prepare('UPDATE projects SET instructions=?, updated_at=? WHERE id=?').bind(String(b.instructions || '').trim().slice(0, 3000), now, pid).run();
+        return json({ ok: true });
+      }
+      const name = String(b.name || '').trim().slice(0, 60);
       if (!name) return err('ชื่อว่าง');
       await DB.prepare('UPDATE projects SET name=?, updated_at=? WHERE id=?').bind(name, now, pid).run();
       return json({ ok: true });
@@ -958,8 +1160,8 @@ async function github(req, env, u, p, sub, now) {
 
 // ---------- admin ----------
 const TABLES = {
-  plans: ['name', 'price', 'price_year', 'limit_4h', 'limit_week', 'description', 'sort', 'active'],
-  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'sort', 'active'],
+  plans: ['name', 'price', 'price_year', 'limit_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
+  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published'],
 };
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
@@ -1165,6 +1367,59 @@ async function admin(req, env, path, url, me) {
     await ctxAudit('reset limits', { target: b.target, plan_id: b.plan_id, email: b.email, count: r.meta.changes });
     return json({ ok: true, count: r.meta.changes });
   }
+  if (path === '/api/admin/teams') {
+    return json((await DB.prepare(`SELECT t.*, u.email owner_email, p.name plan_name,
+      (SELECT COUNT(*) FROM team_members WHERE team_id=t.id) members_count
+      FROM teams t JOIN users u ON u.id=t.owner_id LEFT JOIN plans p ON p.id=t.plan_id ORDER BY t.id DESC LIMIT 200`).all()).results);
+  }
+  if ((r = path.match(/^\/api\/admin\/teams\/(\d+)$/))) {
+    const tid = +r[1];
+    if (M === 'DELETE') {
+      await ctxAudit('delete team', { id: tid });
+      await DB.batch([DB.prepare('DELETE FROM team_members WHERE team_id=?').bind(tid), DB.prepare('DELETE FROM teams WHERE id=?').bind(tid)]);
+      return json({ ok: true });
+    }
+    if (M === 'PUT') {
+      const b = await req.json();
+      await ctxAudit('update team', { id: tid, ...b });
+      const sets = [], args = [];
+      if (typeof b.name === 'string' && b.name.trim()) { sets.push('name=?'); args.push(b.name.trim().slice(0, 60)); }
+      if (b.max_seats != null) { sets.push('max_seats=?'); args.push(Math.max(1, +b.max_seats || 5)); }
+      if ('shared_pool' in b) { sets.push('shared_pool=?'); args.push(b.shared_pool ? 1 : 0); }
+      if (b.days != null && +b.days > 0) { sets.push('expires=?'); args.push(Date.now() + +b.days * DAY); }
+      if (sets.length) await DB.prepare(`UPDATE teams SET ${sets.join(',')} WHERE id=?`).bind(...args, tid).run();
+      return json({ ok: true });
+    }
+  }
+  if ((r = path.match(/^\/api\/admin\/skills(?:\/(\d+))?$/))) {
+    const sid = r[1] ? +r[1] : null;
+    if (M === 'GET') return json((await DB.prepare('SELECT * FROM skills WHERE user_id=0 ORDER BY id DESC').all()).results);
+    if (M === 'DELETE' && sid) { await ctxAudit('delete skill', { id: sid }); await DB.prepare('DELETE FROM skills WHERE id=? AND user_id=0').bind(sid).run(); return json({ ok: true }); }
+    const b = await req.json(), name = String(b.name || '').trim().slice(0, 60), desc = String(b.description || '').trim().slice(0, 200), content = String(b.content || '').trim().slice(0, 6000);
+    if (!name || !content) return err('ใส่ชื่อและคำสั่งของ Skill');
+    await ctxAudit((M === 'POST' ? 'create' : 'update') + ' skill', { id: sid, name });
+    if (M === 'POST') return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (0,?,?,?,?,?) RETURNING *').bind(name, desc, content, b.enabled === 0 ? 0 : 1, Date.now()).first());
+    if (M === 'PUT' && sid) { await DB.prepare('UPDATE skills SET name=?, description=?, content=?, enabled=? WHERE id=? AND user_id=0').bind(name, desc, content, b.enabled === 0 ? 0 : 1, sid).run(); return json({ ok: true }); }
+  }
+  if ((r = path.match(/^\/api\/admin\/mcp(?:\/(\d+))?$/))) {
+    const mid = r[1] ? +r[1] : null;
+    if (M === 'GET') {
+      const rows = (await DB.prepare('SELECT id,name,url,token_enc,tools_json,enabled,created_at FROM mcp_servers WHERE user_id=0 ORDER BY id DESC').all()).results;
+      return json(rows.map(x => { let ts = []; try { ts = JSON.parse(x.tools_json || '[]'); } catch {} return { id: x.id, name: x.name, url: x.url, has_token: !!x.token_enc, tools: ts.map(t => t.name), enabled: x.enabled }; }));
+    }
+    if (M === 'DELETE' && mid) { await ctxAudit('delete mcp', { id: mid }); await DB.prepare('DELETE FROM mcp_servers WHERE id=? AND user_id=0').bind(mid).run(); return json({ ok: true }); }
+    const b = await req.json(), name = String(b.name || '').trim().slice(0, 60), url_ = isSafeMcpUrl(b.url), token = String(b.token || '').trim();
+    if (!name || !url_) return err('ใส่ชื่อและ URL (https:// สาธารณะ)');
+    const tools = await mcpSync(url_, token || null);
+    const tokEnc = token ? await seal(env, token) : null;
+    await ctxAudit((M === 'POST' ? 'create' : 'update') + ' mcp', { id: mid, name });
+    if (M === 'POST') return json(await DB.prepare('INSERT INTO mcp_servers (user_id,name,url,token_enc,tools_json,enabled,created_at) VALUES (0,?,?,?,?,?,?) RETURNING id,name,url,enabled').bind(name, url_, tokEnc, JSON.stringify(tools), b.enabled === 0 ? 0 : 1, Date.now()).first());
+    if (M === 'PUT' && mid) {
+      if (tokEnc) await DB.prepare('UPDATE mcp_servers SET name=?, url=?, token_enc=?, tools_json=?, enabled=? WHERE id=? AND user_id=0').bind(name, url_, tokEnc, JSON.stringify(tools), b.enabled === 0 ? 0 : 1, mid).run();
+      else await DB.prepare('UPDATE mcp_servers SET name=?, url=?, tools_json=?, enabled=? WHERE id=? AND user_id=0').bind(name, url_, JSON.stringify(tools), b.enabled === 0 ? 0 : 1, mid).run();
+      return json({ ok: true });
+    }
+  }
   if (path === '/api/admin/audit') return json((await DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all()).results);
   if (path === '/api/admin/events') return json((await DB.prepare('SELECT e.*,m.name model FROM events e LEFT JOIN models m ON m.id=e.model_id ORDER BY e.id DESC LIMIT 200').all()).results);
   if (path === '/api/admin/backups') {
@@ -1209,7 +1464,7 @@ export default {
 };
 
 // cdn.jsdelivr.net: ตัวอ่าน PDF/Word/Excel (ล็อกเวอร์ชัน + SRI ใน app.js)
-const CSP = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+const CSP = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
 // หน้าแสดงผลโค้ดของผู้ใช้: รันใน iframe sandbox (origin แยก อ่าน cookie / เรียก API ในชื่อผู้ใช้ไม่ได้)
 function sandboxed(res, path) {
   const r = new Response(res.body, res), h = r.headers;
@@ -1239,6 +1494,12 @@ async function route(req, env, ctx, url, path, M) {
       if (path === '/api/blog') return json((await env.DB.prepare('SELECT slug,title,summary,cover,created_at FROM posts WHERE published=1 ORDER BY created_at DESC LIMIT 100').all()).results);
       if (path.startsWith('/api/blog/')) { const p = await env.DB.prepare('SELECT slug,title,summary,body,cover,created_at FROM posts WHERE slug=? AND published=1').bind(path.slice(10)).first(); return p ? json(p) : err('ไม่พบบทความ', 404); }
       if (path === '/api/status') return json(await status(env));
+      if ((r = path.match(/^\/api\/share\/([a-f0-9]{12,48})$/))) {
+        const c = await env.DB.prepare('SELECT id,title,created_at FROM chats WHERE share_token=?').bind(r[1]).first();
+        if (!c) return err('ไม่พบแชตที่แชร์ หรือถูกยกเลิกแล้ว', 404);
+        const ms = (await env.DB.prepare('SELECT m.role,m.content,m.sources,md.name model FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=? ORDER BY m.id').bind(c.id).all()).results;
+        return json({ ...c, messages: ms });
+      }
       if (path.startsWith('/api/oauth/')) return await oauth(req, env, url, path);
       if (path === '/api/login/mfa' && M === 'POST') { // ขั้นที่ 2 หลังล็อกอิน Google/LINE ของคนที่เปิด 2FA
         const b = await req.json();
@@ -1267,7 +1528,7 @@ async function route(req, env, ctx, url, path, M) {
         });
       }
       if (path === '/api/plans') {
-        const plans = (await env.DB.prepare('SELECT id,name,price,price_year,description,limit_week FROM plans WHERE active=1 ORDER BY sort').all()).results;
+        const plans = (await env.DB.prepare('SELECT id,name,price,price_year,description,limit_week,seats,shared_pool,api_limit FROM plans WHERE active=1 ORDER BY sort').all()).results;
         const featured = +await getSetting(env, 'featured_plan');
         for (const p of plans) { // ประมาณจำนวนข้อความ/สัปดาห์ ตามต้นทุนจริงของ 1 ข้อความทั่วไป
           p.models = (await allowedModels(env, p.id)).map(m => ({ name: m.name, week: Math.floor(p.limit_week / Math.max(msgCost(m), 1e-6)) }));
@@ -1289,7 +1550,7 @@ async function route(req, env, ctx, url, path, M) {
       if (path === '/api/me') {
         const plan = await planOf(env, u);
         return json({
-          email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, expires: plan.price > 0 ? u.plan_expires : null, period: u.plan_period },
+          email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
           usage: await usageStatus(env, u, plan), models: await allowedModels(env, plan.id),
@@ -1297,9 +1558,24 @@ async function route(req, env, ctx, url, path, M) {
         });
       }
       if (path === '/api/chat' && M === 'POST') return await chat(req, env, u, ctx);
+      if (path === '/api/chats/search') {
+        const q = String(url.searchParams.get('q') || '').trim();
+        if (q.length < 2) return json([]);
+        const rows = (await env.DB.prepare(`SELECT m.chat_id, c.title, m.role, m.content, m.created_at
+          FROM messages m JOIN chats c ON c.id=m.chat_id
+          WHERE c.user_id=? AND c.project_id IS NULL AND m.content LIKE ?
+          ORDER BY m.id DESC LIMIT 30`).bind(u.id, '%' + q.replace(/[%_]/g, '') + '%').all()).results;
+        const ql = q.toLowerCase();
+        return json(rows.map(r => {
+          const clean = r.content.replace(/\[\[file:[^\]]+\]\][\s\S]*?\[\[\/file\]\]/g, '').trim();
+          const idx = clean.toLowerCase().indexOf(ql);
+          const s = Math.max(0, idx - 35), e = Math.min(clean.length, (idx < 0 ? 0 : idx) + q.length + 65);
+          return { chat_id: r.chat_id, title: r.title, role: r.role, snippet: (s > 0 ? '…' : '') + clean.slice(s, e) + (e < clean.length ? '…' : '') };
+        }));
+      }
       if (path === '/api/chats') {
         const pj = url.searchParams.get('project');
-        return json((await env.DB.prepare(`SELECT id,title,folder_id FROM chats WHERE user_id=? AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
+        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
       }
       if (path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
       if (path === '/api/github') { // เชื่อม GitHub ด้วย Personal Access Token
@@ -1312,19 +1588,28 @@ async function route(req, env, ctx, url, path, M) {
         return json({ ok: true, login: who.login });
       }
       let r;
+      if ((r = path.match(/^\/api\/chats\/(\d+)\/share$/))) {
+        if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
+        if (M === 'DELETE') { await env.DB.prepare('UPDATE chats SET share_token=NULL WHERE id=?').bind(r[1]).run(); return json({ ok: true }); }
+        if (M === 'POST') {
+          const row = await env.DB.prepare('UPDATE chats SET share_token=COALESCE(share_token,?) WHERE id=? RETURNING share_token').bind(rand(12), r[1]).first();
+          return json({ share_token: row.share_token });
+        }
+      }
       if ((r = path.match(/^\/api\/chats\/(\d+)$/))) {
         if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
         if (M === 'DELETE') { await env.DB.batch([env.DB.prepare('DELETE FROM messages WHERE chat_id=?').bind(r[1]), env.DB.prepare('DELETE FROM chats WHERE id=?').bind(r[1])]); return json({ ok: true }); }
         if (M === 'PUT') { // เปลี่ยนชื่อ / ย้ายโฟลเดอร์
           const b = await req.json();
           if ('title' in b) { const title = String(b.title || '').trim().slice(0, 80); if (!title) return err('ชื่อว่าง'); await env.DB.prepare('UPDATE chats SET title=? WHERE id=?').bind(title, r[1]).run(); }
+          if ('pinned' in b) await env.DB.prepare('UPDATE chats SET pinned=? WHERE id=?').bind(b.pinned ? 1 : 0, r[1]).run();
           if ('folder_id' in b) {
             if (b.folder_id && !await env.DB.prepare('SELECT 1 FROM folders WHERE id=? AND user_id=?').bind(b.folder_id, u.id).first()) return err('ไม่พบโฟลเดอร์', 404);
             await env.DB.prepare('UPDATE chats SET folder_id=? WHERE id=?').bind(b.folder_id || null, r[1]).run();
           }
           return json({ ok: true });
         }
-        return json((await env.DB.prepare('SELECT m.role,m.content,m.thinking,m.sources,m.tin,m.tout,md.name model FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=? ORDER BY m.id').bind(r[1]).all()).results);
+        return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,md.name model FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=? ORDER BY m.id').bind(r[1]).all()).results);
       }
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if (path === '/api/pay') return json((await env.DB.prepare('SELECT p.id,p.amount,p.status,p.created_at,p.kind,p.period,p.discount,pl.name plan_name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE user_id=? ORDER BY p.id DESC LIMIT 20').bind(u.id).all()).results);
@@ -1390,8 +1675,13 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     await env.DB.prepare('UPDATE coupons SET used=used+1 WHERE code=?').bind(c.code).run();
     return json({ ok: true, amount: c.value, balance: await walletAdd(env, u.id, c.value, 'coupon', c.code) });
   }
+  if (path === '/api/keys/stats') {
+    const from = Date.now() - 14 * DAY;
+    const rows = (await DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, COALESCE(SUM(-amount),0) spent FROM wallet_tx WHERE user_id=? AND kind='api' AND created_at>=? GROUP BY d ORDER BY d").bind(u.id, from).all()).results;
+    return json(rows);
+  }
   if (path === '/api/keys') {
-    if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
+    if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
     if ((await DB.prepare('SELECT COUNT(*) n FROM api_keys WHERE user_id=? AND revoked=0').bind(u.id).first()).n >= 10) return err('สร้าง key ได้สูงสุด 10 อัน');
     const name = String((await req.json()).name || 'default').trim().slice(0, 40) || 'default', key = 'sk-astra-' + rand(24);
     await DB.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').bind(u.id, name, await sha(key), key.slice(0, 14), Date.now()).run();
@@ -1402,7 +1692,8 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     const b = await req.json(), budget = b.budget === '' || b.budget == null ? null : Math.round(+b.budget * 10000) / 10000;
     if (budget != null && !(budget >= 0)) return err('งบต้องเป็นตัวเลข 0 ขึ้นไป');
     const models = Array.isArray(b.models) && b.models.length ? b.models.map(String).filter(x => /^[a-z0-9.-]{1,80}$/.test(x)).slice(0, 50).join(',') : null;
-    await DB.prepare('UPDATE api_keys SET budget=?, models=?, name=COALESCE(?,name) WHERE id=? AND user_id=? AND revoked=0').bind(budget, models, typeof b.name === 'string' && b.name.trim() ? b.name.trim().slice(0, 40) : null, r[1], u.id).run();
+    const usePlan = 'use_plan' in b ? (b.use_plan ? 1 : 0) : 1;
+    await DB.prepare('UPDATE api_keys SET budget=?, models=?, use_plan=?, name=COALESCE(?,name) WHERE id=? AND user_id=? AND revoked=0').bind(budget, models, usePlan, typeof b.name === 'string' && b.name.trim() ? b.name.trim().slice(0, 40) : null, r[1], u.id).run();
     return json({ ok: true });
   }
   if (path === '/api/2fa/setup' && M === 'POST') {
@@ -1470,6 +1761,100 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     if (+r[1] !== u.id && u.role !== 'admin') return err('not found', 404);
     const o = env.SLIPS && await env.SLIPS.get(`img/${r[1]}/${r[2]}`);
     return o ? new Response(o.body, { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=31536000' } }) : err('not found', 404);
+  }
+  if (path === '/api/team') {
+    const tm = await DB.prepare('SELECT t.*, tm.role, p.name plan_name FROM team_members tm JOIN teams t ON t.id=tm.team_id LEFT JOIN plans p ON p.id=t.plan_id WHERE tm.user_id=? ORDER BY t.expires DESC LIMIT 1').bind(u.id).first();
+    if (M === 'GET') {
+      if (!tm) return json({ team: null });
+      const members = (await DB.prepare('SELECT u.id, u.email, tm.role, tm.joined_at FROM team_members tm JOIN users u ON u.id=tm.user_id WHERE tm.team_id=? ORDER BY tm.role DESC, tm.joined_at').bind(tm.id).all()).results;
+      return json({ team: { id: tm.id, name: tm.name, plan_name: tm.plan_name, expires: tm.expires, max_seats: tm.max_seats, shared_pool: !!tm.shared_pool, role: tm.role, invite_code: tm.role === 'owner' ? tm.invite_code : null }, members });
+    }
+    if (M === 'PUT') {
+      if (!tm || tm.role !== 'owner') return err('เฉพาะหัวหน้าทีมเท่านั้น', 403);
+      const b = await req.json();
+      if (typeof b.name === 'string' && b.name.trim()) await DB.prepare('UPDATE teams SET name=? WHERE id=?').bind(b.name.trim().slice(0, 60), tm.id).run();
+      if (b.regen_code) await DB.prepare('UPDATE teams SET invite_code=? WHERE id=?').bind(rand(4).toUpperCase(), tm.id).run();
+      return json({ ok: true });
+    }
+  }
+  if (path === '/api/team/join' && M === 'POST') {
+    const code = String((await req.json()).code || '').trim().toUpperCase();
+    const t = code && await DB.prepare('SELECT * FROM teams WHERE invite_code=? AND expires>?').bind(code, Date.now()).first();
+    if (!t) return err('รหัสเชิญทีมไม่ถูกต้องหรือทีมหมดอายุแล้ว', 404);
+    if (await DB.prepare('SELECT 1 FROM team_members WHERE user_id=?').bind(u.id).first()) return err('คุณอยู่ในทีมอื่นแล้ว ออกทีมเดิมก่อน');
+    const cnt = (await DB.prepare('SELECT COUNT(*) n FROM team_members WHERE team_id=?').bind(t.id).first()).n;
+    if (cnt >= t.max_seats) return err('ทีมนี้สมาชิกเต็มแล้ว');
+    await DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'member',?)").bind(t.id, u.id, Date.now()).run();
+    return json({ ok: true, team_id: t.id });
+  }
+  if (path === '/api/team/add' && M === 'POST') {
+    const tm = await DB.prepare("SELECT t.* FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=? AND tm.role='owner' AND t.expires>?").bind(u.id, Date.now()).first();
+    if (!tm) return err('เฉพาะหัวหน้าทีมที่ยังไม่หมดอายุเท่านั้น', 403);
+    const email = String((await req.json()).email || '').trim().toLowerCase();
+    const target = email && await DB.prepare('SELECT id FROM users WHERE email=? AND banned=0').bind(email).first();
+    if (!target) return err('ไม่พบบัญชีผู้ใช้อีเมลนี้ในระบบ', 404);
+    if (await DB.prepare('SELECT 1 FROM team_members WHERE user_id=?').bind(target.id).first()) return err('ผู้ใช้นี้อยู่ในทีมอื่นแล้ว');
+    const cnt = (await DB.prepare('SELECT COUNT(*) n FROM team_members WHERE team_id=?').bind(tm.id).first()).n;
+    if (cnt >= tm.max_seats) return err(`ทีมเต็มแล้ว (สูงสุด ${tm.max_seats} คน)`);
+    await DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'member',?)").bind(tm.id, target.id, Date.now()).run();
+    return json({ ok: true });
+  }
+  if ((r = path.match(/^\/api\/team\/members\/(\d+)$/)) && M === 'DELETE') {
+    const targetId = +r[1];
+    const tm = await DB.prepare('SELECT t.*, tm.role FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=?').bind(u.id).first();
+    if (!tm) return err('ไม่พบทีม', 404);
+    if (targetId === tm.owner_id) return err('หัวหน้าทีมไม่สามารถออกจากทีมได้');
+    if (tm.role !== 'owner' && targetId !== u.id) return err('ไม่มีสิทธิ์ลบสมาชิกคนอื่น', 403);
+    await DB.prepare('DELETE FROM team_members WHERE team_id=? AND user_id=?').bind(tm.id, targetId).run();
+    return json({ ok: true });
+  }
+  if (path === '/api/skills') {
+    if (M === 'GET') return json((await DB.prepare('SELECT id,user_id,name,description,content,enabled FROM skills WHERE (user_id=0 AND enabled=1) OR user_id=? ORDER BY user_id, id DESC').bind(u.id).all()).results);
+    if (M === 'POST') {
+      const b = await req.json(), name = String(b.name || '').trim().slice(0, 60), desc = String(b.description || '').trim().slice(0, 200), content = String(b.content || '').trim().slice(0, 6000);
+      if (!name || !content) return err('ใส่ชื่อและคำสั่งของ Skill');
+      if ((await DB.prepare('SELECT COUNT(*) n FROM skills WHERE user_id=?').bind(u.id).first()).n >= 30) return err('สร้าง Skill ส่วนตัวได้สูงสุด 30 อัน');
+      return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (?,?,?,?,1,?) RETURNING id,user_id,name,description,content,enabled').bind(u.id, name, desc, content, Date.now()).first());
+    }
+  }
+  if ((r = path.match(/^\/api\/skills\/(\d+)$/))) {
+    const sid = +r[1];
+    if (M === 'DELETE') { await DB.prepare('DELETE FROM skills WHERE id=? AND user_id=?').bind(sid, u.id).run(); return json({ ok: true }); }
+    if (M === 'PUT') {
+      const b = await req.json(), name = String(b.name || '').trim().slice(0, 60), desc = String(b.description || '').trim().slice(0, 200), content = String(b.content || '').trim().slice(0, 6000);
+      if (!name || !content) return err('ใส่ชื่อและคำสั่งของ Skill');
+      await DB.prepare('UPDATE skills SET name=?, description=?, content=?, enabled=? WHERE id=? AND user_id=?').bind(name, desc, content, b.enabled === 0 ? 0 : 1, sid, u.id).run();
+      return json({ ok: true });
+    }
+  }
+  if (path === '/api/mcp') {
+    if (M === 'GET') {
+      const rows = (await DB.prepare('SELECT id,user_id,name,url,token_enc,tools_json,enabled FROM mcp_servers WHERE (user_id=0 AND enabled=1) OR user_id=? ORDER BY user_id, id DESC').bind(u.id).all()).results;
+      return json(rows.map(x => { let ts = []; try { ts = JSON.parse(x.tools_json || '[]'); } catch {} return { id: x.id, user_id: x.user_id, name: x.name, url: x.url, has_token: !!x.token_enc, tools: ts.map(t => t.name), enabled: x.enabled }; }));
+    }
+    if (M === 'POST') {
+      const b = await req.json(), name = String(b.name || '').trim().slice(0, 60), url_ = isSafeMcpUrl(b.url), token = String(b.token || '').trim();
+      if (!name) return err('ตั้งชื่อ MCP Server ก่อน');
+      if (!url_) return err('URL ต้องเป็น https:// สาธารณะเท่านั้น');
+      if ((await DB.prepare('SELECT COUNT(*) n FROM mcp_servers WHERE user_id=?').bind(u.id).first()).n >= 15) return err('เชื่อมต่อ MCP ส่วนตัวได้สูงสุด 15 ตัว');
+      const tools = await mcpSync(url_, token || null);
+      const tokEnc = token ? await seal(env, token) : null;
+      const row = await DB.prepare('INSERT INTO mcp_servers (user_id,name,url,token_enc,tools_json,enabled,created_at) VALUES (?,?,?,?,?,1,?) RETURNING id,user_id,name,url,enabled')
+        .bind(u.id, name, url_, tokEnc, JSON.stringify(tools), Date.now()).first();
+      return json({ ...row, has_token: !!tokEnc, tools: tools.map(t => t.name) });
+    }
+  }
+  if ((r = path.match(/^\/api\/mcp\/(\d+)(?:\/(sync))?$/))) {
+    const mid = +r[1], act = r[2];
+    const sv = await DB.prepare('SELECT * FROM mcp_servers WHERE id=? AND user_id=?').bind(mid, u.id).first();
+    if (!sv) return err('ไม่พบ MCP Server', 404);
+    if (act === 'sync' && M === 'POST') {
+      const tok = sv.token_enc ? await unseal(env, sv.token_enc).catch(() => null) : null;
+      const tools = await mcpSync(sv.url, tok);
+      await DB.prepare('UPDATE mcp_servers SET tools_json=? WHERE id=?').bind(JSON.stringify(tools), mid).run();
+      return json({ ok: true, tools: tools.map(t => t.name) });
+    }
+    if (M === 'DELETE') { await DB.prepare('DELETE FROM mcp_servers WHERE id=? AND user_id=?').bind(mid, u.id).run(); return json({ ok: true }); }
   }
   if (path === '/api/complete' && M === 'POST') return await complete(req, env, u);
   return null;
@@ -1545,7 +1930,7 @@ async function imageGen(req, env, u) {
   if (!r.ok) { await event(env, 'error', null, 'image: ' + (d.error?.message || r.status)); return err(u.role === 'admin' ? 'แอดมิน: ' + (d.error?.message || r.status) : 'สร้างรูปไม่สำเร็จ ลองใหม่อีกครั้ง', 502); }
   const item = d.data?.[0]; let bytes;
   if (item?.b64_json) bytes = unb64(item.b64_json); else if (item?.url) bytes = new Uint8Array(await (await fetch(item.url)).arrayBuffer()); else return err('ไม่ได้รูปกลับมา', 502);
-  const now = Date.now(); await touchWindows(env, u.id, now);
+  const now = Date.now(); await touchWindows(env, u.id, now, plan);
   await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,0,0,0,0,?,?,?)').bind(u.id, Math.max(+s.image_cost || 0, 1e-9), +s.image_cost || 0, now).run();
   let src;
   if (env.SLIPS) { const name = rand(12) + '.png'; await env.SLIPS.put(`img/${u.id}/${name}`, bytes, { httpMetadata: { contentType: 'image/png' } }); src = `/api/img/${u.id}/${name}`; }
@@ -1570,7 +1955,7 @@ async function complete(req, env, u) {
     for await (const e of callModel(env, m, [{ role: 'user', content: `File: ${String(b.path || '').slice(0, 200)}\n<code>${prefix}<CURSOR>${suffix}</code>\nReturn ONLY the code to insert at <CURSOR> (at most a few lines). No explanations, no markdown fences. If nothing fits, return nothing.` }],
       { system: 'You are a code completion engine.', maxTokens: 96, effort: null })) { if (e.t) text += e.t; if (e.usage) usage = e.usage; }
   } catch { return json({ text: '' }); }
-  if (usage) await logUsage(env, u.id, m, usage);
+  if (usage) await logUsage(env, u.id, m, usage, { plan });
   return json({ text: text.replace(/^```\w*\n?|```$/g, '').replace(/<\/?code>|<CURSOR>/g, '').split('\n').slice(0, 8).join('\n').slice(0, 400) }); // เดาแค่ไม่กี่บรรทัด
 }
 
@@ -1579,21 +1964,39 @@ const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 7); // 
 const slug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
 async function v1(req, env, ctx, path) {
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
-  const out = (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json', ...cors } });
+  const out = (d, s = 200, h = {}) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json', ...cors, ...h } });
   const fail = (m, s, type = 'invalid_request_error') => out({ error: { message: m, type } }, s);
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   try {
     const key = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-    const k = key && await env.DB.prepare('SELECT k.id kid, k.budget, k.models kmodels, k.spent, k.spent_month, u.* FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.key_hash=? AND k.revoked=0').bind(await sha(key)).first();
+    const k = key && await env.DB.prepare('SELECT k.id kid, k.budget, k.models kmodels, k.use_plan, k.spent, k.spent_month, u.* FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.key_hash=? AND k.revoked=0').bind(await sha(key)).first();
     if (!k || k.banned) return fail('API key ไม่ถูกต้อง', 401, 'invalid_api_key');
+    const plan = await planOf(env, k);
+    const canPlan = !!plan?.api_limit && k.use_plan !== 0;
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
-    const models = (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results.filter(m => !allow || allow.includes(slug(m)));
+    const allPublic = (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results;
+    const planIds = canPlan ? new Set((await env.DB.prepare('SELECT model_id FROM plan_models WHERE plan_id=?').bind(plan.id).all()).results.map(x => x.model_id)) : null;
+    const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance > 0 || planIds.has(m.id)));
     if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
+    if (path === '/v1/usage' && req.method === 'GET') {
+      const st = await usageStatus(env, k, plan);
+      const month = monthKey(), keySpent = k.spent_month === month ? k.spent : 0;
+      return out({ plan: plan.name, api_limit_enabled: !!plan.api_limit, key_use_plan: k.use_plan !== 0, wallet_balance: k.balance, key_spent_month: keySpent, key_budget: k.budget, usage: st });
+    }
     if (path !== '/v1/chat/completions' || req.method !== 'POST') return fail('not found', 404);
     if (await limited(env, 'api:' + k.kid, 60, 60e3)) return fail('ส่งคำขอเร็วเกินไป (60 ครั้ง/นาที)', 429, 'rate_limit_error');
-    const b = await req.json().catch(() => null), m = models.find(x => slug(x) === b?.model || x.api_model === b?.model);
+    const b = await req.json().catch(() => null), m = allPublic.filter(x => !allow || allow.includes(slug(x))).find(x => slug(x) === b?.model || x.api_model === b?.model);
     if (!m) return fail(`ไม่พบโมเดล "${b?.model}" ดูรายชื่อที่ /v1/models`, 404);
-    if (!(k.balance > 0)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans', 402, 'insufficient_quota');
+    let billingMode = 'wallet';
+    if (canPlan && planIds.has(m.id)) {
+      if (await capHit(env, k, plan, m)) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');
+      const st = await usageStatus(env, k, plan);
+      if (st.pct4h < 100 && st.pctWeek < 100) billingMode = 'plan';
+      else if (k.wallet_overflow && k.balance > 0) billingMode = 'wallet';
+      else return fail('ลิมิตแพลนเต็มแล้ว (4 ชม. / สัปดาห์)', 429, 'insufficient_quota');
+    } else if (!(k.balance > 0)) {
+      return fail(canPlan ? `แพลน ${plan.name} ไม่รวมโมเดลนี้ และยอดเงินใน Wallet ไม่พอ` : 'ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans', 402, 'insufficient_quota');
+    }
     const month = monthKey(), spent = k.spent_month === month ? k.spent : 0;
     if (k.budget != null && spent >= k.budget) return fail(`key นี้ใช้ครบงบเดือนนี้แล้ว (฿${k.budget})`, 429, 'insufficient_quota');
     const msgs = Array.isArray(b.messages) ? b.messages : [];
@@ -1609,7 +2012,7 @@ async function v1(req, env, ctx, path) {
     if (!hist.length || !['user', 'tool'].includes(hist.at(-1).role)) return fail('messages ต้องลงท้ายด้วยข้อความของ user หรือ tool', 400);
     if (hist.some(x => hasImg(x.content)) && !m.vision) return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
     if (JSON.stringify(hist).length > 800000) return fail('ข้อความยาวเกินไป', 413);
-    const effort = ['low', 'high', 'max'].includes(b.reasoning_effort) ? b.reasoning_effort : null, id = 'chatcmpl-' + rand(12), created = Math.floor(Date.now() / 1000);
+    const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.reasoning_effort) ? b.reasoning_effort : null, id = 'chatcmpl-' + rand(12), created = Math.floor(Date.now() / 1000);
     const tools = Array.isArray(b.tools) && b.tools.length ? b.tools : undefined, toolChoice = b.tool_choice;
     const maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined;
     let activeModel = m;
@@ -1617,7 +2020,7 @@ async function v1(req, env, ctx, path) {
     const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2) });
     const finish = async (u, outChars) => {
       const finalU = u || (outChars > 0 ? estUsage(outChars) : null);
-      const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, { units: false, wallet: 'api' }) : 0;
+      const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' ? { units: true, wallet: null, plan } : { units: false, wallet: 'api', plan }) : 0;
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
       return finalU;
     };
@@ -1649,7 +2052,7 @@ async function v1(req, env, ctx, path) {
       }
       const toolCalls = [...tcs.values()]; if (toolCalls.length) finishReason = 'tool_calls';
       const used = await finish(usage, content.length + reasoning.length + JSON.stringify(toolCalls).length);
-      return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined });
+      return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined }, 200, { 'x-astracode-billing': billingMode });
     }
     const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder();
     const chunk = (delta, extra = {}, fin = null) => w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n'));
@@ -1682,7 +2085,7 @@ async function v1(req, env, ctx, path) {
       } catch (e) { await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
-    return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...cors } });
+    return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors } });
   } catch (e) { console.log('v1 error', e.stack); return fail(e.user ? e.message : 'เซิร์ฟเวอร์ผิดพลาด', e.user ? 400 : 500, 'api_error'); }
 }
 

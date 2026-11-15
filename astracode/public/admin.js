@@ -2,13 +2,13 @@
 PAGES.admin = () => adminView(qs().get('tab') || 'stats');
 
 const FIELDS = {
-  plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['limit_4h', 'งบรอบ 4 ชม. (บาท ต้นทุนจริง)', 'n'], ['limit_week', 'งบรอบสัปดาห์ (บาท ต้นทุนจริง)', 'n'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
+  plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['limit_4h', 'งบรอบ 4 ชม. (บาท ต้นทุนจริง)', 'n'], ['limit_week', 'งบรอบสัปดาห์ (บาท ต้นทุนจริง)', 'n'], ['seats', 'จำนวนคนในทีม (1 = เดี่ยว, 2+ = ทีม)', 'n'], ['shared_pool', 'ใช้งบลิมิตร่วมกันทั้งทีม', 'b'], ['api_limit', 'ใช้ API Key หักจากลิมิตแพลนได้ (ไม่ต้องเติม Wallet)', 'b'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
   models: [['name', 'ชื่อที่แสดง'], ['provider', 'รูปแบบ API', ['openai', 'anthropic']], ['api_model', 'รหัสโมเดล'], ['base_url', 'Base URL'], ['key_name', 'ชื่อ secret ของ key'], ['multiplier', 'ความหนักสัมพัทธ์ (ใช้เรียง/แสดง ไม่ใช่ตัวหักลิมิต)', 'n'], ['cap_pct', 'เพดาน % ของงบสัปดาห์ (0 = ไม่จำกัด เช่น Opus 50)', 'n'],
     ['cost_in', 'ทุน input (บาท/1M)', 'n'], ['cost_out', 'ทุน output', 'n'], ['cost_cache', 'ทุน cache read', 'n'], ['cost_cache_write', 'ทุน cache write', 'n'],
     ['price_in', 'ราคาขาย input (บาท/1M)', 'o'], ['price_out', 'ราคาขาย output', 'o'], ['price_cache', 'ราคาขาย cache read', 'o'], ['price_cache_write', 'ราคาขาย cache write', 'o'],
     ['promo_pct', 'โปรลดราคา % (เว้นว่าง = ไม่มีโปร)', 'o'], ['promo_start', 'โปรเริ่ม (เว้นว่าง = ทันที)', 'd'], ['promo_end', 'โปรถึงวันที่ (เว้นว่าง = ไม่มีวันจบ)', 'd'],
     ['note', 'คำอธิบายในหน้าราคา', 's'], ['code_prompt', 'คำสั่งเพิ่มในโหมด Code (เช่น บังคับให้อ่านไฟล์ก่อนแก้)', 'x'], ['fallback_id', 'โมเดลสำรองเมื่อตัวนี้ล่ม', 'm'],
-    ['effort', 'รองรับ effort', ['none', 'openai', 'anthropic', 'deepseek', 'kimi']], ['vision', 'อ่านรูปได้', 'b'], ['public', 'แสดงในหน้าราคา', 'b'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
+    ['effort', 'รูปแบบ effort', ['none', 'openai', 'anthropic', 'deepseek', 'kimi', 'gemini']], ['effort_levels', 'ระดับ Effort ที่เลือกได้ (คั่นด้วย , เช่น none,low,medium,high,max · เว้นว่าง = ค่าเริ่มต้นค่าย)'], ['vision', 'อ่านรูปได้', 'b'], ['public', 'แสดงในหน้าราคา', 'b'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
   posts: [['title', 'หัวข้อ'], ['slug', 'slug (a-z 0-9 -) ใช้ใน URL'], ['summary', 'สรุปสั้น (แสดงในรายการและ Google)', 's'], ['cover', 'รูปปก (path บนเว็บ เช่น /og.png)', 's'], ['body', 'เนื้อหา (Markdown)', 't'], ['published', 'เผยแพร่', 'b']],
 };
 // เทมเพลตเพิ่มโมเดล: รหัสโมเดลเปลี่ยนบ่อย ตรวจชื่อล่าสุดในเว็บผู้ให้บริการก่อนบันทึก
@@ -17,7 +17,7 @@ const PRESETS = {
   'Kimi (Moonshot)': { name: 'Kimi K2.6', provider: 'openai', api_model: 'kimi-k2.6', base_url: 'https://api.moonshot.ai/v1', key_name: 'KIMI_KEY', effort: 'kimi', vision: 1 },
   'DeepSeek': { name: 'DeepSeek', provider: 'openai', api_model: 'deepseek-chat', base_url: 'https://api.deepseek.com/v1', key_name: 'DEEPSEEK_KEY', effort: 'deepseek', vision: 0 },
   'Claude (Anthropic)': { name: 'Claude Sonnet 5.5', provider: 'anthropic', api_model: 'claude-sonnet-5-5', base_url: 'https://api.anthropic.com/v1', key_name: 'ANTHROPIC_KEY', effort: 'anthropic', vision: 1 },
-  'Gemini (Google)': { name: 'Gemini', provider: 'openai', api_model: '', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', key_name: 'GEMINI_KEY', effort: 'openai', vision: 1 },
+  'Gemini (Google)': { name: 'Gemini', provider: 'openai', api_model: '', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', key_name: 'GEMINI_KEY', effort: 'gemini', vision: 1 },
 };
 // ผลตรวจสลิปจาก API (Slip2Go ส่ง code มา, byshop ดูจากยอด)
 const SLIP_CODE = { 200000: ['ok', 'พบสลิป'], 200200: ['ok', '✓ ผ่านทุกเงื่อนไข'], 200401: ['bad', '✕ บัญชีผู้รับไม่ตรง'], 200402: ['bad', '✕ ยอดไม่ตรง'], 200403: ['bad', '✕ วันที่ไม่ตรง'], 200404: ['warn', 'ไม่พบสลิปในธนาคาร (อาจรอสักครู่)'], 200500: ['bad', '✕ สลิปปลอม'], 200501: ['bad', '✕ สลิปซ้ำ'], 200502: ['warn', 'ธนาคารขัดข้อง'], 401005: ['warn', 'โทเคน Slip2Go หมด'], 401004: ['warn', 'แพ็กเกจ Slip2Go หมดอายุ'], 401007: ['warn', 'IP ไม่ได้รับอนุญาต (ตั้ง IP Whitelist เป็น *)'] };
@@ -30,7 +30,7 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>' };
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -159,9 +159,9 @@ const ADMIN = {
       box.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; draw(); });
       box.querySelectorAll('[data-slip]').forEach(b => b.onclick = () => { const c = box.querySelector(`[data-img="${b.dataset.slip}"]`); c.innerHTML = c.innerHTML ? '' : `<img class="slipimg" style="margin-top:12px" src="/api/admin/slip/${b.dataset.slip}" alt="สลิป">`; });
       box.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
-        if (!confirm(b.dataset.act === 'approve' ? 'อนุมัติและเปิดแพลนให้ผู้ใช้?' : 'ปฏิเสธคำขอนี้?')) return;
+        if (!await confirmSheet(b.dataset.act === 'approve' ? 'อนุมัติและเปิดแพลนให้ผู้ใช้?' : 'ปฏิเสธคำขอนี้?', { title: 'ยืนยันรายการ', ok: 'ยืนยัน', danger: b.dataset.act !== 'approve' })) return;
         b.disabled = true;
-        try { await api(`/admin/payments/${b.dataset.id}/${b.dataset.act}`, { method: 'POST' }); reload(); } catch (x) { alert(x.message); b.disabled = false; }
+        try { await api(`/admin/payments/${b.dataset.id}/${b.dataset.act}`, { method: 'POST' }); reload(); } catch (x) { toast(x.message, 'bad'); b.disabled = false; }
       });
     };
     draw();
@@ -178,9 +178,9 @@ const ADMIN = {
     rf.who.onchange = () => { rf.email.hidden = rf.who.value !== 'email'; rf.email.required = !rf.email.hidden; };
     rf.onsubmit = async e => {
       e.preventDefault(); const t = rf.who.value, label = rf.who.selectedOptions[0].textContent;
-      if (!confirm(`รีเซ็ตลิมิตให้ ${t === 'email' ? rf.email.value : label}?`)) return;
+      if (!await confirmSheet(`รีเซ็ตลิมิตให้ ${t === 'email' ? rf.email.value : label}?`, { title: 'รีเซ็ตลิมิต', ok: 'รีเซ็ต' })) return;
       try { const r = await api('/admin/reset-limits', { method: 'POST', body: { target: t.split(':')[0], plan_id: +t.split(':')[1] || null, email: rf.email.value } }); rf.querySelector('.sv').textContent = `✓ รีเซ็ตแล้ว ${num(r.count)} คน`; }
-      catch (x) { alert(x.message); }
+      catch (x) { toast(x.message, 'bad'); }
     };
     const load = async () => {
       const us = await api('/admin/users?q=' + encodeURIComponent($('#q').value));
@@ -242,9 +242,9 @@ const ADMIN = {
     box.querySelectorAll('.cpf').forEach(f => f.onsubmit = async e => {
       e.preventDefault(); const b = Object.fromEntries(new FormData(f));
       b.active = b.active ? 1 : 0; b.expires = b.expires ? new Date(b.expires + 'T23:59:59+07:00').getTime() : null;
-      try { await api('/admin/coupons', { method: 'POST', body: b }); reload(); } catch (x) { alert(x.message); }
+      try { await api('/admin/coupons', { method: 'POST', body: b }); reload(); } catch (x) { toast(x.message, 'bad'); }
     });
-    box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (confirm('ลบคูปองนี้?')) { await api('/admin/coupons', { method: 'DELETE', body: { code: b.dataset.del } }); reload(); } });
+    box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบคูปองนี้?', { title: 'ลบคูปอง', ok: 'ลบ', danger: true })) { await api('/admin/coupons', { method: 'DELETE', body: { code: b.dataset.del } }); reload(); } });
   },
 
   async tickets(box) {
@@ -296,8 +296,8 @@ const ADMIN = {
         ${logs.length ? `<div class="tw"><table class="tbl"><tr><th>เวลา</th><th>แอดมิน</th><th>การกระทำ</th><th>รายละเอียด</th></tr>${logs.slice(0, 100).map(a => `<tr><td>${when(a.created_at)}</td><td>${esc(a.admin_email)}</td><td>${esc(a.action)}</td><td class="muted"><code>${esc(a.detail)}</code></td></tr>`).join('')}</table></div>` : '<p class="muted">ยังไม่มีบันทึก</p>'}</section>`;
     $('#mf').onsubmit = e => { e.preventDefault(); const fd = new FormData(e.target); save({ maintenance: fd.get('maintenance') ? '1' : '0', announcement: fd.get('announcement'), announcement_level: fd.get('announcement_level') }, $('#ms')); };
     $('#af').onsubmit = e => { e.preventDefault(); save(Object.fromEntries(new FormData(e.target)), $('#as')); };
-    $('#atest').onclick = async () => { try { await api('/admin/notify-test', { method: 'POST' }); $('#as').textContent = '✓ ส่งแล้ว ตรวจใน Discord/LINE'; } catch (x) { alert(x.message); } };
-    $('#bk').onclick = async e => { e.target.disabled = true; try { await api('/admin/backups', { method: 'POST' }); reload(); } catch (x) { alert(x.message); e.target.disabled = false; } };
+    $('#atest').onclick = async () => { try { await api('/admin/notify-test', { method: 'POST' }); $('#as').textContent = '✓ ส่งแล้ว ตรวจใน Discord/LINE'; } catch (x) { toast(x.message, 'bad'); } };
+    $('#bk').onclick = async e => { e.target.disabled = true; try { await api('/admin/backups', { method: 'POST' }); reload(); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; } };
   },
   async models(box, reload) { return editors('models', box, reload); },
 
@@ -398,9 +398,9 @@ async function editors(tab, box, reload) {
       : t === 'd' ? (fd.get(k) ? Date.parse(fd.get(k) + (k.endsWith('end') ? 'T23:59:59.999+07:00' : 'T00:00:00+07:00')) : null) : fd.get(k)); // วันที่ตามเวลาไทย
     if (tab === 'plans') body.model_ids = fd.getAll('m').map(Number);
     try { await api(`/admin/${tab}${f.dataset.id ? '/' + f.dataset.id : ''}`, { method: f.dataset.id ? 'PUT' : 'POST', body }); if (f.dataset.id) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700); } else reload(); }
-    catch (x) { alert(x.message); }
+    catch (x) { toast(x.message, 'bad'); }
   });
-  box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (confirm('ลบถาวร?')) { await api(`/admin/${tab}/${b.dataset.del}`, { method: 'DELETE' }); reload(); } });
+  box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบรายการนี้ถาวร?', { title: 'ยืนยันการลบ', ok: 'ลบถาวร', danger: true })) { await api(`/admin/${tab}/${b.dataset.del}`, { method: 'DELETE' }); reload(); } });
 }
 
 // แผงรายละเอียดผู้ใช้ (เลื่อนออกมาจากขวา)
@@ -428,10 +428,73 @@ async function userDrawer(id, after) {
   document.body.append(d);
   const close = () => { d.classList.add('out'); setTimeout(() => d.remove(), 200); after?.(); };
   d.querySelector('.dr-shade').onclick = close; d.querySelector('#dx').onclick = close;
-  const put = async (body, msg) => { try { await api('/admin/users/' + id, { method: 'PUT', body }); d.querySelector('#dmsg').textContent = '✓ ' + msg; } catch (x) { alert(x.message); } };
+  const put = async (body, msg) => { try { await api('/admin/users/' + id, { method: 'PUT', body }); d.querySelector('#dmsg').textContent = '✓ ' + msg; } catch (x) { toast(x.message, 'bad'); } };
   d.querySelector('#dps').onclick = () => put({ plan_id: +d.querySelector('#dp').value || null, days: 30 }, 'เปลี่ยนแพลนแล้ว');
   d.querySelector('#dr').onclick = () => put({ reset_usage: true }, 'รีเซ็ตลิมิตแล้ว');
-  d.querySelector('#dcs').onclick = async () => { const v = +d.querySelector('#dcr').value; if (!v || !confirm(`ปรับ Wallet ${v > 0 ? '+' : ''}${v} บาท?`)) return; await put({ credit: v, note: d.querySelector('#dcn').value }, 'ปรับยอดแล้ว'); setTimeout(() => userDrawer(id, after), 500); };
-  d.querySelector('#dpw').onclick = () => { if (confirm('ให้ผู้ใช้นี้ออกจากระบบทุกเครื่อง?')) put({ logout: 1 }, 'ออกจากระบบทุกเครื่องแล้ว'); };
-  d.querySelector('#db').onclick = () => confirm(u.banned ? 'ปลดแบนผู้ใช้นี้?' : 'แบนผู้ใช้นี้? จะถูกออกจากระบบทันที') && put({ banned: u.banned ? 0 : 1 }, u.banned ? 'ปลดแบนแล้ว' : 'แบนแล้ว').then(() => setTimeout(() => userDrawer(id, after), 600));
+  d.querySelector('#dcs').onclick = async () => { const v = +d.querySelector('#dcr').value; if (!v || !await confirmSheet(`ปรับ Wallet ${v > 0 ? '+' : ''}${v} บาท?`, { title: 'ปรับยอด Wallet', ok: 'ยืนยัน' })) return; await put({ credit: v, note: d.querySelector('#dcn').value }, 'ปรับยอดแล้ว'); setTimeout(() => userDrawer(id, after), 500); };
+  d.querySelector('#dpw').onclick = async () => { if (await confirmSheet('ให้ผู้ใช้นี้ออกจากระบบทุกเครื่อง?', { title: 'บังคับออกจากระบบ', ok: 'ยืนยัน' })) put({ logout: 1 }, 'ออกจากระบบทุกเครื่องแล้ว'); };
+  d.querySelector('#db').onclick = async () => { if (await confirmSheet(u.banned ? 'ปลดแบนผู้ใช้นี้?' : 'แบนผู้ใช้นี้? จะถูกออกจากระบบทันที', { title: 'จัดการบัญชี', ok: 'ยืนยัน', danger: !u.banned })) { await put({ banned: u.banned ? 0 : 1 }, u.banned ? 'ปลดแบนแล้ว' : 'แบนแล้ว'); setTimeout(() => userDrawer(id, after), 600); } };
 }
+
+ADMIN.teams = async (box, reload) => {
+  const rows = await api('/admin/teams');
+  box.innerHTML = `<p class="muted hint">จัดการทีมทั้งหมด แก้ไขจำนวนที่นั่ง โหมดงบรวม ต่ออายุ หรือยุบทีม</p>
+    <div class="ed-list">${rows.map(t => `<details class="ed"><summary><b>${esc(t.name)}</b><span class="pill">${t.members_count}/${t.max_seats} คน</span><span class="muted">หัวหน้า: ${esc(t.owner_email)} · ${esc(t.plan_name || '-')} · ${t.shared_pool ? 'งบรวมทีม' : 'แยกโควตา'} · หมดอายุ ${when(t.expires)}</span></summary>
+      <form class="ed-f" data-tid="${t.id}"><div class="form2">
+        <div><label>ชื่อทีม</label><input name="name" value="${esc(t.name)}" required></div>
+        <div><label>จำนวนคนสูงสุด (Seats)</label><input name="max_seats" type="number" min="1" value="${t.max_seats}" required></div>
+        <div><label>ต่ออายุจากวันนี้ (วัน · 0 = ไม่เปลี่ยน)</label><input name="days" type="number" min="0" value="0"></div>
+        <div><label class="sw-row"><span class="sw"><input type="checkbox" name="shared_pool" ${t.shared_pool ? 'checked' : ''}><span></span></span>ใช้งบรวมทั้งทีม</label></div>
+      </div>
+      <div class="row" style="margin-top:12px"><button class="btn blue sm">บันทึก</button><button type="button" class="btn red sm" data-tdel="${t.id}">ลบทีม</button><span class="ok sv"></span></div></form></details>`).join('') || '<p class="empty-s">ยังไม่มีทีม</p>'}</div>`;
+  box.querySelectorAll('form[data-tid]').forEach(f => f.onsubmit = async e => {
+    e.preventDefault(); const fd = new FormData(f);
+    await api('/admin/teams/' + f.dataset.tid, { method: 'PUT', body: { name: fd.get('name'), max_seats: +fd.get('max_seats'), shared_pool: fd.get('shared_pool') ? 1 : 0, days: +fd.get('days') || 0 } });
+    f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700);
+  });
+  box.querySelectorAll('[data-tdel]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบทีมนี้ถาวร?', { title: 'ลบทีม', ok: 'ลบถาวร', danger: true })) { await api('/admin/teams/' + b.dataset.tdel, { method: 'DELETE' }); reload(); } });
+};
+
+ADMIN.skills = async (box, reload) => {
+  const rows = await api('/admin/skills');
+  const form = (s = {}) => `<form class="ed-f" data-sid="${s.id || ''}">
+    <div class="form2"><div><label>ชื่อ Skill</label><input name="name" value="${esc(s.name || '')}" maxlength="60" required></div>
+    <div><label>คำอธิบาย</label><input name="description" value="${esc(s.description || '')}" maxlength="200"></div></div>
+    <label>คำสั่ง (Instructions)</label><textarea name="content" rows="5" maxlength="6000" required>${esc(s.content || '')}</textarea>
+    <label class="sw-row"><span class="sw"><input type="checkbox" name="enabled" ${s.enabled !== 0 ? 'checked' : ''}><span></span></span>เปิดใช้งานสำหรับทุกคน</label>
+    <div class="row" style="margin-top:12px"><button class="btn blue sm">${s.id ? 'บันทึก' : 'สร้าง Skill'}</button>${s.id ? `<button type="button" class="btn red sm" data-sdel="${s.id}">ลบ</button>` : ''}<span class="ok sv"></span></div></form>`;
+  box.innerHTML = `<p class="muted hint">Skill ส่วนกลางที่ผู้ใช้ทุกคนเปิดใช้ได้ในแชตและโหมด Code (ไม่กินโหลดเซิร์ฟเวอร์)</p>
+    <div class="ed-list"><details class="ed add"><summary><b>+ เพิ่ม Skill ใหม่</b></summary>${form()}</details>
+    ${rows.map(s => `<details class="ed"><summary><b>${esc(s.name)}</b><span class="pill ${s.enabled ? 'ok' : ''}">${s.enabled ? 'เปิด' : 'ปิด'}</span><span class="muted">${esc(s.description || s.content.slice(0, 80))}</span></summary>${form(s)}</details>`).join('')}</div>`;
+  box.querySelectorAll('form[data-sid]').forEach(f => f.onsubmit = async e => {
+    e.preventDefault(); const fd = new FormData(f), id = f.dataset.sid;
+    await api('/admin/skills' + (id ? '/' + id : ''), { method: id ? 'PUT' : 'POST', body: { name: fd.get('name'), description: fd.get('description'), content: fd.get('content'), enabled: fd.get('enabled') ? 1 : 0 } });
+    if (id) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700); } else reload();
+  });
+  box.querySelectorAll('[data-sdel]').forEach(b => b.onclick = async () => {
+    if (await confirmSheet('ลบ Skill นี้ถาวร?', { title: 'ลบ Skill', ok: 'ลบถาวร', danger: true })) { await api('/admin/skills/' + b.dataset.sdel, { method: 'DELETE' }); reload(); }
+  });
+};
+
+ADMIN.mcp = async (box, reload) => {
+  const rows = await api('/admin/mcp');
+  const form = (m = {}) => `<form class="ed-f" data-mid="${m.id || ''}">
+    <div class="form2"><div><label>ชื่อ</label><input name="name" value="${esc(m.name || '')}" maxlength="60" required></div>
+    <div><label>URL (https://)</label><input name="url" type="url" value="${esc(m.url || '')}" required></div></div>
+    <label>Bearer Token ${m.has_token ? '(เว้นว่าง = ใช้ค่าเดิม)' : '(ถ้ามี)'}</label><input name="token" type="password" autocomplete="off">
+    <label class="sw-row"><span class="sw"><input type="checkbox" name="enabled" ${m.enabled !== 0 ? 'checked' : ''}><span></span></span>เปิดใช้งานสำหรับทุกคน</label>
+    <div class="row" style="margin-top:12px"><button class="btn blue sm">${m.id ? 'ซิงค์ &amp; บันทึก' : 'เชื่อมต่อ &amp; เพิ่ม MCP'}</button>${m.id ? `<button type="button" class="btn red sm" data-mdel="${m.id}">ลบ</button>` : ''}<span class="ok sv"></span></div></form>`;
+  box.innerHTML = `<p class="muted hint">Remote MCP ส่วนกลาง (Streamable HTTP) ให้ผู้ใช้ทุกคนเปิดใช้งานได้</p>
+    <div class="ed-list"><details class="ed add"><summary><b>+ เพิ่ม Remote MCP ใหม่</b></summary>${form()}</details>
+    ${rows.map(m => `<details class="ed"><summary><b>${esc(m.name)}</b><span class="pill ${m.enabled ? 'ok' : ''}">${m.enabled ? 'เปิด' : 'ปิด'}</span><span class="pill">${m.tools.length} tools</span><span class="muted">${esc(m.url)}</span></summary>${form(m)}</details>`).join('')}</div>`;
+  box.querySelectorAll('form[data-mid]').forEach(f => f.onsubmit = async e => {
+    e.preventDefault(); const fd = new FormData(f), id = f.dataset.mid, btn = f.querySelector('.btn.blue'); btn.disabled = true;
+    try {
+      await api('/admin/mcp' + (id ? '/' + id : ''), { method: id ? 'PUT' : 'POST', body: { name: fd.get('name'), url: fd.get('url'), token: fd.get('token'), enabled: fd.get('enabled') ? 1 : 0 } });
+      if (id) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700); } else reload();
+    } catch (x) { toast(x.message, 'bad'); btn.disabled = false; }
+  });
+  box.querySelectorAll('[data-mdel]').forEach(b => b.onclick = async () => {
+    if (await confirmSheet('ลบ MCP นี้ถาวร?', { title: 'ลบ MCP', ok: 'ลบถาวร', danger: true })) { await api('/admin/mcp/' + b.dataset.mdel, { method: 'DELETE' }); reload(); }
+  });
+};

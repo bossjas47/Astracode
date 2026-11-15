@@ -41,6 +41,13 @@ Existing database: run the migrations you haven't run yet, in order, in the D1 C
 9. `migrate-9.sql` (per-model Code mode instructions)
 10. `migrate-10.sql` (long-chat summaries)
 11. `migrate-11.sql` (cost-based limits; **run once only**, it converts the existing plan limits to baht and gives everyone a fresh window)
+12. `migrate-12.sql` (per-model custom effort levels)
+13. `migrate-13.sql` (Team plans & team management)
+14. `migrate-14.sql` (API key plan-limit billing)
+15. `migrate-15.sql` (Pin chats & shareable read-only chat links)
+16. `migrate-16.sql` (Per-project custom instructions)
+17. `migrate-17.sql` (Lightweight Skills system for global & user skills)
+18. `migrate-18.sql` (Remote MCP servers & tool calling)
 12. optional `plans-new.sql` (replaces the sold plans with Free / DeepSeek Lite / DeepSeek Max / Plus / Pro / Max; existing subscribers keep their old plan until it expires)
 
 ### Limits (like Claude)

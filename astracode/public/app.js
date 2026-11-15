@@ -7,9 +7,9 @@ const num = n => Number(n || 0).toLocaleString('th-TH');
 const when = t => t ? new Date(t).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
 const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
 // ไอคอนจาก Lucide (ISC license) — ic('name')
-const ICONS = {"menu":"<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","check":"<path d=\"M20 6 9 17l-5-5\"/>","plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>","up":"<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>","stop":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/>","down":"<path d=\"m6 9 6 6 6-6\"/>","right":"<path d=\"m9 18 6-6-6-6\"/>","newchat":"<path d=\"M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7\"/><path d=\"M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z\"/>","pen":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>","trash":"<path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/>","more":"<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>","folder":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>","file":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/>","filetext":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>","filecode":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12.5 8 15l2 2.5\"/><path d=\"m14 12.5 2 2.5-2 2.5\"/>","clip":"<path d=\"m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551\"/>","image":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/><circle cx=\"9\" cy=\"9\" r=\"2\"/><path d=\"m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21\"/>","globe":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>","compare":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>","download":"<path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/>","code":"<path d=\"m16 18 6-6-6-6\"/><path d=\"m8 6-6 6 6 6\"/>","tag":"<path d=\"M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z\"/><circle cx=\"7.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>","news":"<path d=\"M15 18h-5\"/><path d=\"M18 14h-8\"/><path d=\"M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0v-9a2 2 0 0 1 2-2h2\"/><rect width=\"8\" height=\"4\" x=\"10\" y=\"6\" rx=\"1\"/>","braces":"<path d=\"M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1\"/><path d=\"M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1\"/>","activity":"<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>","mail":"<path d=\"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7\"/><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/>","dash":"<rect width=\"7\" height=\"9\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"9\" x=\"14\" y=\"12\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\"/>","pie":"<path d=\"M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z\"/><path d=\"M21.21 15.89A10 10 0 1 1 8 2.83\"/>","trend":"<path d=\"M16 7h6v6\"/><path d=\"m22 7-8.5 8.5-5-5L2 17\"/>","bank":"<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>","users":"<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><path d=\"M16 3.128a4 4 0 0 1 0 7.744\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/>","inbox":"<polyline points=\"22 12 16 12 14 15 10 15 8 12 2 12\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/>","layers":"<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\"/><path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\"/><path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\"/>","cpu":"<path d=\"M12 20v2\"/><path d=\"M12 2v2\"/><path d=\"M17 20v2\"/><path d=\"M17 2v2\"/><path d=\"M2 12h2\"/><path d=\"M2 17h2\"/><path d=\"M2 7h2\"/><path d=\"M20 12h2\"/><path d=\"M20 17h2\"/><path d=\"M20 7h2\"/><path d=\"M7 20v2\"/><path d=\"M7 2v2\"/><rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\"/><rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" rx=\"1\"/>","coupon":"<path d=\"M2 9a3 3 0 1 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 1 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z\"/><path d=\"M9 9h.01\"/><path d=\"m15 9-6 6\"/><path d=\"M15 15h.01\"/>","settings":"<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","server":"<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>","play":"<path d=\"M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z\"/>","refresh":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>","undo":"<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>","redo":"<path d=\"m15 14 5-5-5-5\"/><path d=\"M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13\"/>","camera":"<path d=\"M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z\"/><circle cx=\"12\" cy=\"13\" r=\"3\"/>","search":"<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","sparkles":"<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>","branch":"<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>","pull":"<path d=\"M12 17V3\"/><path d=\"m6 11 6 6 6-6\"/><path d=\"M19 21H5\"/>","push":"<path d=\"m18 9-6-6-6 6\"/><path d=\"M12 3v14\"/><path d=\"M5 21h14\"/>","palette":"<path d=\"M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z\"/><circle cx=\"13.5\" cy=\"6.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"17.5\" cy=\"10.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"6.5\" cy=\"12.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"8.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>","braces2":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1\"/><path d=\"M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1\"/>","py":"<path d=\"M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"m5 16-3 3 3 3\"/><path d=\"m9 22 3-3-3-3\"/>","web":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M11 18h2\"/><path d=\"M12 12v6\"/><path d=\"M9 13v-.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v.5\"/>","smartphone":"<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>","percent":"<line x1=\"19\" x2=\"5\" y1=\"5\" y2=\"19\"/><circle cx=\"6.5\" cy=\"6.5\" r=\"2.5\"/><circle cx=\"17.5\" cy=\"17.5\" r=\"2.5\"/>","wallet":"<path d=\"M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1\"/><path d=\"M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4\"/>","eye":"<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>","circle":"<circle cx=\"12\" cy=\"12\" r=\"10\"/>","terminal":"<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>"};
+const ICONS = {"pin":"<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>","share":"<path d=\"M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8\"/><polyline points=\"16 6 12 2 8 6\"/><line x1=\"12\" x2=\"12\" y1=\"2\" y2=\"15\"/>","mic":"<path d=\"M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z\"/><path d=\"M19 10v2a7 7 0 0 1-14 0v-2\"/><line x1=\"12\" x2=\"12\" y1=\"19\" y2=\"22\"/>","book":"<path d=\"M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20\"/>","msg":"<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>","user":"<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\"/><circle cx=\"12\" cy=\"7\" r=\"4\"/>","menu":"<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","check":"<path d=\"M20 6 9 17l-5-5\"/>","plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>","up":"<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>","stop":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/>","down":"<path d=\"m6 9 6 6 6-6\"/>","right":"<path d=\"m9 18 6-6-6-6\"/>","newchat":"<path d=\"M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7\"/><path d=\"M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z\"/>","pen":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>","trash":"<path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/>","more":"<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>","folder":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>","file":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/>","filetext":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>","filecode":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12.5 8 15l2 2.5\"/><path d=\"m14 12.5 2 2.5-2 2.5\"/>","clip":"<path d=\"m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551\"/>","image":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/><circle cx=\"9\" cy=\"9\" r=\"2\"/><path d=\"m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21\"/>","globe":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>","compare":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>","download":"<path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/>","code":"<path d=\"m16 18 6-6-6-6\"/><path d=\"m8 6-6 6 6 6\"/>","tag":"<path d=\"M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z\"/><circle cx=\"7.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>","news":"<path d=\"M15 18h-5\"/><path d=\"M18 14h-8\"/><path d=\"M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0v-9a2 2 0 0 1 2-2h2\"/><rect width=\"8\" height=\"4\" x=\"10\" y=\"6\" rx=\"1\"/>","braces":"<path d=\"M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1\"/><path d=\"M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1\"/>","activity":"<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>","mail":"<path d=\"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7\"/><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/>","dash":"<rect width=\"7\" height=\"9\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"9\" x=\"14\" y=\"12\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\"/>","pie":"<path d=\"M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z\"/><path d=\"M21.21 15.89A10 10 0 1 1 8 2.83\"/>","trend":"<path d=\"M16 7h6v6\"/><path d=\"m22 7-8.5 8.5-5-5L2 17\"/>","bank":"<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>","users":"<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><path d=\"M16 3.128a4 4 0 0 1 0 7.744\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/>","inbox":"<polyline points=\"22 12 16 12 14 15 10 15 8 12 2 12\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/>","layers":"<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\"/><path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\"/><path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\"/>","cpu":"<path d=\"M12 20v2\"/><path d=\"M12 2v2\"/><path d=\"M17 20v2\"/><path d=\"M17 2v2\"/><path d=\"M2 12h2\"/><path d=\"M2 17h2\"/><path d=\"M2 7h2\"/><path d=\"M20 12h2\"/><path d=\"M20 17h2\"/><path d=\"M20 7h2\"/><path d=\"M7 20v2\"/><path d=\"M7 2v2\"/><rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\"/><rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" rx=\"1\"/>","coupon":"<path d=\"M2 9a3 3 0 1 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 1 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z\"/><path d=\"M9 9h.01\"/><path d=\"m15 9-6 6\"/><path d=\"M15 15h.01\"/>","settings":"<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","server":"<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>","play":"<path d=\"M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z\"/>","refresh":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>","undo":"<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>","redo":"<path d=\"m15 14 5-5-5-5\"/><path d=\"M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13\"/>","camera":"<path d=\"M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z\"/><circle cx=\"12\" cy=\"13\" r=\"3\"/>","search":"<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","sparkles":"<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>","branch":"<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>","pull":"<path d=\"M12 17V3\"/><path d=\"m6 11 6 6 6-6\"/><path d=\"M19 21H5\"/>","push":"<path d=\"m18 9-6-6-6 6\"/><path d=\"M12 3v14\"/><path d=\"M5 21h14\"/>","palette":"<path d=\"M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z\"/><circle cx=\"13.5\" cy=\"6.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"17.5\" cy=\"10.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"6.5\" cy=\"12.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"8.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>","braces2":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1\"/><path d=\"M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1\"/>","py":"<path d=\"M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"m5 16-3 3 3 3\"/><path d=\"m9 22 3-3-3-3\"/>","web":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M11 18h2\"/><path d=\"M12 12v6\"/><path d=\"M9 13v-.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v.5\"/>","smartphone":"<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>","percent":"<line x1=\"19\" x2=\"5\" y1=\"5\" y2=\"19\"/><circle cx=\"6.5\" cy=\"6.5\" r=\"2.5\"/><circle cx=\"17.5\" cy=\"17.5\" r=\"2.5\"/>","wallet":"<path d=\"M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1\"/><path d=\"M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4\"/>","eye":"<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>","circle":"<circle cx=\"12\" cy=\"12\" r=\"10\"/>","terminal":"<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>"};
 const ic = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
-const EFFORTS = [['', 'Instant'], ['low', 'Low'], ['high', 'High'], ['max', 'Max']];
+const EFFORTS = [['', 'Instant'], ['minimal', 'Minimal'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra High'], ['max', 'Max'], ['on', 'Thinking']];
 const SUGGEST = ['อธิบายเรื่องนี้ให้เข้าใจง่าย: ', 'ช่วยเขียนโค้ด Python ที่', 'สรุปข้อความนี้ให้สั้นลง:\n', 'แปลเป็นภาษาอังกฤษ:\n'];
 let me = null, installEvt = null, site = {};
 async function api(path, opt = {}) {
@@ -26,12 +26,15 @@ async function api(path, opt = {}) {
 
 // ---------- Markdown ----------
 function inline(s) { // s escape แล้ว
-  const codes = [];
+  const codes = [], maths = [];
   s = s.replace(/`([^`]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => `\u0004${maths.push([1, m]) - 1}\u0004`)
+    .replace(/(^|[^$\\])\$([^$\s\n][^$\n]*?[^$\s\n]|[^$\s\n\d])\$/g, (all, pre, m) => `${pre}\u0004${maths.push([0, m]) - 1}\u0004`);
   s = s.replace(/!\[([^\]]*)\]\(((?:\/api\/img\/[\w/.-]+)|(?:data:image\/(?:png|jpeg|webp);base64,[\w+/=]+))\)/g, '<img class="gen" src="$2" alt="$1" loading="lazy">'); // รูปที่ AI สร้าง (เฉพาะจากเว็บเรา)
   s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?!\w)/g, '$1<i>$2</i>')
     .replace(/~~([^~]+)~~/g, '<s>$1</s>')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/\u0004(\d+)\u0004/g, (_, i) => { const [blk, m] = maths[i]; return `<span class="${blk ? 'math-b' : 'math-i'}" data-tex="${m}">${m}</span>`; });
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
 const cells = l => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
@@ -85,6 +88,7 @@ function md(s) {
     const nl = part.indexOf('\n'), info = nl >= 0 ? part.slice(0, nl).trim() : '', lang = info.split(/\s/)[0];
     const file = info.match(/\bfile=(\S+)/)?.[1]; // AI ทำเป็นไฟล์ให้ดาวน์โหลด: ```csv file=data.csv
     const raw = nl >= 0 ? part.slice(nl + 1) : part;
+    if (/^mermaid$/i.test(lang) && !file) return `<div class="mermaid-box"><div class="mermaid">${esc(raw.trim())}</div></div>`;
     const body = /^(json|csv|txt|text|md|markdown)$/i.test(lang) || file ? esc(raw) : hlCode(raw);
     return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} แสดงผล</button>` : ''}<button class="cp-code">คัดลอก</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' ดาวน์โหลด' : ''}</button></div><pre><code>${body}</code></pre></div>`;
   }).join('');
@@ -139,6 +143,11 @@ function paintStreaming(el, m) {
     b.textContent = m.thinking; th.querySelector('.think-s').innerHTML = thinkLabel(m);
     if (stick) b.scrollTop = b.scrollHeight;
   }
+  if (m.mcps?.length) {
+    let mp = el.querySelector('.mcp-live');
+    if (!mp) { el.querySelector('.b').insertAdjacentHTML('beforebegin', '<div class="steps-bar mcp-live" style="cursor:default"></div>'); mp = el.querySelector('.mcp-live'); }
+    mp.innerHTML = `${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span>`;
+  }
   el.querySelector('.b').innerHTML = m.content ? md(m.content) : m.thinking ? '' : DOTS;
 }
 // นับเวลาคิด: จากความคิดคำแรก ถึงคำตอบคำแรก
@@ -153,7 +162,7 @@ async function copy(text, btn) {
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
 const nav = () => `<nav class="nav"><a class="logo" href="/">AstraCode</a><span class="sp"></span>
-  ${me ? `<a class="l" href="/chat">แชต</a><a class="l" href="/code">Code</a><a class="l" href="/plans">แพลน</a><a class="l" href="/pricing">ราคา</a><a class="l" href="/blog">บล็อก</a><a class="l" href="/account">บัญชี</a>${me.role === 'admin' ? '<a class="l" href="/admin">หลังบ้าน</a>' : ''}`
+  ${me ? `<a class="l" href="/chat">แชต</a><a class="l" href="/code">Code</a><a class="l" href="/plans">แพลน</a><a class="l" href="/pricing">ราคา</a><a class="l" href="/blog">บล็อก</a><a class="l nav-acc" href="/account">${ic('user', 'sm')} บัญชี</a>${me.role === 'admin' ? '<a class="l" href="/admin">หลังบ้าน</a>' : ''}`
        : `<a class="l" href="/plans">แพลน</a><a class="l" href="/pricing">ราคา</a><a class="l" href="/blog">บล็อก</a><a class="btn blue sm" href="/login">เริ่มใช้ฟรี</a>`}</nav>`;
 const page = html => { app.innerHTML = `<div class="view">${html}</div>`; };
 
@@ -163,8 +172,8 @@ function planTiles(plans, sel, period) {
     <div style="font:600 19px var(--display)">${esc(p.name)}</div>
     <div class="price">${p.price > 0 ? '฿' + baht(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') : ''}</small></div>
     ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
-    <div class="muted">${esc(p.description)}</div>
-    <ul class="feat-list">${p.models.map(m => `<li>${esc(m.name)} <span class="muted">~${num(m.week)} ข้อความ/สัปดาห์</span></li>`).join('')}</ul></div>`).join('')}</div>
+    ${p.seats > 1 ? `<div style="font-size:12.5px;color:var(--link);font-weight:500">ทีม · สูงสุด ${p.seats} คน (${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'})</div>` : ''}<div class="muted">${esc(p.description)}</div>
+    <ul class="feat-list">${p.models.map(m => `<li>${esc(m.name)} <span class="muted">~${num(m.week)} ข้อความ/สัปดาห์</span></li>`).join('')}${p.api_limit ? '<li><span class="ok">✓</span> ใช้ API Key หักจากลิมิตแพลน</li>' : ''}</ul></div>`).join('')}</div>
     <p class="muted" style="text-align:center;margin-top:16px">จำนวนข้อความเป็นค่าประมาณ (ข้อความละ ~2,500 token) ใช้หลายโมเดลได้ในลิมิตเดียวกัน</p>`;
 }
 function compareTable(plans) {
@@ -172,6 +181,8 @@ function compareTable(plans) {
   return `<div class="tw"><table class="cmp"><tr><th></th>${plans.map(p => `<th>${esc(p.name)}</th>`).join('')}</tr>
     <tr><td>ราคา/เดือน</td>${plans.map(p => `<td>${p.price > 0 ? '฿' + baht(p.price) : 'ฟรี'}</td>`).join('')}</tr>
     ${names.map(n => `<tr><td>${esc(n)}</td>${plans.map(p => { const m = p.models.find(x => x.name === n); return `<td>${m ? '~' + num(m.week) : '<span class="muted">—</span>'}</td>`; }).join('')}</tr>`).join('')}
+    <tr><td>จำนวนผู้ใช้</td>${plans.map(p => `<td>${p.seats > 1 ? `${p.seats} คน (${p.shared_pool ? 'งบรวม' : 'แยกโควตา'})` : '1 คน'}</td>`).join('')}</tr>
+    <tr><td>API Key</td>${plans.map(p => `<td>${p.api_limit ? '<span class="ok">หักลิมิตแพลนได้</span>' : '<span class="muted">หัก Wallet</span>'}</td>`).join('')}</tr>
     <tr><td>รีเซ็ตลิมิต</td>${plans.map(() => '<td>4 ชม. + สัปดาห์</td>').join('')}</tr></table></div>
     <p class="muted" style="text-align:center">ตัวเลขในตาราง = จำนวนข้อความโดยประมาณต่อสัปดาห์</p>`;
 }
@@ -199,7 +210,7 @@ async function landing() {
   page(nav() + `<section class="hero"><div class="name">AstraCode</div>
     <h1>AI ทุกตัว<br>ในมือถือเครื่องเดียว</h1>
     <p>ChatGPT, Claude, Gemini, DeepSeek และ Kimi ในเว็บเดียว เปิดบนมือถือได้ทันที ไม่ต้องลงแอป</p>
-    <div class="row" style="justify-content:center"><a class="btn blue" href="/login">เริ่มใช้ฟรี</a><a class="btn out" href="#plans">ดูแพลน</a></div>
+    <div class="row" style="justify-content:center">${me ? `<a class="btn blue" href="/chat">เข้าสู่แชต</a><a class="btn out" href="/account">บัญชีของฉัน</a>` : `<a class="btn blue" href="/login">เริ่มใช้ฟรี</a><a class="btn out" href="#plans">ดูแพลน</a>`}</div>
     <div class="showcase" aria-hidden="true">
       <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="ring" style="--p:24"></i>24%</span></div>
       <div class="sc-chat">
@@ -309,6 +320,29 @@ const LIBS = { // ล็อกเวอร์ชัน + SRI: ถ้าไฟล
 const FILE_MAX = 200000, FILES_MAX = 5, RAW_MAX = 20e6; // ตัวอักษรต่อไฟล์, จำนวนไฟล์, ขนาดไฟล์ดิบ
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonc|xml|ya?ml|toml|ini|env|log|html?|css|scss|sass|less|m?js|cjs|jsx|ts|tsx|vue|svelte|py|ipynb|rb|php|java|kt|kts|swift|go|rs|c|h|cpp|hpp|cc|cs|m|mm|sh|bash|zsh|ps1|bat|sql|r|lua|luau|dart|scala|pl|ex|exs|erl|hs|clj|gradle|conf|cfg|properties|tex|srt|vtt|gd|tscn|tres)$/i;
 const loading = {};
+LIBS.katexCss = CDN + 'katex@0.16.11/dist/katex.min.css';
+LIBS.katex = [CDN + 'katex@0.16.11/dist/katex.min.js', 'sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg'];
+LIBS.mermaid = [CDN + 'mermaid@10.9.3/dist/mermaid.min.js', 'sha384-R633Lo26b7d4n15d7Q0yM3E7m9e17f1B38mB37b63aC0s28N2G8K7E6M1fQ0f38M'];
+let katexCssLoaded = false;
+async function renderRich(root = app) {
+  const maths = root.querySelectorAll('.math-b:not([data-done]), .math-i:not([data-done])');
+  if (maths.length) {
+    if (!katexCssLoaded) { katexCssLoaded = true; const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = LIBS.katexCss; document.head.append(l); }
+    await lib('katex').catch(() => null);
+    if (window.katex) maths.forEach(el => {
+      el.dataset.done = '1';
+      try { katex.render(el.dataset.tex, el, { displayMode: el.classList.contains('math-b'), throwOnError: false }); } catch {}
+    });
+  }
+  const diagrams = root.querySelectorAll('.mermaid:not([data-processed])');
+  if (diagrams.length) {
+    await lib('mermaid').catch(() => null);
+    if (window.mermaid) {
+      try { mermaid.initialize({ startOnLoad: false, theme: 'dark' }); await mermaid.run({ nodes: [...diagrams] }); } catch {}
+    }
+  }
+}
+
 const lib = k => loading[k] ||= new Promise((ok, no) => {
   const s = document.createElement('script');
   s.src = LIBS[k][0]; if (LIBS[k][1]) { s.integrity = LIBS[k][1]; s.crossOrigin = 'anonymous'; }
@@ -501,7 +535,25 @@ document.addEventListener('click', e => { const b = e.target.closest('.dl-code')
 
 // ---------- ส่วนเลือกแบบแอปมือถือ (แชต + โหมด Code) ----------
 const limHTML = u => { const p = Math.max(u.pct4h, u.pctWeek); return `<i class="ring ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"></i>${Math.round(p)}%`; };
-const EFFORT_INFO = { '': ['Instant', 'ตอบทันที ไม่คิดก่อน · เร็วและประหยัดลิมิตที่สุด'], low: ['Low', 'คิดสั้นๆ ก่อนตอบ · เหมาะกับงานทั่วไป'], high: ['High', 'คิดละเอียด · โจทย์ยาก โค้ด คณิต'], max: ['Max', 'คิดเต็มที่ · ช้าสุด ใช้ลิมิตมากสุด'] };
+const EFFORT_INFO = {
+  '': ['Instant', 'ตอบทันที ไม่คิดก่อน · เร็วและประหยัดลิมิตที่สุด'],
+  minimal: ['Minimal', 'คิดเล็กน้อย · เร็วมาก ใช้ลิมิตเพิ่มนิดเดียว'],
+  low: ['Low', 'คิดสั้นๆ ก่อนตอบ · เหมาะกับงานทั่วไป'],
+  medium: ['Medium', 'คิดปานกลาง · สมดุลระหว่างความเร็วและความแม่นยำ'],
+  high: ['High', 'คิดละเอียด · โจทย์ยาก โค้ด คณิต'],
+  xhigh: ['Extra High', 'คิดลึกพิเศษ · งานซับซ้อนสูง (OpenAI / GPT)'],
+  max: ['Max', 'คิดเต็มที่ · ช้าสุด ใช้ลิมิตมากสุด'],
+  on: ['Thinking', 'เปิดโหมดคิดก่อนตอบ'],
+};
+const DEFAULT_EFFORTS = { openai: ['', 'minimal', 'low', 'medium', 'high', 'xhigh'], anthropic: ['', 'low', 'medium', 'high', 'max'], deepseek: ['', 'low', 'medium', 'high', 'max'], kimi: ['', 'on'], gemini: ['', 'minimal', 'low', 'medium', 'high'], auto: ['', 'low', 'medium', 'high', 'max'] };
+function modelEfforts(m) {
+  if (!m || m.effort === 'none') return [];
+  if (m.effort_levels && m.effort_levels.trim()) {
+    const list = m.effort_levels.split(',').map(x => x.trim().toLowerCase()).map(x => x === 'none' || x === 'instant' ? '' : x).filter(x => x in EFFORT_INFO);
+    if (list.length) return [...new Set(list)];
+  }
+  return DEFAULT_EFFORTS[m.effort] || ['', 'low', 'medium', 'high', 'max'];
+}
 // แผ่นเลือกจากด้านล่าง (สไตล์แอปมือถือ)
 function sheet(title, html, bind) {
   document.querySelector('.sheet-bg')?.remove();
@@ -552,10 +604,152 @@ function modelSheet(which) {
     + me.models.map(m => optHTML(m.id, esc(m.name), [m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking', `ใช้ลิมิต ×${m.multiplier}`].filter(Boolean).join(' · '), String(m.id) === cur)).join('')
     + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', pickTo(which));
 }
-function effortSheet(sel) {
-  const cur = $(sel).value;
-  sheet('ระดับความคิด', Object.entries(EFFORT_INFO).map(([v, [n, d]]) => optHTML(v, n, d, v === cur)).join('') + '<p class="muted" style="font-size:13px;margin:8px 4px 0">ยิ่งคิดมาก คำตอบยิ่งดีกับโจทย์ยาก แต่ช้าขึ้นและใช้ลิมิตมากขึ้น</p>', pickTo(sel));
+function effortSheet(sel, m) {
+  const cur = $(sel).value, list = modelEfforts(m);
+  sheet('ระดับความคิด', list.map(v => { const [n, d] = EFFORT_INFO[v]; return optHTML(v, n, d, v === cur); }).join('') + '<p class="muted" style="font-size:13px;margin:8px 4px 0">ยิ่งคิดมาก คำตอบยิ่งดีกับโจทย์ยาก แต่ช้าขึ้นและใช้ลิมิตมากขึ้น</p>', pickTo(sel));
 }
+
+const BUILTIN_PROMPTS = [
+  ['สรุปประเด็นสำคัญ', 'ช่วยสรุปข้อความต่อไปนี้เป็นข้อๆ กระชับ เข้าใจง่าย และดึงประเด็นสำคัญออกมา:\n\n'],
+  ['แปลไทย-อังกฤษเป็นธรรมชาติ', 'ช่วยแปลข้อความนี้ให้เป็นภาษาที่สละสลวย เป็นธรรมชาติ ไม่แข็งทื่อ:\n\n'],
+  ['รีวิวโค้ด & หาบั๊ก', 'ช่วยตรวจโค้ดนี้ หาบั๊ก จุดเสี่ยงด้านความปลอดภัย และจุดที่ควรปรับปรุงให้เร็วขึ้น:\n\n'],
+  ['เขียน Unit Test', 'ช่วยเขียน Unit Test ที่ครอบคลุมทั้งกรณีปกติและ Edge Cases สำหรับโค้ดนี้:\n\n'],
+  ['อธิบายโค้ดทีละขั้น', 'ช่วยอธิบายการทำงานของโค้ดนี้ทีละขั้นตอนแบบเข้าใจง่าย:\n\n'],
+];
+function promptLibSheet(onPick) {
+  const key = 'astra_prompts';
+  const load = () => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } };
+  const draw = () => {
+    const mine = load();
+    sheet('คลัง Prompt', `<div class="sheet-form">
+      <form id="plf" class="row" style="flex-wrap:nowrap"><input name="t" placeholder="ชื่อ Prompt" style="max-width:130px" required><input name="b" placeholder="ข้อความคำสั่ง..." required><button class="btn blue sm">เพิ่ม</button></form>
+      ${mine.length ? `<div class="muted" style="font-size:12px">Prompt ของฉัน</div>` + mine.map((p, i) => `<div class="mem"><button type="button" class="linkb" style="flex:1;text-align:left;color:var(--porcelain)" data-use="m:${i}"><b>${esc(p[0])}</b></button><button type="button" data-delp="${i}" aria-label="ลบ">${ic('x')}</button></div>`).join('') : ''}
+      <div class="muted" style="font-size:12px">แนะนำ</div>
+      ${BUILTIN_PROMPTS.map((p, i) => optHTML('b:' + i, ic('book') + esc(p[0]), esc(p[1].slice(0, 60)) + '...')).join('')}
+    </div>`, (d, close) => {
+      d.querySelector('#plf').onsubmit = e => {
+        e.preventDefault(); const fd = new FormData(e.target);
+        const list = load(); list.unshift([fd.get('t').trim().slice(0, 40), fd.get('b').trim()]);
+        localStorage.setItem(key, JSON.stringify(list.slice(0, 30))); draw();
+      };
+      d.querySelectorAll('[data-delp]').forEach(b => b.onclick = () => {
+        const list = load(); list.splice(+b.dataset.delp, 1); localStorage.setItem(key, JSON.stringify(list)); draw();
+      });
+      d.querySelectorAll('[data-v],[data-use]').forEach(b => b.onclick = () => {
+        const [kind, idx] = (b.dataset.v || b.dataset.use).split(':');
+        const item = kind === 'm' ? load()[+idx] : BUILTIN_PROMPTS[+idx];
+        close(); if (item) onPick(item[1]);
+      });
+    });
+  };
+  draw();
+}
+
+
+let _skillsCache = null;
+async function loadSkills(force) {
+  if (!_skillsCache || force) _skillsCache = await api('/skills').catch(() => []);
+  return _skillsCache;
+}
+async function skillsSheet(selectedIds, onChange) {
+  const sel = new Set((selectedIds || []).map(Number));
+  const draw = async (force) => {
+    const list = await loadSkills(force);
+    sheet('Skills (เลือกได้สูงสุด 3)', `<div class="sheet-form">
+      <details class="ed" style="background:var(--obsidian);border:1px solid var(--hair);border-radius:16px"><summary style="padding:12px 14px"><b>+ สร้าง Skill ใหม่</b></summary>
+        <form id="skf" class="sheet-form" style="padding:0 14px 14px">
+          <input name="name" placeholder="ชื่อ Skill (เช่น nextjs-expert)" maxlength="60" required>
+          <input name="description" placeholder="คำอธิบายสั้นๆ" maxlength="200">
+          <textarea name="content" rows="4" maxlength="6000" placeholder="คำสั่งหรือกติกาให้ AI ทำตามเมื่อเปิด Skill นี้..." required></textarea>
+          <button class="btn blue sm">บันทึก Skill</button>
+        </form>
+      </details>
+      ${list.map(s => `<div class="opt ${sel.has(s.id) ? 'on' : ''}" data-sk="${s.id}" style="cursor:pointer">
+        <span class="opt-t">${ic('sparkles', 'sm')} ${esc(s.name)} ${s.user_id === 0 ? '<small class="pill" style="margin-left:6px">ระบบ</small>' : `<button type="button" class="linkb" data-delsk="${s.id}" style="margin-left:8px;color:var(--red);font-size:12px">ลบ</button>`}</span>
+        <span class="opt-d">${esc(s.description || s.content.slice(0, 80))}</span>
+        <i>${sel.has(s.id) ? ic('check') : ''}</i>
+      </div>`).join('') || '<p class="muted">ยังไม่มี Skill</p>'}
+    </div>`, (d) => {
+      d.querySelector('#skf').onsubmit = async e => {
+        e.preventDefault();
+        try {
+          const created = await api('/skills', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+          if (sel.size < 3) sel.add(created.id);
+          onChange([...sel]); toast('สร้าง Skill แล้ว', 'ok'); draw(true);
+        } catch (x) { toast(x.message, 'bad'); }
+      };
+      d.querySelectorAll('[data-delsk]').forEach(b => b.onclick = async e => {
+        e.stopPropagation();
+        await api('/skills/' + b.dataset.delsk, { method: 'DELETE' });
+        sel.delete(+b.dataset.delsk); onChange([...sel]); toast('ลบ Skill แล้ว'); draw(true);
+      });
+      d.querySelectorAll('[data-sk]').forEach(el => el.onclick = () => {
+        const id = +el.dataset.sk;
+        if (sel.has(id)) sel.delete(id);
+        else if (sel.size >= 3) return toast('เปิดพร้อมกันได้สูงสุด 3 Skills');
+        else sel.add(id);
+        onChange([...sel]); draw(false);
+      });
+    });
+  };
+  draw(true);
+}
+
+
+let _mcpCache = null;
+async function loadMcps(force) {
+  if (!_mcpCache || force) _mcpCache = await api('/mcp').catch(() => []);
+  return _mcpCache;
+}
+async function mcpSheet(selectedIds, onChange) {
+  const sel = new Set((selectedIds || []).map(Number));
+  const draw = async (force) => {
+    const list = await loadMcps(force);
+    sheet('Remote MCP (เลือกได้สูงสุด 3)', `<div class="sheet-form">
+      <details class="ed" style="background:var(--obsidian);border:1px solid var(--hair);border-radius:16px"><summary style="padding:12px 14px"><b>+ เชื่อมต่อ Remote MCP</b></summary>
+        <form id="mcf" class="sheet-form" style="padding:0 14px 14px">
+          <input name="name" placeholder="ชื่อ (เช่น GitHub, Notion)" maxlength="60" required>
+          <input name="url" type="url" placeholder="https://api.githubcopilot.com/mcp/" required>
+          <input name="token" type="password" placeholder="Bearer Token / PAT (ถ้ามี)" autocomplete="off">
+          <button class="btn blue sm" id="mcb">เชื่อมต่อ &amp; ดึง Tools</button>
+        </form>
+      </details>
+      ${list.map(s => `<div class="opt ${sel.has(s.id) ? 'on' : ''}" data-mc="${s.id}" style="cursor:pointer">
+        <span class="opt-t">${ic('server', 'sm')} ${esc(s.name)} <small class="pill" style="margin-left:6px">${s.tools.length} tools</small>${s.user_id === 0 ? '<small class="pill" style="margin-left:4px">ระบบ</small>' : `<button type="button" class="linkb" data-syncmc="${s.id}" style="margin-left:8px;font-size:12px">ซิงค์</button><button type="button" class="linkb" data-delmc="${s.id}" style="margin-left:8px;color:var(--red);font-size:12px">ลบ</button>`}</span>
+        <span class="opt-d">${esc(s.url)}${s.tools.length ? ' · ' + esc(s.tools.slice(0, 4).join(', ')) + (s.tools.length > 4 ? '…' : '') : ''}</span>
+        <i>${sel.has(s.id) ? ic('check') : ''}</i>
+      </div>`).join('') || '<p class="muted">ยังไม่ได้เชื่อมต่อ MCP Server</p>'}
+    </div>`, d => {
+      d.querySelector('#mcf').onsubmit = async e => {
+        e.preventDefault(); const btn = d.querySelector('#mcb'); btn.disabled = true; btn.textContent = 'กำลังเชื่อมต่อ...';
+        try {
+          const created = await api('/mcp', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+          if (sel.size < 3) sel.add(created.id);
+          onChange([...sel]); toast(`เชื่อมต่อแล้ว (${created.tools.length} tools)`, 'ok'); draw(true);
+        } catch (x) { toast(x.message, 'bad'); btn.disabled = false; btn.textContent = 'เชื่อมต่อ & ดึง Tools'; }
+      };
+      d.querySelectorAll('[data-syncmc]').forEach(b => b.onclick = async e => {
+        e.stopPropagation(); b.textContent = '...';
+        try { const r = await api(`/mcp/${b.dataset.syncmc}/sync`, { method: 'POST' }); toast(`อัปเดตแล้ว (${r.tools.length} tools)`, 'ok'); draw(true); }
+        catch (x) { toast(x.message, 'bad'); b.textContent = 'ซิงค์'; }
+      });
+      d.querySelectorAll('[data-delmc]').forEach(b => b.onclick = async e => {
+        e.stopPropagation();
+        await api('/mcp/' + b.dataset.delmc, { method: 'DELETE' });
+        sel.delete(+b.dataset.delmc); onChange([...sel]); toast('ลบ MCP แล้ว'); draw(true);
+      });
+      d.querySelectorAll('[data-mc]').forEach(el => el.onclick = () => {
+        const id = +el.dataset.mc;
+        if (sel.has(id)) sel.delete(id);
+        else if (sel.size >= 3) return toast('เปิดพร้อมกันได้สูงสุด 3 MCP');
+        else sel.add(id);
+        onChange([...sel]); draw(false);
+      });
+    });
+  };
+  draw(true);
+}
+
 function limitSheet() {
   const u = me.usage;
   sheet('ลิมิตการใช้งาน', `<p class="muted" style="margin:0 0 12px">แพลน ${esc(me.plan.name)}</p><div class="meters big">${meters(u)}</div>
@@ -575,9 +769,23 @@ function setUrl(p, replace) {
 }
 function go(p) { if (window.DEMO) { setUrl(p); boot(); } else location.href = p; }
 const PAGES = {
-  home: () => me ? go('/chat') : landing(),
+  home: () => landing(),
   login: () => me ? go(qs().get('next') || '/chat') : auth(),
   plans: plansPage, terms, pricing,
+  share: async () => {
+    const tok = qs().get('t');
+    if (!tok) return go('/');
+    const d = await api('/share/' + encodeURIComponent(tok));
+    document.title = d.title + ' · AstraCode';
+    page(nav() + `<div class="wrap" style="max-width:780px;padding-bottom:64px">
+      <section class="hero" style="padding:40px 0 20px"><div class="name">AstraCode</div><h1>${esc(d.title)}</h1><p>${when(d.created_at)} · แชตที่แชร์</p></section>
+      <div class="msgs" style="padding:0">${d.messages.map(m => m.role === 'user'
+        ? `<div class="msg user"><div class="b">${esc(m.content.replace(FILE_RE, (_, n) => `[ไฟล์: ${n}]`).trim())}</div></div>`
+        : `<div class="msg ai"><div class="b">${md(m.content)}</div>${m.model ? `<div class="acts"><span class="muted">${esc(m.model)}</span></div>` : ''}</div>`).join('')}</div>
+      <div style="text-align:center;margin-top:32px"><a class="btn blue" href="${me ? '/chat' : '/login'}">${me ? 'เปิด AstraCode Chat' : 'ลองใช้ AstraCode ฟรี'}</a></div>
+      ${footer()}</div>`);
+    app.querySelectorAll('.cp-code').forEach(b => b.onclick = () => copy(b.closest('.code').querySelector('code').textContent, b)); renderRich();
+  },
 };
 const OPEN_IN_MAINTENANCE = ['home', 'login', 'terms', 'status', 'blog', 'pricing'];
 function banner() { // ประกาศจากแอดมิน: ปิดได้ จำไว้ว่าปิดข้อความไหน

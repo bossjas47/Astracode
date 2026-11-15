@@ -4,20 +4,29 @@ const bindCopy = () => app.querySelectorAll('.cp-code').forEach(b => b.onclick =
 
 // ---------- API สำหรับนักพัฒนา ----------
 PAGES.developers = async () => {
-  const [pr, keys] = await Promise.all([api('/pricing'), me ? api('/keys') : null]);
+  const [pr, keys, kstats] = await Promise.all([api('/pricing'), me ? api('/keys') : null, me ? api('/keys/stats').catch(() => []) : []]);
   const base = location.origin + '/v1', slug = n => n.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
   const first = pr.models[0] ? slug(pr.models[0].name) : 'model-name';
   const draw = (newKey = '') => {
     page(nav() + `<div class="wrap" style="max-width:820px"><section class="hero" style="padding:56px 0 24px"><div class="name">AstraCode API</div><h1>API สำหรับนักพัฒนา</h1>
       <p>เรียกทุกโมเดลผ่าน API แบบ OpenAI ใช้กับ SDK และเครื่องมือที่รองรับ OpenAI ได้ทันที จ่ายตามจริงจาก Wallet</p></section>
-      ${me ? `<div class="card">${h3k('API key')}<p class="muted">Wallet ฿${baht(me.balance)} · <a href="/plans?topup=1">เติมเงิน</a></p>
+      ${me ? `<div class="card">${h3k('API key')}${me.plan.api_limit ? `<div class="notice" style="margin:0 0 12px"><span>แพลน <b>${esc(me.plan.name)}</b> ใช้ API Key หักจากลิมิตแพลนได้โดยไม่ต้องเติม Wallet · 4 ชม. <b>${me.usage.pct4h}%</b> · สัปดาห์ <b>${me.usage.pctWeek}%</b></span></div>` : `<p class="muted">แพลนปัจจุบัน (${esc(me.plan.name)}) คิดค่า API จาก Wallet ฿${baht(me.balance)} · <a href="/plans?topup=1">เติมเงิน</a> หรือ <a href="/plans">อัปเกรดแพลนที่รองรับ API Limit</a></p>`}
         ${newKey ? `<div class="notice hi">คัดลอกเก็บไว้ตอนนี้ จะไม่แสดงอีก<div class="row" style="flex-wrap:nowrap;margin-top:8px"><input readonly value="${esc(newKey)}" id="nk"><button class="btn out sm" id="cpk">คัดลอก</button></div></div>` : ''}
         ${keys.length ? keys.map(k => `<details class="ed key"><summary><b>${esc(k.name)}</b><span class="muted"><code>${esc(k.prefix)}…</code> · เดือนนี้ ฿${money(k.spent)}${k.budget != null ? ` / ฿${baht(k.budget)}` : ''}${k.models ? ` · ${k.models.split(',').length} โมเดล` : ''} · ใช้ล่าสุด ${when(k.last_used)}</span></summary>
           <form class="kset" data-k="${k.id}"><label>งบต่อเดือน (บาท) เว้นว่าง = ไม่จำกัด</label><input name="budget" type="number" min="0" step="any" value="${k.budget ?? ''}" placeholder="ไม่จำกัด">
+            <label class="sw-row"><span class="sw"><input type="checkbox" name="use_plan" ${k.use_plan !== 0 ? 'checked' : ''}><span></span></span>หักจากลิมิตแพลนก่อน (ถ้าแพลนรองรับ)</label>
             <label>โมเดลที่ key นี้ใช้ได้ (ไม่เลือก = ทุกโมเดล)</label><div class="chips-sel">${pr.models.map(m => `<label><input type="checkbox" name="m" value="${slug(m.name)}" ${k.models?.split(',').includes(slug(m.name)) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div>
             <div class="row" style="margin-top:12px"><button class="btn blue sm">บันทึก</button><button type="button" class="btn out sm danger" data-rk="${k.id}">ยกเลิก key</button><span class="ok sv"></span></div></form></details>`).join('') : '<p class="muted">ยังไม่มี key</p>'}
         <form id="kf" class="row" style="flex-wrap:nowrap"><input name="name" placeholder="ชื่อ key เช่น my-app" maxlength="40"><button class="btn blue sm">สร้าง key</button></form><div class="err" id="ke"></div></div>`
       : `<div class="card" style="text-align:center"><p>เข้าสู่ระบบเพื่อสร้าง API key</p><a class="btn blue" href="/login?next=/developers">เข้าสู่ระบบ</a></div>`}
+            ${me ? `<div class="card">${h3k('ทดสอบ API (Playground)')}
+        <form id="pg" class="form2">
+          <div><label>API Key</label><input id="pgk" placeholder="sk-astra-..." value="${esc(newKey)}" required></div>
+          <div><label>โมเดล</label><select id="pgm">${pr.models.map(m => `<option value="${esc(slug(m.name))}">${esc(m.name)} (${esc(slug(m.name))})</option>`).join('')}</select></div>
+        </form>
+        <label>ข้อความทดสอบ</label><div class="row" style="flex-wrap:nowrap"><input id="pgt" value="สวัสดี ตอบสั้นๆ 1 ประโยค"><button type="button" class="btn blue sm" id="pgrun">ทดสอบ</button></div>
+        <div id="pgo" class="muted" style="margin-top:10px;font-size:13px"></div></div>` : ''}
+      ${me && kstats.length ? `<div class="card">${h3k('ยอดใช้ API 14 วันล่าสุด')}<div class="ubars">${kstats.map(r => { const mx = Math.max(...kstats.map(x => x.n), 1); return `<div class="ubar" title="${r.d}: ${r.n} ครั้ง · ฿${baht(r.spent)}"><i style="height:${Math.max(4, Math.round(r.n / mx * 100))}%"></i><span>${r.d.slice(8)}</span></div>`; }).join('')}</div></div>` : ''}
       <div class="band"><h2>เริ่มใช้</h2>
         <p class="muted">Base URL: <code>${esc(base)}</code> · ส่ง key ใน header <code>Authorization: Bearer sk-astra-...</code></p>
         ${pre(['curl', `curl ${base}/chat/completions \\\n  -H "Authorization: Bearer $ASTRA_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"${first}","messages":[{"role":"user","content":"สวัสดี"}]}'`])}
@@ -26,9 +35,21 @@ PAGES.developers = async () => {
       </div>
       <div class="band"><h2>โมเดลและราคา</h2><p class="muted">ราคาเป็นบาทต่อ 1M token · ส่ง <code>reasoning_effort</code> = low / high / max เพื่อให้โมเดลที่รองรับคิดก่อนตอบ</p>
         <div class="tw"><table class="tbl"><tr><th>model</th><th>Input</th><th>Output</th><th>Cache</th></tr>${pr.models.map(m => `<tr><td><code>${esc(slug(m.name))}</code>${m.promo ? ` <span class="pill sale">-${m.promo.pct}%</span>` : ''}</td>${['in', 'out', 'cache'].map(k => `<td>${m.promo ? `<s class="muted">฿${money(m.promo[k])}</s> ` : ''}฿${money(m[k])}</td>`).join('')}</tr>`).join('')}</table></div></div>
-      <div class="band"><h2>ข้อจำกัด</h2><ul class="muted"><li>60 คำขอต่อนาทีต่อ key</li><li>Wallet ต้องมียอดมากกว่า 0 ก่อนเรียก (คำขอสุดท้ายอาจทำให้ยอดติดลบเล็กน้อย)</li><li>ตั้งงบต่อเดือนและจำกัดโมเดลแยกแต่ละ key ได้ (เกินงบ = ตอบ 429)</li><li>รองรับ /v1/models และ /v1/chat/completions (ข้อความแบบ text, stream และไม่ stream)</li></ul></div>
+      <div class="band"><h2>ข้อจำกัด</h2><ul class="muted"><li>60 คำขอต่อนาทีต่อ key</li><li>Wallet ต้องมียอดมากกว่า 0 ก่อนเรียก (คำขอสุดท้ายอาจทำให้ยอดติดลบเล็กน้อย)</li><li>ตั้งงบต่อเดือนและจำกัดโมเดลแยกแต่ละ key ได้ (เกินงบ = ตอบ 429)</li><li>รองรับ <code>/v1/models</code>, <code>/v1/usage</code> (เช็ก % ลิมิตและยอด Wallet) และ <code>/v1/chat/completions</code> (ข้อความ, รูปภาพ, tools, stream)</li></ul></div>
       ${footer()}</div>`);
     bindCopy();
+    $('#pgrun')?.addEventListener('click', async () => {
+      const k = $('#pgk').value.trim(), mdl = $('#pgm').value, msg = $('#pgt').value.trim(), out = $('#pgo');
+      if (!k || !msg) return toast('ใส่ API Key และข้อความก่อน', 'bad');
+      out.textContent = 'กำลังส่งคำขอ...'; const t0 = performance.now();
+      try {
+        const r = await fetch('/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, body: JSON.stringify({ model: mdl, messages: [{ role: 'user', content: msg }] }) });
+        const d = await r.json(), ms = Math.round(performance.now() - t0), bill = r.headers.get('x-astracode-billing') || '-';
+        if (!r.ok) { out.innerHTML = `<span class="bad">${esc(d.error?.message || 'HTTP ' + r.status)}</span>`; return; }
+        const ans = d.choices?.[0]?.message?.content || '';
+        out.innerHTML = `<div class="ok" style="margin-bottom:6px">HTTP 200 · ${ms} ms · หักจาก: <b>${esc(bill)}</b> · ${d.usage ? `${d.usage.total_tokens} tokens` : ''}</div><div class="code" style="padding:12px">${esc(ans)}</div>`;
+      } catch (x) { out.innerHTML = `<span class="bad">${esc(x.message)}</span>`; }
+    });
     $('#cpk')?.addEventListener('click', e => copy($('#nk').value, e.target));
     $('#kf')?.addEventListener('submit', async e => {
       e.preventDefault();
@@ -37,7 +58,7 @@ PAGES.developers = async () => {
     });
     app.querySelectorAll('.kset').forEach(f => f.onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(f);
-      try { await api('/keys/' + f.dataset.k, { method: 'PUT', body: { budget: fd.get('budget'), models: fd.getAll('m') } }); keys.splice(0, keys.length, ...await api('/keys')); draw(); }
+      try { await api('/keys/' + f.dataset.k, { method: 'PUT', body: { budget: fd.get('budget'), models: fd.getAll('m'), use_plan: fd.get('use_plan') ? 1 : 0 } }); keys.splice(0, keys.length, ...await api('/keys')); draw(); }
       catch (x) { toast(x.message, 'bad'); }
     });
     app.querySelectorAll('[data-rk]').forEach(b => b.onclick = async () => {
@@ -90,9 +111,9 @@ PAGES.blog = async () => {
 PAGES.status = async () => {
   const d = await api('/status'), down = d.models.filter(m => m.down);
   page(nav() + `<div class="wrap" style="max-width:820px"><section class="hero" style="padding:56px 0 24px"><h1>สถานะระบบ</h1>
-    <p class="${down.length ? 'warn' : 'ok'}" style="font-size:19px">${down.length ? '⚠ บางโมเดลมีปัญหา: ' + down.map(m => esc(m.name)).join(', ') : '● ระบบทำงานปกติ'}</p>
+    <p class="${down.length ? 'warn' : 'ok'}" style="font-size:19px">${down.length ? `${ic('alert', 'sm')} บางโมเดลมีปัญหา: ` + down.map(m => esc(m.name)).join(', ') : '● ระบบทำงานปกติ'}</p>
     <p class="muted">อัปเดต ${when(d.updated)}</p></section>
-    ${d.models.map(m => `<div class="card st"><div class="row"><b>${esc(m.name)}</b><span class="sp"></span><span class="${m.down ? 'warn' : 'ok'}">${m.down ? '⚠ มีปัญหา' : '● ปกติ'}</span><span class="muted">${m.uptime}% ใน 30 วัน</span></div>
+    ${d.models.map(m => `<div class="card st"><div class="row"><b>${esc(m.name)}</b><span class="sp"></span><span class="${m.down ? 'warn' : 'ok'}">${m.down ? `${ic('alert', 'sm')} มีปัญหา` : '● ปกติ'}</span><span class="muted">${m.uptime}% ใน 30 วัน</span></div>
       <div class="bars">${m.days.map(x => { const t = x.ok + x.err, r = t ? x.err / t : 0; return `<i class="${!t ? 'none' : r > 0.2 ? 'bad' : r > 0 ? 'mid' : 'good'}" title="${new Date(x.d).toLocaleDateString('th-TH')} · สำเร็จ ${x.ok} · ผิดพลาด ${x.err}"></i>`; }).join('')}</div>
       <div class="row muted" style="font-size:12px"><span>30 วันก่อน</span><span class="sp"></span><span>วันนี้</span></div></div>`).join('')}
     <p class="muted" style="text-align:center">สีเทา = ไม่มีการใช้งานวันนั้น · มีปัญหา? <a href="/support">แจ้งเรา</a></p>${footer()}</div>`);

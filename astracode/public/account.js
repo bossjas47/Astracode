@@ -20,10 +20,15 @@ function usageHTML(d) {
 PAGES.account = async function account() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   await loadMe();
-  const [w, mems, ud] = await Promise.all([api('/wallet'), api('/memories'), api('/usage/daily')]);
+  const [w, mems, ud, tm] = await Promise.all([api('/wallet'), api('/memories'), api('/usage/daily'), api('/team').catch(() => ({ team: null }))]);
   const u = me.usage, refLink = `${location.origin}/login?ref=${me.ref_code}`;
   page(nav() + `<div class="wrap" style="max-width:640px"><section class="hero" style="padding:48px 0 16px"><h1>บัญชี</h1>
-    <p>${esc(me.email)}</p></section>
+    <p>${esc(me.email)}</p>
+    <div class="row" style="justify-content:center;margin-top:16px">
+      <a class="btn blue sm" href="/chat">${ic('msg', 'sm')} เปิดแชต</a>
+      <a class="btn out sm" href="/plans">${ic('layers', 'sm')} แพลน / เติมเงิน</a>
+      <button class="btn red sm" id="outTop">ออกจากระบบ</button>
+    </div></section>
 
     <div class="card"><div class="grid">
       <div class="tile"><div class="muted">แพลน</div><div class="stat">${esc(me.plan.name)}</div><div class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</div></div>
@@ -33,6 +38,25 @@ PAGES.account = async function account() {
     </div></div>
 
     <div class="card">${h3('การใช้งาน 30 วันล่าสุด')}${usageHTML(ud)}</div>
+
+    
+    <div class="card">${h3('ทีม (Team Plan)')}
+      ${tm.team ? `
+        <p style="margin:0 0 8px"><b>${esc(tm.team.name)}</b> · <span class="pill">${tm.team.role === 'owner' ? 'หัวหน้าทีม' : 'สมาชิก'}</span> · <span class="muted">${tm.members.length}/${tm.team.max_seats} คน · ${tm.team.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'}</span></p>
+        <p class="muted" style="margin:0 0 12px">แพลน ${esc(tm.team.plan_name || me.plan.name)} · หมดอายุ ${when(tm.team.expires)}</p>
+        ${tm.team.role === 'owner' ? `
+          <form id="tnamef" class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input name="name" value="${esc(tm.team.name)}" maxlength="60" placeholder="ชื่อทีม" required><button class="btn out sm">เปลี่ยนชื่อทีม</button></form>
+          <label>โค้ดเชิญเข้าทีม</label>
+          <div class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input readonly value="${esc(tm.team.invite_code)}" id="tcode"><button type="button" class="btn out sm" id="cptc">คัดลอก</button><button type="button" class="btn out sm" id="regtc">สุ่มใหม่</button></div>
+          <form id="taddf" class="row" style="flex-wrap:nowrap;margin-bottom:12px"><input name="email" type="email" placeholder="เพิ่มสมาชิกด้วยอีเมล" required><button class="btn blue sm">เพิ่มคน</button></form>
+        ` : ''}
+        <div id="tmemlist">${tm.members.map(m => `<div class="mem"><span>${esc(m.email)} <small class="muted">${m.role === 'owner' ? '(หัวหน้าทีม)' : ''}</small></span>
+          ${(tm.team.role === 'owner' && m.role !== 'owner') || (tm.team.role !== 'owner' && m.email === me.email) ? `<button data-rmm="${m.id}" aria-label="นำออก">${ic('x')}</button>` : ''}</div>`).join('')}</div>
+      ` : `
+        <p class="muted">ยังไม่ได้อยู่ในทีม ซื้อแพลนทีมได้ที่ <a href="/plans">หน้าแพลน</a> หรือใส่โค้ดเชิญเพื่อเข้าร่วมทีม</p>
+        <form id="tjoinf" class="row" style="flex-wrap:nowrap"><input name="code" placeholder="โค้ดเชิญทีม (เช่น A1B2C3D4)" autocapitalize="characters" required><button class="btn blue sm">เข้าร่วมทีม</button></form>
+      `}
+    </div>
 
     <div class="card">${h3('Wallet')}
       ${sw('overflow', me.wallet_overflow, 'ใช้ Wallet เมื่อลิมิตเต็ม', 'แชตต่อได้ คิดตามราคาต่อ token จริง')}
@@ -65,7 +89,8 @@ PAGES.account = async function account() {
     <div class="row" style="justify-content:center;margin:24px 0"><button class="btn out" id="out">ออกจากระบบ</button></div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>${footer()}</div>`);
 
-  $('#out').onclick = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
+  const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
+  $('#out').onclick = doOut; $('#outTop').onclick = doOut;
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew');
   $('#cp').onsubmit = async e => {
@@ -87,6 +112,34 @@ PAGES.account = async function account() {
     if (!v) return;
     try { await api('/me/delete', { method: 'POST', body: { confirm: v } }); me = null; toast('ลบบัญชีแล้ว'); go('/'); } catch (x) { toast(x.message, 'bad'); }
   };
+
+  $('#tjoinf')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await api('/team/join', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('เข้าร่วมทีมแล้ว', 'ok'); boot(); }
+    catch (x) { toast(x.message, 'bad'); }
+  });
+  $('#tnamef')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await api('/team', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('บันทึกชื่อทีมแล้ว', 'ok'); boot(); }
+    catch (x) { toast(x.message, 'bad'); }
+  });
+  $('#cptc')?.addEventListener('click', e => copy($('#tcode').value, e.target));
+  $('#regtc')?.addEventListener('click', async () => {
+    if (!await confirmSheet('สุ่มโค้ดเชิญใหม่? โค้ดเดิมจะใช้ไม่ได้', { title: 'สุ่มโค้ดเชิญ' })) return;
+    await api('/team', { method: 'PUT', body: { regen_code: true } }); boot();
+  });
+  $('#taddf')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await api('/team/add', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('เพิ่มสมาชิกแล้ว', 'ok'); boot(); }
+    catch (x) { toast(x.message, 'bad'); }
+  });
+  $('#tmemlist')?.addEventListener('click', async e => {
+    const b = e.target.closest('[data-rmm]'); if (!b) return;
+    if (!await confirmSheet(tm.team.role === 'owner' ? 'นำสมาชิกคนนี้ออกจากทีม?' : 'ออกจากทีมนี้?', { title: 'ยืนยัน', ok: 'ยืนยัน', danger: true })) return;
+    try { await api('/team/members/' + b.dataset.rmm, { method: 'DELETE' }); toast('อัปเดตสมาชิกทีมแล้ว'); boot(); }
+    catch (x) { toast(x.message, 'bad'); }
+  });
+
   tfa();
   bindInstall();
 };

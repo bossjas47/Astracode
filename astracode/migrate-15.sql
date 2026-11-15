@@ -1,0 +1,3 @@
+ALTER TABLE chats ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE chats ADD COLUMN share_token TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS chats_share ON chats(share_token);
