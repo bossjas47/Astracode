@@ -905,3 +905,4 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .rst { margin-top: 14px; padding: 14px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .06); }
 .rst-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .gdot { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px var(--blue); }
+.cb.pick { gap: 6px; } .cb.pick .vlogo.xs { width: 22px; height: 22px; }

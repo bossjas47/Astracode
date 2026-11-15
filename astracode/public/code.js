@@ -393,7 +393,7 @@ async function runForAI(msg, cmds) {
 // ---------- AI: ปุ่มด้านล่างแบบเดียวกับหน้าแชต ----------
 function cUI() {
   const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
-  $('#cmdl').innerHTML = `<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
+  $('#cmdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
   const efs = modelEfforts(m);
   $('#ceff').hidden = !efs.length;
   if (efs.length && !efs.includes($('#ceffort').value)) $('#ceffort').value = efs[0];

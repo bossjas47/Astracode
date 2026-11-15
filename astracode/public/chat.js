@@ -195,8 +195,8 @@ function openCanvas(code) {
 
 function modelUI() {
   const m = curModel(), m2 = me.models.find(x => x.id === +$('#model2').value);
-  $('#mdl').innerHTML = `<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
-  $('#mdl2').hidden = !chat.compare; $('#mdl2').innerHTML = `<span>vs ${esc(m2?.name || '')}</span>${ic('down', 'sm')}`;
+  $('#mdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
+  $('#mdl2').hidden = !chat.compare; $('#mdl2').innerHTML = `${m2 ? vendorLogo(m2.name, 'xs') : ''}<span>vs ${esc(m2?.name || '')}</span>${ic('down', 'sm')}`;
   const efs = modelEfforts(m);
   $('#eff').hidden = !efs.length;
   if (efs.length && !efs.includes($('#effort').value)) $('#effort').value = efs[0];
