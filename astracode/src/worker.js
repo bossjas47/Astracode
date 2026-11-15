@@ -349,6 +349,23 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       else if (e.type === 'error') throw new Error(e.error?.message || 'upstream error');
     }
     yield { usage: u };
+  } else if (m.provider === 'image') { // โมเดลสร้างรูป (gpt-image-*): ข้อความล่าสุดของผู้ใช้ = คำบรรยายรูป ตอบกลับเป็นรูปในแชต · ทุน output = ราคาต่อ 1 รูป
+    const last = msgs.findLast(x => x.role === 'user'), prompt = (Array.isArray(last?.content) ? last.content.filter(c => c?.type === 'text').map(c => c.text).join('\n') : String(last?.content || '')).replace(/\n\n\[ไฟล์ทั้งหมดในโปรเจกต์\][\s\S]*$/, '').trim().slice(0, 4000);
+    if (!prompt) throw new Error('บอกว่าอยากได้รูปแบบไหน');
+    const base0 = m.base_url.replace(/\/$/, '');
+    const call = async extra => { // 404 = ไม่มีเส้นทางนี้ ลองใส่ /v1 ให้ (ผู้ให้บริการบางรายต้องมี)
+      const go = b => fetch(b + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify({ model: m.api_model, prompt, n: 1, size: '1024x1024', ...extra }) });
+      const r = await go(base0); return r.status === 404 && !/\/v1$/.test(base0) ? go(base0 + '/v1') : r;
+    };
+    let res = await call({ output_format: 'jpeg', output_compression: 80 }); // JPEG เพื่อให้ไฟล์เล็กพอเก็บในแชต (D1 แถวละไม่เกิน ~2MB)
+    if (res.status === 400) res = await call({}); // ผู้ให้บริการบางรายไม่รับพารามิเตอร์ข้างบน ลองใหม่แบบเรียบง่าย
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`upstream ${res.status}: ${JSON.stringify(d.error || d).slice(0, 300)}`);
+    const item = d.data?.[0]; let src;
+    if (item?.b64_json) src = 'data:image/' + (item.b64_json.startsWith('iVBOR') ? 'png' : 'jpeg') + ';base64,' + item.b64_json; else if (item?.url) src = item.url; else throw new Error('ไม่ได้รูปกลับมา');
+    if (src.length > 1.8e6) throw new Error('รูปที่ได้ใหญ่เกินจะบันทึกในแชต ลองใช้โมเดลหรือขนาดที่เล็กลง');
+    yield { t: `![${prompt.slice(0, 80).replace(/[\[\]]/g, '')}](${src})` };
+    yield { usage: { fresh: 0, read: 0, write: 0, out: 1e6 } }; // 1 รูป = 1M "token" จึงคิดตามทุน output ต่อรูป
   } else if (m.provider === 'responses') { // OpenAI Responses API (/responses): โมเดลรุ่นใหม่ที่ไม่รับ /chat/completions
     const part = (role, p) => typeof p === 'string' ? { type: role === 'assistant' ? 'output_text' : 'input_text', text: p }
       : p?.type === 'image_url' ? { type: 'input_image', image_url: p.image_url?.url || p.image_url }
