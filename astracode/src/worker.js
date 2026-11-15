@@ -286,8 +286,9 @@ const toAnthropicPart = p => {
   }
   return null;
 };
-async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId } = {}) {
+async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal } = {}) {
   const key = env[m.key_name];
+  const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
   if (!key) throw new Error('missing key ' + m.key_name);
   if (m.provider === 'anthropic') {
     const messages = [];
@@ -670,8 +671,13 @@ async function runChat(env, J, send, st) {
     let part = '', ru = null;
     const tcs = new Map(), anthIdx = new Map();
     for (let attempt = 0; attempt < 2; attempt++) {
+      // นาฬิกาเฝ้าโมเดล: ไม่มีข้อความ/ความคิดตัวแรกภายใน 90 วิ (effort สูงสุด 150 วิ) หรือเงียบเกิน 60 วิกลางทาง = ตัดการเชื่อมต่อ แล้วใช้ทางสลับโมเดลสำรอง/แจ้งข้อผิดพลาด แทนที่ผู้ใช้จะรอไม่จบ
+      const ac = new AbortController(); let stalled = 0, wd;
+      const arm = ms => { clearTimeout(wd); wd = setTimeout(() => { stalled = ms; ac.abort(); }, ms); };
+      arm(['high', 'xhigh', 'max'].includes(effort) ? 150e3 : 90e3);
       try {
-        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined, userId: u.id })) {
+        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined, userId: u.id, signal: ac.signal })) {
+          arm(60e3);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
           if (e.t) { out += e.t; part += e.t; await send({ t: e.t }); }
@@ -685,8 +691,12 @@ async function runChat(env, J, send, st) {
           }
           if (e.usage) ru = e.usage;
         }
+        clearTimeout(wd);
+        if (!out && !think && !tcs.size && !st.gone) throw new Error('โมเดลส่งคำตอบว่างกลับมา'); // ตอบว่าง = ถือเป็นข้อผิดพลาด (นับเข้าตัวตัดวงจร และลองโมเดลสำรอง)
         break;
-      } catch (e) {
+      } catch (e0) {
+        clearTimeout(wd);
+        const e = stalled ? new Error(`โมเดลไม่ตอบภายใน ${Math.round(stalled / 1000)} วินาที`) : e0;
         console.log('AI error', model.name, e.message);
         await event(env, 'error', model.id, e.message.slice(0, 300));
         const fb = !out && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
