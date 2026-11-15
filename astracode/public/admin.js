@@ -154,13 +154,13 @@ const ADMIN = {
           <div class="pay-grid"><div><div class="muted">แพลน</div>${esc(p.plan_name)}</div><div><div class="muted">ต้องจ่าย</div>฿${baht(p.amount)}</div><div><div class="muted">ส่งเมื่อ</div>${when(p.created_at)}</div>
           <div><div class="muted">ตรวจสลิป</div>${slipResult(p)}</div></div>
           ${p.slip_check ? `<details class="tview"><summary>ผลดิบจาก API</summary><pre style="white-space:pre-wrap;font-size:12px">${esc(p.slip_check)}</pre></details>` : ''}
-          <div class="row" style="margin-top:12px"><button class="btn out sm" data-slip="${p.id}">ดูสลิป</button>
-          ${p.status === 'pending' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}">อนุมัติ</button><button class="btn red sm" data-act="reject" data-id="${p.id}">ปฏิเสธ</button>` : ''}</div>
+          <div class="row" style="margin-top:12px"><button class="btn out sm" data-slip="${p.id}">View slip</button>
+          ${p.status === 'pending' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}">Approve</button><button class="btn red sm" data-act="reject" data-id="${p.id}">Reject</button>` : ''}</div>
           <div data-img="${p.id}"></div></div>`).join('') || '<div class="empty-s">ไม่มีรายการ</div>'}`;
       box.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; draw(); });
       box.querySelectorAll('[data-slip]').forEach(b => b.onclick = () => { const c = box.querySelector(`[data-img="${b.dataset.slip}"]`); c.innerHTML = c.innerHTML ? '' : `<img class="slipimg" style="margin-top:12px" src="/api/admin/slip/${b.dataset.slip}" alt="สลิป">`; });
       box.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
-        if (!await confirmSheet(b.dataset.act === 'approve' ? 'อนุมัติและเปิดแพลนให้ผู้ใช้?' : 'ปฏิเสธคำขอนี้?', { title: 'ยืนยันรายการ', ok: 'ยืนยัน', danger: b.dataset.act !== 'approve' })) return;
+        if (!await confirmSheet(b.dataset.act === 'approve' ? 'อนุมัติและเปิดแพลนให้ผู้ใช้?' : 'ปฏิเสธคำขอนี้?', { title: 'ยืนยันรายการ', ok: 'Confirm', danger: b.dataset.act !== 'approve' })) return;
         b.disabled = true;
         try { await api(`/admin/payments/${b.dataset.id}/${b.dataset.act}`, { method: 'POST' }); reload(); } catch (x) { toast(x.message, 'bad'); b.disabled = false; }
       });
@@ -178,7 +178,7 @@ const ADMIN = {
         <label class="gs">ขอบเขตที่ผู้ใช้จะรีเซ็ตได้ (เลือกตอนแจก ผู้ใช้เปลี่ยนเองไม่ได้)</label><select name="scope" class="gs"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${models.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select>
         <label>แจกให้</label><select name="who"><option value="all">ผู้ใช้ทุกคน</option>${plans.map(p => `<option value="plan:${p.id}">ทุกคนในแพลน ${esc(p.name)}</option>`).join('')}<option value="email">ผู้ใช้คนเดียว (ใส่อีเมล)</option></select>
         <input name="email" type="email" placeholder="อีเมลผู้ใช้" hidden>
-        <div class="row" style="margin-top:12px"><button class="btn blue sm">ยืนยัน</button><span class="ok sv"></span></div></form></details>
+        <div class="row" style="margin-top:12px"><button class="btn blue sm">Confirm</button><span class="ok sv"></span></div></form></details>
       <details class="ed" id="rlh"><summary><b>${ic('activity')} ประวัติรีเซ็ตลิมิต</b><span class="muted">แจกให้ใคร ใครกดใช้ เมื่อไหร่ (ล่าสุด 100 รายการ)</span></summary><div id="rlhb" class="tw"></div></details>
       <div class="toolbar"><input id="q" placeholder="ค้นหาอีเมล" aria-label="ค้นหาอีเมล"></div><div id="ul"></div>`;
     $('#rlh').ontoggle = async () => { if (!$('#rlh').open) return; try { $('#rlhb').innerHTML = resetLogTable(await api('/admin/reset-log')); } catch (x) { $('#rlhb').textContent = x.message; } };
@@ -245,7 +245,7 @@ const ADMIN = {
       <div><label>หมดอายุ (เว้นว่าง = ไม่หมด)</label><input name="expires" type="date" value="${c.expires ? new Date(c.expires).toISOString().slice(0, 10) : ''}"></div>
       <div><label>โน้ต</label><input name="note" value="${esc(c.note || '')}"></div>
       <div><label>เปิดใช้</label><label class="sw"><input type="checkbox" name="active" ${c.active ? 'checked' : ''}><span></span></label></div></div>
-      <div class="row" style="margin-top:16px"><button class="btn blue sm">บันทึก</button>${c.code ? `<button type="button" class="btn red sm" data-del="${esc(c.code)}">ลบ</button>` : ''}</div></form>`;
+      <div class="row" style="margin-top:16px"><button class="btn blue sm">Save</button>${c.code ? `<button type="button" class="btn red sm" data-del="${esc(c.code)}">Delete</button>` : ''}</div></form>`;
     box.innerHTML = `<p class="muted hint">ลด % / ลดบาท ใช้ตอนซื้อแพลน · เครดิต Wallet ผู้ใช้กรอกที่หน้าบัญชี · คนหนึ่งใช้โค้ดเดิมได้ครั้งเดียว</p>
       <div class="ed-list">${cs.map(c => `<details class="ed"><summary><b>${esc(c.code)}</b><span class="muted">${KIND[c.kind]} ${c.kind === 'percent' ? c.value + '%' : '฿' + baht(c.value)} · ใช้แล้ว ${c.used}${c.max_uses ? '/' + c.max_uses : ''}${c.expires ? ' · หมด ' + dayLabel(c.expires) : ''}${c.note ? ' · ' + esc(c.note) : ''}</span>${c.active ? '' : '<span class="pill">ปิดอยู่</span>'}</summary>${form(c)}</details>`).join('')}
       <details class="ed add"><summary><b>+ สร้างคูปอง</b></summary>${form()}</details></div>`;
@@ -254,7 +254,7 @@ const ADMIN = {
       b.active = b.active ? 1 : 0; b.expires = b.expires ? new Date(b.expires + 'T23:59:59+07:00').getTime() : null;
       try { await api('/admin/coupons', { method: 'POST', body: b }); reload(); } catch (x) { toast(x.message, 'bad'); }
     });
-    box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบคูปองนี้?', { title: 'ลบคูปอง', ok: 'ลบ', danger: true })) { await api('/admin/coupons', { method: 'DELETE', body: { code: b.dataset.del } }); reload(); } });
+    box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบคูปองนี้?', { title: 'ลบคูปอง', ok: 'Delete', danger: true })) { await api('/admin/coupons', { method: 'DELETE', body: { code: b.dataset.del } }); reload(); } });
   },
 
   async tickets(box) {
@@ -264,7 +264,7 @@ const ADMIN = {
       box.innerHTML = `<p><a href="/admin?tab=tickets">← ทั้งหมด</a></p><div class="panel"><div class="ph"><h2>${esc(t.subject)}</h2><span class="muted">${esc(t.email)}</span></div>
         <div class="thread">${t.msgs.map(m => `<div class="tmsg ${m.admin ? '' : 'adm'}"><div class="muted" style="font-size:12px">${m.admin ? 'แอดมิน' : esc(t.email)} · ${when(m.created_at)}</div><div>${esc(m.body).replace(/\n/g, '<br>')}</div></div>`).join('')}</div>
         <form id="tr"><textarea name="body" rows="4" placeholder="ตอบกลับ (ส่งอีเมลแจ้งผู้ใช้ด้วย ถ้าเปิดระบบอีเมล)"></textarea>
-        <div class="row" style="margin-top:8px"><button class="btn blue sm">ส่งคำตอบ</button><button type="button" class="btn out sm" id="tclose">${t.status === 'closed' ? 'ปิดแล้ว' : 'ปิดเรื่อง'}</button><button type="button" class="btn out sm" data-user="${t.user_id}">ดูผู้ใช้</button></div></form></div>`;
+        <div class="row" style="margin-top:8px"><button class="btn blue sm">Send answer</button><button type="button" class="btn out sm" id="tclose">${t.status === 'closed' ? 'Closed' : 'Close ticket'}</button><button type="button" class="btn out sm" data-user="${t.user_id}">View user</button></div></form></div>`;
       $('#tr').onsubmit = async e => { e.preventDefault(); await api('/admin/tickets/' + id, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); ADMIN.tickets(box); };
       $('#tclose').onclick = async () => { await api('/admin/tickets/' + id, { method: 'POST', body: { status: 'closed' } }); go('/admin?tab=tickets'); };
       box.querySelector('[data-user]').onclick = () => userDrawer(t.user_id);
@@ -282,16 +282,16 @@ const ADMIN = {
       <label class="sw-row"><span class="sw"><input type="checkbox" name="maintenance" ${s.maintenance === '1' ? 'checked' : ''}><span></span></span> ปิดเว็บชั่วคราว (แอดมินยังใช้ได้ หน้าแรก/สถานะ/บล็อกยังเปิด)</label>
       <h2 style="margin-top:24px">ประกาศ</h2><label>ข้อความ (เว้นว่าง = ไม่แสดง) ใส่ลิงก์แบบ [ข้อความ](https://...) ได้</label><textarea name="announcement" rows="2">${esc(s.announcement)}</textarea>
       <label>ระดับ</label><select name="announcement_level">${[['info', 'ทั่วไป'], ['warn', 'เตือน'], ['critical', 'สำคัญมาก']].map(([k, l]) => `<option value="${k}" ${s.announcement_level === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <div class="row" style="margin-top:16px"><button class="btn blue">บันทึก</button><span class="ok" id="ms"></span></div></form>
+      <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><span class="ok" id="ms"></span></div></form>
 
       <form class="panel form-p" id="af"><h2>แจ้งเตือนแอดมิน</h2><p class="muted">แจ้งเมื่อมีสลิปใหม่ เรื่องติดต่อใหม่ โมเดลล่ม และต้นทุนเกินกำหนด</p>
       <label>Discord webhook URL</label><input name="alert_discord" value="${esc(s.alert_discord)}" placeholder="https://discord.com/api/webhooks/...">
       <label>LINE: User ID หรือ Group ID ที่จะส่งถึง</label><input name="alert_line_to" value="${esc(s.alert_line_to)}" placeholder="U1234...">
       <p class="muted">LINE ใช้ Messaging API (LINE Notify ปิดบริการแล้ว) ตั้ง Secret <code>LINE_ALERT_TOKEN</code> = Channel access token ${s.env.LINE_ALERT_TOKEN ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'}</p>
       <label>แจ้งเมื่อต้นทุน API ต่อวันเกิน (บาท, 0 = ปิด)</label><input name="cost_alert_daily" type="number" min="0" step="any" value="${esc(s.cost_alert_daily || '0')}">
-      <div class="row" style="margin-top:16px"><button class="btn blue">บันทึก</button><button type="button" class="btn out" id="atest">ทดสอบส่ง</button><span class="ok" id="as"></span></div></form>
+      <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><button type="button" class="btn out" id="atest">Send test</button><span class="ok" id="as"></span></div></form>
 
-      <section class="panel"><div class="ph"><h2>สำรองข้อมูล (R2)</h2><button class="btn out sm" id="bk">สำรองตอนนี้</button></div>
+      <section class="panel"><div class="ph"><h2>สำรองข้อมูล (R2)</h2><button class="btn out sm" id="bk">Back up now</button></div>
         <p class="muted">ระบบสำรองอัตโนมัติทุกวันตี 3 (ต้องตั้ง Cron Trigger) เก็บ 14 ชุดล่าสุด</p>
         ${backups.error ? `<p class="warn">${esc(backups.error)}</p>` : backups.length ? backups.map(b => `<div class="row" style="padding:6px 0;border-top:1px solid var(--steel)"><span>${when(b.at)}</span><span class="muted">${compact(b.size)}B</span><span style="flex:1"></span><a href="/api/admin/backups/${esc(b.key)}" download>ดาวน์โหลด</a></div>`).join('') : '<p class="muted">ยังไม่มีไฟล์สำรอง</p>'}</section>
 
@@ -329,8 +329,8 @@ const ADMIN = {
           <label class="tg"><input type="checkbox" data-pk="picker_filter" ${on('picker_filter') ? 'checked' : ''}><span>แสดงปุ่มกรองตามค่ายด้านบน</span></label>
           <label class="tg"><input type="checkbox" data-pk="picker_mult" ${on('picker_mult') ? 'checked' : ''}><span>แสดงตัวคูณลิมิต (×1, ×5 ...)</span></label>
           <h3>โลโก้แต่ละค่าย</h3><p class="muted" style="margin:0 0 8px;font-size:13px">ค่ายดูจากคำแรกของชื่อโมเดล ถ้าไม่อัปโหลดจะใช้โลโก้ค่าเริ่มต้น (ค่ายที่ไม่มีโลโก้ในระบบ เช่น ChatGPT จะแสดงตัวอักษรแรก) รูปจะถูกย่อเป็น 96px</p>
-          ${vendors.map(v => `<div class="row" style="align-items:center;gap:12px;padding:6px 0">${vendorLogo(v)}<b style="min-width:96px">${esc(v)}</b><label class="btn out sm" style="margin:0;cursor:pointer">อัปโหลด<input type="file" accept="image/*" data-up="${esc(v.toLowerCase())}" hidden></label>${icons[v.toLowerCase()] ? `<button type="button" class="btn out sm" data-rm="${esc(v.toLowerCase())}">ใช้ค่าเริ่มต้น</button>` : '<span class="muted" style="font-size:12px">ค่าเริ่มต้น</span>'}</div>`).join('')}
-          <div class="row" style="margin-top:12px"><button class="btn blue sm">บันทึก</button><span class="ok sv"></span></div></form>`;
+          ${vendors.map(v => `<div class="row" style="align-items:center;gap:12px;padding:6px 0">${vendorLogo(v)}<b style="min-width:96px">${esc(v)}</b><label class="btn out sm" style="margin:0;cursor:pointer">อัปโหลด<input type="file" accept="image/*" data-up="${esc(v.toLowerCase())}" hidden></label>${icons[v.toLowerCase()] ? `<button type="button" class="btn out sm" data-rm="${esc(v.toLowerCase())}">Use default</button>` : '<span class="muted" style="font-size:12px">ค่าเริ่มต้น</span>'}</div>`).join('')}
+          <div class="row" style="margin-top:12px"><button class="btn blue sm">Save</button><span class="ok sv"></span></div></form>`;
       card.querySelectorAll('[data-up]').forEach(i => i.onchange = async () => {
         const f = i.files[0]; if (!f) return;
         try { const u = await toIcon(f); if (u.length > 60000) throw new Error('รูปใหญ่เกินไป ใช้รูปที่เรียบง่ายกว่านี้'); icons[i.dataset.up] = u; draw(); } catch (x) { toast(x.message, 'bad'); }
@@ -349,7 +349,7 @@ const ADMIN = {
     oc.innerHTML = `<summary><b>${ic('tag')} ราคาทางการ (เทียบในหน้าราคา)</b><span class="muted">ใส่ราคาของเจ้าของโมเดลเป็นดอลลาร์ต่อ 1M token ว่าง = ไม่เทียบ</span></summary>
       <form id="off" class="ed-f"><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>Input $</th><th>Output $</th><th>Cache read $</th><th>Cache write $</th></tr>
       ${ms.map(m => `<tr><td>${esc(m.name)}</td>${['in', 'out', 'cache', 'write'].map(k => `<td><input type="number" step="any" min="0" data-m="${m.id}" data-k="${k === 'write' ? 'cache_write' : k}" value="${off[m.id]?.[k === 'write' ? 'cache_write' : k] ?? ''}" style="min-width:76px"></td>`).join('')}</tr>`).join('')}</table></div>
-      <div class="row" style="margin-top:12px"><button class="btn blue sm">บันทึก</button><span class="ok sv"></span></div></form>`;
+      <div class="row" style="margin-top:12px"><button class="btn blue sm">Save</button><span class="ok sv"></span></div></form>`;
     oc.querySelector('#off').onsubmit = async e => {
       e.preventDefault(); const out = {};
       oc.querySelectorAll('input[data-m]').forEach(i => { const v = parseFloat(i.value); if (v > 0) (out[i.dataset.m] ||= {})[i.dataset.k] = v; });
@@ -369,7 +369,7 @@ const ADMIN = {
         <p class="muted">Secret Key ตั้งที่ Worker เป็น Secret ชื่อ <code>SLIP2GO_KEY</code> ${s.slip2go_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'} · ที่ Slip2Go ตั้ง IP Whitelist เป็น <code>*</code> (IP ของ Cloudflare เปลี่ยนได้)</p>
         <div class="form2"><div><label>ตรวจบัญชีผู้รับ: รหัสชนิดบัญชี (เว้นว่างได้)</label><input name="slip2go_receiver_type" value="${esc(s.slip2go_receiver_type)}" placeholder="เช่น 02001 = พร้อมเพย์เบอร์โทร, 01004 = กสิกร"></div>
           <div><label>เลขบัญชี/พร้อมเพย์ผู้รับ (เว้นว่าง = ไม่ตรวจ)</label><input name="slip2go_receiver_account" value="${esc(s.slip2go_receiver_account)}" placeholder="0812345678"></div></div>
-        <div class="row" style="margin-top:8px"><button type="button" class="btn out sm" id="s2t">ทดสอบการเชื่อมต่อ</button><span id="s2r" class="muted"></span></div>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn out sm" id="s2t">Test connection</button><span id="s2r" class="muted"></span></div>
         <p class="muted">ระบบส่งสลิปให้ Slip2Go ตรวจ: สลิปซ้ำ, ยอดต้องตรง และบัญชีผู้รับ (ถ้าใส่) · สลิปปลอม/ซ้ำ/ยอดไม่ตรง ปฏิเสธทันที</p>
       </div>
       <div data-sp="byshop">
@@ -413,7 +413,7 @@ const ADMIN = {
       <label>ชื่อร้าน / บริษัท</label><input name="business_name" value="${esc(s.business_name)}">
       <label>ที่อยู่</label><textarea name="business_address" rows="2">${esc(s.business_address)}</textarea>
       <label>เลขประจำตัวผู้เสียภาษี (ถ้ามี)</label><input name="business_tax_id" value="${esc(s.business_tax_id)}">
-      <div class="row" style="margin-top:20px"><button class="btn blue">บันทึก</button><span id="sv" class="ok"></span></div></form>`;
+      <div class="row" style="margin-top:20px"><button class="btn blue">Save</button><span id="sv" class="ok"></span></div></form>`;
     const sp = () => box.querySelectorAll('[data-sp]').forEach(el => el.hidden = !el.dataset.sp.split(' ').includes($('#sp').value));
     $('#sp').onchange = sp; sp();
     $('#s2t').onclick = async () => {
@@ -440,7 +440,7 @@ async function editors(tab, box, reload) {
       : t === 'd' ? `<input type="date" name="${k}" value="${r[k] ? new Date(r[k] + 7 * 3600e3).toISOString().slice(0, 10) : ''}">`
       : `<input name="${k}" ${t === 'n' || t === 'o' ? 'type="number" step="any" inputmode="decimal"' : ''} value="${esc(r[k] ?? '')}" ${t === 'o' ? `placeholder="${k.endsWith('_mult') ? '1' : 'อัตโนมัติ: ทุน + markup'}"` : t === 's' ? '' : 'required'}>`}</div>`).join('')}</div>
     ${tab === 'plans' ? `<label>โมเดลที่ใช้ได้</label><div class="chips-sel">${models.map(m => `<label><input type="checkbox" name="m" value="${m.id}" ${r.model_ids?.includes(m.id) ? 'checked' : ''}><span>${esc(m.name)} ×${m.multiplier}</span></label>`).join('')}</div>` : ''}
-    <div class="row" style="margin-top:16px"><button class="btn blue sm">บันทึก</button>${r.id ? `<button type="button" class="btn red sm" data-del="${r.id}">ลบ</button>` : ''}<span class="ok sv"></span></div></form>`;
+    <div class="row" style="margin-top:16px"><button class="btn blue sm">Save</button>${r.id ? `<button type="button" class="btn red sm" data-del="${r.id}">Delete</button>` : ''}<span class="ok sv"></span></div></form>`;
   box.innerHTML = `<p class="muted hint">${tab === 'posts' ? 'เขียนด้วย Markdown · บทความที่เผยแพร่จะขึ้นที่ /blog, หน้าแรก และ sitemap.xml' : tab === 'plans'
     ? 'ลิมิตหักตามต้นทุนจริงของแต่ละข้อความ (ราคาทุนของโมเดล) แล้วแสดงเป็น % · งบเป็นบาท: รอบ 4 ชม. เริ่มนับตอนส่งข้อความแรก, รอบสัปดาห์เริ่มตอนใช้ครั้งแรกแล้วรีเซ็ตหลัง 7 วัน · ต้นทุนสูงสุด/เดือน = งบสัปดาห์ × 4.33 (กรณีผู้ใช้ใช้เต็มทุกสัปดาห์)'
     : 'key ใส่ที่ Worker → Settings → Variables and Secrets (Type: Secret) · Claude ใช้รูปแบบ anthropic ตัวอื่นใช้ openai'}</p>
@@ -458,7 +458,7 @@ async function editors(tab, box, reload) {
     try { await api(`/admin/${tab}${f.dataset.id ? '/' + f.dataset.id : ''}`, { method: f.dataset.id ? 'PUT' : 'POST', body }); if (f.dataset.id) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700); } else reload(); }
     catch (x) { toast(x.message, 'bad'); }
   });
-  box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบรายการนี้ถาวร?', { title: 'ยืนยันการลบ', ok: 'ลบถาวร', danger: true })) { await api(`/admin/${tab}/${b.dataset.del}`, { method: 'DELETE' }); reload(); } });
+  box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบรายการนี้ถาวร?', { title: 'ยืนยันการลบ', ok: 'Delete forever', danger: true })) { await api(`/admin/${tab}/${b.dataset.del}`, { method: 'DELETE' }); reload(); } });
 }
 
 const RL_KIND = { grant: 'แจกสิทธิ์', use: 'ผู้ใช้กดใช้', direct: 'แอดมินรีเซ็ตให้' };
@@ -471,7 +471,7 @@ async function userDrawer(id, after) {
   const d = document.createElement('div'); d.className = 'drawer';
   const total = u.models.reduce((a, m) => a + m.cost, 0);
   d.innerHTML = `<div class="dr-shade"></div><aside class="dr-p" role="dialog" aria-label="ผู้ใช้ ${esc(u.email)}">
-    <div class="dr-h"><span class="av lg">${esc(u.email[0].toUpperCase())}</span><div><b>${esc(u.email)}</b><div class="muted">สมัคร ${when(u.created_at)} · ${u.chats} แชต</div></div><span style="flex:1"></span><button class="btn out sm" id="dx">ปิด</button></div>
+    <div class="dr-h"><span class="av lg">${esc(u.email[0].toUpperCase())}</span><div><b>${esc(u.email)}</b><div class="muted">สมัคร ${when(u.created_at)} · ${u.chats} แชต</div></div><span style="flex:1"></span><button class="btn out sm" id="dx">Close</button></div>
     <div class="kpis sm">
       <div class="kpi"><div class="muted">แพลน</div><div class="stat">${esc(u.current_plan)}</div><div class="kd muted">${u.plan_id && u.plan_expires > Date.now() ? 'ถึง ' + when(u.plan_expires) : 'ไม่มีวันหมด'}</div></div>
       ${u.usage.use4h === false ? '' : `<div class="kpi"><div class="muted">ลิมิต 4 ชม.</div><div class="stat">${u.usage.pct4h}%</div><div class="bar1"><div style="width:${u.usage.pct4h}%"></div></div></div>`}
@@ -480,12 +480,12 @@ async function userDrawer(id, after) {
     </div>
     <h3>ใช้โมเดลไหน (30 วัน)</h3>${u.models.length ? `<div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ข้อความ</th><th>Token</th><th>ต้นทุน</th></tr>${u.models.map(m => `<tr><td>${esc(m.name)}</td><td>${num(m.msgs)}</td><td>${compact(m.tok)}</td><td>฿${baht(m.cost)}</td></tr>`).join('')}</table></div>` : '<p class="muted">ยังไม่มีการใช้งาน</p>'}
     <h3>Wallet ฿${baht(u.balance)}</h3>${u.wallet.length ? `<div class="tw"><table class="tbl">${u.wallet.map(t => `<tr><td>${when(t.created_at)}</td><td>${esc(t.kind)}${t.ref ? ' · ' + esc(t.ref) : ''}</td><td class="${t.amount < 0 ? 'bad' : 'ok'}">${t.amount < 0 ? '' : '+'}${baht(t.amount)}</td></tr>`).join('')}</table></div>` : ''}
-    <div class="row" style="margin-top:8px"><input id="dcr" type="number" step="any" placeholder="เพิ่ม/ลด เช่น 50 หรือ -20" style="flex:1"><input id="dcn" placeholder="เหตุผล" style="flex:1"><button class="btn out sm" id="dcs">ปรับยอด</button></div>
+    <div class="row" style="margin-top:8px"><input id="dcr" type="number" step="any" placeholder="เพิ่ม/ลด เช่น 50 หรือ -20" style="flex:1"><input id="dcn" placeholder="เหตุผล" style="flex:1"><button class="btn out sm" id="dcs">Adjust balance</button></div>
     <h3>การชำระเงิน</h3>${u.payments.length ? u.payments.map(p => `<div class="row" style="padding:6px 0">${STATUS[p.status]} ${esc(p.plan_name)} ฿${baht(p.amount)} <span class="muted">${when(p.created_at)}</span></div>`).join('') : '<p class="muted">ยังไม่เคยจ่าย</p>'}
     <h3>จัดการ</h3>
-    <label>เปลี่ยนแพลน (30 วันนับจากวันนี้)</label><div class="row"><select id="dp" style="flex:1"><option value="">Free</option>${plans.filter(p => p.price > 0).map(p => `<option value="${p.id}" ${p.id === u.plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn blue sm" id="dps">ใช้แพลนนี้</button></div>
-    <label>รีเซ็ตลิมิต</label><div class="row"><select id="dscope" style="flex:1"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${allModels.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select><button class="btn out sm" id="dr">รีเซ็ต</button></div>
-    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dpw">ออกจากระบบทุกเครื่อง</button><button class="btn red sm" id="db">${u.banned ? 'ปลดแบน' : 'แบน'}</button></div>
+    <label>เปลี่ยนแพลน (30 วันนับจากวันนี้)</label><div class="row"><select id="dp" style="flex:1"><option value="">Free</option>${plans.filter(p => p.price > 0).map(p => `<option value="${p.id}" ${p.id === u.plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn blue sm" id="dps">Choose plan</button></div>
+    <label>รีเซ็ตลิมิต</label><div class="row"><select id="dscope" style="flex:1"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${allModels.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select><button class="btn out sm" id="dr">Reset</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dpw">Log out all devices</button><button class="btn red sm" id="db">${u.banned ? 'Unban' : 'Ban'}</button></div>
     <h3>ประวัติรีเซ็ตลิมิต</h3><div class="tw">${resetLogTable(rlog, false)}</div>
     <p class="ok" id="dmsg"></p></aside>`;
   document.body.append(d);
@@ -496,12 +496,12 @@ async function userDrawer(id, after) {
   d.querySelector('#dr').onclick = async () => {
     const v = d.querySelector('#dscope').value, label = d.querySelector('#dscope').selectedOptions[0].textContent;
     const scope = v.startsWith('v:') ? { vendor: v.slice(2) } : v.startsWith('m:') ? { model_id: +v.slice(2) } : null;
-    if (!await confirmSheet(`รีเซ็ตลิมิตของ ${u.email}: ${label}?`, { title: 'รีเซ็ตลิมิต', ok: 'รีเซ็ต' })) return;
+    if (!await confirmSheet(`รีเซ็ตลิมิตของ ${u.email}: ${label}?`, { title: 'รีเซ็ตลิมิต', ok: 'Reset' })) return;
     put(scope ? { reset_usage: true, scope } : { reset_usage: true }, 'รีเซ็ตลิมิตแล้ว: ' + label);
   };
-  d.querySelector('#dcs').onclick = async () => { const v = +d.querySelector('#dcr').value; if (!v || !await confirmSheet(`ปรับ Wallet ${v > 0 ? '+' : ''}${v} บาท?`, { title: 'ปรับยอด Wallet', ok: 'ยืนยัน' })) return; await put({ credit: v, note: d.querySelector('#dcn').value }, 'ปรับยอดแล้ว'); setTimeout(() => userDrawer(id, after), 500); };
-  d.querySelector('#dpw').onclick = async () => { if (await confirmSheet('ให้ผู้ใช้นี้ออกจากระบบทุกเครื่อง?', { title: 'บังคับออกจากระบบ', ok: 'ยืนยัน' })) put({ logout: 1 }, 'ออกจากระบบทุกเครื่องแล้ว'); };
-  d.querySelector('#db').onclick = async () => { if (await confirmSheet(u.banned ? 'ปลดแบนผู้ใช้นี้?' : 'แบนผู้ใช้นี้? จะถูกออกจากระบบทันที', { title: 'จัดการบัญชี', ok: 'ยืนยัน', danger: !u.banned })) { await put({ banned: u.banned ? 0 : 1 }, u.banned ? 'ปลดแบนแล้ว' : 'แบนแล้ว'); setTimeout(() => userDrawer(id, after), 600); } };
+  d.querySelector('#dcs').onclick = async () => { const v = +d.querySelector('#dcr').value; if (!v || !await confirmSheet(`ปรับ Wallet ${v > 0 ? '+' : ''}${v} บาท?`, { title: 'ปรับยอด Wallet', ok: 'Confirm' })) return; await put({ credit: v, note: d.querySelector('#dcn').value }, 'ปรับยอดแล้ว'); setTimeout(() => userDrawer(id, after), 500); };
+  d.querySelector('#dpw').onclick = async () => { if (await confirmSheet('ให้ผู้ใช้นี้ออกจากระบบทุกเครื่อง?', { title: 'บังคับออกจากระบบ', ok: 'Confirm' })) put({ logout: 1 }, 'ออกจากระบบทุกเครื่องแล้ว'); };
+  d.querySelector('#db').onclick = async () => { if (await confirmSheet(u.banned ? 'ปลดแบนผู้ใช้นี้?' : 'แบนผู้ใช้นี้? จะถูกออกจากระบบทันที', { title: 'จัดการบัญชี', ok: 'Confirm', danger: !u.banned })) { await put({ banned: u.banned ? 0 : 1 }, u.banned ? 'ปลดแบนแล้ว' : 'แบนแล้ว'); setTimeout(() => userDrawer(id, after), 600); } };
 }
 
 ADMIN.teams = async (box, reload) => {
@@ -514,13 +514,13 @@ ADMIN.teams = async (box, reload) => {
         <div><label>ต่ออายุจากวันนี้ (วัน · 0 = ไม่เปลี่ยน)</label><input name="days" type="number" min="0" value="0"></div>
         <div><label class="sw-row"><span class="sw"><input type="checkbox" name="shared_pool" ${t.shared_pool ? 'checked' : ''}><span></span></span>ใช้งบรวมทั้งทีม</label></div>
       </div>
-      <div class="row" style="margin-top:12px"><button class="btn blue sm">บันทึก</button><button type="button" class="btn red sm" data-tdel="${t.id}">ลบทีม</button><span class="ok sv"></span></div></form></details>`).join('') || '<p class="empty-s">ยังไม่มีทีม</p>'}</div>`;
+      <div class="row" style="margin-top:12px"><button class="btn blue sm">Save</button><button type="button" class="btn red sm" data-tdel="${t.id}">Delete team</button><span class="ok sv"></span></div></form></details>`).join('') || '<p class="empty-s">ยังไม่มีทีม</p>'}</div>`;
   box.querySelectorAll('form[data-tid]').forEach(f => f.onsubmit = async e => {
     e.preventDefault(); const fd = new FormData(f);
     await api('/admin/teams/' + f.dataset.tid, { method: 'PUT', body: { name: fd.get('name'), max_seats: +fd.get('max_seats'), shared_pool: fd.get('shared_pool') ? 1 : 0, days: +fd.get('days') || 0 } });
     f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700);
   });
-  box.querySelectorAll('[data-tdel]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบทีมนี้ถาวร?', { title: 'ลบทีม', ok: 'ลบถาวร', danger: true })) { await api('/admin/teams/' + b.dataset.tdel, { method: 'DELETE' }); reload(); } });
+  box.querySelectorAll('[data-tdel]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบทีมนี้ถาวร?', { title: 'ลบทีม', ok: 'Delete forever', danger: true })) { await api('/admin/teams/' + b.dataset.tdel, { method: 'DELETE' }); reload(); } });
 };
 
 ADMIN.skills = async (box, reload) => {
@@ -530,7 +530,7 @@ ADMIN.skills = async (box, reload) => {
     <div><label>คำอธิบาย</label><input name="description" value="${esc(s.description || '')}" maxlength="200"></div></div>
     <label>คำสั่ง (Instructions)</label><textarea name="content" rows="5" maxlength="6000" required>${esc(s.content || '')}</textarea>
     <label class="sw-row"><span class="sw"><input type="checkbox" name="enabled" ${s.enabled !== 0 ? 'checked' : ''}><span></span></span>เปิดใช้งานสำหรับทุกคน</label>
-    <div class="row" style="margin-top:12px"><button class="btn blue sm">${s.id ? 'บันทึก' : 'สร้าง Skill'}</button>${s.id ? `<button type="button" class="btn red sm" data-sdel="${s.id}">ลบ</button>` : ''}<span class="ok sv"></span></div></form>`;
+    <div class="row" style="margin-top:12px"><button class="btn blue sm">${s.id ? 'Save' : 'Create Skill'}</button>${s.id ? `<button type="button" class="btn red sm" data-sdel="${s.id}">Delete</button>` : ''}<span class="ok sv"></span></div></form>`;
   box.innerHTML = `<p class="muted hint">Skill ส่วนกลางที่ผู้ใช้ทุกคนเปิดใช้ได้ในแชตและโหมด Code (ไม่กินโหลดเซิร์ฟเวอร์)</p>
     <div class="ed-list"><details class="ed add"><summary><b>+ เพิ่ม Skill ใหม่</b></summary>${form()}</details>
     ${rows.map(s => `<details class="ed"><summary><b>${esc(s.name)}</b><span class="pill ${s.enabled ? 'ok' : ''}">${s.enabled ? 'เปิด' : 'ปิด'}</span><span class="muted">${esc(s.description || s.content.slice(0, 80))}</span></summary>${form(s)}</details>`).join('')}</div>`;
@@ -540,7 +540,7 @@ ADMIN.skills = async (box, reload) => {
     if (id) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; setTimeout(reload, 700); } else reload();
   });
   box.querySelectorAll('[data-sdel]').forEach(b => b.onclick = async () => {
-    if (await confirmSheet('ลบ Skill นี้ถาวร?', { title: 'ลบ Skill', ok: 'ลบถาวร', danger: true })) { await api('/admin/skills/' + b.dataset.sdel, { method: 'DELETE' }); reload(); }
+    if (await confirmSheet('ลบ Skill นี้ถาวร?', { title: 'ลบ Skill', ok: 'Delete forever', danger: true })) { await api('/admin/skills/' + b.dataset.sdel, { method: 'DELETE' }); reload(); }
   });
 };
 
@@ -551,7 +551,7 @@ ADMIN.mcp = async (box, reload) => {
     <div><label>URL (https://)</label><input name="url" type="url" value="${esc(m.url || '')}" required></div></div>
     <label>Bearer Token ${m.has_token ? '(เว้นว่าง = ใช้ค่าเดิม)' : '(ถ้ามี)'}</label><input name="token" type="password" autocomplete="off">
     <label class="sw-row"><span class="sw"><input type="checkbox" name="enabled" ${m.enabled !== 0 ? 'checked' : ''}><span></span></span>เปิดใช้งานสำหรับทุกคน</label>
-    <div class="row" style="margin-top:12px"><button class="btn blue sm">${m.id ? 'ซิงค์ &amp; บันทึก' : 'เชื่อมต่อ &amp; เพิ่ม MCP'}</button>${m.id ? `<button type="button" class="btn red sm" data-mdel="${m.id}">ลบ</button>` : ''}<span class="ok sv"></span></div></form>`;
+    <div class="row" style="margin-top:12px"><button class="btn blue sm">${m.id ? 'Sync &amp; save' : 'Connect &amp; add MCP'}</button>${m.id ? `<button type="button" class="btn red sm" data-mdel="${m.id}">Delete</button>` : ''}<span class="ok sv"></span></div></form>`;
   box.innerHTML = `<p class="muted hint">Remote MCP ส่วนกลาง (Streamable HTTP) ให้ผู้ใช้ทุกคนเปิดใช้งานได้</p>
     <div class="ed-list"><details class="ed add"><summary><b>+ เพิ่ม Remote MCP ใหม่</b></summary>${form()}</details>
     ${rows.map(m => `<details class="ed"><summary><b>${esc(m.name)}</b><span class="pill ${m.enabled ? 'ok' : ''}">${m.enabled ? 'เปิด' : 'ปิด'}</span><span class="pill">${m.tools.length} tools</span><span class="muted">${esc(m.url)}</span></summary>${form(m)}</details>`).join('')}</div>`;
@@ -563,6 +563,6 @@ ADMIN.mcp = async (box, reload) => {
     } catch (x) { toast(x.message, 'bad'); btn.disabled = false; }
   });
   box.querySelectorAll('[data-mdel]').forEach(b => b.onclick = async () => {
-    if (await confirmSheet('ลบ MCP นี้ถาวร?', { title: 'ลบ MCP', ok: 'ลบถาวร', danger: true })) { await api('/admin/mcp/' + b.dataset.mdel, { method: 'DELETE' }); reload(); }
+    if (await confirmSheet('ลบ MCP นี้ถาวร?', { title: 'ลบ MCP', ok: 'Delete forever', danger: true })) { await api('/admin/mcp/' + b.dataset.mdel, { method: 'DELETE' }); reload(); }
   });
 };

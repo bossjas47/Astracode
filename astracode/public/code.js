@@ -19,7 +19,7 @@ async function codeHome() {
     <p>เขียนโค้ดบนมือถือ มี AI ช่วยแก้ไฟล์ รัน HTML, JavaScript และ Python ได้ในเบราว์เซอร์</p></section>
     <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px">
       <select name="template" style="width:auto;min-width:160px"><option value="starter">เว็บเริ่มต้น (HTML/CSS/JS/Py)</option><option value="tailwind">HTML + Tailwind CSS</option><option value="node">Node.js (package.json)</option><option value="python">Python</option><option value="empty">โปรเจกต์ว่าง</option></select>
-      <button class="btn blue">+ สร้างโปรเจกต์</button></form>
+      <button class="btn blue">+ New project</button></form>
     <details class="card clone"><summary><b>${ic('branch')} Clone จาก GitHub</b> <span class="muted">ดึง repo มาเป็นโปรเจกต์ใหม่</span></summary>
       <form id="cf2" class="form2" style="margin-top:12px"><div><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required></div>
       <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">Clone</button></div></form>
@@ -27,7 +27,7 @@ async function codeHome() {
     <div class="err" id="e"></div>
     <div class="grid">${list.map(p => `<div class="tile proj"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}</div>
       <div class="muted">${p.files} ไฟล์ · ${kb(p.size)} · แก้ล่าสุด ${when(p.updated_at)}</div></a>
-      <div class="row" style="margin-top:8px"><a class="btn blue sm" href="/code?p=${p.id}">เปิด</a><button class="btn out sm" data-ren="${p.id}">เปลี่ยนชื่อ</button><button class="btn red sm" data-del="${p.id}">ลบ</button></div></div>`).join('')
+      <div class="row" style="margin-top:8px"><a class="btn blue sm" href="/code?p=${p.id}">Open</a><button class="btn out sm" data-ren="${p.id}">Rename</button><button class="btn red sm" data-del="${p.id}">Delete</button></div></div>`).join('')
       || '<p class="muted" style="text-align:center">ยังไม่มีโปรเจกต์ สร้างอันแรกได้เลย ระบบจะใส่ไฟล์ตัวอย่างให้</p>'}</div>${footer()}</div>`);
   $('#nf').onsubmit = async e => {
     e.preventDefault(); e.submitter.disabled = true;
@@ -50,7 +50,7 @@ async function codeHome() {
     if (name?.trim()) { await api('/projects/' + p.id, { method: 'PUT', body: { name } }); codeHome(); }
   });
   app.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-    if (!await confirmSheet('ลบโปรเจกต์นี้? ไฟล์และแชตทั้งหมดจะหายถาวร', { title: 'ลบโปรเจกต์', ok: 'ลบถาวร', danger: true })) return;
+    if (!await confirmSheet('ลบโปรเจกต์นี้? ไฟล์และแชตทั้งหมดจะหายถาวร', { title: 'ลบโปรเจกต์', ok: 'Delete forever', danger: true })) return;
     await api('/projects/' + b.dataset.del, { method: 'DELETE' }); codeHome();
   });
 }
@@ -142,16 +142,16 @@ function menu(btn, path, folder) {
   document.querySelector('.tmenu')?.remove();
   const m = document.createElement('div'); m.className = 'tmenu';
   m.innerHTML = folder ? '<button data-a="new">+ ไฟล์ในโฟลเดอร์นี้</button><button data-a="ren">เปลี่ยนชื่อโฟลเดอร์</button><button data-a="del" class="bad">ลบโฟลเดอร์</button>'
-    : `<button data-a="ai">${IDE.ctx.has(path) ? 'เอาออกจาก AI' : 'ส่งให้ AI ดู'}</button><button data-a="ren">เปลี่ยนชื่อ / ย้าย</button><button data-a="dup">ทำสำเนา</button><button data-a="del" class="bad">ลบ</button>`;
+    : `<button data-a="ai">${IDE.ctx.has(path) ? 'เอาออกจาก AI' : 'ส่งให้ AI ดู'}</button><button data-a="ren">เปลี่ยนชื่อ / ย้าย</button><button data-a="dup">ทำสำเนา</button><button data-a="del" class="bad">Delete</button>`;
   btn.closest('.trow').after(m);
   m.onclick = async e => {
     const a = e.target.dataset.a; if (!a) return; m.remove();
     try {
       if (a === 'new') return newFile(path);
       if (a === 'ai') { IDE.ctx.has(path) ? IDE.ctx.delete(path) : IDE.ctx.add(path); drawCtx(); return; }
-      if (a === 'dup') { const to = await promptSheet('ชื่อไฟล์สำเนา', path.replace(/(\.\w+)?$/, '-copy$1'), { title: 'ทำสำเนาไฟล์', ok: 'สร้าง' }); if (to) await writeFiles([{ path: to, content: content(path) }]); return; }
+      if (a === 'dup') { const to = await promptSheet('ชื่อไฟล์สำเนา', path.replace(/(\.\w+)?$/, '-copy$1'), { title: 'ทำสำเนาไฟล์', ok: 'Create' }); if (to) await writeFiles([{ path: to, content: content(path) }]); return; }
       if (a === 'del') {
-        if (!await confirmSheet(`ลบ ${path} ?`, { title: 'ยืนยันการลบ', ok: 'ลบ', danger: true })) return;
+        if (!await confirmSheet(`ลบ ${path} ?`, { title: 'ยืนยันการลบ', ok: 'Delete', danger: true })) return;
         await saveNow();
         await api(`/projects/${IDE.pid}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
         for (const p of [...IDE.files.keys()]) if (folder ? p.startsWith(path) : p === path) dropFile(p);
@@ -169,7 +169,7 @@ function menu(btn, path, folder) {
 }
 function dropFile(p) { IDE.files.delete(p); IDE.states.delete(p); IDE.dirty.delete(p); IDE.ctx.delete(p); if (IDE.open.includes(p)) closeTab(p); }
 async function newFile(dir = '') {
-  const p = await promptSheet('ระบุพาธและชื่อไฟล์ (เช่น src/app.js)', dir, { title: 'สร้างไฟล์ใหม่', ok: 'สร้าง' }); if (!p || p.endsWith('/')) return;
+  const p = await promptSheet('ระบุพาธและชื่อไฟล์ (เช่น src/app.js)', dir, { title: 'สร้างไฟล์ใหม่', ok: 'Create' }); if (!p || p.endsWith('/')) return;
   if (has(p)) return openFile(p);
   try { await writeFiles([{ path: p, content: '' }]); openFile(p); } catch (x) { setStatus(x.message, true); }
 }
@@ -235,7 +235,7 @@ const CAPTURE = `<script>(()=>{const s=(t,a)=>parent.postMessage({log:t,msg:a.ma
 function log(type, msg) {
   IDE.logs.push({ type, msg }); if (IDE.logs.length > 500) IDE.logs.shift();
   const c = $('#console'); if (!c) return;
-  const fix = type === 'error' ? ` <button type="button" class="btn-fix" data-fix="${esc(msg)}">แก้ด้วย AI</button>` : '';
+  const fix = type === 'error' ? ` <button type="button" class="btn-fix" data-fix="${esc(msg)}">Fix with AI</button>` : '';
   c.insertAdjacentHTML('beforeend', `<div class="cl ${type}"><span>${esc(msg)}</span>${fix}</div>`); c.scrollTop = c.scrollHeight;
 }
 function buildHtml(htmlPath, jsPath, forExport = false) {
@@ -361,7 +361,7 @@ addEventListener('message', e => {
 function termOut(text, cls = '') {
   const t = $('#term-o'); if (!t) return;
   t.insertAdjacentHTML('beforeend', `<span class="${cls}">${esc(text)}</span>`);
-  if (cls === 'err' && text.trim()) t.insertAdjacentHTML('beforeend', ` <button type="button" class="btn-fix" data-fix="${esc(text.slice(0, 1500))}">แก้ด้วย AI</button>\n`);
+  if (cls === 'err' && text.trim()) t.insertAdjacentHTML('beforeend', ` <button type="button" class="btn-fix" data-fix="${esc(text.slice(0, 1500))}">Fix with AI</button>\n`);
   t.scrollTop = t.scrollHeight;
 }
 // รันคำสั่ง: ส่งไฟล์โปรเจกต์ไปด้วย ไฟล์ที่คำสั่งสร้าง/แก้ (ยกเว้น node_modules) จะถูกบันทึกกลับเข้าโปรเจกต์
@@ -421,7 +421,7 @@ function codeTools() {
       if (v === 'mcp') mcpSheet(IDE.mcps, ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); cUI(); });
       if (v === 'skl') skillsSheet(IDE.skills, ids => { IDE.skills = ids; localStorage.setItem('cskills', JSON.stringify(ids)); cUI(); });
       if (v === 'rules') {
-        sheet('กฎประจำโปรเจกต์', `<form class="sheet-form" id="rf"><p class="sheet-msg">AI จะอ่านกฎนี้ทุกครั้งที่สั่งงานในโปรเจกต์นี้ (เช่น Stack, สไตล์โค้ด, ข้อห้าม)</p><textarea name="instructions" rows="5" maxlength="3000" placeholder="เช่น ใช้ Vanilla JS + Tailwind CSS, ตอบสั้นๆ">${esc(IDE.instructions || '')}</textarea><div class="sheet-acts"><button type="button" class="btn out" data-c>ยกเลิก</button><button class="btn blue">บันทึกกฎ</button></div></form>`, (sd, sclose) => {
+        sheet('กฎประจำโปรเจกต์', `<form class="sheet-form" id="rf"><p class="sheet-msg">AI จะอ่านกฎนี้ทุกครั้งที่สั่งงานในโปรเจกต์นี้ (เช่น Stack, สไตล์โค้ด, ข้อห้าม)</p><textarea name="instructions" rows="5" maxlength="3000" placeholder="เช่น ใช้ Vanilla JS + Tailwind CSS, ตอบสั้นๆ">${esc(IDE.instructions || '')}</textarea><div class="sheet-acts"><button type="button" class="btn out" data-c>Cancel</button><button class="btn blue">Save rule</button></div></form>`, (sd, sclose) => {
           sd.querySelector('[data-c]').onclick = sclose;
           sd.querySelector('#rf').onsubmit = async ev => {
             ev.preventDefault(); const ins = new FormData(ev.target).get('instructions');
@@ -481,7 +481,7 @@ function changeCards(m, i) {
     const tag = c.del ? '<span class="bad">ลบ</span>' : cur == null ? '<span class="ok">ไฟล์ใหม่</span>' : d ? `<span class="ok">+${d.add}</span> <span class="bad">−${d.del}</span>` : '';
     return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span>${tag}
       ${same ? '<span class="muted">ใช้แล้ว ✓</span>' : `${c.del ? '' : `<button data-diff="${i}:${k}">ดู diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'ลบไฟล์' : 'Apply'}</button>`}</div>`;
-  }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(c => (c.del ? has(c.path) : content(c.path) !== c.content || !has(c.path))).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply ทั้งหมด</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} ย้อนกลับชุดนี้</button>` : ''}</div></div>`;
+  }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(c => (c.del ? has(c.path) : content(c.path) !== c.content || !has(c.path))).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply all</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} Undo this batch</button>` : ''}</div></div>`;
 }
 async function apply(c, msg) {
   if (msg) {
@@ -503,7 +503,7 @@ function showDiff(c, label = 'Apply') {
     + d.after.map(t => line('', ' ', t)).join('');
   const box = document.createElement('div'); box.className = 'diffbox';
   box.innerHTML = `<div class="diff-h"><b>${esc(c.path)}</b> <span class="ok">+${d.add}</span> <span class="bad">−${d.del}</span><span style="flex:1"></span>
-    <button class="btn blue sm" id="dapply">${label}</button><button class="btn out sm" id="dclose">ปิด</button></div>
+    <button class="btn blue sm" id="dapply">${label}</button><button class="btn out sm" id="dclose">Close</button></div>
     <div class="diff-b">${ln > 0 ? `<div class="dl muted">… บรรทัด ${ln + 1}</div>` : ''}${body}</div>`;
   $('.ide').append(box);
   box.querySelector('#dclose').onclick = () => box.remove();
@@ -535,7 +535,7 @@ function aiMsgHTML(m, i) {
   const cleanBody = stripTools(ask.text);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai">${thinkHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : DOTS}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
-    + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}<button data-copy="${i}">คัดลอก</button></div>`}</div>`;
+    + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;
 }
 function drawAI() {
   const box = $('#cmsgs'); if (!box) return;
@@ -641,7 +641,7 @@ async function versions() {
   document.querySelector('.verbox')?.remove();
   const list = await api(`/projects/${IDE.pid}/versions?path=${encodeURIComponent(p)}`);
   const box = document.createElement('div'); box.className = 'diffbox gitbox verbox';
-  box.innerHTML = `<div class="diff-h"><b>ประวัติ: ${esc(p)}</b><span style="flex:1"></span><button class="btn out sm" data-x>ปิด</button></div>
+  box.innerHTML = `<div class="diff-h"><b>ประวัติ: ${esc(p)}</b><span style="flex:1"></span><button class="btn out sm" data-x>Close</button></div>
     <div class="git-b">${list.length ? list.map(v => `<button class="ver" data-v="${v.id}"><span>${when(v.created_at)}</span><span class="muted">${SRC[v.source] || esc(v.source)} · ${num(v.size)} ตัวอักษร</span></button>`).join('')
       : '<p class="muted">ยังไม่มีประวัติ ระบบจะเก็บเวอร์ชันเก่าไว้ให้เมื่อไฟล์ถูกแก้</p>'}<p class="muted">เก็บล่าสุด 30 เวอร์ชันต่อไฟล์ · แตะเพื่อดูความต่าง แล้วกดกู้คืน</p></div>`;
   $('.ide').append(box);
@@ -656,7 +656,7 @@ async function versions() {
 async function gitPanel() {
   document.querySelector('.gitbox')?.remove();
   const box = document.createElement('div'); box.className = 'diffbox gitbox';
-  box.innerHTML = `<div class="diff-h"><b>${ic('branch')} GitHub</b><span style="flex:1"></span><button class="btn out sm" id="gx">ปิด</button></div><div class="git-b" id="gb"><p class="muted">กำลังโหลด...</p></div>`;
+  box.innerHTML = `<div class="diff-h"><b>${ic('branch')} GitHub</b><span style="flex:1"></span><button class="btn out sm" id="gx">Close</button></div><div class="git-b" id="gb"><p class="muted">กำลังโหลด...</p></div>`;
   $('.ide').append(box); box.querySelector('#gx').onclick = () => box.remove();
   const gb = box.querySelector('#gb'), say = (h, bad) => { const m = gb.querySelector('.gmsg'); if (m) m.innerHTML = bad ? `<span class="bad">${esc(h)}</span>` : h; };
   const acct = await api('/github');
@@ -665,7 +665,7 @@ async function gitPanel() {
       <ol class="steps"><li>เปิด <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a></li>
       <li>เลือก repo ที่จะใช้ แล้วตั้งสิทธิ์ <b>Contents: Read and write</b></li><li>กด Generate แล้วคัดลอก token มาวางด้านล่าง</li></ol>
       <form id="gt"><label>Personal access token</label><input name="token" type="password" placeholder="github_pat_..." autocomplete="off" required>
-      <div class="row" style="margin-top:12px"><button class="btn blue">เชื่อมต่อ</button></div></form>
+      <div class="row" style="margin-top:12px"><button class="btn blue">Connect</button></div></form>
       <p class="muted">token ถูกเข้ารหัสเก็บที่เซิร์ฟเวอร์ และไม่ถูกส่งกลับมาที่หน้าเว็บ${acct.secret ? '' : ' · <span class="bad">แอดมินยังไม่ได้ตั้ง SECRET_KEY จึงเชื่อมยังไม่ได้</span>'}</p><p class="gmsg"></p>`;
     gb.querySelector('#gt').onsubmit = async e => { e.preventDefault(); try { await api('/github', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); gitPanel(); } catch (x) { say(x.message, 1); } };
     return;
@@ -673,16 +673,16 @@ async function gitPanel() {
   if (!IDE.gh) {
     gb.innerHTML = `<p class="muted">เชื่อมอยู่กับ <b>@${esc(acct.login)}</b> · <button class="linkb" id="gdis">ยกเลิกการเชื่อม</button></p>
       <h3>เชื่อมโปรเจกต์นี้กับ repo</h3><form id="gl" class="form2"><div><label>Repo</label><input name="repo" placeholder="owner/repo" required></div>
-      <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">เชื่อม repo</button></div></form>
+      <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">Connect repo</button></div></form>
       <p class="muted">เชื่อมแล้วกด Pull ก่อน เพื่อรวมไฟล์ใน repo กับไฟล์ในโปรเจกต์นี้</p><p class="gmsg"></p>`;
     gb.querySelector('#gl').onsubmit = async e => { e.preventDefault(); try { const r = await api(`/projects/${IDE.pid}/github`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); IDE.gh = { repo: r.repo, branch: r.branch }; $('#git').textContent = '⑂ ' + r.branch; gitPanel(); } catch (x) { say(x.message, 1); } };
-    gb.querySelector('#gdis').onclick = async () => { if (await confirmSheet('ยกเลิกการเชื่อมบัญชี GitHub?', { title: 'ยกเลิกการเชื่อม', ok: 'ยกเลิกการเชื่อม', danger: true })) { await api('/github', { method: 'DELETE' }); gitPanel(); } };
+    gb.querySelector('#gdis').onclick = async () => { if (await confirmSheet('ยกเลิกการเชื่อมบัญชี GitHub?', { title: 'ยกเลิกการเชื่อม', ok: 'Disconnect', danger: true })) { await api('/github', { method: 'DELETE' }); gitPanel(); } };
     return;
   }
   await saveNow();
   gb.innerHTML = `<p class="gm-repo"><a href="https://github.com/${esc(IDE.gh.repo)}/tree/${encodeURIComponent(IDE.gh.branch)}" target="_blank" rel="noopener">${esc(IDE.gh.repo)}</a> <span class="pill">${ic('branch', 'sm')} ${esc(IDE.gh.branch)}</span> <span class="muted">@${esc(acct.login)}</span></p>
-    <div class="row"><button class="btn out sm" id="gf">${ic('refresh')} Fetch</button><button class="btn out sm" id="gp">${ic('pull')} Pull</button><button class="btn out sm" id="gun">ยกเลิกการเชื่อม repo</button></div>
-    <div class="row gbr"><select id="gbs" aria-label="branch"><option>${esc(IDE.gh.branch)}</option></select><button class="btn out sm" id="gnb">+ branch ใหม่</button><button class="btn out sm" id="gpr">เปิด Pull Request</button></div>
+    <div class="row"><button class="btn out sm" id="gf">${ic('refresh')} Fetch</button><button class="btn out sm" id="gp">${ic('pull')} Pull</button><button class="btn out sm" id="gun">Disconnect repo</button></div>
+    <div class="row gbr"><select id="gbs" aria-label="branch"><option>${esc(IDE.gh.branch)}</option></select><button class="btn out sm" id="gnb">+ New branch</button><button class="btn out sm" id="gpr">Open Pull Request</button></div>
     <div id="gs" class="gstat"><p class="muted">กำลังตรวจสถานะ...</p></div>
     <form id="gc" class="gcommit"><label>ข้อความคอมมิต</label><input name="message" placeholder="อธิบายสิ่งที่เปลี่ยน" maxlength="500"><button class="btn blue" id="gpush">${ic('push')} Commit & Push</button></form><p class="gmsg"></p>`;
   const list = (t, xs, cls) => xs.length ? `<div class="gl"><b>${t}</b>${xs.map(x => `<div class="${cls}">${esc(x.path || x)}${x.status ? ` <span class="muted">${x.status}</span>` : ''}</div>`).join('')}</div>` : '';
@@ -708,7 +708,7 @@ async function gitPanel() {
       const c = x.data?.conflicts;
       if (!c) return say(x.message, 1);
       say(`<span class="warn">ไฟล์ถูกแก้ทั้งในนี้และบน GitHub:</span>${c.map(p => `<div class="gmo">${esc(p)}</div>`).join('')}
-        <div class="row" style="margin-top:8px"><button class="btn out sm" id="gr">ใช้ของ GitHub</button><button class="btn out sm" id="gk">เก็บของเรา</button></div>`);
+        <div class="row" style="margin-top:8px"><button class="btn out sm" id="gr">Use GitHub's</button><button class="btn out sm" id="gk">Keep ours</button></div>`);
       gb.querySelector('#gr').onclick = () => pull('remote'); gb.querySelector('#gk').onclick = () => pull('local');
     }
   };
@@ -717,17 +717,17 @@ async function gitPanel() {
     const sel = gb.querySelector('#gbs'); IDE.gh.default = b.default;
     sel.innerHTML = b.branches.map(n => `<option ${n === b.current ? 'selected' : ''}>${esc(n)}</option>`).join('');
     sel.onchange = async () => {
-      if (!await confirmSheet(`สลับไป branch "${sel.value}"? ต้อง Pull ใหม่เพื่อรวมไฟล์`, { title: 'สลับ Branch', ok: 'สลับ' })) { sel.value = IDE.gh.branch; return; }
+      if (!await confirmSheet(`สลับไป branch "${sel.value}"? ต้อง Pull ใหม่เพื่อรวมไฟล์`, { title: 'สลับ Branch', ok: 'Switch' })) { sel.value = IDE.gh.branch; return; }
       try { await api(`/projects/${IDE.pid}/github/switch`, { method: 'POST', body: { branch: sel.value } }); setBranch(sel.value); gitPanel(); } catch (x) { say(x.message, 1); }
     };
   }).catch(x => say(x.message, 1));
   gb.querySelector('#gnb').onclick = async () => {
-    const name = await promptSheet('ชื่อ branch ใหม่ (สร้างจากคอมมิตที่ sync ล่าสุด)', 'feature/', { title: 'สร้าง Branch ใหม่', ok: 'สร้าง' }); if (!name?.trim()) return;
+    const name = await promptSheet('ชื่อ branch ใหม่ (สร้างจากคอมมิตที่ sync ล่าสุด)', 'feature/', { title: 'สร้าง Branch ใหม่', ok: 'Create' }); if (!name?.trim()) return;
     try { await api(`/projects/${IDE.pid}/github/branch`, { method: 'POST', body: { name: name.trim() } }); setBranch(name.trim()); gitPanel(); } catch (x) { say(x.message, 1); }
   };
   gb.querySelector('#gpr').onclick = () => {
     say(`<form id="prf" class="gcommit"><label>Pull Request: ${esc(IDE.gh.branch)} → <input name="base" value="${esc(IDE.gh.default || 'main')}" style="display:inline;width:140px;min-height:32px"></label>
-      <input name="title" placeholder="หัวข้อ PR" maxlength="200" required><textarea name="body" rows="3" placeholder="รายละเอียด (ไม่ใส่ก็ได้)"></textarea><button class="btn blue sm">สร้าง PR</button></form>`);
+      <input name="title" placeholder="หัวข้อ PR" maxlength="200" required><textarea name="body" rows="3" placeholder="รายละเอียด (ไม่ใส่ก็ได้)"></textarea><button class="btn blue sm">Create PR</button></form>`);
     gb.querySelector('#prf').onsubmit = async e => {
       e.preventDefault();
       try { const r = await api(`/projects/${IDE.pid}/github/pr`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); say(`<span class="ok">✓ สร้าง PR #${r.number} แล้ว</span> · <a href="${esc(r.url)}" target="_blank" rel="noopener">เปิดบน GitHub</a>`); }
@@ -736,7 +736,7 @@ async function gitPanel() {
   };
   gb.querySelector('#gf').onclick = status;
   gb.querySelector('#gp').onclick = () => pull();
-  gb.querySelector('#gun').onclick = async () => { if (!await confirmSheet('ยกเลิกการเชื่อม repo? ไฟล์ในโปรเจกต์ยังอยู่ครบ', { title: 'ยกเลิกการเชื่อม Repo', ok: 'ยกเลิก' })) return; await api(`/projects/${IDE.pid}/github`, { method: 'DELETE' }); IDE.gh = null; $('#git').textContent = '⑂ Git'; gitPanel(); };
+  gb.querySelector('#gun').onclick = async () => { if (!await confirmSheet('ยกเลิกการเชื่อม repo? ไฟล์ในโปรเจกต์ยังอยู่ครบ', { title: 'ยกเลิกการเชื่อม Repo', ok: 'Cancel' })) return; await api(`/projects/${IDE.pid}/github`, { method: 'DELETE' }); IDE.gh = null; $('#git').textContent = '⑂ Git'; gitPanel(); };
   gb.querySelector('#gc').onsubmit = async e => {
     e.preventDefault(); await saveNow(); e.submitter.disabled = true; say('กำลัง push...');
     try {
@@ -759,14 +759,14 @@ async function codeView(id) {
   const saved = localStorage.getItem('model');
   app.innerHTML = `<div class="ide view" data-pane="code">
     <header class="ide-bar"><a class="icon-btn sm" href="/code" aria-label="กลับไปหน้าโปรเจกต์">‹</a><b class="pname">${esc(d.name)}</b><span id="ide-status" class="muted"></span><span style="flex:1"></span>
-      <button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} รัน</button></header>
+      <button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} Run</button></header>
     <div class="ide-body">
-      <aside class="ide-files"><div class="ftools"><button class="btn out sm" id="nfile">+ ไฟล์</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">อัปโหลด</button>
-        <button class="btn out sm" id="zin">นำเข้า zip</button><button class="btn out sm" id="zout">ส่งออก zip</button>
+      <aside class="ide-files"><div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">Upload</button>
+        <button class="btn out sm" id="zin">Import zip</button><button class="btn out sm" id="zout">Export zip</button>
         <input type="file" id="uplf" multiple hidden><input type="file" id="zinf" accept=".zip,application/zip" hidden></div><div id="tree" class="tree"></div></aside>
       <section class="ide-main"><div class="ide-tabs" id="tabs"></div>
         <div class="ide-tools"><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
-          <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">ประวัติ</button><button id="save" aria-label="บันทึก">บันทึก</button></div>
+          <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">ประวัติ</button><button id="save" aria-label="บันทึก">Save</button></div>
         <div id="editor" class="ide-editor"></div>
         <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
         <div class="mkeys" id="mkeys">${[['Tab', '  '], ['{ }', '{}', 1], ['( )', '()', 1], ['[ ]', '[]', 1], ['=>', ' => '], [';', ';'], ['" "', '""', 1], ["' '", "''", 1], ['< >', '<>', 1], ['/', '/'], ['=', ' = ']].map(([l, v, o]) => `<button type="button" data-ins="${esc(v)}" data-off="${o || 0}">${esc(l)}</button>`).join('')}</div>
@@ -848,7 +848,7 @@ async function codeView(id) {
   $('#gfind').onclick = () => {
     document.querySelector('.gsearch')?.remove();
     const box = document.createElement('div'); box.className = 'diffbox gitbox gsearch';
-    box.innerHTML = `<div class="diff-h"><b>${ic('search', 'sm')} ค้นหาทั้งโปรเจกต์</b><span style="flex:1"></span><button class="btn out sm" data-x>ปิด</button></div>
+    box.innerHTML = `<div class="diff-h"><b>${ic('search', 'sm')} ค้นหาทั้งโปรเจกต์</b><span style="flex:1"></span><button class="btn out sm" data-x>Close</button></div>
       <div class="git-b"><input id="gf-i" placeholder="พิมพ์คำหรือชื่อฟังก์ชันที่ต้องการค้นหา..." autofocus><div id="gf-r" style="margin-top:10px"></div></div>`;
     $('.ide').append(box);
     const inp = box.querySelector('#gf-i'), res = box.querySelector('#gf-r');
@@ -899,7 +899,7 @@ async function codeView(id) {
       }
       if (b.dataset.revert != null) {
         const msg = IDE.msgs[+b.dataset.revert]; if (!msg?._prev?.length) return;
-        if (!await confirmSheet(`ย้อนกลับ ${msg._prev.length} ไฟล์ก่อน AI แก้ในรอบนี้?`, { title: 'ย้อนกลับการแก้ไข', ok: 'ย้อนกลับ' })) return;
+        if (!await confirmSheet(`ย้อนกลับ ${msg._prev.length} ไฟล์ก่อน AI แก้ในรอบนี้?`, { title: 'ย้อนกลับการแก้ไข', ok: 'Undo' })) return;
         const writes = [], dels = [];
         for (const p of msg._prev) { if (p.existed) writes.push({ path: p.path, content: p.prev }); else dels.push(p.path); }
         if (writes.length) await writeFiles(writes);

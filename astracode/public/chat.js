@@ -41,7 +41,7 @@ addEventListener('popstate', () => { if (pageName() === 'chat') chatView(qs().ge
 PAGES.chat = () => chatView(qs().get('id'));
 function notice(u) {
   if (u.pct4h >= 100 || u.pctWeek >= 100)
-    return `<div class="notice full">ลิมิตเต็ม · รีเซ็ต ${when(u.pct4h >= 100 ? u.reset4h : u.resetWeek)} <a class="btn blue sm" href="/plans">อัปเกรด</a></div>`;
+    return `<div class="notice full">ลิมิตเต็ม · รีเซ็ต ${when(u.pct4h >= 100 ? u.reset4h : u.resetWeek)} <a class="btn blue sm" href="/plans">Upgrade</a></div>`;
   const p = Math.max(u.pct4h, u.pctWeek);
   return p >= 80 ? `<div class="notice hi">ใช้ลิมิตไปแล้ว ${p}% · <a href="/plans">อัปเกรดเพื่อใช้ได้มากขึ้น</a></div>` : '';
 }
@@ -77,7 +77,7 @@ async function chatView(id) {
           <span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span>
           <span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan.name)}</small></span>
         </a>
-        <a class="btn-new-chat" href="/chat" data-chat="">${ic('plus', 'sm')} แชตใหม่</a>
+        <a class="btn-new-chat" href="/chat" data-chat="">${ic('plus', 'sm')} New chat</a>
       </div>
     </aside>
     <div class="main"><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
@@ -97,7 +97,7 @@ async function chatView(id) {
             <span id="flags"></span>
             <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div></div>
     <aside class="canvas" id="canvas" hidden>
-      <div class="cv-h"><b>Canvas</b><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">แสดงผล</button><button type="button" data-cv="code">โค้ด</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-cp">คัดลอก</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
+      <div class="cv-h"><b>Canvas</b><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">แสดงผล</button><button type="button" data-cv="code">โค้ด</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
       <div class="cv-b"><iframe id="cv-f" sandbox="allow-scripts allow-modals allow-forms allow-popups" title="Canvas Preview"></iframe><pre id="cv-c" hidden><code></code></pre></div>
     </aside></div>`;
   const side = $('#side');
@@ -126,7 +126,7 @@ async function chatView(id) {
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'web') toggleWeb(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#newf').onclick = async () => { const name = await promptSheet('ตั้งชื่อโฟลเดอร์ใหม่', '', { title: 'สร้างโฟลเดอร์', ok: 'สร้าง' }); if (name?.trim()) { await api('/folders', { method: 'POST', body: { name } }); Promise.all([loadSkills(), loadMcps()]).then(() => modelUI()); loadSide(); toast('สร้างโฟลเดอร์แล้ว', 'ok'); } };
+  $('#newf').onclick = async () => { const name = await promptSheet('ตั้งชื่อโฟลเดอร์ใหม่', '', { title: 'สร้างโฟลเดอร์', ok: 'Create' }); if (name?.trim()) { await api('/folders', { method: 'POST', body: { name } }); Promise.all([loadSkills(), loadMcps()]).then(() => modelUI()); loadSide(); toast('สร้างโฟลเดอร์แล้ว', 'ok'); } };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
   $('#search').oninput = () => {
@@ -267,7 +267,7 @@ function drawSide() {
           close();
           const r = await api(`/chats/${c.id}/share`, { method: 'POST' });
           const link = `${location.origin}/share?t=${r.share_token}`;
-          sheet('แชร์แชต', `<div class="sheet-form"><p class="sheet-msg">ใครที่มีลิงก์นี้สามารถอ่านแชตนี้ได้ (แก้ไขไม่ได้)</p><input readonly value="${esc(link)}" id="shl"><div class="sheet-acts"><button type="button" class="btn red" data-rev>ยกเลิกแชร์</button><button type="button" class="btn blue" data-cp>คัดลอกลิงก์</button></div></div>`, (d2, c2) => {
+          sheet('แชร์แชต', `<div class="sheet-form"><p class="sheet-msg">ใครที่มีลิงก์นี้สามารถอ่านแชตนี้ได้ (แก้ไขไม่ได้)</p><input readonly value="${esc(link)}" id="shl"><div class="sheet-acts"><button type="button" class="btn red" data-rev>Stop sharing</button><button type="button" class="btn blue" data-cp>Copy link</button></div></div>`, (d2, c2) => {
             d2.querySelector('[data-cp]').onclick = () => { navigator.clipboard?.writeText(link); c2(); toast('คัดลอกลิงก์แชร์แล้ว', 'ok'); };
             d2.querySelector('[data-rev]').onclick = async () => { await api(`/chats/${c.id}/share`, { method: 'DELETE' }); c2(); loadSide(); toast('ยกเลิกลิงก์แชร์แล้ว'); };
           });
@@ -281,11 +281,11 @@ function drawSide() {
             fd.querySelectorAll('[data-v]').forEach(x => x.onclick = async () => { fclose(); await api('/chats/' + c.id, { method: 'PUT', body: { folder_id: +x.dataset.v || null } }); loadSide(); toast('ย้ายแชตแล้ว', 'ok'); });
           });
         };
-        sd.querySelector('[data-v=del]').onclick = async () => { close(); if (!await confirmSheet(`ลบแชต "${c.title}" อย่างถาวร?`, { title: 'ลบแชต', ok: 'ลบ', danger: true })) return; await api('/chats/' + c.id, { method: 'DELETE' }); if (chat.id === c.id) openChat(null); else loadSide(); toast('ลบแชตแล้ว'); };
+        sd.querySelector('[data-v=del]').onclick = async () => { close(); if (!await confirmSheet(`ลบแชต "${c.title}" อย่างถาวร?`, { title: 'ลบแชต', ok: 'Delete', danger: true })) return; await api('/chats/' + c.id, { method: 'DELETE' }); if (chat.id === c.id) openChat(null); else loadSide(); toast('ลบแชตแล้ว'); };
       });
     }
     if (d.fren) { const f = chat.folders.find(x => x.id === +d.fren), name = await promptSheet('ชื่อโฟลเดอร์ใหม่', f.name, { title: 'เปลี่ยนชื่อโฟลเดอร์' }); if (name?.trim()) { await api('/folders/' + f.id, { method: 'PUT', body: { name } }); loadSide(); } }
-    if (d.fdel) { if (!await confirmSheet('ลบโฟลเดอร์นี้? แชตข้างในจะย้ายออกมา ไม่ถูกลบ', { title: 'ลบโฟลเดอร์', ok: 'ลบโฟลเดอร์', danger: true })) return; await api('/folders/' + d.fdel, { method: 'DELETE' }); loadSide(); }
+    if (d.fdel) { if (!await confirmSheet('ลบโฟลเดอร์นี้? แชตข้างในจะย้ายออกมา ไม่ถูกลบ', { title: 'ลบโฟลเดอร์', ok: 'Delete folder', danger: true })) return; await api('/folders/' + d.fdel, { method: 'DELETE' }); loadSide(); }
   };
 }
 // บล็อก ```remember ที่ AI เสนอให้จำ → แยกออกจากข้อความ แสดงเป็นปุ่มให้ผู้ใช้กดยืนยัน (ไม่บันทึกเอง)
@@ -298,7 +298,7 @@ function parseMem(content, streaming) {
   return { text: s.trim(), mem };
 }
 async function remember(m, btn) {
-  const text = await promptSheet('ให้ AI จำเรื่องนี้ไว้ในทุกแชต (แก้ได้)', m.content.replace(FILE_RE, '').trim().slice(0, 300), { title: 'บันทึกความจำ', ok: 'จำไว้' });
+  const text = await promptSheet('ให้ AI จำเรื่องนี้ไว้ในทุกแชต (แก้ได้)', m.content.replace(FILE_RE, '').trim().slice(0, 300), { title: 'บันทึกความจำ', ok: 'Remember' });
   if (!text?.trim()) return;
   try { await api('/memories', { method: 'POST', body: { text } }); btn.textContent = 'จำแล้ว ✓'; toast('บันทึกความจำแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); }
 }
@@ -321,7 +321,7 @@ function exportMenu() {
 async function genImage() {
   if (chat.busy) return;
   if (chat.compare) return showErr('ปิดโหมดเทียบก่อนสร้างรูป');
-  const t = $('#t'), prompt_ = t.value.trim() || await promptSheet('บรรยายรูปที่ต้องการสร้าง', '', { title: 'สร้างรูปด้วย AI', placeholder: 'เช่น แมวส้มใส่แว่นกันแดด สไตล์อนิเมะ', ok: 'สร้างรูป' });
+  const t = $('#t'), prompt_ = t.value.trim() || await promptSheet('บรรยายรูปที่ต้องการสร้าง', '', { title: 'สร้างรูปด้วย AI', placeholder: 'เช่น แมวส้มใส่แว่นกันแดด สไตล์อนิเมะ', ok: 'Generate image' });
   if (!prompt_?.trim()) return;
   t.value = ''; t.style.height = 'auto'; $('#e').textContent = '';
   chat.msgs.push({ role: 'user', content: '🎨 ' + prompt_ }); appendMsg(chat.msgs.at(-1));
@@ -390,14 +390,14 @@ function msgHTML(m, i, isNew) {
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
     return `<div class="msg user ${isNew ? 'new' : ''}"><div class="b">${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}${m.content.startsWith('🎨 ') ? ic('image') + ' ' : ''}${esc(m.content.replace(FILE_RE, '').replace(/^🎨 /, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${ic('filetext')}<span>${esc(f[1])}</span><small>${tok(f[2].length)}</small></span>`).join('')}</div>` : ''}</div>
-      ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts">${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} แก้ไข</button>` : ''}<button data-mem="${i}">จำไว้</button></div>` : ''}</div>`;
+      ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts">${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}">Remember</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
   const { text: t0, mem } = parseMem(m.content, m.streaming), { text, asks } = parseAsk(t0, m.streaming);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${thinkHTML(m)}${mcpH}<div class="b">${text ? md(text) : m.thinking || asks.length ? '' : DOTS}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
-    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">คัดลอก</button>${last && !chat.busy ? '<button data-regen>ตอบใหม่</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
+    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">Copy</button>${last && !chat.busy ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
 // token ที่ใช้ตอบ + ลิมิตที่ใช้ไป (เฉพาะข้อความที่เพิ่งตอบ)
 const tokHTML = m => m.tin || m.tout ? `<span class="tok" title="Input ${num(m.tin)} · Output ${num(m.tout)} token">↑${kTok(m.tin || 0)} ↓${kTok(m.tout || 0)}${m.pct != null ? ` · ลิมิต +${m.pct < 0.1 ? '<0.1' : m.pct.toFixed(1)}%` : ''}</span>` : '';
@@ -427,7 +427,7 @@ function showErr(msg, retry) {
   // retry: true = เดาให้ว่าควรทำอะไรต่อ (มีคำถามค้าง → ต่อคำตอบ, ไม่มี → ตอบใหม่) หรือส่งฟังก์ชันมาเอง
   const fn = typeof retry === 'function' ? retry
     : retry ? () => (chat.id && chat.msgs.at(-1)?.role === 'user' ? send({ resume: true }) : send({ regenerate: true })) : null;
-  $('#e').innerHTML = esc(msg) + (fn ? ' <button class="btn out sm" id="retry">ลองใหม่</button>' : '');
+  $('#e').innerHTML = esc(msg) + (fn ? ' <button class="btn out sm" id="retry">Try again</button>' : '');
   const b = $('#retry'); if (b) b.onclick = () => { $('#e').textContent = ''; fn(); };
 }
 function setBusy(b) { chat.busy = b; const g = $('#go'); g.innerHTML = ic(b ? 'stop' : 'up'); g.setAttribute('aria-label', b ? 'หยุด' : 'ส่ง'); g.classList.toggle('stop', b); }
@@ -483,7 +483,7 @@ async function editMsg(idx) {
   if (chat.busy) return;
   const m = chat.msgs[idx]; if (!m?.id) return;
   const raw = m.content.replace(FILE_RE, '').trim();
-  const next = await promptSheet('แก้ไขข้อความแล้วให้ AI ตอบใหม่จากจุดนี้', raw, { title: 'แก้ไขข้อความ', ok: 'ส่งใหม่' });
+  const next = await promptSheet('แก้ไขข้อความแล้วให้ AI ตอบใหม่จากจุดนี้', raw, { title: 'แก้ไขข้อความ', ok: 'Resend' });
   if (!next?.trim() || next.trim() === raw) return;
   chat.msgs = chat.msgs.slice(0, idx + 1);
   m.content = next.trim();

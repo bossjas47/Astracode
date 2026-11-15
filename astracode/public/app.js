@@ -98,7 +98,7 @@ function md(s) {
     const raw = nl >= 0 ? part.slice(nl + 1) : part;
     if (/^mermaid$/i.test(lang) && !file) return `<div class="mermaid-box"><div class="mermaid">${esc(raw.trim())}</div></div>`;
     const body = /^(json|csv|txt|text|md|markdown)$/i.test(lang) || file ? esc(raw) : hlCode(raw);
-    return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} แสดงผล</button>` : ''}<button class="cp-code">คัดลอก</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' ดาวน์โหลด' : ''}</button></div><pre><code>${body}</code></pre></div>`;
+    return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} แสดงผล</button>` : ''}<button class="cp-code">Copy</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' ดาวน์โหลด' : ''}</button></div><pre><code>${body}</code></pre></div>`;
   }).join('');
 }
 // แยกบล็อกคำถามของ AI ให้ใช้ร่วมกันทั้งหน้า Chat และหน้า Code
@@ -173,7 +173,7 @@ const navL = (h, t, i) => `<a class="l${curl().pathname === h ? ' on' : ''}" hre
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="เมนู" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a></div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="ปิดเมนู">${ic('x')}</button></div>
   ${me ? `${navL('/chat', 'แชต', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}${me.role === 'admin' ? navL('/admin', 'หลังบ้าน', 'dash') : ''}<span class="sp"></span>${navL('/account', 'บัญชี', 'user')}`
-       : `${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}<span class="sp"></span><a class="btn blue" href="/login">เริ่มใช้ฟรี</a>`}</div></nav>`;
+       : `${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}<span class="sp"></span><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
   const n = e.target.closest?.('.nav'); if (!n) return;
@@ -216,7 +216,7 @@ const faqHTML = () => FAQ.map(([q, a]) => `<details class="faq"><summary>${q}</s
 const installHTML = () => `<div class="grid">
   <div class="tile"><div style="font:600 19px var(--display)">iPhone / iPad</div><div class="muted">เปิดใน Safari → กดปุ่มแชร์ (สี่เหลี่ยมมีลูกศรขึ้น) → "เพิ่มไปยังหน้าจอโฮม"</div></div>
   <div class="tile"><div style="font:600 19px var(--display)">Android</div><div class="muted">เปิดใน Chrome → กด ⋮ มุมขวาบน → "ติดตั้งแอป" หรือ "เพิ่มลงในหน้าจอหลัก"</div>
-  ${installEvt ? '<button class="btn blue sm" id="install" style="margin-top:8px">ติดตั้งเลย</button>' : ''}</div></div>`;
+  ${installEvt ? '<button class="btn blue sm" id="install" style="margin-top:8px">Install now</button>' : ''}</div></div>`;
 function bindInstall() {
   const b = $('#install'); if (!b) return;
   b.onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; b.remove(); };
@@ -228,7 +228,7 @@ async function landing() {
   page(nav() + `<section class="hero"><div class="name">AstraCode</div>
     <h1>AI ทุกตัว<br>ในมือถือเครื่องเดียว</h1>
     <p>ChatGPT, Claude, Gemini, DeepSeek และ Kimi ในเว็บเดียว เปิดบนมือถือได้ทันที ไม่ต้องลงแอป</p>
-    <div class="row" style="justify-content:center">${me ? `<a class="btn blue" href="/chat">เข้าสู่แชต</a><a class="btn out" href="/account">บัญชีของฉัน</a>` : `<a class="btn blue" href="/login">เริ่มใช้ฟรี</a><a class="btn out" href="#plans">ดูแพลน</a>`}</div>
+    <div class="row" style="justify-content:center">${me ? `<a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>` : `<a class="btn blue" href="/login">Get started free</a><a class="btn out" href="#plans">View plans</a>`}</div>
     <div class="showcase" aria-hidden="true">
       <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="ring" style="--p:24"></i>24%</span></div>
       <div class="sc-chat">
@@ -300,7 +300,7 @@ function auth() {
   };
   forms.mfa = forms.code;
   const title = { login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ลืมรหัสผ่าน', verify: 'ยืนยันอีเมล', code: 'ยืนยันตัวตน 2 ขั้น', mfa: 'ยืนยันตัวตน 2 ขั้น' };
-  const btn = { login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ส่งลิงก์', verify: 'ยืนยันแล้ว เข้าสู่ระบบ', code: 'ยืนยัน', mfa: 'ยืนยัน' };
+  const btn = { login: 'Log in', register: 'Sign up', forgot: 'Send link', verify: 'Verified, log in', code: 'Confirm', mfa: 'Confirm' };
   const done = async () => { localStorage.removeItem('ref'); await loadMe(); go(q.get('next') || '/chat'); };
   const send = async (action, code) => {
     const r = await api('/auth', { method: 'POST', body: { ...cred, action, ref, code } }).catch(x => { if (x.data?.need2fa) return { need2fa: true }; throw x; });
@@ -311,12 +311,12 @@ function auth() {
   const draw = () => {
     const tabs = mode === 'login' || mode === 'register';
     page(nav() + `<div class="auth wrap"><h1>${title[mode]}</h1>
-      ${tabs ? `<div class="tabs"><button class="${mode === 'login' ? 'on' : ''}" data-m="login">เข้าสู่ระบบ</button><button class="${mode === 'register' ? 'on' : ''}" data-m="register">สมัคร</button></div>` : ''}
-      <form class="card" id="f">${tabs && (site.google || site.line) ? `<div class="social">${site.google ? `<a class="btn out" href="/api/oauth/google${ref ? '?ref=' + encodeURIComponent(ref) : ''}">ดำเนินการต่อด้วย Google</a>` : ''}
-        ${site.line ? `<a class="btn out line" href="/api/oauth/line${ref ? '?ref=' + encodeURIComponent(ref) : ''}">ดำเนินการต่อด้วย LINE</a>` : ''}<div class="or"><span>หรือ</span></div></div>` : ''}
+      ${tabs ? `<div class="tabs"><button class="${mode === 'login' ? 'on' : ''}" data-m="login">Log in</button><button class="${mode === 'register' ? 'on' : ''}" data-m="register">Sign up</button></div>` : ''}
+      <form class="card" id="f">${tabs && (site.google || site.line) ? `<div class="social">${site.google ? `<a class="btn out" href="/api/oauth/google${ref ? '?ref=' + encodeURIComponent(ref) : ''}">Continue with Google</a>` : ''}
+        ${site.line ? `<a class="btn out line" href="/api/oauth/line${ref ? '?ref=' + encodeURIComponent(ref) : ''}">Continue with LINE</a>` : ''}<div class="or"><span>หรือ</span></div></div>` : ''}
       ${forms[mode]()}
       <div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${btn[mode]}</button>
-      ${mode === 'verify' ? '<div class="row" style="justify-content:center;margin-top:12px"><button type="button" class="btn out sm" id="resend">ส่งลิงก์อีกครั้ง</button><a href="#" data-m="login">ใช้อีเมลอื่น</a></div>' : ''}
+      ${mode === 'verify' ? '<div class="row" style="justify-content:center;margin-top:12px"><button type="button" class="btn out sm" id="resend">Resend link</button><a href="#" data-m="login">ใช้อีเมลอื่น</a></div>' : ''}
       ${mode === 'login' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="forgot">ลืมรหัสผ่าน?</a></p>' : ''}
       ${!tabs && mode !== 'verify' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="login">กลับไปเข้าสู่ระบบ</a></p>' : ''}
       <p class="muted" style="text-align:center;margin:12px 0 0">การ${mode === 'register' ? 'สมัคร' : 'ใช้งาน'}ถือว่ายอมรับ<a href="/terms">เงื่อนไขและนโยบายความเป็นส่วนตัว</a></p></form></div>`);
@@ -407,7 +407,7 @@ const PAY_STATUS = { pending: '<span class="warn">รออนุมัติ</s
 async function plansPage() {
   const plans = await api('/plans');
   const hasYear = plans.some(p => p.price_year > 0);
-  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans)}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">สมัครเพื่อเริ่มใช้</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>${footer()}</div>`); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
+  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans)}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>${footer()}</div>`); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
   const pays = await api('/pay');
   let sel = null, period = 'month', coupon = null, tab = qs().get('topup') ? 'topup' : 'plan';
   const priceOf = p => period === 'year' && p.price_year ? p.price_year : p.price;
@@ -426,8 +426,8 @@ async function plansPage() {
           <div class="price" style="margin:8px 0">${coupon?.discount ? `<s class="muted" style="font-size:20px">${fmtPlanPrice(priceOf(p))}</s> ` : ''}${fmtPlanPrice(total)}${getCur() === 'USD' && total > 0 ? `<div class="muted" style="font-size:13px;margin-top:4px">ยอดโอน PromptPay: ฿${baht(total)}</div>` : ''}</div>
           <form id="cf" class="row" style="max-width:400px;margin:0 auto;flex-wrap:nowrap"><input name="code" placeholder="โค้ดคูปอง" value="${esc(coupon?.code || '')}" autocapitalize="characters"><button class="btn out sm">ใช้</button></form>
           <div class="err" id="ce"></div>
-          ${me.balance >= total && total > 0 ? `<button class="btn blue" id="wpay" style="margin:12px 0">จ่ายด้วย Wallet (฿${baht(me.balance)})</button><p class="muted">หรือโอนผ่าน PromptPay</p>` : ''}
-          ${total > 0 ? qr(total) + slipForm('ส่งสลิป') : '<button class="btn blue" id="free" style="margin-top:12px">เปิดใช้แพลนฟรีด้วยคูปอง</button>'}</div>`
+          ${me.balance >= total && total > 0 ? `<button class="btn blue" id="wpay" style="margin:12px 0">Pay with Wallet (฿${baht(me.balance)})</button><p class="muted">หรือโอนผ่าน PromptPay</p>` : ''}
+          ${total > 0 ? qr(total) + slipForm('ส่งสลิป') : '<button class="btn blue" id="free" style="margin-top:12px">Activate free plan with coupon</button>'}</div>`
         : '<p class="muted" style="text-align:center">แตะแพลนเพื่อชำระเงิน</p>'}
         <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>`
       : `<div class="card pay" style="text-align:center;max-width:520px;margin:0 auto"><p class="muted">เงินใน Wallet ใช้กับ API สำหรับนักพัฒนา ใช้ต่อเมื่อลิมิตแพลนเต็ม (เปิดได้ในหน้าบัญชี) และจ่ายค่าแพลน</p>
@@ -452,7 +452,7 @@ async function plansPage() {
       catch (x) { errBox.textContent = x.message; btn.disabled = false; }
     };
     const planFd = () => { const fd = new FormData(); fd.append('plan_id', sel); fd.append('period', period); if (coupon) fd.append('coupon', coupon.code); return fd; };
-    $('#wpay')?.addEventListener('click', async e => { if (!await confirmSheet(`ตัดเงิน ฿${baht(total)} จาก Wallet เพื่อเปิดแพลนนี้?`, { title: 'ยืนยันการชำระเงิน', ok: 'จ่ายเลย' })) return; const fd = planFd(); fd.append('wallet', '1'); submit(fd, e.target, $('#ce')); });
+    $('#wpay')?.addEventListener('click', async e => { if (!await confirmSheet(`ตัดเงิน ฿${baht(total)} จาก Wallet เพื่อเปิดแพลนนี้?`, { title: 'ยืนยันการชำระเงิน', ok: 'Pay now' })) return; const fd = planFd(); fd.append('wallet', '1'); submit(fd, e.target, $('#ce')); });
     $('#free')?.addEventListener('click', e => submit(planFd(), e.target, $('#ce')));
     const amt = $('#amt');
     if (amt) {
@@ -498,7 +498,7 @@ function terms() {
 }
 const footer = () => `<footer class="foot"><div><b>AstraCode</b><span class="muted">AI ทุกตัวในมือถือเครื่องเดียว</span></div>
   <div><a href="/pricing">ราคาต่อ token</a><a href="/developers">API สำหรับนักพัฒนา</a><a href="/blog">บล็อก</a></div>
-  <div><a href="/status">สถานะระบบ</a><a href="/support">ติดต่อเรา</a><a href="/terms">เงื่อนไขและความเป็นส่วนตัว</a></div>
+  <div><a href="/status">สถานะระบบ</a><a href="/support">Contact us</a><a href="/terms">เงื่อนไขและความเป็นส่วนตัว</a></div>
   <p class="muted">© ${new Date().getFullYear()} AstraCode</p></footer>`;
 
 
@@ -619,7 +619,7 @@ function toast(msg, kind = '') {
   const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = msg;
   document.body.append(t); setTimeout(() => t.remove(), 2800);
 }
-function confirmSheet(msg, { title = 'ยืนยัน', ok = 'ตกลง', cancel = 'ยกเลิก', danger = false } = {}) {
+function confirmSheet(msg, { title = 'ยืนยัน', ok = 'OK', cancel = 'Cancel', danger = false } = {}) {
   return new Promise(res => {
     let done = false;
     sheet(title, `<div class="sheet-form"><p class="sheet-msg">${esc(msg)}</p><div class="sheet-acts"><button type="button" class="btn out" data-c>${esc(cancel)}</button><button type="button" class="btn ${danger ? 'red' : 'blue'}" data-ok>${esc(ok)}</button></div></div>`, (d, close) => {
@@ -631,7 +631,7 @@ function confirmSheet(msg, { title = 'ยืนยัน', ok = 'ตกลง', 
     });
   });
 }
-function promptSheet(msg, def = '', { title = 'กรอกข้อมูล', placeholder = '', ok = 'บันทึก', cancel = 'ยกเลิก', type = 'text' } = {}) {
+function promptSheet(msg, def = '', { title = 'กรอกข้อมูล', placeholder = '', ok = 'Save', cancel = 'Cancel', type = 'text' } = {}) {
   return new Promise(res => {
     let done = false;
     sheet(title, `<form class="sheet-form"><p class="sheet-msg">${esc(msg)}</p><input name="val" type="${esc(type)}" value="${esc(def)}" placeholder="${esc(placeholder)}" required><div class="sheet-acts"><button type="button" class="btn out" data-c>${esc(cancel)}</button><button class="btn blue">${esc(ok)}</button></div></form>`, (d, close) => {
@@ -693,7 +693,7 @@ function promptLibSheet(onPick) {
   const draw = () => {
     const mine = load();
     sheet('คลัง Prompt', `<div class="sheet-form">
-      <form id="plf" class="row" style="flex-wrap:nowrap"><input name="t" placeholder="ชื่อ Prompt" style="max-width:130px" required><input name="b" placeholder="ข้อความคำสั่ง..." required><button class="btn blue sm">เพิ่ม</button></form>
+      <form id="plf" class="row" style="flex-wrap:nowrap"><input name="t" placeholder="ชื่อ Prompt" style="max-width:130px" required><input name="b" placeholder="ข้อความคำสั่ง..." required><button class="btn blue sm">Add</button></form>
       ${mine.length ? `<div class="muted" style="font-size:12px">Prompt ของฉัน</div>` + mine.map((p, i) => `<div class="mem"><button type="button" class="linkb" style="flex:1;text-align:left;color:var(--porcelain)" data-use="m:${i}"><b>${esc(p[0])}</b></button><button type="button" data-delp="${i}" aria-label="ลบ">${ic('x')}</button></div>`).join('') : ''}
       <div class="muted" style="font-size:12px">แนะนำ</div>
       ${BUILTIN_PROMPTS.map((p, i) => optHTML('b:' + i, ic('book') + esc(p[0]), esc(p[1].slice(0, 60)) + '...')).join('')}
@@ -727,16 +727,16 @@ async function skillsSheet(selectedIds, onChange) {
   const draw = async (force) => {
     const list = await loadSkills(force);
     sheet('Skills (เลือกได้สูงสุด 3)', `<div class="sheet-form">
-      <details class="ed" style="background:var(--obsidian);border:1px solid var(--hair);border-radius:16px"><summary style="padding:12px 14px"><b>+ สร้าง Skill ใหม่</b></summary>
+      <details class="ed" style="background:var(--obsidian);border:1px solid var(--hair);border-radius:16px"><summary style="padding:12px 14px"><b>+ New Skill</b></summary>
         <form id="skf" class="sheet-form" style="padding:0 14px 14px">
           <input name="name" placeholder="ชื่อ Skill (เช่น nextjs-expert)" maxlength="60" required>
           <input name="description" placeholder="คำอธิบายสั้นๆ" maxlength="200">
           <textarea name="content" rows="4" maxlength="6000" placeholder="คำสั่งหรือกติกาให้ AI ทำตามเมื่อเปิด Skill นี้..." required></textarea>
-          <button class="btn blue sm">บันทึก Skill</button>
+          <button class="btn blue sm">Save Skill</button>
         </form>
       </details>
       ${list.map(s => `<div class="opt ${sel.has(s.id) ? 'on' : ''}" data-sk="${s.id}" style="cursor:pointer">
-        <span class="opt-t">${ic('sparkles', 'sm')} ${esc(s.name)} ${s.user_id === 0 ? '<small class="pill" style="margin-left:6px">ระบบ</small>' : `<button type="button" class="linkb" data-delsk="${s.id}" style="margin-left:8px;color:var(--red);font-size:12px">ลบ</button>`}</span>
+        <span class="opt-t">${ic('sparkles', 'sm')} ${esc(s.name)} ${s.user_id === 0 ? '<small class="pill" style="margin-left:6px">ระบบ</small>' : `<button type="button" class="linkb" data-delsk="${s.id}" style="margin-left:8px;color:var(--red);font-size:12px">Delete</button>`}</span>
         <span class="opt-d">${esc(s.description || s.content.slice(0, 80))}</span>
         <i>${sel.has(s.id) ? ic('check') : ''}</i>
       </div>`).join('') || '<p class="muted">ยังไม่มี Skill</p>'}
@@ -782,11 +782,11 @@ async function mcpSheet(selectedIds, onChange) {
           <input name="name" placeholder="ชื่อ (เช่น GitHub, Notion)" maxlength="60" required>
           <input name="url" type="url" placeholder="https://api.githubcopilot.com/mcp/" required>
           <input name="token" type="password" placeholder="Bearer Token / PAT (ถ้ามี)" autocomplete="off">
-          <button class="btn blue sm" id="mcb">เชื่อมต่อ &amp; ดึง Tools</button>
+          <button class="btn blue sm" id="mcb">Connect &amp; fetch tools</button>
         </form>
       </details>
       ${list.map(s => `<div class="opt ${sel.has(s.id) ? 'on' : ''}" data-mc="${s.id}" style="cursor:pointer">
-        <span class="opt-t">${ic('server', 'sm')} ${esc(s.name)} <small class="pill" style="margin-left:6px">${s.tools.length} tools</small>${s.user_id === 0 ? '<small class="pill" style="margin-left:4px">ระบบ</small>' : `<button type="button" class="linkb" data-syncmc="${s.id}" style="margin-left:8px;font-size:12px">ซิงค์</button><button type="button" class="linkb" data-delmc="${s.id}" style="margin-left:8px;color:var(--red);font-size:12px">ลบ</button>`}</span>
+        <span class="opt-t">${ic('server', 'sm')} ${esc(s.name)} <small class="pill" style="margin-left:6px">${s.tools.length} tools</small>${s.user_id === 0 ? '<small class="pill" style="margin-left:4px">ระบบ</small>' : `<button type="button" class="linkb" data-syncmc="${s.id}" style="margin-left:8px;font-size:12px">Sync</button><button type="button" class="linkb" data-delmc="${s.id}" style="margin-left:8px;color:var(--red);font-size:12px">Delete</button>`}</span>
         <span class="opt-d">${esc(s.url)}${s.tools.length ? ' · ' + esc(s.tools.slice(0, 4).join(', ')) + (s.tools.length > 4 ? '…' : '') : ''}</span>
         <i>${sel.has(s.id) ? ic('check') : ''}</i>
       </div>`).join('') || '<p class="muted">ยังไม่ได้เชื่อมต่อ MCP Server</p>'}
@@ -797,12 +797,12 @@ async function mcpSheet(selectedIds, onChange) {
           const created = await api('/mcp', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
           if (sel.size < 3) sel.add(created.id);
           onChange([...sel]); toast(`เชื่อมต่อแล้ว (${created.tools.length} tools)`, 'ok'); draw(true);
-        } catch (x) { toast(x.message, 'bad'); btn.disabled = false; btn.textContent = 'เชื่อมต่อ & ดึง Tools'; }
+        } catch (x) { toast(x.message, 'bad'); btn.disabled = false; btn.textContent = 'Connect & fetch tools'; }
       };
       d.querySelectorAll('[data-syncmc]').forEach(b => b.onclick = async e => {
         e.stopPropagation(); b.textContent = '...';
         try { const r = await api(`/mcp/${b.dataset.syncmc}/sync`, { method: 'POST' }); toast(`อัปเดตแล้ว (${r.tools.length} tools)`, 'ok'); draw(true); }
-        catch (x) { toast(x.message, 'bad'); b.textContent = 'ซิงค์'; }
+        catch (x) { toast(x.message, 'bad'); b.textContent = 'Sync'; }
       });
       d.querySelectorAll('[data-delmc]').forEach(b => b.onclick = async e => {
         e.stopPropagation();
@@ -828,11 +828,11 @@ function limitSheet() {
     ${list.map(x => `<button class="btn blue rst-b" data-k="${esc(x.k)}"><span>รีเซ็ต: ${esc(x.label)}${x.exp ? `<small class="rst-e">หมดอายุ ${when(x.exp)}</small>` : ''}</span><span class="pill">เหลือ ${x.n}</span></button>`).join('')}<div class="err" id="rse"></div></div>` : '';
   sheet('ลิมิตการใช้งาน', `<p class="muted" style="margin:0 0 12px">แพลน ${esc(me.plan.name)}</p><div class="meters big">${meters(u)}</div>
     <p class="muted" style="font-size:13px">${u.use4h === false ? '' : `ลิมิต 4 ชม. รีเซ็ต ${u.reset4h ? when(u.reset4h) : 'เมื่อเริ่มใช้'} · `}ลิมิตสัปดาห์รีเซ็ต ${when(u.resetWeek)}</p>${reset}
-    <div id="rsh"></div><a class="btn ${list.length ? 'out' : 'blue'}" href="/plans" style="width:100%;margin-top:10px">อัปเกรดแพลน</a>`, (d, close) => {
+    <div id="rsh"></div><a class="btn ${list.length ? 'out' : 'blue'}" href="/plans" style="width:100%;margin-top:10px">Upgrade plan</a>`, (d, close) => {
       api('/limits/history').then(h => { if (h.length) d.querySelector('#rsh').innerHTML = `<details class="rst-h2"><summary>ประวัติรีเซ็ตลิมิต</summary>${h.map(r => `<div class="rst-row"><span>${r.kind === 'grant' ? 'ได้รับสิทธิ์ ' + esc(r.scope || '') + ' ×' + (r.n || 1) : r.kind === 'use' ? 'ใช้สิทธิ์ ' + esc(r.scope || '') : 'แอดมินรีเซ็ตให้'}</span><small>${when(r.created_at)}</small></div>`).join('')}</details>`; }).catch(() => {});
       d.querySelectorAll('.rst-b').forEach(btn => btn.onclick = async () => {
         const x = list.find(y => y.k === btn.dataset.k);
-        if (!await confirmSheet(`รีเซ็ตลิมิต: ${x.label}? จะใช้ 1 สิทธิ์`, { title: 'รีเซ็ตลิมิต', ok: 'รีเซ็ต' })) return;
+        if (!await confirmSheet(`รีเซ็ตลิมิต: ${x.label}? จะใช้ 1 สิทธิ์`, { title: 'รีเซ็ตลิมิต', ok: 'Reset' })) return;
         try {
           const r = await api('/limits/reset', { method: 'POST', body: { k: x.k } });
           me.reset_list = r.credits; me.reset_credits = r.left; me.usage = r.usage; const lim = $('#lim') || $('#clim'); if (lim) lim.innerHTML = limHTML(r.usage);
@@ -861,13 +861,13 @@ const PAGES = {
     const tok = qs().get('t');
     if (!tok) return go('/');
     const d = await api('/share/' + encodeURIComponent(tok));
-    document.title = d.title + ' · AstraCode';
+    document.title = d.title + ' · ASTRACODE';
     page(nav() + `<div class="wrap" style="max-width:780px;padding-bottom:64px">
       <section class="hero" style="padding:40px 0 20px"><div class="name">AstraCode</div><h1>${esc(d.title)}</h1><p>${when(d.created_at)} · แชตที่แชร์</p></section>
       <div class="msgs" style="padding:0">${d.messages.map(m => m.role === 'user'
         ? `<div class="msg user"><div class="b">${esc(m.content.replace(FILE_RE, (_, n) => `[ไฟล์: ${n}]`).trim())}</div></div>`
         : `<div class="msg ai"><div class="b">${md(m.content)}</div>${m.model ? `<div class="acts"><span class="muted">${esc(m.model)}</span></div>` : ''}</div>`).join('')}</div>
-      <div style="text-align:center;margin-top:32px"><a class="btn blue" href="${me ? '/chat' : '/login'}">${me ? 'เปิด AstraCode Chat' : 'ลองใช้ AstraCode ฟรี'}</a></div>
+      <div style="text-align:center;margin-top:32px"><a class="btn blue" href="${me ? '/chat' : '/login'}">${me ? 'Open AstraCode Chat' : 'Try AstraCode free'}</a></div>
       ${footer()}</div>`);
     app.querySelectorAll('.cp-code').forEach(b => b.onclick = () => copy(b.closest('.code').querySelector('code').textContent, b)); renderRich();
   },
@@ -884,7 +884,7 @@ function banner() { // ประกาศจากแอดมิน: ปิด�
 function showPreview(code) {
   const html = /^\s*<svg/i.test(code) ? `<!doctype html><body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#fff">${code}</body>` : code;
   const d = document.createElement('div'); d.className = 'modal';
-  d.innerHTML = `<div class="modal-b"><div class="modal-h"><b>แสดงผล</b><span class="sp"></span><button class="btn out sm" data-x>ปิด</button></div><iframe sandbox="allow-scripts allow-modals allow-forms allow-popups" title="แสดงผล"></iframe></div>`;
+  d.innerHTML = `<div class="modal-b"><div class="modal-h"><b>แสดงผล</b><span class="sp"></span><button class="btn out sm" data-x>Close</button></div><iframe sandbox="allow-scripts allow-modals allow-forms allow-popups" title="แสดงผล"></iframe></div>`;
   const f = d.querySelector('iframe'), close = () => { d.remove(); removeEventListener('message', onMsg); };
   const onMsg = e => { if (e.source === f.contentWindow && e.data?.ready) f.contentWindow.postMessage({ html }, '*'); };
   if (window.DEMO) f.srcdoc = html; else { addEventListener('message', onMsg); f.src = '/preview.html'; }

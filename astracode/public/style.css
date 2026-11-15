@@ -949,3 +949,5 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .pc-v .oc .ok { color: var(--green); } .pc-v .oc .bad { color: var(--red); }
 /* seg buttons sitting side by side (pricing hero): the currency one had a 16px bottom margin and floated higher */
 .hero .row { align-items: center; row-gap: 10px; } .hero .row > .seg { margin-bottom: 0; }
+/* ชื่อแบรนด์ ASTRACODE ตัวพิมพ์ใหญ่ทุกหน้า */
+.logo, .hero .name, .foot b { text-transform: uppercase; }
