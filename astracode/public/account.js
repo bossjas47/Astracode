@@ -86,6 +86,7 @@ PAGES.account = async function account() {
 
     <div class="card acc-c" id="sec-security">${h3('ความปลอดภัย')}
       <div class="row"><button class="btn out sm" id="pw">Email password reset link</button><span id="pe"></span></div>
+      <div style="margin-top:20px"><div style="font-weight:600;margin-bottom:6px">อุปกรณ์ที่ล็อกอินอยู่</div><div id="devs" class="muted">กำลังโหลด...</div></div>
       <div id="tfa" style="margin-top:20px"></div>
       ${me.line ? '<p class="muted" style="margin:16px 0 0">เชื่อม LINE แล้ว</p>' : ''}</div>
 
@@ -114,6 +115,13 @@ PAGES.account = async function account() {
     try { await api('/auth', { method: 'POST', body: { action: 'forgot', email: me.email } }); $('#pe').innerHTML = '<span class="ok">ส่งแล้ว ดูในอีเมล</span>'; }
     catch (x) { $('#pe').innerHTML = `<span class="bad">${esc(x.message)}</span>`; e.target.disabled = false; }
   };
+  const loadDevs = async () => {
+    const list = await api('/sessions').catch(() => []), el = $('#devs'); if (!el) return;
+    el.innerHTML = list.map(x => `<div class="mem"><span>${esc((x.ua || 'อุปกรณ์ไม่ทราบชนิด').replace(/\(.*?\)/g, '').slice(0, 70))} <small class="muted">${esc(x.ip)} · ${x.created_at ? when(x.created_at) : ''}${x.current ? ' · เครื่องนี้' : ''}</small></span>${x.current ? '' : `<button data-dev="${x.id}" aria-label="ออกจากระบบเครื่องนี้">${ic('x')}</button>`}</div>`).join('') + (list.length > 1 ? '<button class="btn out sm" id="devall" style="margin-top:8px">Log out other devices</button>' : '');
+    el.querySelectorAll('[data-dev]').forEach(b => b.onclick = async () => { await api('/sessions/' + b.dataset.dev, { method: 'DELETE' }); loadDevs(); });
+    $('#devall')?.addEventListener('click', async () => { if (await confirmSheet('ออกจากระบบทุกเครื่องยกเว้นเครื่องนี้?', { title: 'ออกจากระบบเครื่องอื่น', ok: 'Log out' })) { await api('/sessions', { method: 'DELETE' }); loadDevs(); } });
+  };
+  loadDevs();
   $('#del').onclick = async () => {
     const v = await promptSheet(`แชต โปรเจกต์ ความจำ และ API key จะหายทั้งหมด และเงินใน Wallet จะใช้ไม่ได้อีก\n\nพิมพ์อีเมล ${me.email} เพื่อยืนยัน`, '', { title: 'ลบบัญชีถาวร', placeholder: me.email, ok: 'Delete account forever' });
     if (!v) return;

@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,
-  expires INTEGER NOT NULL
+  expires INTEGER NOT NULL,
+  created_at INTEGER, ua TEXT, ip TEXT      -- อุปกรณ์ที่ล็อกอิน (ip เป็นแบบหยาบ)
 );
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS models (
   promo_pct REAL, promo_start INTEGER, promo_end INTEGER, -- โปรลดราคา % ช่วงเวลา (unix ms)
   cap_pct INTEGER NOT NULL DEFAULT 0,       -- เพดานโมเดลนี้เป็น % ของงบสัปดาห์ (0 = ไม่จำกัด) เช่น Opus 50
   use_mult REAL, promo_mult REAL,           -- ตัวคูณหน่วยลิมิต (ว่าง = 1) / ช่วงโปร
+  first_token_s REAL, idle_s REAL,          -- นาฬิกาเฝ้าโมเดล: รอข้อความแรก / เงียบกลางทาง (วินาที ว่าง = ค่าเริ่มต้น 90/60)
   code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
   effort TEXT NOT NULL DEFAULT 'none',      -- none | openai | anthropic | deepseek | kimi
   effort_levels TEXT,                       -- คั่นด้วย , เช่น none,low,medium,high,max (ว่าง = ค่าเริ่มต้นค่าย)
@@ -253,3 +255,6 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mcp_user ON mcp_servers(user_id, id);
+
+CREATE TABLE IF NOT EXISTS feedback (message_id INTEGER NOT NULL, user_id INTEGER NOT NULL, model_id INTEGER, vote INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (message_id, user_id));
+CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, user_id INTEGER, model_id INTEGER, reason TEXT, snippet TEXT, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL);

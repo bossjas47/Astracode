@@ -1096,3 +1096,6 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .waitx { position: relative; }
 .waitslow { display: block; margin-top: 4px; font-size: 12px; color: var(--slate); opacity: 0; animation: waitslow .5s ease 25s forwards; white-space: normal; max-width: 280px; }
 @keyframes waitslow { to { opacity: 1; } }
+.acts button[data-vote].on { color: var(--porcelain); background: rgba(255, 255, 255, .14); border-radius: 9999px; }
+.rep { padding: 12px 0; border-top: 1px solid var(--hair); display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.rep.done { opacity: .55; }

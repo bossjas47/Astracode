@@ -73,15 +73,24 @@ async function getUser(req, env) {
   if (u) u.sid = await sha(sid);
   return u;
 }
-async function sessionCookie(env, uid) {
-  const t = rand(32), exp = Date.now() + 30 * DAY; // เก็บแค่ hash ของ token ถ้า DB รั่วก็เอาไปล็อกอินไม่ได้
+// IP ที่เก็บเป็นแบบหยาบ (IPv4 ตัดท้าย 2 ชุด · IPv6 เหลือ 3 ชุดแรก) เพื่อให้ผู้ใช้เห็นว่าเข้าจากที่ไหน โดยไม่เก็บ IP เต็ม
+const coarseIp = a => !a || a === 'local' ? '' : a.includes(':') ? a.split(':').slice(0, 3).join(':') + '::' : a.split('.').slice(0, 2).join('.') + '.x.x';
+async function sessionCookie(env, uid, req) {
+  await ensureCols(env);
+  const t = rand(32), now = Date.now(), exp = now + 30 * DAY, ua = String(req?.headers.get('user-agent') || '').slice(0, 160), ipc = req ? coarseIp(ip(req, env)) : '';
+  const known = req && (await env.DB.prepare('SELECT COUNT(*) n, SUM(ua=?) same FROM sessions WHERE user_id=? AND expires>?').bind(ua, uid, now).first());
+  // เก็บแค่ hash ของ token ถ้า DB รั่วก็เอาไปล็อกอินไม่ได้
   await env.DB.batch([
-    env.DB.prepare('INSERT INTO sessions VALUES (?,?,?)').bind(await sha(t), uid, exp),
-    env.DB.prepare('DELETE FROM sessions WHERE expires<?').bind(Date.now()),
+    env.DB.prepare('INSERT INTO sessions (token,user_id,expires,created_at,ua,ip) VALUES (?,?,?,?,?,?)').bind(await sha(t), uid, exp, now, ua, ipc),
+    env.DB.prepare('DELETE FROM sessions WHERE expires<?').bind(now),
   ]);
+  if (known?.n > 0 && !known.same) { // มีอุปกรณ์อื่นล็อกอินอยู่ แต่เครื่องนี้ไม่เคยเห็น → อีเมลแจ้งเจ้าของบัญชี
+    const u = await env.DB.prepare('SELECT email FROM users WHERE id=?').bind(uid).first();
+    if (u) await mail(env, u.email, 'AstraCode: มีการเข้าสู่ระบบจากอุปกรณ์ใหม่', mailBox('เข้าสู่ระบบจากอุปกรณ์ใหม่', `${esc(ua || 'อุปกรณ์ไม่ทราบชนิด')}${ipc ? ' · ' + esc(ipc) : ''} เวลา ${new Date(now + BKK).toISOString().replace('T', ' ').slice(0, 16)} ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านและกด "ออกจากระบบทุกเครื่อง" ที่หน้าบัญชี`)).catch(() => {});
+  }
   return `sid=${t}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 86400}`;
 }
-const startSession = async (env, uid) => json({ ok: true }, 200, { 'set-cookie': await sessionCookie(env, uid) });
+const startSession = async (env, uid, req) => json({ ok: true }, 200, { 'set-cookie': await sessionCookie(env, uid, req) });
 
 // ---------- Firebase Auth ผ่าน REST จากฝั่ง Worker: เบราว์เซอร์ไม่ต้องคุยกับ Google เอง (กันเน็ต/CSP/adblock บล็อก) ----------
 const b64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
@@ -98,8 +107,18 @@ async function fbApi(req, env, op, body) {
   if (!FB_MSG[k]) await event(env, 'error', null, 'firebase ' + op + ': ' + code);
   throw Object.assign(new Error(FB_MSG[k] || 'ระบบล็อกอินขัดข้อง: ' + code), { known: !!FB_MSG[k] });
 }
+// Cloudflare Turnstile กันบอทสมัคร/ล็อกอิน: ทำงานเมื่อตั้ง Secret TURNSTILE_SECRET และตั้ง turnstile_site (site key) ในหลังบ้าน · ไม่ตั้ง = ปิด
+async function turnstileOk(req, env, token) {
+  if (!env.TURNSTILE_SECRET) return true;
+  if (!token) return false;
+  try {
+    const r = await fetch(env.TURNSTILE_URL || 'https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: String(token).slice(0, 2100), remoteip: ip(req, env) }) });
+    return !!(await r.json()).success;
+  } catch { return false; }
+}
 async function emailAuth(req, env) {
   const b = await req.json(), a = b.action, email = String(b.email || '').trim().toLowerCase(), pw = String(b.password || '');
+  if (['login', 'register', 'forgot'].includes(a) && !await turnstileOk(req, env, b.cf)) return err('ยืนยันว่าไม่ใช่บอทไม่สำเร็จ รีเฟรชหน้าแล้วลองใหม่', 400);
   if (await limited(env, 'fb:' + ip(req, env), 30, 900e3)) return err('ลองหลายครั้งเกินไป รอ 15 นาที', 429);
   try {
     if (a === 'forgot') { await fbApi(req, env, 'sendOobCode', { requestType: 'PASSWORD_RESET', email }).catch(x => { if (!x.known) throw x; }); return json({ ok: true }); } // ไม่บอกว่ามีอีเมลนี้ไหม
@@ -133,7 +152,7 @@ async function fbSession(req, env, c, b) { // c มาจาก token ที่�
     if (await limited(env, 'mfa:' + u.id, 10, 900e3)) return err('ลองผิดหลายครั้ง รอ 15 นาที', 429);
     if (!await totpOk(env, u, b.code)) return err('รหัส 2FA ไม่ถูกต้อง', 401);
   }
-  return await startSession(env, u.id);
+  return await startSession(env, u.id, req);
 }
 
 // ---------- plan + limits ----------
@@ -184,7 +203,7 @@ const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4h: null
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 let colsDone;
 const ensureCols = env => colsDone ||= (async () => {
-  for (const q of ['ALTER TABLE plans ADD COLUMN use_4h INTEGER', 'ALTER TABLE models ADD COLUMN use_mult REAL', 'ALTER TABLE models ADD COLUMN promo_mult REAL', 'ALTER TABLE team_members ADD COLUMN cap_pct REAL'])
+  for (const q of ['ALTER TABLE plans ADD COLUMN use_4h INTEGER', 'ALTER TABLE models ADD COLUMN use_mult REAL', 'ALTER TABLE models ADD COLUMN promo_mult REAL', 'ALTER TABLE team_members ADD COLUMN cap_pct REAL', 'ALTER TABLE models ADD COLUMN first_token_s REAL', 'ALTER TABLE models ADD COLUMN idle_s REAL', 'ALTER TABLE sessions ADD COLUMN created_at INTEGER', 'ALTER TABLE sessions ADD COLUMN ua TEXT', 'ALTER TABLE sessions ADD COLUMN ip TEXT'])
     try { await env.DB.prepare(q).run(); } catch { /* มีคอลัมน์แล้ว */ }
 })();
 // ตัวคูณหน่วยลิมิตของโมเดล: ช่วงโปรใช้ promo_mult (ถ้าตั้ง) ไม่งั้นใช้ use_mult · ว่าง = 1
@@ -534,6 +553,12 @@ async function putImage(env, uid, mime, b64s) {
   return `/api/img/${uid}/${key}.${ext}`;
 }
 const modelDown = async (env, id) => (await env.DB.prepare("SELECT COUNT(*) n FROM events WHERE kind='error' AND model_id=? AND created_at>?").bind(id, Date.now() - 300e3).first()).n >= 3;
+// คะแนน 👍/👎 ต่อคำตอบ และรายงานคำตอบที่ไม่เหมาะสม (สร้างตารางเองตอนใช้ครั้งแรก)
+let fbTable;
+const ensureFb = env => fbTable ||= env.DB.batch([
+  env.DB.prepare('CREATE TABLE IF NOT EXISTS feedback (message_id INTEGER NOT NULL, user_id INTEGER NOT NULL, model_id INTEGER, vote INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (message_id, user_id))'),
+  env.DB.prepare("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, user_id INTEGER, model_id INTEGER, reason TEXT, snippet TEXT, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL)"),
+]);
 async function webSearch(env, q) { // Tavily
   if (!env.TAVILY_KEY || (await getSetting(env, 'search_enabled')) === '0') return [];
   try {
@@ -683,10 +708,11 @@ async function runChat(env, J, send, st) {
       // นาฬิกาเฝ้าโมเดล: ไม่มีข้อความ/ความคิดตัวแรกภายใน 90 วิ (effort สูงสุด 150 วิ) หรือเงียบเกิน 60 วิกลางทาง = ตัดการเชื่อมต่อ แล้วใช้ทางสลับโมเดลสำรอง/แจ้งข้อผิดพลาด แทนที่ผู้ใช้จะรอไม่จบ
       const ac = new AbortController(); let stalled = 0, wd;
       const arm = ms => { clearTimeout(wd); wd = setTimeout(() => { stalled = ms; ac.abort(); }, ms); };
-      arm(['high', 'xhigh', 'max'].includes(effort) ? 150e3 : 90e3);
+      const firstMs = (model.first_token_s > 0 ? model.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 150 : 90) * 1000, idleMs = (model.idle_s > 0 ? model.idle_s : 60) * 1000; // ตั้งต่อโมเดลได้ในหลังบ้าน
+      arm(firstMs);
       try {
         for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined, userId: u.id, signal: ac.signal })) {
-          arm(60e3);
+          arm(idleMs);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
           if (e.t) { lastKind = 't'; out += e.t; part += e.t; await send({ t: e.t }); }
@@ -746,11 +772,12 @@ async function runChat(env, J, send, st) {
     usage = { fresh: Math.ceil(chars / 2), read: 0, write: 0, out: Math.ceil((out.length + think.length) / 2) };
   }
   const tok = usage && { in: usage.fresh + usage.read + usage.write, out: usage.out };
-  if ((out || think) && cid) await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?)')
-    .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).run();
+  let mid = null;
+  if ((out || think) && cid) mid = (await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id')
+    .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).first())?.id ?? null;
   if (usage) await logUsage(env, u.id, model, usage, { wallet: overflow, plan });
   await unlimit(env, lock);
-  await send({ done: true, tok, ...(await usageStatus(env, u, plan)) });
+  await send({ done: true, tok, mid, ...(await usageStatus(env, u, plan)) });
   if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
 }
 
@@ -1360,11 +1387,11 @@ async function github(req, env, u, p, sub, now) {
 // ---------- admin ----------
 const TABLES = {
   plans: ['name', 'price', 'price_year', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
-  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active'],
+  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published'],
 };
 const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
-  'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
+  'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
   'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices'];
 
@@ -1485,7 +1512,7 @@ async function admin(req, env, path, url, me) {
     if (M === 'PUT') { const b = await req.json(), q = SETTINGS.filter(k => k in b && (k !== 'google_client_secret' || b[k])).map(k => DB.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').bind(k, String(b[k]))); if (q.length) await DB.batch(q); } // ช่อง secret ว่าง = คงค่าเดิม
     const rows = (await DB.prepare('SELECT * FROM settings').all()).results;
     return json({ ...Object.fromEntries(rows.filter(x => x.key !== 'google_client_secret').map(x => [x.key, x.value])), google_secret_set: rows.some(x => x.key === 'google_client_secret' && x.value), slip_key_set: !!env.SLIP_API_KEY, slip2go_key_set: !!env.SLIP2GO_KEY,
-      env: Object.fromEntries(['RESEND_KEY', 'TAVILY_KEY', 'SECRET_KEY', 'GOOGLE_CLIENT_ID', 'LINE_CHANNEL_ID', 'LINE_ALERT_TOKEN', 'PUBLIC_URL'].map(k => [k, !!env[k]])), r2: !!env.SLIPS });
+      env: Object.fromEntries(['RESEND_KEY', 'TAVILY_KEY', 'TURNSTILE_SECRET', 'SECRET_KEY', 'GOOGLE_CLIENT_ID', 'LINE_CHANNEL_ID', 'LINE_ALERT_TOKEN', 'PUBLIC_URL'].map(k => [k, !!env[k]])), r2: !!env.SLIPS });
   }
   if (path === '/api/admin/coupons') {
     if (M === 'GET') return json((await DB.prepare('SELECT * FROM coupons ORDER BY created_at DESC').all()).results);
@@ -1498,6 +1525,14 @@ async function admin(req, env, path, url, me) {
       .bind(code, b.kind, +b.value, +b.max_uses || 0, b.expires ? +b.expires : null, String(b.note || '').slice(0, 200), b.active === 0 ? 0 : 1, Date.now()).run();
     return json({ ok: true });
   }
+  if (path === '/api/admin/quality') { // คะแนน 👍/👎 ต่อโมเดล (30 วัน) + รายงานคำตอบ
+    await ensureFb(env);
+    const from = Date.now() - 30 * DAY;
+    const votes = (await DB.prepare("SELECT f.model_id, md.name, SUM(f.vote>0) up, SUM(f.vote<0) down FROM feedback f LEFT JOIN models md ON md.id=f.model_id WHERE f.created_at>=? GROUP BY f.model_id ORDER BY (up+down) DESC").bind(from).all()).results;
+    const reports = (await DB.prepare("SELECT r.id,r.message_id,r.reason,r.snippet,r.status,r.created_at,u.email,md.name model FROM reports r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN models md ON md.id=r.model_id ORDER BY (r.status='open') DESC, r.id DESC LIMIT 100").all()).results;
+    return json({ votes, reports });
+  }
+  if ((r = path.match(/^\/api\/admin\/reports\/(\d+)$/)) && M === 'PUT') { await ensureFb(env); await DB.prepare('UPDATE reports SET status=? WHERE id=?').bind((await req.json()).status === 'open' ? 'open' : 'done', r[1]).run(); return json({ ok: true }); }
   if (path === '/api/admin/tickets') return json((await DB.prepare("SELECT t.*,u.email,(SELECT COUNT(*) FROM ticket_msgs WHERE ticket_id=t.id) n FROM tickets t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, t.updated_at DESC LIMIT 200").all()).results);
   if ((r = path.match(/^\/api\/admin\/tickets\/(\d+)$/))) {
     const t = await DB.prepare('SELECT t.*,u.email FROM tickets t JOIN users u ON u.id=t.user_id WHERE t.id=?').bind(r[1]).first();
@@ -1697,7 +1732,7 @@ export default {
 };
 
 // cdn.jsdelivr.net: ตัวอ่าน PDF/Word/Excel (ล็อกเวอร์ชัน + SRI ใน app.js)
-const CSP = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+const CSP = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
 // หน้าแสดงผลโค้ดของผู้ใช้: รันใน iframe sandbox (origin แยก อ่าน cookie / เรียก API ในชื่อผู้ใช้ไม่ได้)
 function sandboxed(res, path) {
   const r = new Response(res.body, res), h = r.headers;
@@ -1731,7 +1766,7 @@ async function route(req, env, ctx, url, path, M) {
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้
         const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min', 'model_icons', 'picker_filter', 'picker_mult', 'picker_logos']);
-        return json({ ...s, google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', image: s.image_enabled === '1', mail: !!env.RESEND_KEY });
+        return json({ ...s, turnstile: env.TURNSTILE_SECRET ? await getSetting(env, 'turnstile_site') : '', google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', image: s.image_enabled === '1', mail: !!env.RESEND_KEY });
       }
       if (path === '/api/blog') return json((await env.DB.prepare('SELECT slug,title,summary,cover,created_at FROM posts WHERE published=1 ORDER BY created_at DESC LIMIT 100').all()).results);
       if (path.startsWith('/api/blog/')) { const p = await env.DB.prepare('SELECT slug,title,summary,body,cover,created_at FROM posts WHERE slug=? AND published=1').bind(path.slice(10)).first(); return p ? json(p) : err('ไม่พบบทความ', 404); }
@@ -1759,7 +1794,7 @@ async function route(req, env, ctx, url, path, M) {
         const uid = await useToken(env, b.token, 'mfa'); const u = uid && await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(uid).first();
         if (!u) return err('หมดเวลา ล็อกอินใหม่อีกครั้ง', 401);
         if (!await totpOk(env, u, b.code)) return err('รหัส 2FA ไม่ถูกต้อง', 401);
-        return await startSession(env, u.id);
+        return await startSession(env, u.id, req);
       }
       if (path === '/api/auth' && M === 'POST') return await emailAuth(req, env);
       if (path === '/api/pricing') { // หน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
@@ -1796,6 +1831,32 @@ async function route(req, env, ctx, url, path, M) {
       if (u.role !== 'admin' && !['/api/me', '/api/logout'].includes(path) && (await getSetting(env, 'maintenance')) === '1') return json({ error: 'ระบบปิดปรับปรุงชั่วคราว', maintenance: true }, 503);
       const extra = await userRoutes(req, env, ctx, url, path, M, u); if (extra) return extra;
 
+      if (path === '/api/feedback' && M === 'POST') { // 👍 = 1, 👎 = -1, 0 = ยกเลิก
+        const b = await req.json(), vote = +b.vote;
+        if (![1, -1, 0].includes(vote)) return err('vote ไม่ถูกต้อง');
+        const m = await env.DB.prepare("SELECT m.id,m.model_id FROM messages m JOIN chats c ON c.id=m.chat_id WHERE m.id=? AND c.user_id=? AND m.role='assistant'").bind(+b.message_id, u.id).first();
+        if (!m) return err('ไม่พบข้อความ', 404);
+        await ensureFb(env);
+        if (vote) await env.DB.prepare('INSERT INTO feedback VALUES (?,?,?,?,?) ON CONFLICT(message_id,user_id) DO UPDATE SET vote=excluded.vote, created_at=excluded.created_at').bind(m.id, u.id, m.model_id, vote, Date.now()).run();
+        else await env.DB.prepare('DELETE FROM feedback WHERE message_id=? AND user_id=?').bind(m.id, u.id).run();
+        return json({ ok: true });
+      }
+      if (path === '/api/report' && M === 'POST') { // รายงานคำตอบที่ไม่เหมาะสม → แอดมินดูในหลังบ้านแท็บคุณภาพ
+        if (await limited(env, 'report:' + u.id, 20, DAY)) return err('รายงานวันนี้ครบแล้ว', 429);
+        const b = await req.json(), m = await env.DB.prepare("SELECT m.id,m.model_id,m.content FROM messages m JOIN chats c ON c.id=m.chat_id WHERE m.id=? AND c.user_id=? AND m.role='assistant'").bind(+b.message_id, u.id).first();
+        if (!m) return err('ไม่พบข้อความ', 404);
+        await ensureFb(env);
+        await env.DB.prepare('INSERT INTO reports (message_id,user_id,model_id,reason,snippet,created_at) VALUES (?,?,?,?,?,?)').bind(m.id, u.id, m.model_id, String(b.reason || '').slice(0, 300), String(m.content || '').replace(/\u2063/g, '').slice(0, 600), Date.now()).run();
+        ctx.waitUntil(notify(env, `🚩 มีรายงานคำตอบ AI #${m.id} จาก ${u.email.split('@')[0]}`));
+        return json({ ok: true });
+      }
+      if (path === '/api/sessions') { // อุปกรณ์ที่ล็อกอินอยู่: ดูรายการ / ออกจากระบบเครื่องอื่นทั้งหมด
+        if (M === 'GET') return json((await env.DB.prepare('SELECT token,created_at,ua,ip,expires FROM sessions WHERE user_id=? AND expires>? ORDER BY created_at DESC').bind(u.id, Date.now()).all()).results.map(x => ({ id: x.token.slice(0, 16), created_at: x.created_at, ua: x.ua || '', ip: x.ip || '', current: x.token === u.sid })));
+        if (M === 'DELETE') { await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').bind(u.id, u.sid).run(); ctx.waitUntil(mail(env, u.email, 'AstraCode: ออกจากระบบเครื่องอื่นแล้ว', mailBox('ออกจากระบบเครื่องอื่นแล้ว', 'มีการสั่งออกจากระบบทุกเครื่องยกเว้นเครื่องที่ใช้อยู่ ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านทันที'))); return json({ ok: true }); }
+      }
+      if ((r = path.match(/^\/api\/sessions\/([a-f0-9]{16})$/)) && M === 'DELETE') {
+        await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND substr(token,1,16)=? AND token<>?').bind(u.id, r[1], u.sid).run(); return json({ ok: true });
+      }
       if (path === '/api/logout') {
         await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(u.sid).run();
         return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
@@ -1806,7 +1867,7 @@ async function route(req, env, ctx, url, path, M) {
           email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
-          usage: await usageStatus(env, u, plan), reset_credits: await creditsOf(env, u.id), reset_list: await creditList(env, u.id), models: await allowedModels(env, plan.id),
+          usage: await usageStatus(env, u, plan), reset_credits: await creditsOf(env, u.id), reset_list: await creditList(env, u.id), models: (await allowedModels(env, plan.id)).map(({ cost_in, cost_out, cost_cache, ...m }) => m),
           promptpay_id: await getSetting(env, 'promptpay_id'),
         });
       }
@@ -1861,7 +1922,8 @@ async function route(req, env, ctx, url, path, M) {
           }
           return json({ ok: true });
         }
-        return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,md.name model FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=? ORDER BY m.id').bind(r[1]).all()).results);
+        await ensureFb(env);
+        return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,md.name model,(SELECT vote FROM feedback f WHERE f.message_id=m.id AND f.user_id=?2) vote FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=?1 ORDER BY m.id').bind(r[1], u.id).all()).results);
       }
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if (path === '/api/pay') return json((await env.DB.prepare('SELECT p.id,p.amount,p.status,p.created_at,p.kind,p.period,p.discount,pl.name plan_name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE user_id=? ORDER BY p.id DESC LIMIT 20').bind(u.id).all()).results);
@@ -1985,6 +2047,7 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     if (await limited(env, '2fa:' + u.id, 10, 900e3)) return err('ลองผิดหลายครั้ง รอ 15 นาที', 429);
     if (!await totpOk(env, u, (await req.json()).code)) return err('รหัสไม่ถูกต้อง ลองรหัสล่าสุดจากแอป');
     await DB.prepare(path.endsWith('enable') ? 'UPDATE users SET totp_on=1 WHERE id=?' : 'UPDATE users SET totp_on=0, totp_secret=NULL WHERE id=?').bind(u.id).run();
+    ctx.waitUntil(mail(env, u.email, 'AstraCode: ความปลอดภัยบัญชีมีการเปลี่ยนแปลง', mailBox('ความปลอดภัยบัญชีมีการเปลี่ยนแปลง', path.endsWith('enable') ? 'เปิดการยืนยันตัวตน 2 ขั้น (2FA) ให้บัญชีของคุณแล้ว' : 'ปิดการยืนยันตัวตน 2 ขั้น (2FA) ของบัญชีคุณแล้ว ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านทันที')));
     return json({ ok: true });
   }
   if (path === '/api/me/export') { // ดาวน์โหลดข้อมูลของตัวเอง (PDPA)
@@ -2217,7 +2280,7 @@ async function oauth(req, env, url, path) {
   }
   if (u.banned) return fail('บัญชีนี้ถูกระงับ');
   if (u.totp_on) return Response.redirect(`${base}/login?mfa=${await newToken(env, u.id, 'mfa', 600e3)}`, 302);
-  return new Response(null, { status: 302, headers: { location: base + '/chat', 'set-cookie': await sessionCookie(env, u.id) } });
+  return new Response(null, { status: 302, headers: { location: base + '/chat', 'set-cookie': await sessionCookie(env, u.id, req) } });
 }
 
 // ---------- สร้างรูป (API แบบ OpenAI images) ----------
@@ -2429,12 +2492,43 @@ async function cron(env) {
   }
   // 4) สำรองข้อมูลวันละครั้ง (ตี 3 เวลาไทย) เก็บ 14 ชุด
   if (env.SLIPS && new Date(now + BKK).getUTCHours() === 3) await backup(env);
+  // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
+  if ((await getSetting(env, 'health_check')) !== '0') await healthCheck(env).catch(e => console.log('health', e.message));
+  if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)
   // 5) ล้างข้อมูลหมดอายุ
   await DB.batch([DB.prepare('DELETE FROM rate WHERE reset<?').bind(now), DB.prepare('DELETE FROM tokens WHERE expires<?').bind(now), DB.prepare('DELETE FROM sessions WHERE expires<?').bind(now), DB.prepare('DELETE FROM events WHERE created_at<?').bind(now - 90 * DAY)]);
   return log;
 }
+// ยิงข้อความสั้นๆ ไปโมเดลที่ไม่มีทั้งการใช้งานและ error ในชั่วโมงที่ผ่านมา · ล้มเหลว = บันทึก error (เข้าตัวตัดวงจร/หน้าสถานะ/แจ้งเตือนแอดมิน)
+async function healthCheck(env) {
+  const now = Date.now(), ms = (await env.DB.prepare("SELECT * FROM models WHERE active=1 AND provider!='image' ORDER BY id LIMIT 12").all()).results;
+  for (const m of ms) {
+    if (!env[m.key_name]) continue;
+    const r = await env.DB.prepare('SELECT (SELECT COUNT(*) FROM usage WHERE model_id=?1 AND created_at>?2) u, (SELECT COUNT(*) FROM events WHERE model_id=?1 AND created_at>?2) e').bind(m.id, now - 3000e3).first();
+    if (r.u || r.e) continue;
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 25e3);
+    try {
+      let got = false;
+      for await (const e of callModel(env, m, [{ role: 'user', content: 'hi' }], { system: 'Reply with one word.', maxTokens: 16, signal: ac.signal })) if (e.t || e.th || e.tc) { got = true; break; }
+      if (!got) throw new Error('empty reply');
+    } catch (x) { await event(env, 'error', m.id, 'health check: ' + String(x.message).slice(0, 200)); }
+    finally { clearTimeout(to); }
+  }
+}
+// รูปแชตที่ไม่มีข้อความไหนอ้างถึงแล้ว (เก่ากว่า 7 วัน): ลบจาก D1 และ R2
+async function cleanImages(env) {
+  const cut = Date.now() - 7 * DAY;
+  await ensureImgTable(env);
+  await env.DB.prepare('DELETE FROM chat_images WHERE created_at<? AND NOT EXISTS (SELECT 1 FROM messages WHERE instr(messages.content, chat_images.key) > 0)').bind(cut).run();
+  if (!env.SLIPS) return;
+  for (const o of (await env.SLIPS.list({ prefix: 'img/', limit: 300 })).objects) {
+    if (o.uploaded?.getTime?.() > cut) continue;
+    const key = o.key.split('/').pop().replace(/\.\w+$/, '');
+    if (!await env.DB.prepare('SELECT 1 FROM messages WHERE instr(content, ?) > 0 LIMIT 1').bind(key).first()) await env.SLIPS.delete(o.key);
+  }
+}
 async function backup(env) {
-  const tables = (await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('sessions','rate','tokens','_cf_KV')").all()).results.map(x => x.name), data = {};
+  const tables = (await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('sessions','rate','tokens','_cf_KV','chat_images','slip_blobs','file_versions')").all()).results.map(x => x.name), data = {};
   for (const t of tables) data[t] = (await env.DB.prepare(`SELECT * FROM "${t}"`).all()).results;
   const key = `backup/${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
   await env.SLIPS.put(key, JSON.stringify(data), { httpMetadata: { contentType: 'application/json' } });

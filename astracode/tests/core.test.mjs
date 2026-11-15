@@ -108,3 +108,56 @@ test('effort rejected by the provider is retried with a supported level', async 
   assert.equal(fm.hits[1].body.reasoning_effort, 'low');
   fm.close();
 });
+
+test('watchdog: a model that stays silent is cut off, logged and reported', async () => {
+  const fm = await fakeModel(() => { /* never answers */ });
+  const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'S', base_url: fm.url }); t.DB.raw.prepare('UPDATE models SET first_token_s=0.5 WHERE id=?').run(m.id);
+  const plan = addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+  const t0 = Date.now(), ev = await readSSE(await chat(t, u, m)); await Promise.all(t.ctx.pending);
+  assert.ok(Date.now() - t0 < 5000, 'should be cut off quickly');
+  assert.ok(ev.some(e => e.error), JSON.stringify(ev));
+  assert.match(t.DB.raw.prepare("SELECT detail FROM events WHERE kind='error'").get().detail, /ไม่ตอบภายใน/);
+  fm.close();
+});
+
+test('health check pings idle models and records a failure as an error event', async () => {
+  const bad = await fakeModel((q, res) => { res.writeHead(500); res.end('boom'); });
+  const t = await makeEnv({ K: 'k' }); const m = addModel(t.DB, { name: 'H', base_url: bad.url });
+  await t.worker.default.scheduled({}, t.env, t.ctx); await Promise.all(t.ctx.pending);
+  const ev = t.DB.raw.prepare("SELECT detail FROM events WHERE model_id=?").all(m.id);
+  assert.ok(ev.some(e => /health check/.test(e.detail)), JSON.stringify(ev));
+  bad.close();
+});
+
+test('/api/me does not expose model cost prices', async () => {
+  const t = await makeEnv(); const m = addModel(t.DB, { name: 'C', base_url: 'http://x', cost_in: 7.77 }); const plan = addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+  const me = await t.json('/api/me', { cookie: u.cookie });
+  assert.equal(me.data.models.length, 1); assert.ok(!JSON.stringify(me.data).includes('7.77') && !('cost_in' in me.data.models[0]));
+});
+
+test('sessions: list devices, revoke one, revoke all others', async () => {
+  const t = await makeEnv(); const u = await t.user();
+  const now = Date.now(), tok = n => n.repeat(64).slice(0, 64);
+  for (const n of ['a', 'b']) t.DB.raw.prepare('INSERT INTO sessions (token,user_id,expires,created_at,ua,ip) VALUES (?,?,?,?,?,?)').run(tok(n), u.id, now + 1e6, now, 'UA-' + n, '1.2.x.x');
+  let l = await t.json('/api/sessions', { cookie: u.cookie }); assert.equal(l.data.length, 3); assert.equal(l.data.filter(x => x.current).length, 1);
+  const rev = await t.json('/api/sessions/' + tok('a').slice(0, 16), { method: 'DELETE', cookie: u.cookie }); assert.equal(rev.status, 200);
+  l = await t.json('/api/sessions', { cookie: u.cookie }); assert.equal(l.data.length, 2);
+  await t.json('/api/sessions', { method: 'DELETE', cookie: u.cookie });
+  l = await t.json('/api/sessions', { cookie: u.cookie }); assert.equal(l.data.length, 1); assert.ok(l.data[0].current);
+});
+
+test('feedback votes and reports are stored per user and shown to admin', async () => {
+  const t = await makeEnv(); const u = await t.user(), adm = await t.user({ role: 'admin' }), other = await t.user();
+  const m = addModel(t.DB, { name: 'F', base_url: 'http://x' });
+  const c = t.DB.raw.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').get(u.id, 't', Date.now());
+  const msg = t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?, 'assistant', 'คำตอบ', ?, ?) RETURNING id").get(c.id, m.id, Date.now());
+  assert.equal((await t.json('/api/feedback', { method: 'POST', cookie: other.cookie, body: { message_id: msg.id, vote: 1 } })).status, 404);
+  assert.equal((await t.json('/api/feedback', { method: 'POST', cookie: u.cookie, body: { message_id: msg.id, vote: -1 } })).status, 200);
+  let ms = await t.json('/api/chats/' + c.id, { cookie: u.cookie }); assert.equal(ms.data[0].vote, -1);
+  assert.equal((await t.json('/api/report', { method: 'POST', cookie: u.cookie, body: { message_id: msg.id, reason: 'ไม่เหมาะสม' } })).status, 200);
+  const q = await t.json('/api/admin/quality', { cookie: adm.cookie });
+  assert.equal(q.data.votes[0].down, 1); assert.equal(q.data.reports.length, 1); assert.equal(q.data.reports[0].status, 'open');
+  await t.json('/api/admin/reports/' + q.data.reports[0].id, { method: 'PUT', cookie: adm.cookie, body: { status: 'done' } });
+  assert.equal((await t.json('/api/admin/quality', { cookie: adm.cookie })).data.reports[0].status, 'done');
+});

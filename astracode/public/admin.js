@@ -7,6 +7,7 @@ const FIELDS = {
     ['cost_in', 'ทุน input (บาท/1M)', 'n'], ['cost_out', 'ทุน output', 'n'], ['cost_cache', 'ทุน cache read', 'n'], ['cost_cache_write', 'ทุน cache write', 'n'],
     ['price_in', 'ราคาขาย input (บาท/1M)', 'o'], ['price_out', 'ราคาขาย output', 'o'], ['price_cache', 'ราคาขาย cache read', 'o'], ['price_cache_write', 'ราคาขาย cache write', 'o'],
     ['promo_pct', 'โปรลดราคา % (เว้นว่าง = ไม่มีโปร)', 'o'], ['promo_start', 'โปรเริ่ม (เว้นว่าง = ทันที)', 'd'], ['promo_end', 'โปรถึงวันที่ (เว้นว่าง = ไม่มีวันจบ)', 'd'],
+    ['first_token_s', 'รอข้อความแรกได้นานสุด (วินาที · เว้นว่าง = 90, effort สูง 150)', 'o'], ['idle_s', 'เงียบกลางคำตอบได้นานสุด (วินาที · เว้นว่าง = 60)', 'o'],
     ['use_mult', 'ตัวคูณหักลิมิต (เว้นว่าง = 1 · 0.5 = หักครึ่ง · 2 = หัก 2 เท่า)', 'o'], ['promo_mult', 'ตัวคูณหักลิมิตช่วงโปร (เว้นว่าง = ใช้ตัวปกติ · ใช้ช่วงวันเดียวกับโปรด้านบน)', 'o'],
     ['note', 'คำอธิบายในหน้าราคา', 's'], ['code_prompt', 'คำสั่งเพิ่มในโหมด Code (เช่น บังคับให้อ่านไฟล์ก่อนแก้)', 'x'], ['fallback_id', 'โมเดลสำรองเมื่อตัวนี้ล่ม', 'm'],
     ['effort', 'รูปแบบ effort', ['none', 'openai', 'anthropic', 'deepseek', 'kimi', 'gemini']], ['effort_levels', 'ระดับ Effort ที่เลือกได้ (คั่นด้วย , เช่น none,low,medium,high,max · เว้นว่าง = ค่าเริ่มต้นค่าย)'], ['vision', 'อ่านรูปได้', 'b'], ['public', 'แสดงในหน้าราคา', 'b'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
@@ -31,7 +32,7 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>' };
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -276,6 +277,14 @@ const ADMIN = {
     box.innerHTML = ts.map(t => `<a class="urow" href="/admin?tab=tickets&id=${t.id}"><span class="ue"><b>${esc(t.subject)}</b><span class="muted">${esc(t.email)} · ${t.n} ข้อความ · ${ago(t.updated_at)}</span></span>${TS[t.status] || ''}<span class="chev">›</span></a>`).join('') || '<div class="empty-s">ยังไม่มีเรื่อง</div>';
   },
 
+  async quality(box, reload) {
+    const d = await api('/admin/quality');
+    box.innerHTML = `<p class="muted hint">คะแนน 👍/👎 จากผู้ใช้ใน 30 วันล่าสุด และรายงานคำตอบที่ไม่เหมาะสม</p>
+      <div class="card"><b>คะแนนต่อโมเดล</b>${d.votes.length ? `<div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>👍</th><th>👎</th><th>พอใจ</th></tr>${d.votes.map(v => `<tr><td>${esc(v.name || '#' + v.model_id)}</td><td>${v.up}</td><td>${v.down}</td><td>${Math.round(v.up / Math.max(1, v.up + v.down) * 100)}%</td></tr>`).join('')}</table></div>` : '<p class="muted">ยังไม่มีคะแนน</p>'}</div>
+      <div class="card"><b>รายงานคำตอบ</b>${d.reports.length ? d.reports.map(r => `<div class="rep ${r.status}"><div class="muted" style="font-size:12px">#${r.message_id} · ${esc(r.model || '-')} · ${esc(r.email || '-')} · ${when(r.created_at)}</div><div><b>${esc(r.reason || '(ไม่ระบุเหตุผล)')}</b></div><div class="muted" style="font-size:13px;white-space:pre-wrap">${esc(r.snippet)}</div><button class="btn out sm" data-rep="${r.id}" data-s="${r.status === 'open' ? 'done' : 'open'}">${r.status === 'open' ? 'Mark done' : 'Reopen'}</button></div>`).join('') : '<p class="muted">ไม่มีรายงาน</p>'}</div>`;
+    box.querySelectorAll('[data-rep]').forEach(b => b.onclick = async () => { await api('/admin/reports/' + b.dataset.rep, { method: 'PUT', body: { status: b.dataset.s } }); reload(); });
+  },
+
   async system(box, reload) {
     const [s, backups, events, logs] = await Promise.all([api('/admin/settings'), api('/admin/backups').catch(x => ({ error: x.message })), api('/admin/events'), api('/admin/audit')]);
     const save = async (body, el) => { await api('/admin/settings', { method: 'PUT', body }); el.textContent = '✓ บันทึกแล้ว'; setTimeout(() => el.textContent = '', 2000); };
@@ -401,6 +410,8 @@ const ADMIN = {
       <label>โมเดลสำหรับย่อแชตยาว (เว้นว่าง = ตัวที่ต้นทุนต่ำสุด)</label><select name="summary_model"><option value="">อัตโนมัติ</option>${models.map(m => `<option value="${m.id}" ${String(m.id) === s.summary_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
       <h2 style="margin-top:28px">ฟีเจอร์ AI</h2>
       <label class="sw-row"><span class="sw"><input type="checkbox" data-b="search_enabled" ${s.search_enabled !== '0' ? 'checked' : ''}><span></span></span> ค้นเว็บ (ต้องตั้ง Secret <code>TAVILY_KEY</code> ${s.env.TAVILY_KEY ? '<span class="ok">✓</span>' : '<span class="warn">ยังไม่ตั้ง</span>'})</label>
+      <label>Turnstile site key (กันบอทสมัคร/ล็อกอิน · ต้องตั้ง Secret <code>TURNSTILE_SECRET</code> ที่ Worker ด้วย ${s.env.TURNSTILE_SECRET ? '<span class="ok">✓</span>' : '<span class="warn">ยังไม่ตั้ง</span>'} · เว้นว่าง = ปิด)</label><input name="turnstile_site" value="${esc(s.turnstile_site)}" autocomplete="off">
+      <label class="sw-row"><span class="sw"><input type="checkbox" data-b="health_check" ${s.health_check !== '0' ? 'checked' : ''}><span></span></span> เช็กสุขภาพโมเดลทุกชั่วโมง (ยิงข้อความสั้นมากไปยังโมเดลที่ไม่มีคนใช้ · เสียโควตาน้อยมาก)</label>
       <label class="sw-row"><span class="sw"><input type="checkbox" data-b="search_auto" ${s.search_auto !== '0' ? 'checked' : ''}><span></span></span> ค้นเว็บเองเมื่อคำถามต้องใช้ข้อมูลล่าสุด (ข่าว ราคา อากาศ) โดยผู้ใช้ไม่ต้องกดเปิด · เสียโควตา Tavily</label>
       <label>โมเดลสำหรับเติมโค้ดอัตโนมัติ (เว้นว่าง = ตัวที่ถูกที่สุดในแพลน)</label><select name="autocomplete_model"><option value="">อัตโนมัติ</option>${models.map(m => `<option value="${m.id}" ${String(m.id) === s.autocomplete_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
       <label class="sw-row"><span class="sw"><input type="checkbox" data-b="image_enabled" ${s.image_enabled === '1' ? 'checked' : ''}><span></span></span> สร้างรูป (API แบบ OpenAI images)</label>

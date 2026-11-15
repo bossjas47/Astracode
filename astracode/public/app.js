@@ -194,6 +194,7 @@ const navL = (h, t, i) => `<a class="l${curl().pathname === h ? ' on' : ''}" hre
 const navRight = () => me
   ? `<div class="nav-r"><button type="button" class="nav-lim" aria-label="ลิมิตการใช้งาน">${limHTML(me.usage)}</button><a class="nav-wal" href="/plans?topup=1" aria-label="เติม Wallet">฿${baht(me.balance)}</a><a class="nav-av" href="/account" aria-label="บัญชี ${esc(me.email)}">${esc((me.email || '?')[0].toUpperCase())}</a></div>`
   : '<div class="nav-r"><a class="btn out sm nav-login" href="/login">Log in</a><a class="btn blue sm" href="/login">Get started free</a></div>';
+const cfToken = () => document.querySelector('[name=cf-turnstile-response]')?.value || ''; // โทเคน Turnstile ที่วิดเจ็ตใส่ในฟอร์ม
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="เมนู" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="ปิดเมนู">${ic('x')}</button></div>
   ${me ? `${navL('/chat', 'แชต', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}${me.role === 'admin' ? navL('/admin', 'หลังบ้าน', 'dash') : ''}<span class="sp"></span>${navL('/account', 'บัญชี', 'user')}`
@@ -328,7 +329,7 @@ function auth() {
   const btn = { login: 'Log in', register: 'Sign up', forgot: 'Send link', verify: 'Verified, log in', code: 'Confirm', mfa: 'Confirm' };
   const done = async () => { localStorage.removeItem('ref'); await loadMe(); go(q.get('next') || '/chat'); };
   const send = async (action, code) => {
-    const r = await api('/auth', { method: 'POST', body: { ...cred, action, ref, code } }).catch(x => { if (x.data?.need2fa) return { need2fa: true }; throw x; });
+    const r = await api('/auth', { method: 'POST', body: { ...cred, action, ref, code, cf: cfToken() } }).catch(x => { if (x.data?.need2fa) return { need2fa: true }; throw x; });
     if (r.verify) { if (action === 'check') throw new Error('ยังไม่ได้ยืนยัน กดลิงก์ในอีเมลก่อน'); mode = 'verify'; msg = ''; return draw(); }
     if (r.need2fa) { mode = 'code'; msg = ''; return draw(); }
     await done();
@@ -340,12 +341,16 @@ function auth() {
       <form class="card" id="f">${tabs && (site.google || site.line) ? `<div class="social">${site.google ? `<a class="btn out" href="/api/oauth/google${ref ? '?ref=' + encodeURIComponent(ref) : ''}">Continue with Google</a>` : ''}
         ${site.line ? `<a class="btn out line" href="/api/oauth/line${ref ? '?ref=' + encodeURIComponent(ref) : ''}">Continue with LINE</a>` : ''}<div class="or"><span>หรือ</span></div></div>` : ''}
       ${forms[mode]()}
-      <div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${btn[mode]}</button>
+      ${site.turnstile && ['login', 'register', 'forgot'].includes(mode) ? '<div id="cft" style="margin:12px 0"></div>' : ''}<div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${btn[mode]}</button>
       ${mode === 'verify' ? '<div class="row" style="justify-content:center;margin-top:12px"><button type="button" class="btn out sm" id="resend">Resend link</button><a href="#" data-m="login">ใช้อีเมลอื่น</a></div>' : ''}
       ${mode === 'login' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="forgot">ลืมรหัสผ่าน?</a></p>' : ''}
       ${!tabs && mode !== 'verify' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="login">กลับไปเข้าสู่ระบบ</a></p>' : ''}
       <p class="muted" style="text-align:center;margin:12px 0 0">การ${mode === 'register' ? 'สมัคร' : 'ใช้งาน'}ถือว่ายอมรับ<a href="/terms">เงื่อนไขและนโยบายความเป็นส่วนตัว</a></p></form></div>`);
     app.querySelectorAll('[data-m]').forEach(b => b.onclick = e => { e.preventDefault(); mode = b.dataset.m; msg = ''; draw(); });
+    if (site.turnstile && $('#cft')) { // กันบอท (เปิดเมื่อแอดมินตั้ง Turnstile)
+      const go = () => window.turnstile.render('#cft', { sitekey: site.turnstile, theme: 'dark' });
+      if (window.turnstile) go(); else { const sc = document.createElement('script'); sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; sc.onload = go; document.head.append(sc); }
+    }
     const busy = (b, on) => { b.disabled = on; b.classList.toggle('loading', on); };
     $('#resend')?.addEventListener('click', async e => {
       busy(e.target, true);
@@ -356,12 +361,12 @@ function auth() {
       const body = Object.fromEntries(new FormData(e.target));
       try {
         if (mode === 'mfa') { await api('/login/mfa', { method: 'POST', body: { ...body, token: q.get('mfa') } }); return await done(); }
-        if (mode === 'forgot') { await api('/auth', { method: 'POST', body: { action: 'forgot', email: body.email } }); $('#e').innerHTML = '<span class="ok">ถ้ามีบัญชีนี้ เราส่งลิงก์ไปที่อีเมลแล้ว (ดูในจดหมายขยะด้วย)</span>'; return busy(b, false); }
+        if (mode === 'forgot') { await api('/auth', { method: 'POST', body: { action: 'forgot', email: body.email, cf: cfToken() } }); $('#e').innerHTML = '<span class="ok">ถ้ามีบัญชีนี้ เราส่งลิงก์ไปที่อีเมลแล้ว (ดูในจดหมายขยะด้วย)</span>'; return busy(b, false); }
         if (mode === 'verify') return await send('check');
         if (mode === 'code') return await send('check', body.code);
         cred = { email: body.email, password: body.password }; // เก็บในหน่วยความจำหน้านี้เท่านั้น ใช้ตอนกด "ยืนยันแล้ว"
         await send(mode);
-      } catch (x) { $('#e').textContent = x.message; busy(b, false); }
+      } catch (x) { $('#e').textContent = x.message; busy(b, false); try { window.turnstile?.reset(); } catch { /* ไม่มีวิดเจ็ต */ } }
     };
   };
   draw();

@@ -169,6 +169,8 @@ async function chatView(id) {
     if (b.dataset.mem != null) remember(chat.msgs[+b.dataset.mem], b);
     if (b.dataset.rem != null) remember({ content: parseMem(chat.msgs[+b.dataset.rem].content).mem }, b);
     if (b.dataset.copy) copy(chat.msgs[+b.dataset.copy].content, b);
+    if (b.dataset.vote != null) { const m = chat.msgs[+b.dataset.vote], v = m.vote === +b.dataset.v ? 0 : +b.dataset.v; api('/feedback', { method: 'POST', body: { message_id: m.id, vote: v } }).then(() => { m.vote = v || null; renderAll(); }).catch(x => toast(x.message, 'bad')); }
+    if (b.dataset.report != null) reportMsg(chat.msgs[+b.dataset.report]);
     if (b.dataset.regen != null) send({ regenerate: true });
     if (b.dataset.s != null) { t.value = SUGGEST[+b.dataset.s]; t.focus(); t.oninput(); }
   };
@@ -306,6 +308,11 @@ function parseMem(content, streaming) {
   else if (streaming) s = s.replace(/`{1,3}(?:r(?:e(?:m(?:e(?:m(?:b(?:er?)?)?)?)?)?)?)?$/, ''); // ครึ่งรั้วที่ยังพิมพ์ไม่จบ
   return { text: s.trim(), mem };
 }
+async function reportMsg(m) {
+  const reason = await promptSheet('บอกสั้นๆ ว่าคำตอบนี้มีปัญหาอะไร (ไม่เหมาะสม ผิดกฎหมาย ข้อมูลผิด ฯลฯ)', '', { title: 'รายงานคำตอบนี้', ok: 'Send', placeholder: 'เหตุผล' });
+  if (reason == null) return;
+  try { await api('/report', { method: 'POST', body: { message_id: m.id, reason } }); toast('ส่งรายงานแล้ว ขอบคุณครับ', 'ok'); } catch (x) { toast(x.message, 'bad'); }
+}
 async function remember(m, btn) {
   const text = await promptSheet('ให้ AI จำเรื่องนี้ไว้ในทุกแชต (แก้ได้)', m.content.replace(FILE_RE, '').trim().slice(0, 300), { title: 'บันทึกความจำ', ok: 'Remember' });
   if (!text?.trim()) return;
@@ -405,7 +412,7 @@ function msgHTML(m, i, isNew) {
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : waitHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
-    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">Copy</button>${last && !chat.busy ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
+    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">Copy</button>${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">👍</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">👎</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button>` : ''}${last && !chat.busy ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
 // token ที่ใช้ตอบ + ลิมิตที่ใช้ไป (เฉพาะข้อความที่เพิ่งตอบ)
 const tokHTML = m => m.tin || m.tout ? `<span class="tok" title="Input ${num(m.tin)} · Output ${num(m.tout)} token">↑${kTok(m.tin || 0)} ↓${kTok(m.tout || 0)}${m.pct != null ? ` · ลิมิต +${m.pct < 0.1 ? '<0.1' : m.pct.toFixed(1)}%` : ''}</span>` : '';
@@ -480,7 +487,7 @@ async function compareSend() {
       if (d.t || d.th) { onStreamEvent(m, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const e = el(); if (e) paintStreaming(e, m); }); }
         if (d.error) m.content += `\n\n**ข้อผิดพลาด:** ${d.error}`;
         if (d.tok) { m.tin = d.tok.in; m.tout = d.tok.out; }
-        if (d.done) setUsage(d);
+        if (d.done) { setUsage(d); if (d.mid) m.id = d.mid; }
       });
     } catch (x) { if (x.name !== 'AbortError') m.content += `ข้อผิดพลาด: ${x.message}`; }
     cancelAnimationFrame(raf); m.streaming = false;
