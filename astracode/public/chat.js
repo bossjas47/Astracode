@@ -211,14 +211,14 @@ function modelUI() {
 }
 function toolSheet() {
   const web = localStorage.getItem('web') === '1';
-  sheet('เพิ่ม', optHTML('file', ic('clip') + 'แนบไฟล์หรือรูป', 'PDF, Word, Excel, โค้ด, รูป · สูงสุด 5 ไฟล์')
-    + (site.image ? optHTML('img', ic('image') + 'สร้างรูป', 'พิมพ์สิ่งที่อยากได้ในช่องข้อความก่อน') : '')
-    + (site.search ? optHTML('web', ic('globe') + 'ค้นเว็บก่อนตอบ', 'ได้ข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web) : '')
-    + optHTML('cmp', ic('compare') + 'เทียบ 2 โมเดล', 'ถามครั้งเดียว ดูสองคำตอบคู่กัน · ไม่บันทึกแชต', chat.compare)
-    + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill หรือสร้าง Skill ส่วนตัว (สูงสุด 3)')
-    + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub, Notion, n8n ฯลฯ (สูงสุด 3)')
-    + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปหรือ Prompt ที่บันทึกไว้')
-    + optHTML('exp', ic('download') + 'ส่งออกแชต', 'Markdown หรือ PDF'),
+  sheet('เพิ่ม', '<div class="tgrid">' + optHTML('file', ic('clip') + 'แนบไฟล์/รูป', 'PDF Word Excel โค้ด รูป')
+    + (site.image ? optHTML('img', ic('image') + 'สร้างรูป', 'พิมพ์สิ่งที่อยากได้ก่อน') : '')
+    + (site.search ? optHTML('web', ic('globe') + 'ค้นเว็บ', 'ข้อมูลล่าสุด มีอ้างอิง', web) : '')
+    + optHTML('cmp', ic('compare') + 'เทียบ 2 โมเดล', 'ถามครั้งเดียว ได้ 2 คำตอบ', chat.compare)
+    + optHTML('skl', ic('sparkles') + 'Skills', 'เปิดปิด หรือสร้างเอง')
+    + optHTML('mcp', ic('server') + 'Remote MCP', 'GitHub Notion n8n')
+    + optHTML('prm', ic('book') + 'คลัง Prompt', 'คำสั่งสำเร็จรูป')
+    + optHTML('exp', ic('download') + 'ส่งออกแชต', 'Markdown หรือ PDF') + '</div>',
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); ({ file: () => $('#file').click(), img: genImage, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
