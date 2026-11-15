@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-15T00:00:00Z",
+  "title": "Design System: AstraCode",
+  "extensions": {
+    "colorMeta": {
+      "signal-blue": { "role": "primary", "displayName": "Signal Blue", "canonical": "#0071e3" },
+      "obsidian": { "role": "neutral", "displayName": "Obsidian", "canonical": "#050507" },
+      "porcelain": { "role": "neutral", "displayName": "Porcelain", "canonical": "#f5f5f7" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Home hero." },
+      "body": { "displayName": "Body", "purpose": "Default text." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 12px 32px rgba(0,0,0,.35)", "purpose": "Cards." },
+      { "name": "float", "value": "0 8px 28px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06)", "purpose": "Floating layers." }
+    ],
+    "motion": [],
+    "breakpoints": [
+      { "name": "sm", "value": "520px" }, { "name": "md", "value": "760px" }, { "name": "lg", "value": "1000px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button", "kind": "button", "refersTo": "button-primary",
+      "description": "Main action. One per screen.",
+      "html": "<button class=\"ds-btn-primary\">เริ่มใช้งาน</button>",
+      "css": ".ds-btn-primary{min-height:44px;padding:0 22px;border-radius:9999px;border:0;background:#0071e3;color:#fff;font:500 15px Inter,Prompt,system-ui,sans-serif;cursor:pointer}.ds-btn-primary:focus-visible{outline:2px solid #f5f5f7;outline-offset:2px}.ds-btn-primary:disabled{opacity:.4}"
+    },
+    {
+      "name": "Outline Button", "kind": "button", "refersTo": "button-outline",
+      "description": "Secondary action.",
+      "html": "<button class=\"ds-btn-out\">ยกเลิก</button>",
+      "css": ".ds-btn-out{min-height:44px;padding:0 22px;border-radius:9999px;border:0;background:transparent;color:#f5f5f7;box-shadow:0 0 0 1px #6e6e73 inset;font:500 15px Inter,Prompt,system-ui,sans-serif;cursor:pointer}.ds-btn-out:focus-visible{outline:2px solid #f5f5f7;outline-offset:2px}"
+    },
+    {
+      "name": "Text Field", "kind": "input", "refersTo": "input",
+      "description": "Single-line input.",
+      "html": "<input class=\"ds-input\" placeholder=\"อีเมล\">",
+      "css": ".ds-input{width:100%;min-height:44px;padding:10px 14px;border-radius:12px;border:1px solid #2e2e34;background:rgba(255,255,255,.04);color:#f5f5f7;font:400 15px Inter,Prompt,system-ui,sans-serif}.ds-input:focus{outline:1px solid #0071e3;outline-offset:1px}"
+    },
+    {
+      "name": "Card", "kind": "card", "refersTo": "card",
+      "description": "Content container.",
+      "html": "<div class=\"ds-card\"><b>Plus</b><p>แผนรายเดือน</p></div>",
+      "css": ".ds-card{background:#18181c;border:1px solid rgba(255,255,255,.09);border-radius:28px;padding:24px;color:#f5f5f7;box-shadow:0 12px 32px rgba(0,0,0,.35)}.ds-card p{margin:6px 0 0;color:#8e8e93;font-size:13px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Observatory",
+    "overview": "A dark room where the work glows and the chrome does not. Near-black surfaces recede, one blue accent marks the next action.",
+    "keyCharacteristics": ["Dark only", "One accent", "Soft tactile shapes", "Depth from tone and hairlines first"],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "Signal Blue marks the single primary action on a screen.", "section": "colors" },
+      { "name": "The Hairline First Rule", "body": "Reach for a tone step or hairline before a shadow.", "section": "elevation" }
+    ],
+    "dos": ["Do keep touch targets at 44px or more.", "Do keep focus visible: 2px Porcelain outline, 2px offset."],
+    "donts": ["Don't add a second accent color next to Signal Blue.", "Don't change copy or behavior while restyling."]
+  }
+}
