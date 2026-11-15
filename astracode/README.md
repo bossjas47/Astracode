@@ -57,9 +57,7 @@ If a migration fails with "duplicate column", it was already run. Skip to the ne
 
 ### Worker
 
-**Option A: dashboard.** Paste `dist/worker.js` into Edit code. To rebuild it, run `node build-single.mjs`.
-
-**Option B: terminal.** Run `wrangler deploy`.
+Run `wrangler deploy` (uses `src/worker.js` and `public/`).
 
 ### Bindings
 
