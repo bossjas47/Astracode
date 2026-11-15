@@ -1055,3 +1055,17 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .sel-sheet .opt { margin-bottom: 4px; }
 .sel-sheet .opt i { display: inline-flex; align-items: center; color: var(--link); }
 .sel-sheet .opt[disabled] { opacity: .4; }
+
+/* code editor: soft warm glow behind the text, glass gutter */
+.ide-editor { background: radial-gradient(760px 380px at 92% -8%, rgba(217, 119, 87, .13), transparent 62%), radial-gradient(640px 360px at -8% 108%, rgba(232, 161, 131, .08), transparent 62%), linear-gradient(180deg, #100d0b, #0b0908); }
+.ide-editor .cm-scroller { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .14) transparent; }
+.ide-editor .cm-foldGutter span { color: #6f665b; }
+/* project image viewer */
+.ide-main.isimg .ide-editor { display: none; }
+.imgview { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 16px; background: radial-gradient(760px 380px at 92% -8%, rgba(217, 119, 87, .13), transparent 62%), #0b0908; }
+.iv-box { max-width: 100%; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.iv-box img { max-width: 100%; max-height: 55vh; border-radius: 16px; border: 1px solid var(--hair); background: repeating-conic-gradient(#1b1714 0 25%, #14110f 0 50%) 0 0 / 16px 16px; box-shadow: 0 12px 36px rgba(0, 0, 0, .5); }
+.iv-meta { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.iv-meta b { word-break: break-all; }
+.ide-main.isimg .mkeys, .ide-main.isimg .ide-tools, .ide-main.isimg .cmdbar { display: none; }
+.imgview { place-items: start center; }

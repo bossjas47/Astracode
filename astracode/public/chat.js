@@ -289,6 +289,15 @@ function drawSide() {
   };
 }
 // บล็อก ```remember ที่ AI เสนอให้จำ → แยกออกจากข้อความ แสดงเป็นปุ่มให้ผู้ใช้กดยืนยัน (ไม่บันทึกเอง)
+// บล็อก ```image ที่ AI สั่งสร้างรูป → ซ่อนจากข้อความ แล้วให้หน้าเว็บสร้างรูปใต้คำตอบเอง
+function parseImg(content, streaming) {
+  let s = String(content || ''), prompt = '';
+  s = s.replace(/```image[ \t]*\n([\s\S]*?)```/g, (_, b) => { prompt ||= b.trim().slice(0, 1500); return ''; });
+  const open = s.search(/```image/);
+  if (open >= 0) s = s.slice(0, open);
+  else if (streaming) s = s.replace(/`{1,3}(?:i(?:m(?:a(?:g(?:e)?)?)?)?)?$/, '');
+  return { text: s.trim(), prompt };
+}
 function parseMem(content, streaming) {
   let s = String(content || ''), mem = '';
   s = s.replace(/```remember[ \t]*\n([\s\S]*?)```/g, (_, b) => { mem ||= b.trim().slice(0, 200); return ''; });
@@ -318,17 +327,16 @@ function exportMenu() {
     };
   });
 }
-async function genImage() {
+async function genImage(auto, silent) { // auto = คำบรรยายที่ AI เขียนเอง (silent: ไม่มีข้อความฝั่งผู้ใช้)
   if (chat.busy) return;
   if (chat.compare) return showErr('ปิดโหมดเทียบก่อนสร้างรูป');
-  const t = $('#t'), prompt_ = t.value.trim() || await promptSheet('บรรยายรูปที่ต้องการสร้าง', '', { title: 'สร้างรูปด้วย AI', placeholder: 'เช่น แมวส้มใส่แว่นกันแดด สไตล์อนิเมะ', ok: 'Generate image' });
+  const t = $('#t'), prompt_ = typeof auto === 'string' ? auto : t.value.trim() || await promptSheet('บรรยายรูปที่ต้องการสร้าง', '', { title: 'สร้างรูปด้วย AI', placeholder: 'เช่น แมวส้มใส่แว่นกันแดด สไตล์อนิเมะ', ok: 'Generate image' });
   if (!prompt_?.trim()) return;
-  t.value = ''; t.style.height = 'auto'; $('#e').textContent = '';
-  chat.msgs.push({ role: 'user', content: '🎨 ' + prompt_ }); appendMsg(chat.msgs.at(-1));
+  if (!silent) { t.value = ''; t.style.height = 'auto'; $('#e').textContent = ''; chat.msgs.push({ role: 'user', content: '🎨 ' + prompt_ }); appendMsg(chat.msgs.at(-1)); }
   const ai = { role: 'assistant', content: '', model: 'สร้างรูป', streaming: true }; chat.msgs.push(ai); appendMsg(ai);
   setBusy(true);
-  try { const r = await api('/image', { method: 'POST', body: { prompt: prompt_, chat_id: chat.id } }); ai.content = `![${prompt_.slice(0, 80).replace(/[\[\]]/g, '')}](${r.src})`; setUsage(r.usage); }
-  catch (x) { chat.msgs.splice(-2, 2); t.value = prompt_; showErr(x.message); }
+  try { const r = await api('/image', { method: 'POST', body: { prompt: prompt_, chat_id: chat.id, silent: !!silent } }); ai.content = `![${prompt_.slice(0, 80).replace(/[\[\]]/g, '')}](${r.src})`; setUsage(r.usage); }
+  catch (x) { if (silent) chat.msgs.pop(); else { chat.msgs.splice(-2, 2); t.value = prompt_; } showErr(x.message); }
   ai.streaming = false; setBusy(false); renderAll();
 }
 
@@ -393,7 +401,7 @@ function msgHTML(m, i, isNew) {
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts">${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}">Remember</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  const { text: t0, mem } = parseMem(m.content, m.streaming), { text, asks } = parseAsk(t0, m.streaming);
+  const { text: t00, mem } = parseMem(m.content, m.streaming), { text: t0 } = parseImg(t00, m.streaming), { text, asks } = parseAsk(t0, m.streaming);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${thinkHTML(m)}${mcpH}<div class="b">${text ? md(text) : m.thinking || asks.length ? '' : DOTS}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
@@ -545,6 +553,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   const empty = !ai.content && !ai.thinking;
   if (empty && chat.msgs.at(-1) === ai) chat.msgs.pop();
   setBusy(false); renderAll();
+  if (!streamErr && !aborted && !empty && !chat.compare) { const g = parseImg(ai.content); if (g.prompt) genImage(g.prompt, true); } // AI สั่งสร้างรูปเอง
   if (streamErr) showErr(streamErr, true);
   else if (aborted) showErr('หยุดแล้ว · ถ้าเซิร์ฟเวอร์ตอบจบแล้ว ระบบจะดึงคำตอบมาแสดงให้เอง');
   else if (empty) {

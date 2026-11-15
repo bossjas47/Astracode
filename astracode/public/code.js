@@ -57,10 +57,15 @@ async function codeHome() {
 
 // ---------- ตัวแก้โค้ด ----------
 const edTheme = () => CM.EditorView.theme({
-  '&': { height: '100%', backgroundColor: '#0d0b09' },
-  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 12px)', lineHeight: '1.5' },
-  '.cm-gutters': { backgroundColor: '#14110f', border: 'none', color: '#a39a8d' },
-  '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: '#ffffff0d' },
+  '&': { height: '100%', backgroundColor: 'transparent' }, // พื้นหลังไล่เฉดอยู่ที่ .ide-editor
+  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 12px)', lineHeight: '1.55' },
+  '.cm-content': { paddingTop: '10px', paddingBottom: '40px', caretColor: '#e8a183' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#e8a183', borderLeftWidth: '2px' },
+  '.cm-gutters': { backgroundColor: 'rgba(255,255,255,.025)', borderRight: '1px solid rgba(255,255,255,.06)', color: '#6f665b' },
+  '.cm-activeLine': { backgroundColor: 'rgba(217,119,87,.07)' },
+  '.cm-activeLineGutter': { backgroundColor: 'rgba(217,119,87,.10)', color: '#e8a183' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'rgba(217,119,87,.30)' },
+  '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'rgba(217,119,87,.25)', outline: '1px solid rgba(217,119,87,.5)' },
   '.cm-panels': { backgroundColor: '#221e1a', color: '#f4efe8' },
   '.cm-ghost': { color: '#6e6e73', cursor: 'pointer' },
 }, { dark: true });
@@ -77,10 +82,37 @@ function extensions(path) {
 }
 function stateFor(path) {
   let s = IDE.states.get(path);
-  if (!s) { s = CM.EditorState.create({ doc: IDE.files.get(path) ?? '', extensions: extensions(path) }); IDE.states.set(path, s); }
+  if (!s) { s = CM.EditorState.create({ doc: isImg(path) ? '' : IDE.files.get(path) ?? '', extensions: extensions(path) }); IDE.states.set(path, s); }
   return s;
 }
-const content = p => (p === IDE.active ? IDE.view.state : IDE.states.get(p))?.doc.toString() ?? IDE.files.get(p) ?? '';
+// รูปในโปรเจกต์ = ไฟล์ข้อความที่เนื้อหาเป็น data URL (ย่อด้วยเบราว์เซอร์ก่อนเก็บ ไม่เกิน ~420KB) · ไม่ sync ขึ้น GitHub
+const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i, isImg = p => IMG_RE.test(p), isDataImg = t => typeof t === 'string' && t.startsWith('data:image/');
+const content = p => isImg(p) ? IDE.files.get(p) ?? '' : (p === IDE.active ? IDE.view.state : IDE.states.get(p))?.doc.toString() ?? IDE.files.get(p) ?? '';
+const readDataUrl = f => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no(new Error('อ่านรูปไม่ได้')); r.readAsDataURL(f); });
+// ย่อรูป (ด้านยาวสุด 1024px) เป็น JPEG ให้ไม่เกิน limit ตัวอักษรของ data URL · รับ data URL หรือ Blob
+function shrinkImage(src, { max = 1024, limit = 420000 } = {}) {
+  return new Promise((ok, no) => {
+    const url = typeof src === 'string' ? src : URL.createObjectURL(src), img = new Image();
+    img.onload = () => {
+      if (typeof src !== 'string') URL.revokeObjectURL(url);
+      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      let w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k)), q = .86, out;
+      const draw = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h); return c; };
+      let c = draw(); out = c.toDataURL('image/jpeg', q);
+      while (out.length > limit && q > .45) { q -= .1; out = c.toDataURL('image/jpeg', q); }
+      while (out.length > limit && w > 64) { w = Math.round(w * .75); h = Math.round(h * .75); c = draw(); out = c.toDataURL('image/jpeg', .7); }
+      ok({ data: out, w, h });
+    };
+    img.onerror = () => no(new Error('อ่านรูปไม่ได้'));
+    img.src = url;
+  });
+}
+// ไฟล์รูปที่ผู้ใช้อัปโหลด → { path, content } (เก็บในโฟลเดอร์ images/ · เล็กพออยู่แล้วคงรูปเดิม ไม่งั้นย่อเป็น .jpg)
+async function imageFile(f) {
+  const d = await readDataUrl(f), base = f.name.replace(/^.*\//, '');
+  if (d.length <= 420000) return { path: 'images/' + base, content: d };
+  const r = await shrinkImage(d); return { path: 'images/' + base.replace(/\.\w+$/, '') + '.jpg', content: r.data };
+}
 const has = p => IDE.files.has(p);
 
 function markDirty(path) {
@@ -112,14 +144,28 @@ function openFile(path) {
   IDE.recent = [path, ...(IDE.recent || []).filter(x => x !== path)].slice(0, 8);
   try { localStorage.setItem('recent:' + IDE.pid, JSON.stringify(IDE.recent)); } catch { /* ไม่มีที่เก็บ ไม่เป็นไร */ }
   if (IDE.active && IDE.view) IDE.states.set(IDE.active, IDE.view.state);
-  IDE.view.setState(stateFor(path));
+  IDE.view.setState(stateFor(path)); showImg(path);
   IDE.active = path;
   if (!IDE.open.includes(path)) IDE.open.push(path);
   drawTabs(); drawTree(); drawRecent(); setPane('code'); drawer(false);
 }
+// ดูรูปในโปรเจกต์ (แทนตัวแก้ไขข้อความ)
+function showImg(path) {
+  const v = $('#imgview'), main = $('.ide-main'); if (!v || !main) return;
+  const d = path && isImg(path) ? IDE.files.get(path) : '', on = isDataImg(d);
+  v.hidden = !on; main.classList.toggle('isimg', on); if (!on) return;
+  v.innerHTML = `<div class="iv-box"><img alt="${esc(path)}" src="${d}"><div class="iv-meta"><b>${esc(path)}</b><span class="muted" id="ivsz">~${Math.round(d.length / 1365)}KB</span></div>
+    <p class="muted" style="margin:0 0 10px;font-size:12.5px">ใช้ในโค้ดด้วย &lt;img src="${esc(path)}"&gt; หรือ url(${esc(path)})</p><div class="row"><button class="btn out sm" id="ivcp">Copy path</button><button class="btn red sm" id="ivdel">Delete</button></div></div>`;
+  const im = v.querySelector('img'); im.onload = () => { const z = $('#ivsz'); if (z) z.textContent = `${im.naturalWidth}×${im.naturalHeight}px · ~${Math.round(d.length / 1365)}KB`; };
+  $('#ivcp').onclick = e => copy(path, e.target);
+  $('#ivdel').onclick = async () => {
+    if (!await confirmSheet(`ลบ ${path} ?`, { title: 'ยืนยันการลบ', ok: 'Delete', danger: true })) return;
+    try { await api(`/projects/${IDE.pid}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' }); dropFile(path); refresh(); } catch (x) { setStatus(x.message, true); }
+  };
+}
 function closeTab(path) {
   IDE.open = IDE.open.filter(p => p !== path);
-  if (IDE.active === path) { const n = IDE.open.at(-1) || [...IDE.files.keys()][0]; IDE.active = null; if (n) openFile(n); else IDE.view.setState(CM.EditorState.create({ doc: '' })); }
+  if (IDE.active === path) { const n = IDE.open.at(-1) || [...IDE.files.keys()][0]; IDE.active = null; if (n) openFile(n); else { IDE.view.setState(CM.EditorState.create({ doc: '' })); showImg(null); } }
   drawTabs();
 }
 function drawTabs() {
@@ -147,7 +193,7 @@ function drawTree() {
   $('#tree').querySelectorAll('[data-fmenu]').forEach(b => b.onclick = () => menu(b, b.dataset.fmenu, false));
   $('#tree').querySelectorAll('[data-dmenu]').forEach(b => b.onclick = () => menu(b, b.dataset.dmenu, true));
 }
-const icon = p => { const e = p.split('.').pop().toLowerCase(), k = { html: 'web', htm: 'web', css: 'palette', js: 'filecode', mjs: 'filecode', ts: 'filecode', tsx: 'filecode', jsx: 'filecode', py: 'py', json: 'braces2', md: 'filetext' }[e] || 'file'; return ic(k, 'f-' + e); };
+const icon = p => { const e = p.split('.').pop().toLowerCase(), k = { html: 'web', htm: 'web', css: 'palette', js: 'filecode', mjs: 'filecode', ts: 'filecode', tsx: 'filecode', jsx: 'filecode', py: 'py', json: 'braces2', md: 'filetext', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', ico: 'image', avif: 'image' }[e] || 'file'; return ic(k, 'f-' + e); };
 function menu(btn, path, folder) {
   const open = document.querySelector('.tmenu'), same = open && open.previousElementSibling === btn.closest('.trow');
   open?.remove(); if (same) return; // กดซ้ำที่ปุ่มเดิม = ปิดเมนู
@@ -220,7 +266,7 @@ async function readText(f) {
 }
 async function uploadFiles(list) {
   const out = [], skip = [];
-  for (const f of list) try { out.push({ path: f.name, content: await readText(f) }); } catch (x) { skip.push(x.message); }
+  for (const f of list) try { out.push(/^image\/(?!svg)/.test(f.type) || IMG_RE.test(f.name) ? await imageFile(f) : { path: f.name, content: await readText(f) }); } catch (x) { skip.push(x.message); }
   if (out.length) await writeFiles(out);
   setStatus(`อัปโหลด ${out.length} ไฟล์` + (skip.length ? ` · ข้าม: ${skip.join(', ')}` : ''), skip.length > 0);
 }
@@ -233,6 +279,10 @@ async function importZip(file) {
   const strip = roots.size === 1 && entries.every(e => e.name.includes('/')); // zip ที่มีโฟลเดอร์ครอบชั้นเดียว
   for (const e of entries) {
     const path = strip ? e.name.split('/').slice(1).join('/') : e.name;
+    if (IMG_RE.test(path)) { // รูปใน zip: เก็บเป็น data URL (ย่อถ้าใหญ่)
+      try { const ext = path.split('.').pop().toLowerCase(), mime = { jpg: 'jpeg', jpeg: 'jpeg', svg: 'svg+xml', ico: 'x-icon' }[ext] || ext; let d = `data:image/${mime};base64,` + await e.async('base64'); if (d.length > 420000) d = (await shrinkImage(d)).data; out.push({ path, content: d }); } catch { skip.push(path); }
+      continue;
+    }
     const t = await e.async('string');
     if (t.length > 500e3 || t.includes('\u0000')) { skip.push(path); continue; }
     out.push({ path, content: t });
@@ -243,7 +293,7 @@ async function importZip(file) {
 }
 async function exportZip() {
   await saveNow(); await lib('jszip');
-  const z = new JSZip(); for (const p of IDE.files.keys()) z.file(p, content(p));
+  const z = new JSZip(); for (const p of IDE.files.keys()) isImg(p) && isDataImg(content(p)) ? z.file(p, content(p).split(',')[1], { base64: true }) : z.file(p, content(p));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(await z.generateAsync({ type: 'blob' })); a.download = IDE.name.replace(/[^\wก-๙-]+/g, '_') + '.zip';
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
@@ -281,7 +331,7 @@ function buildHtml(htmlPath, jsPath, forExport = false) {
   const importMap = Object.keys(imports).length ? `<script type="importmap">${JSON.stringify({ imports })}<\/script>` : '';
   const dir = dirOf(htmlPath);
   html = html.replace(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi, (m, href) => { const fp = resolveFrom(dir, href); return fp && has(fp) && /stylesheet/i.test(m) ? `<style>\n${content(fp)}\n</style>` : m; })
-    .replace(/<img\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>/gi, (m, a, src, b) => { const fp = resolveFrom(dir, src); return fp && has(fp) && /\.svg$/i.test(fp) ? `<img${a}src="data:image/svg+xml;base64,${toB64(content(fp))}"${b}>` : m; })
+    .replace(/<img\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>/gi, (m, a, src, b) => { const fp = resolveFrom(dir, src); return fp && has(fp) && /\.svg$/i.test(fp) ? `<img${a}src="data:image/svg+xml;base64,${toB64(content(fp))}"${b}>` : fp && isImg(fp) && isDataImg(IDE.files.get(fp)) ? `<img${a}src="${IDE.files.get(fp)}"${b}>` : m; })
     .replace(/<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi, (m, a, src, b) => {
       const fp = resolveFrom(dir, src);
       if (!fp || !has(fp)) return m;
@@ -290,6 +340,7 @@ function buildHtml(htmlPath, jsPath, forExport = false) {
       return `<script${a}${b}>\n${body.replace(/<\/script/gi, '<\\/script')}\n</script>`;
     })
     .replace(/<script\b([^>]*\btype\s*=\s*["']module["'][^>]*)>([\s\S]*?)<\/script>/gi, (m, attrs, body) => /src=/.test(attrs) ? m : `<script${attrs}>${rewriteMod(body, dir).replace(/<\/script/gi, '<\\/script')}</script>`);
+  html = html.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, ref) => { const fp = resolveFrom(dir, ref); return fp && isImg(fp) && isDataImg(IDE.files.get(fp)) ? `url(${q}${IDE.files.get(fp)}${q})` : m; }); // รูปใน CSS
   const headAdd = (forExport ? '' : CAPTURE) + importMap;
   return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + headAdd) : headAdd + html;
 }
@@ -428,6 +479,29 @@ async function nodeRun(cmd) {
 }
 const PATH_OK = p => p && !p.startsWith('node_modules/') && p.length < 200;
 // AI สั่ง RUN: ใช้การแก้ไขของข้อความนั้นก่อน แล้วรัน แล้วส่งผลกลับให้ AI
+// AI สั่งสร้างรูปด้วยบรรทัด `IMAGE <คำบรรยาย> -> images/ชื่อ.jpg` → เรียก /api/image สร้างรูป ย่อ เก็บเป็นไฟล์ในโปรเจกต์ แล้วส่งผลกลับให้ AI ใส่ลงโค้ดต่อเอง
+const IMG_LINE = /^[ \t]*IMAGE[ \t]+(.+?)[ \t]*(?:->|→)[ \t]*(\S+)[ \t]*$/gm;
+const imagesOf = text => [...String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(IMG_LINE)].map(m => {
+  let path = m[2].replace(/^[`'"]|[`'",.]+$/g, '').replace(/^\/+/, '').replace(/[^\w./-]/g, '_').replace(/\.\./g, '_');
+  if (!path.includes('/')) path = 'images/' + path;
+  return { prompt: m[1].trim().slice(0, 1500), path: path.replace(/\.\w+$/, '') + '.jpg' };
+}).slice(0, 2);
+async function imagesForAI(msg, list) {
+  msg.imgdone = true; drawAI();
+  let text = '[ผลการสร้างรูป]';
+  for (const it of list) {
+    setStatus('กำลังสร้างรูป ' + it.path + '...');
+    try {
+      const r = await api('/image', { method: 'POST', body: { prompt: it.prompt, inline: true } });
+      const sm = await shrinkImage(r.src); await writeFiles([{ path: it.path, content: sm.data }]);
+      if (r.usage) { me.usage = r.usage; $('#clim').innerHTML = limHTML(r.usage); }
+      text += `\n\nสร้างแล้ว: ${it.path} (${sm.w}x${sm.h}px, ~${Math.round(sm.data.length / 1365)}KB) ใช้ใน HTML ด้วย <img src="${it.path}"> หรือใน CSS ด้วย url(${it.path})`;
+    } catch (x) { text += `\n\nสร้าง ${it.path} ไม่สำเร็จ: ${x.message}`; }
+  }
+  setStatus('บันทึกแล้ว ✓'); IDE.round = (IDE.round ?? 0) + 1; setPane('ai');
+  IDE.applyNext = true;
+  if (IDE.round <= 5) await codeSend({ text: text + '\n\nใส่รูปลงในโค้ดตามที่ต้องการ แล้วสรุปสั้นๆ ถ้าสร้างรูปไม่สำเร็จให้ใช้ CSS หรือ SVG แทน' });
+}
 async function runForAI(msg, cmds) {
   for (const c of changesOf(msg.content)) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, IDE.msgs[ref[0]]);
   msg.ran = true; drawAI();
@@ -549,19 +623,19 @@ function showDiff(c, label = 'Apply') {
   box.querySelector('#dapply').onclick = async () => { box.remove(); await apply(c); };
 }
 // บรรทัด READ / GREP / LIST ที่ AI ใช้อ่านไฟล์ → แสดงเป็นป้ายเล็กๆ
-const TOOL_LABEL = { READ: ['filetext', 'อ่านไฟล์'], GREP: ['search', 'ค้นหา'], LIST: ['folder', 'ดูโฟลเดอร์'], RUN: ['terminal', 'รันคำสั่ง'] };
+const TOOL_LABEL = { IMAGE: ['image', 'สร้างรูป'], READ: ['filetext', 'อ่านไฟล์'], GREP: ['search', 'ค้นหา'], LIST: ['folder', 'ดูโฟลเดอร์'], RUN: ['terminal', 'รันคำสั่ง'] };
 function stepsOf(text) {
   const out = [];
-  for (const m of String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(/^[ \t]*(READ|GREP|LIST|RUN)\b[ \t]*(?:path=)?(.*)$/gm)) {
+  for (const m of String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(/^[ \t]*(READ|GREP|LIST|RUN|IMAGE)\b[ \t]*(?:path=)?(.*)$/gm)) {
     out.push({ op: m[1], arg: m[2].trim() });
   }
   return out;
 }
-const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/^[ \t]*(READ|GREP|LIST|RUN)\b.*$/gm, '')).join('```').replace(/\n{3,}/g, '\n\n').trim();
+const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/^[ \t]*(READ|GREP|LIST|RUN|IMAGE)\b.*$/gm, '')).join('```').replace(/\n{3,}/g, '\n\n').trim();
 function stepsBar(m, i) {
   const s = stepsOf(m.content); if (!s.length) return '';
   const cnt = k => s.filter(x => x.op === k).length;
-  const parts = [['READ', 'อ่าน', 'ไฟล์'], ['GREP', 'ค้นหา', 'จุด'], ['LIST', 'ดู', 'โฟลเดอร์'], ['RUN', 'รัน', 'คำสั่ง']].map(([k, v, u]) => cnt(k) ? `${v} ${cnt(k)} ${u}` : '').filter(Boolean);
+  const parts = [['READ', 'อ่าน', 'ไฟล์'], ['GREP', 'ค้นหา', 'จุด'], ['LIST', 'ดู', 'โฟลเดอร์'], ['RUN', 'รัน', 'คำสั่ง'], ['IMAGE', 'สร้าง', 'รูป']].map(([k, v, u]) => cnt(k) ? `${v} ${cnt(k)} ${u}` : '').filter(Boolean);
   return `<button type="button" class="steps-bar" data-steps="${i}">${ic('terminal', 'sm')}<span>${parts.join(', ')}</span>${ic('right', 'sm')}</button>`;
 }
 const runCard = (m, i) => { const r = runsOf(m.content); return r.length ? `<div class="changes runs"><span class="muted">AI ขอรันคำสั่ง</span>${r.map(c => `<code>${esc(c)}</code>`).join('')}${m.ran ? '<span class="muted">รันแล้ว ✓</span>' : `<button class="btn blue sm" data-runai="${i}">${ic('terminal', 'sm')} รันแล้วส่งผลให้ AI</button>`}</div>` : ''; };
@@ -634,9 +708,11 @@ async function codeSend(auto) {
   IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
   // โหมดอัตโนมัติ: ใช้การแก้ไขทันที แล้วให้ AI ดูผลลัพธ์เอง (สูงสุด 3 รอบ)
   // Auto-apply: ใช้การแก้ไขทันที (และรันคำสั่งที่ AI ขอ) · ตรวจผลเอง: ใช้การแก้ไข แล้วรัน + จับภาพให้ AI ดู (สูงสุด 3 รอบ)
-  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content) : [], autoOn = IDE.autoApply || IDE.autoMode || barAuto();
+  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content) : [], autoOn = IDE.autoApply || IDE.autoMode || barAuto() || IDE.applyNext, imgs = ai.content ? imagesOf(ai.content) : [];
+  IDE.applyNext = false; // หลังสร้างรูปเสร็จ คำตอบถัดไปที่ใส่รูปลงโค้ดจะถูกใช้ทันที
   try {
-    if (autoOn && runs.length && (IDE.round ?? 0) < 5) await runForAI(ai, runs);
+    if (imgs.length && !ai.imgdone && (IDE.round ?? 0) < 5) await imagesForAI(ai, imgs);
+    else if (autoOn && runs.length && (IDE.round ?? 0) < 5) await runForAI(ai, runs);
     else if (autoOn && ch.length) { for (const c of ch) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, ai); if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < 3) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
 }
@@ -810,7 +886,7 @@ async function codeView(id) {
       <section class="ide-main"><div class="ide-tabs" id="tabs"></div>
         <div class="ide-tools"><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
           <button id="wrapb" aria-label="ตัดบรรทัด">ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">ประวัติ</button><button id="save" aria-label="บันทึก">Save</button></div>
-        <div id="editor" class="ide-editor"></div>
+        <div id="editor" class="ide-editor"></div><div id="imgview" class="imgview" hidden></div>
         <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
         <form class="cmdbar" id="cmdbar"><div class="cmd-opts"><button type="button" id="bmdl" aria-haspopup="dialog"></button><button type="button" id="beff" aria-haspopup="dialog"></button><span class="muted">อัตโนมัติ: แก้ไฟล์ · รัน · ตรวจผล</span></div>
           <div class="cmd-in"><input id="cmdi" placeholder="สั่ง AI แก้ไฟล์นี้ เช่น เพิ่มปุ่มรีเซ็ต" aria-label="สั่ง AI" autocomplete="off"><button aria-label="ส่ง">${ic('up')}</button></div></form>
@@ -912,6 +988,7 @@ async function codeView(id) {
       if (!q) { res.innerHTML = '<p class="muted">พิมพ์คำที่ต้องการค้นหา</p>'; return; }
       const hits = [];
       for (const fp of IDE.files.keys()) {
+        if (isImg(fp)) continue;
         const lines = content(fp).split('\n');
         for (let i = 0; i < lines.length && hits.length < 80; i++) {
           if (lines[i].toLowerCase().includes(q)) hits.push({ fp, ln: i + 1, txt: lines[i].trim().slice(0, 120) });

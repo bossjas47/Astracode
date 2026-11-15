@@ -446,6 +446,14 @@ async function systemFor(env, u, base, sources, skillIds = []) {
 // ค้นเว็บอัตโนมัติเมื่อคำถามดูเป็นข้อมูลสด (ข่าว ราคา อากาศ ผลแข่ง เวอร์ชันล่าสุด) · แอดมินปิดได้ที่ search_auto · shortcut: ใช้ regex ไม่เรียกโมเดลจัดประเภท ถ้าพลาดบ่อยค่อยเปลี่ยนเป็นโมเดลเล็ก
 const FRESH = /ล่าสุด|วันนี้|ตอนนี้|เมื่อวาน|พรุ่งนี้|ข่าว|ราคา(?:ทอง|น้ำมัน|หุ้น|บิทคอยน์|ล่าสุด)|อัตราแลกเปลี่ยน|สภาพอากาศ|พยากรณ์|ผลบอล|ผลการแข่งขัน|ปัจจุบัน|\b(?:latest|today|tonight|news|current(?:ly)?|right now|this (?:week|month|year)|weather|score|release date|stock price)\b|\b202[5-9]\b/i;
 const autoSearch = async (env, text) => typeof text === 'string' && FRESH.test(text) && (await getSetting(env, 'search_auto')) !== '0';
+// บอกโมเดลว่าสร้างรูปได้ (เฉพาะเมื่อแอดมินเปิดระบบสร้างรูปและตั้ง key แล้ว): Code = บรรทัด IMAGE · แชต = บล็อก ```image ให้หน้าเว็บเรียก /api/image ให้เอง
+async function imagePrompt(env, code) {
+  const s = await getSettings(env, ['image_enabled', 'image_key_name']);
+  if (s.image_enabled !== '1' || !env[s.image_key_name]) return '';
+  return code
+    ? '\n\nImage generation is available. When the project needs a real picture (hero, banner, product photo, illustration), write a line on its own: IMAGE <detailed English description> -> images/<name>.jpg (up to 2 per reply), then STOP the reply (no path= blocks, READ or RUN lines in the same reply). The page creates the image, saves it in the project and tells you its path; then use it, e.g. <img src="images/<name>.jpg" alt="..."> or CSS url(images/<name>.jpg). Do not use IMAGE for icons or simple shapes: use CSS or inline SVG for those.'
+    : '\n\nImage generation is available. When the user asks you to draw, create or generate an image, end your reply with ONE block (and only then):\n```image\n<detailed English description of the image>\n```\nThe page creates the image right below your reply. Never say you cannot create images.';
+}
 async function webSearch(env, q) { // Tavily
   if (!env.TAVILY_KEY || (await getSetting(env, 'search_enabled')) === '0') return [];
   try {
@@ -567,7 +575,7 @@ async function runChat(env, J, send, st) {
   const sources = !pid && (J.search || await autoSearch(env, hist.at(-1).content)) ? await webSearch(env, hist.at(-1).content) : [];
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
   const projIns = pid ? (await env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid).first())?.instructions?.trim() : '';
-  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, sources, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : ''); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, sources, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (await imagePrompt(env, !!pid)); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
   const mcpTools = [], mcpMap = new Map();
   if (J.mcp_ids?.length) {
     const srvs = (await env.DB.prepare(`SELECT * FROM mcp_servers WHERE id IN (${J.mcp_ids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...J.mcp_ids, u.id).all().catch(() => ({ results: [] }))).results;
@@ -747,16 +755,17 @@ async function runTools(env, pid, reqs) {
   const files = (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all()).results;
   const out = []; let budget = 200e3;
   for (const { op, arg } of reqs) {
-    if (op === 'LIST') { out.push(`[LIST]\n${files.filter(f => f.path.startsWith(arg)).map(f => `${f.path} (${f.content.length} chars)`).join('\n') || '(ว่าง)'}`); continue; }
+    if (op === 'LIST') { out.push(`[LIST]\n${files.filter(f => f.path.startsWith(arg)).map(f => `${f.path} (${f.content.startsWith('data:image/') ? 'image ~' + Math.round(f.content.length / 1365) + 'KB' : f.content.length + ' chars'})`).join('\n') || '(ว่าง)'}`); continue; }
     if (op === 'READ') {
       const f = files.find(x => x.path === arg);
       if (!f) { out.push(`[READ ${arg}]\n(ไม่พบไฟล์นี้)`); continue; }
+      if (f.content.startsWith('data:image/')) { out.push(`[READ ${arg}]\n(ไฟล์รูปภาพ ~${Math.round(f.content.length / 1365)}KB อ่านเป็นข้อความไม่ได้ · ใช้ใน HTML ด้วย <img src="${arg}"> หรือใน CSS ด้วย url(${arg}))`); continue; }
       const c = f.content.slice(0, Math.min(READ_MAX, budget)); budget -= c.length;
       out.push(`[READ ${arg}]\n${c}${c.length < f.content.length ? '\n…(ตัดเหลือ ' + c.length + ' ตัวอักษรแรก)' : ''}`); continue;
     }
     let re; try { re = new RegExp(arg, 'i'); } catch { re = { test: l => l.toLowerCase().includes(arg.toLowerCase()) }; }
     const hits = [];
-    for (const f of files) { const L = f.content.split('\n'); for (let i = 0; i < L.length && hits.length < 200; i++) if (L[i].length < 2000 && re.test(L[i])) hits.push(`${f.path}:${i + 1}: ${L[i].trim().slice(0, 200)}`); }
+    for (const f of files) { if (f.content.startsWith('data:image/')) continue; const L = f.content.split('\n'); for (let i = 0; i < L.length && hits.length < 200; i++) if (L[i].length < 2000 && re.test(L[i])) hits.push(`${f.path}:${i + 1}: ${L[i].trim().slice(0, 200)}`); }
     out.push(`[GREP ${arg}]\n${hits.join('\n') || '(ไม่พบ)'}`);
   }
   return out.join('\n\n') + '\n\n[ผลจากเครื่องมือ] ทำงานต่อจากเดิม ถ้าต้องอ่านเพิ่มก็สั่งได้อีก ถ้าพร้อมแล้วให้แก้ไฟล์ด้วยบล็อก path= ได้เลย';
@@ -1157,7 +1166,7 @@ async function github(req, env, u, p, sub, now) {
   if (!tok) return err('ยังไม่ได้เชื่อม GitHub', 400);
   const ghApi = (path, opt = {}) => gh(tok, path, { ...opt, base: env.GITHUB_API });
   const head = async () => (await ghApi(`/repos/${p.gh_repo}/git/ref/heads/${encodeURIComponent(p.gh_branch)}`)).object.sha;
-  const local = async () => (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(p.id).all()).results;
+  const local = async () => (await DB.prepare("SELECT path,content FROM project_files WHERE project_id=? AND content NOT LIKE 'data:image/%'").bind(p.id).all()).results; // รูปในโปรเจกต์เก็บเป็น data URL ไม่ sync ขึ้น GitHub
   const save = (sha, synced) => DB.prepare('UPDATE projects SET gh_sha=?, gh_synced=?, updated_at=? WHERE id=?').bind(sha, JSON.stringify(Object.fromEntries(synced)), now, p.id).run();
 
   if (sub === '/github') {
@@ -2105,10 +2114,11 @@ async function imageGen(req, env, u) {
   const now = Date.now(); await touchWindows(env, u.id, now, plan);
   await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,0,0,0,0,?,?,?)').bind(u.id, Math.max(+s.image_cost || 0, 1e-9), +s.image_cost || 0, now).run();
   let src;
+  if (b.inline) return json({ src: 'data:image/png;base64,' + b64(bytes), usage: await usageStatus(env, u, plan) }); // โหมด Code: เบราว์เซอร์ย่อรูปแล้วเก็บเป็นไฟล์ในโปรเจกต์เอง
   if (env.SLIPS) { const name = rand(12) + '.png'; await env.SLIPS.put(`img/${u.id}/${name}`, bytes, { httpMetadata: { contentType: 'image/png' } }); src = `/api/img/${u.id}/${name}`; }
   else src = 'data:image/png;base64,' + b64(bytes); // ไม่มี R2: ส่งกลับอย่างเดียว ไม่เก็บ
   if (b.chat_id && env.SLIPS && await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(b.chat_id, u.id).first())
-    await env.DB.batch([env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'user', '🎨 ' + prompt, Date.now()),
+    await env.DB.batch([...(b.silent ? [] : [env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'user', '🎨 ' + prompt, Date.now())]), // silent = AI สั่งสร้างเอง ไม่มีข้อความฝั่งผู้ใช้
       env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'assistant', `![${prompt.slice(0, 80).replace(/[\[\]]/g, '')}](${src})`, Date.now())]);
   return json({ src, usage: await usageStatus(env, u, plan) });
 }
