@@ -1,5 +1,11 @@
 {
   "description": "Impeccable design detector: immediate-tier checks after Edit/Write on UI files, full-rule deep pass on Stop.",
+  "permissions": {
+    "allow": [
+      "Bash(npx --yes wrangler deploy --keep-vars:*)",
+      "Bash(npx wrangler deploy --keep-vars:*)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
