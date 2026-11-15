@@ -947,3 +947,5 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .pc-v { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .pc-v .oc { font: 400 12px var(--font); color: var(--ash); white-space: nowrap; }
 .pc-v .oc .ok { color: var(--green); } .pc-v .oc .bad { color: var(--red); }
+/* seg buttons sitting side by side (pricing hero): the currency one had a 16px bottom margin and floated higher */
+.hero .row { align-items: center; } .hero .row > .seg { margin-bottom: 0; }
