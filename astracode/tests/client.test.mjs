@@ -22,3 +22,12 @@ test('tool lines glued to prose are parsed and stripped without eating the prose
   const out = ctx.stripTools(t);
   assert.ok(out.includes('ตรวจก่อนครับ') && out.includes('กำลังอ่านไฟล์') && !out.includes('READ') && !out.includes('GREP'), out);
 });
+
+test('biLang picks the Thai or English half of "ไทย || English" text, deep in objects', () => {
+  const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/app.js'), 'utf8');
+  const code = app.slice(app.indexOf('const biLang'), app.indexOf('async function api('));
+  const run = lang => new Function('window', code + '\nreturn biLang;')({ LANG: lang });
+  const d = { note: 'ปิดปรับปรุง || Maintenance', plans: [{ name: 'Pro', desc: 'คุ้มสุด || Best value' }], n: 3 };
+  assert.deepEqual(run('th')(d), { note: 'ปิดปรับปรุง', plans: [{ name: 'Pro', desc: 'คุ้มสุด' }], n: 3 });
+  assert.deepEqual(run('en')(d), { note: 'Maintenance', plans: [{ name: 'Pro', desc: 'Best value' }], n: 3 });
+});

@@ -32,7 +32,7 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>' };
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -275,6 +275,16 @@ const ADMIN = {
     const ts = await api('/admin/tickets');
     const TS = { open: '<span class="pill warn">● รอตอบ</span>', answered: '<span class="pill ok">ตอบแล้ว</span>', closed: '<span class="pill">ปิด</span>' };
     box.innerHTML = ts.map(t => `<a class="urow" href="/admin?tab=tickets&id=${t.id}"><span class="ue"><b>${esc(t.subject)}</b><span class="muted">${esc(t.email)} · ${t.n} ข้อความ · ${ago(t.updated_at)}</span></span>${TS[t.status] || ''}<span class="chev">›</span></a>`).join('') || '<div class="empty-s">ยังไม่มีเรื่อง</div>';
+  },
+
+  async apistats(box) {
+    const d = await api('/admin/apistats'), pct = (e, n) => n ? Math.round(e / n * 1000) / 10 + '%' : '-';
+    const tbl = (head, rows) => rows.length ? `<div class="tw"><table class="tbl"><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.join('')}</table></div>` : '<p class="muted">ยังไม่มีข้อมูล</p>';
+    box.innerHTML = `<p class="muted hint">การใช้ API นักพัฒนา (/v1) ใน 7 วันล่าสุด · บันทึกเก็บ 30 วัน</p>
+      <div class="card"><b>รายวัน</b>${tbl(['วัน', 'คำขอ', 'ผิดพลาด', '%'], d.days.map(r => `<tr><td>${r.d}</td><td>${r.n}</td><td>${r.errors}</td><td>${pct(r.errors, r.n)}</td></tr>`))}</div>
+      <div class="card"><b>ต่อโมเดล</b>${tbl(['โมเดล', 'คำขอ', 'ผิดพลาด', 'เฉลี่ย ms', 'token in/out', 'เก็บเงิน ฿'], d.models.map(r => `<tr><td>${esc(r.model)}</td><td>${r.n}</td><td class="${r.errors / r.n > 0.1 ? 'bad' : ''}">${r.errors} (${pct(r.errors, r.n)})</td><td>${r.ms}</td><td>${r.tin}/${r.tout}</td><td>${r.charge}</td></tr>`))}</div>
+      <div class="card"><b>Key ที่ใช้มากสุด</b>${tbl(['key', 'ผู้ใช้', 'คำขอ', 'ผิดพลาด', 'เก็บเงิน ฿'], d.keys.map(r => `<tr><td>${esc(r.name)} <code>${esc(r.prefix)}…</code></td><td>${esc(r.email)}</td><td>${r.n}</td><td>${r.errors}</td><td>${r.charge}</td></tr>`))}</div>
+      <div class="card"><b>ข้อผิดพลาดล่าสุด</b>${tbl(['เวลา', 'ผู้ใช้', 'endpoint', 'โมเดล', 'status', 'ข้อความ'], d.errors.map(r => `<tr><td>${when(r.created_at)}</td><td>${esc(r.email)}</td><td><code>${esc(r.path)}</code></td><td>${esc(r.model || '-')}</td><td class="bad">${r.status}</td><td>${esc(r.err || '')}</td></tr>`))}</div>`;
   },
 
   async quality(box, reload) {

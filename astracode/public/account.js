@@ -80,6 +80,7 @@ PAGES.account = async function account() {
     <div class="card acc-c" id="sec-look">${h3('การแสดงผล')}
       <label>ธีม</label><div class="seg" id="seg-theme" role="group" aria-label="ธีม">${[['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button type="button" data-t="${k}" class="${(localStorage.getItem('theme') || 'dark') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <label>ภาษา</label>${langSeg()}
+      <label>เอฟเฟกต์กระจก (เบลอ) · Auto ปิดเองบนเครื่องสเปกต่ำ</label><div class="seg" id="seg-fx" role="group" aria-label="เอฟเฟกต์กระจก">${[['auto', 'Auto'], ['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button type="button" data-x="${k}" class="${(localStorage.getItem('fx') || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <label>ขนาดตัวอักษรในแชต</label><div class="seg" id="seg-fs" role="group" aria-label="ขนาดตัวอักษร">${[['s', 'S'], ['m', 'M'], ['l', 'L']].map(([k, l]) => `<button type="button" data-f="${k}" class="${(localStorage.getItem('fsize') || 'm') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
 
     <div class="card acc-c" id="sec-ai">${h3('ปรับ AI ให้เป็นของคุณ')}
@@ -105,7 +106,7 @@ PAGES.account = async function account() {
   const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
   $('#outTop').onclick = doOut;
   const pickSeg = (sel, attr, key) => document.querySelectorAll(sel + ' button').forEach(b => b.onclick = () => { localStorage.setItem(key, b.dataset[attr]); window.applyTheme?.(); document.querySelectorAll(sel + ' button').forEach(x => x.classList.toggle('on', x === b)); });
-  pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize');
+  pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize'); pickSeg('#seg-fx', 'x', 'fx');
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew');
   $('#cp').onsubmit = async e => {

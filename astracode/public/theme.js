@@ -5,6 +5,9 @@
     const pref = get('theme') || 'dark', t = pref === 'auto' ? (mq.matches ? 'light' : 'dark') : pref;
     root.dataset.theme = t;
     const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'light' ? '#faf7f2' : '#12100e';
+    // เอฟเฟกต์กระจก: auto = ปิดเบลอบนเครื่องสเปกต่ำ (RAM ≤ 4GB หรือ ≤ 4 คอร์) หรือเมื่อระบบขอลดความโปร่งใส
+    const fx = get('fx') || 'auto', weak = navigator.deviceMemory <= 4 || navigator.hardwareConcurrency <= 4 || matchMedia('(prefers-reduced-transparency: reduce)').matches;
+    root.toggleAttribute('data-lite', fx === 'off' || (fx === 'auto' && weak));
     root.style.setProperty('--msgfs', ({ s: '13.5px', m: '15px', l: '17px' })[get('fsize') || 'm'] || '15px');
   };
   window.LANG = get('lang') === 'en' ? 'en' : 'th';

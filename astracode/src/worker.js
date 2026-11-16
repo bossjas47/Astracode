@@ -1583,6 +1583,16 @@ async function admin(req, env, path, url, me) {
       .bind(code, b.kind, +b.value, +b.max_uses || 0, b.expires ? +b.expires : null, String(b.note || '').slice(0, 200), b.active === 0 ? 0 : 1, Date.now()).run();
     return json({ ok: true });
   }
+  if (path === '/api/admin/apistats') { // API นักพัฒนา 7 วัน: ต่อโมเดล, key ที่ใช้มากสุด, error ล่าสุด (จาก api_log)
+    const from = Date.now() - 7 * DAY;
+    const [models, keys, errors, days] = await Promise.all([
+      DB.prepare('SELECT COALESCE(model,\'-\') model, COUNT(*) n, SUM(status>=400) errors, ROUND(AVG(ms)) ms, COALESCE(SUM(tin),0) tin, COALESCE(SUM(tout),0) tout, ROUND(COALESCE(SUM(charge),0),2) charge FROM api_log WHERE created_at>=? GROUP BY model ORDER BY n DESC LIMIT 30').bind(from).all(),
+      DB.prepare('SELECT k.name, k.prefix, u.email, COUNT(*) n, SUM(l.status>=400) errors, ROUND(COALESCE(SUM(l.charge),0),2) charge FROM api_log l JOIN api_keys k ON k.id=l.key_id JOIN users u ON u.id=l.user_id WHERE l.created_at>=? GROUP BY l.key_id ORDER BY charge DESC, n DESC LIMIT 20').bind(from).all(),
+      DB.prepare('SELECT l.path, l.model, l.status, l.err, l.created_at, u.email FROM api_log l JOIN users u ON u.id=l.user_id WHERE l.status>=400 AND l.created_at>=? ORDER BY l.id DESC LIMIT 30').bind(from).all(),
+      DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, SUM(status>=400) errors FROM api_log WHERE created_at>=? GROUP BY d ORDER BY d").bind(from).all(),
+    ]);
+    return json({ models: models.results, keys: keys.results, errors: errors.results, days: days.results });
+  }
   if (path === '/api/admin/quality') { // คะแนน 👍/👎 ต่อโมเดล (30 วัน) + รายงานคำตอบ
     await ensureFb(env);
     const from = Date.now() - 30 * DAY;
@@ -2071,6 +2081,15 @@ async function userRoutes(req, env, ctx, url, path, M, u) {
     const days = (await DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, SUM(tokens_in) tin, SUM(tokens_out) tout, SUM(units) units FROM usage WHERE user_id=? AND created_at>=? GROUP BY d ORDER BY d").bind(u.id, from).all()).results;
     const models = (await DB.prepare('SELECT m.name, COUNT(*) n, SUM(x.tokens_in+x.tokens_out) tok FROM usage x LEFT JOIN models m ON m.id=x.model_id WHERE x.user_id=? AND x.created_at>=? GROUP BY x.model_id ORDER BY tok DESC LIMIT 8').bind(u.id, from).all()).results;
     return json({ days: days.map(r => ({ ...r, pct: plan.limit_week > 0 ? Math.round(r.units / plan.limit_week * 1000) / 10 : 0 })), models }); // pct = สัดส่วนของลิมิตสัปดาห์
+  }
+  if (path === '/api/notifications') { // กระดิ่ง: คำนวณจากข้อมูลที่มีอยู่ ไม่มีตารางใหม่ (อ่านแล้ว/ยัง เก็บฝั่งเบราว์เซอร์)
+    const now = Date.now(), out = [];
+    for (const p of (await DB.prepare("SELECT p.id,p.amount,p.status,p.kind,COALESCE(p.approved_at,p.created_at) t,pl.name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE p.user_id=? AND p.status IN ('approved','rejected') AND p.slip_key NOT IN ('wallet','coupon') AND COALESCE(p.approved_at,p.created_at)>? ORDER BY t DESC LIMIT 10").bind(u.id, now - 14 * DAY).all()).results)
+      out.push({ t: p.t, kind: p.status === 'approved' ? 'ok' : 'bad', text: p.status === 'approved' ? (p.kind === 'topup' ? `เติมเงิน ฿${p.amount} เข้า Wallet แล้ว` : `ชำระเงิน ฿${p.amount} สำเร็จ เปิดแพลน ${p.name || ''} แล้ว`) : `สลิป ฿${p.amount} ไม่ผ่านการตรวจ`, href: '/account' });
+    if (u.plan_id && u.plan_expires > now && u.plan_expires < now + 3 * DAY) out.push({ t: u.plan_expires - 3 * DAY, kind: 'warn', text: `แพลนจะหมดอายุ ${new Date(u.plan_expires + BKK).toISOString().slice(0, 10)}`, href: '/plans' });
+    for (const k of (await DB.prepare('SELECT name,budget,spent,last_used FROM api_keys WHERE user_id=? AND revoked=0 AND budget>0 AND spent_month=? AND spent>=budget*0.8').bind(u.id, monthKey()).all()).results)
+      out.push({ t: k.last_used || now, kind: k.spent >= k.budget ? 'bad' : 'warn', text: `API key "${k.name}" ใช้งบเดือนนี้ไป ฿${(+k.spent).toFixed(2)} จาก ฿${k.budget}`, href: '/developers' });
+    return json(out.sort((a, b) => b.t - a.t));
   }
   if (path === '/api/wallet') {
     const ref = await DB.prepare('SELECT COUNT(*) n, SUM(ref_rewarded) paid FROM users WHERE referred_by=?').bind(u.id).first();

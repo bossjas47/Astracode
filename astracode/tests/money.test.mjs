@@ -50,3 +50,19 @@ test('auto-renew: renews from the wallet when it can, leaves the plan alone when
   t.ctx.pending.length = 0; t.worker.default.scheduled({}, t.env, t.ctx); await Promise.all(t.ctx.pending);
   assert.equal(row(t, rich.id).balance, 20, 'a second cron run does not charge again');
 });
+
+test('notifications list approved payments, an expiring plan and a key near its budget; admin API stats read the request log', async () => {
+  const t = await makeEnv(), plan = addPlan(t.DB, { price: 100 }), u = await t.user(), admin = await t.user({ role: 'admin' }), now = Date.now();
+  t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at) VALUES (?,?,?,?,?,?,?,?,?)").run(u.id, 0, 200, 'slip/x', 'approved', 'topup', 'month', now, now);
+  t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, now + 864e5, u.id);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at,budget,spent,spent_month) VALUES (?,?,?,?,?,?,?,?)').run(u.id, 'bot', 'h', 'sk-astra-x', now, 10, 9, new Date(now + 7 * 3600e3).toISOString().slice(0, 7));
+  const n = await t.json('/api/notifications', { cookie: u.cookie });
+  assert.equal(n.status, 200); assert.deepEqual(n.data.map(x => x.kind).sort(), ['ok', 'warn', 'warn']);
+  assert.equal((await t.json('/api/notifications', { cookie: admin.cookie })).data.length, 0, 'other users see nothing of it');
+  await t.json('/api/version'); // ให้ตาราง api_log ถูกสร้าง
+  t.DB.raw.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,charge,ms,err,created_at) VALUES (1,?,?,?,?,?,?,?,?,?,?)').run(u.id, '/v1/chat/completions', 'm1', 200, 10, 5, 0.5, 100, null, now);
+  t.DB.raw.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,charge,ms,err,created_at) VALUES (1,?,?,?,?,?,?,?,?,?,?)').run(u.id, '/v1/chat/completions', 'm1', 502, 0, 0, 0, 300, 'boom', now);
+  const s = await t.json('/api/admin/apistats', { cookie: admin.cookie });
+  assert.equal(s.status, 200); assert.equal(s.data.models[0].n, 2); assert.equal(s.data.models[0].errors, 1); assert.equal(s.data.errors[0].err, 'boom'); assert.equal(s.data.keys[0].name, 'bot');
+  assert.ok((await t.json('/api/admin/apistats', { cookie: u.cookie })).status >= 400);
+});
