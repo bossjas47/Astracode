@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS models (
   cost_cache REAL NOT NULL DEFAULT 0,       -- cache read
   cost_cache_write REAL NOT NULL DEFAULT 0,
   vision INTEGER NOT NULL DEFAULT 0,        -- อ่านรูปได้
+  req_cost REAL, req_price REAL,            -- คิดเหมาต่อ request: ต้นทุน/ราคาขาย (บาท) · ตั้งแล้วไม่คิดตามจำนวน token
   price_in REAL, price_out REAL, price_cache REAL, price_cache_write REAL, -- ราคาขาย/1M token (ว่าง = ทุน + markup)
   public INTEGER NOT NULL DEFAULT 1,        -- แสดงในหน้าราคา
   note TEXT NOT NULL DEFAULT '',            -- คำอธิบายในหน้าราคา

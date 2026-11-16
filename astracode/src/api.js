@@ -119,8 +119,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     let maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined, walletKey = null;
     if (billingMode === 'wallet') { // ตัดเงินหลังตอบ: จำกัดผลลัพธ์ไม่ให้เกินยอดที่เหลือ และให้ใช้ Wallet ทีละคำขอต่อผู้ใช้ กันยิงขนานจนยอดติดลบ
       const pr = await priceOf(env, m), need = Math.ceil((JSON.stringify(hist).length + system.length) / 2) * pr.in / 1e6, room = k.balance - need;
-      if (!(room > 0) || (isImg && room < pr.out)) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
-      maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * 1e6 / Math.max(pr.out, 1e-9))));
+      if (pr.req > 0 ? k.balance < pr.req : (!(room > 0) || (isImg && room < pr.out))) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
+      if (!(pr.req > 0)) maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * 1e6 / Math.max(pr.out, 1e-9)))); // คิดเหมาต่อ request ไม่ต้องจำกัดความยาวตามยอดที่เหลือ
       walletKey = 'walletlock:' + k.id; // shortcut: ล็อกหมดอายุเอง 3 นาทีถ้าคำขอล้มก่อนจบ, ถ้าต้องการเข้มกว่านี้ให้จองยอดล่วงหน้าแบบ atomic
       if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(walletKey, Date.now() + 180e3, Date.now()).first()) return fail('มีคำขอที่ใช้ Wallet ค้างอยู่ รอให้เสร็จก่อน', 429, 'rate_limit_error');
     }

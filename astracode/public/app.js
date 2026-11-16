@@ -620,10 +620,10 @@ async function pricing() {
     ${m.promo ? `<p class="sale-t">${period(m.promo)}</p>` : ''}
     ${m.note ? `<p class="muted">${esc(m.note)}</p>` : ''}
     <div class="pc-rows">
-      <div><span>Input</span>${cell(m, 'in')}</div>
+      ${m.req ? `<div><span>ต่อ 1 request</span><span class="pc-v"><b>${curSign()}${money(toCur(m.req))}</b></span></div>` : `<div><span>Input</span>${cell(m, 'in')}</div>
       <div><span>Output</span>${cell(m, 'out')}</div>
       <div><span>Cache read</span>${cell(m, 'cache')}</div>
-      ${m.cache_write ? `<div><span>Cache write</span>${cell(m, 'cache_write')}</div>` : ''}
+      ${m.cache_write ? `<div><span>Cache write</span>${cell(m, 'cache_write')}</div>` : ''}`}
     </div>
     <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}${m.lim != null && m.lim !== 1 ? ` · หักจริง ×${m.lim}` : ''}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
   const draw = () => {

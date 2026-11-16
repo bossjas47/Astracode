@@ -324,7 +324,7 @@ export async function webSearch(env, q) { // Tavily
 }
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
 export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null } = {}) {
-  const cost = (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6;
+  const cost = m.req_cost > 0 ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
@@ -332,7 +332,7 @@ export async function logUsage(env, uid, m, usage, { units = true, wallet = null
     .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now).run();
   let charge = 0;
   if (wallet) {
-    const p = await priceOf(env, m); charge = Math.round((usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6 * 10000) / 10000;
+    const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6) * 10000) / 10000;
     if (charge > 0) await walletAdd(env, uid, -charge, wallet, m.name);
   }
   return charge; // ยอดที่ตัดจาก wallet (0 ถ้าไม่ได้ตัด)
