@@ -507,7 +507,8 @@ async function imagesForAI(msg, list) {
   if (IDE.round <= 5) await codeSend({ text: text + '\n\nใส่รูปลงในโค้ดตามที่ต้องการ แล้วสรุปสั้นๆ ถ้าสร้างรูปไม่สำเร็จให้ใช้ CSS หรือ SVG แทน' });
 }
 async function runForAI(msg, cmds) {
-  for (const c of changesOf(msg.content)) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, msg);
+  const bad = await applyChanges(changesOf(msg.content), msg);
+  if (bad.length) { drawAI(); return feedBack(bad); } // ไฟล์พัง: ไม่รันคำสั่ง ส่งกลับให้ AI แก้ก่อน
   msg.ran = true; drawAI();
   const cut = s => s.length > 6000 ? s.slice(0, 2000) + '\n…(ตัดกลาง)…\n' + s.slice(-4000) : s;
   let text = '[ผลการรันคำสั่ง]';
@@ -572,7 +573,7 @@ function codeTools() {
       if (v === 'share') shareProject().catch(x => $('#ce').textContent = x.message);
       if (v === 'hist') projectHistory().catch(x => $('#ce').textContent = x.message);
       if (v === 'rules') {
-        sheet('กฎประจำโปรเจกต์', `<form class="sheet-form" id="rf"><p class="sheet-msg">AI จะอ่านกฎนี้ทุกครั้งที่สั่งงานในโปรเจกต์นี้ (เช่น Stack, สไตล์โค้ด, ข้อห้าม)</p><textarea name="instructions" rows="5" maxlength="3000" placeholder="เช่น ใช้ Vanilla JS + Tailwind CSS, ตอบสั้นๆ">${esc(IDE.instructions || '')}</textarea><div class="sheet-acts"><button type="button" class="btn out" data-c>Cancel</button><button class="btn blue">Save rule</button></div></form>`, (sd, sclose) => {
+        sheet('กฎประจำโปรเจกต์', `<form class="sheet-form" id="rf"><p class="sheet-msg">AI จะอ่านกฎนี้ทุกครั้งที่สั่งงานในโปรเจกต์นี้ (เช่น Stack, สไตล์โค้ด, ข้อห้าม) · หรือสร้างไฟล์ <code>ASTRA.md</code> ในโปรเจกต์ AI จะอ่านให้อัตโนมัติเช่นกัน</p><textarea name="instructions" rows="5" maxlength="3000" placeholder="เช่น ใช้ Vanilla JS + Tailwind CSS, ตอบสั้นๆ">${esc(IDE.instructions || '')}</textarea><div class="sheet-acts"><button type="button" class="btn out" data-c>Cancel</button><button class="btn blue">Save rule</button></div></form>`, (sd, sclose) => {
           sd.querySelector('[data-c]').onclick = sclose;
           sd.querySelector('#rf').onsubmit = async ev => {
             ev.preventDefault(); const ins = new FormData(ev.target).get('instructions');
@@ -591,7 +592,50 @@ function codeTools() {
 // บล็อกโค้ดที่ AI ตั้งใจให้เป็นไฟล์: ใช้ ```lang path=ชื่อ ตามที่สั่ง · โมเดลบางตัวไม่ทำตาม จึงรับรูปแบบใกล้เคียงด้วย (ชื่อไฟล์ใน info string หรือหัวข้อบรรทัดเหนือบล็อก เช่น ## `index.html`)
 const NOT_FILE_LANG = /^(?:bash|sh|shell|zsh|console|cmd|powershell|ps1|diff|patch|text|txt|log|output)$/i;
 const FILE_NAME = /^[\w][\w./-]{0,150}\.[A-Za-z0-9]{1,8}$/;
-function changesOf(text) {
+// ---------- แก้ไฟล์แบบ SEARCH/REPLACE (ประหยัด token กว่าส่งทั้งไฟล์) ----------
+// บล็อก path=… ที่ข้างในเป็น <<<<<<< SEARCH / ======= / >>>>>>> REPLACE (ได้หลายคู่) → คำนวณเนื้อหาใหม่จากไฟล์ปัจจุบัน
+const EDIT_RE = /^<{5,9} SEARCH[ \t]*\n([\s\S]*?)\n?={5,9}[ \t]*\n([\s\S]*?)\n?>{5,9} REPLACE[ \t]*$/gm;
+const isEditBody = t => /^<{5,9} SEARCH[ \t]*$/m.test(t) && /^>{5,9} REPLACE[ \t]*$/m.test(t);
+// หาตำแหน่งข้อความเดิม: ตรงตัว → ไม่สนช่องว่างท้ายบรรทัด → ไม่สนการเยื้อง (ต้องพบแบบเดียวเท่านั้น)
+function findBlock(text, search) {
+  const tryAt = (norm) => {
+    const T = text.split('\n'), S = search.split('\n'), hits = [];
+    for (let i = 0; i + S.length <= T.length; i++) if (S.every((l, k) => norm(T[i + k]) === norm(l))) hits.push(i);
+    if (hits.length !== 1) return hits.length ? -1 : null;
+    const i = hits[0]; let from = 0; for (let k = 0; k < i; k++) from += T[k].length + 1;
+    let to = from; for (let k = 0; k < S.length; k++) to += T[i + k].length + (k < S.length - 1 ? 1 : 0); // ไม่รวมขึ้นบรรทัดใหม่หลังบรรทัดสุดท้ายของส่วนที่พบ
+    return { from, to };
+  };
+  const exact = text.indexOf(search);
+  if (exact >= 0) return text.indexOf(search, exact + 1) >= 0 ? -1 : { from: exact, to: exact + search.length };
+  for (const norm of [l => l.replace(/\s+$/, ''), l => l.trim()]) { const r = tryAt(norm); if (r) return r; }
+  return null;
+}
+// ใช้ทุกคู่ตามลำดับ · คืน { content } หรือ { error } · ใช้ซ้ำได้ (ถ้าข้อความใหม่อยู่ในไฟล์แล้ว ถือว่าใช้แล้ว)
+function applyEdits(cur, body) {
+  let out = cur ?? '', n = 0;
+  for (const m of body.matchAll(EDIT_RE)) {
+    const search = m[1].replace(/\r/g, ''), rep = m[2].replace(/\r/g, '');
+    if (!search.trim()) { if (cur == null && n === 0) { out = rep + '\n'; n++; continue; } return { error: 'ส่วน SEARCH ว่างเปล่า (ใช้ได้เฉพาะสร้างไฟล์ใหม่)' }; }
+    if (cur == null) return { error: 'ไฟล์นี้ยังไม่มี แต่ใช้ SEARCH/REPLACE (ไฟล์ใหม่ให้ส่งทั้งไฟล์)' };
+    const at = findBlock(out, search);
+    if (at && at !== -1) { out = out.slice(0, at.from) + rep + out.slice(at.to); n++; continue; }
+    if (rep.trim() && out.includes(rep.trim())) continue; // ใช้ไปแล้ว
+    return { error: at === -1 ? `ข้อความใน SEARCH ซ้ำหลายที่ในไฟล์ (ระบุบรรทัดรอบข้างให้ชัดขึ้น): ${search.split('\n')[0].slice(0, 80)}` : `ไม่พบข้อความใน SEARCH ในไฟล์นี้ (ต้องตรงกับไฟล์ปัจจุบัน): ${search.split('\n')[0].slice(0, 80)}` };
+  }
+  return { content: out.replace(/\n?$/, '\n') };
+}
+// ตรวจก่อนเขียนทับ: คืนข้อความปัญหา หรือ '' ถ้าผ่าน · ตรวจเฉพาะสิ่งที่ตัดสินได้แน่ (JSON, JS ธรรมดา, ไฟล์หดผิดปกติ) เพื่อไม่ปฏิเสธไฟล์ที่ถูกต้อง
+const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
+function problemOf(path, next, cur) {
+  if (/\.json$/i.test(path)) { try { JSON.parse(next); } catch (e) { return `JSON ไม่ถูกต้อง: ${e.message}`; } }
+  else if (/\.(?:js|mjs|cjs)$/i.test(path) && !/^\s*(?:import|export)\b/m.test(next) && !/<\/?[A-Za-z][\w.-]*[\s>/]/.test(next)) { // ไม่มี import/export/JSX/HTML ในไฟล์ → ลอง parse ได้ตรงๆ
+    try { new AsyncFn(next); } catch (e) { if (e instanceof SyntaxError) return `JavaScript มี syntax error: ${e.message}`; }
+  }
+  if (cur && cur.length > 2000 && next.length < cur.length * 0.5 && !/\.(?:md|txt|csv|log)$/i.test(path)) return `ไฟล์หดลงเหลือ ${Math.round(next.length / cur.length * 100)}% ของเดิม (${cur.length} → ${next.length} ตัวอักษร) อาจถูกตัดกลางทาง`;
+  return '';
+}
+function changesOf(text, getFile = p => has(p) ? content(p) : null) {
   const map = new Map();
   text = String(text || '');
   let last = 0;
@@ -608,7 +652,10 @@ function changesOf(text) {
         if (f && FILE_NAME.test(f[1]) && !/^https?:/i.test(f[1])) path = f[1];
       }
     }
-    if (path) map.set(path, { path, content: m[2].replace(/\n?$/, '\n') });
+    if (path && isEditBody(m[2])) {
+      const prev = map.get(path), cur = prev && !prev.error ? prev.content : getFile(path), r = applyEdits(cur, m[2]);
+      map.set(path, r.error ? { path, error: r.error, edit: true } : { path, content: r.content, edit: true });
+    } else if (path) map.set(path, { path, content: m[2].replace(/\n?$/, '\n') });
   }
   for (const m of text.matchAll(/^DELETE path=(\S+)/gm)) map.set(m[1], { path: m[1], del: true });
   return [...map.values()];
@@ -635,15 +682,35 @@ function lineDiff(a, b) {
 function changeCards(m, i) {
   const ch = changesOf(m.content); if (!ch.length) return '';
   return `<div class="changes">${ch.map((c, k) => {
+    if (c.error) return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span><span class="bad" title="${esc(c.error)}">แก้ไม่ได้</span><span class="muted" style="font-size:12px">${esc(c.error.slice(0, 90))}</span></div>`;
     const cur = has(c.path) ? content(c.path) : null;
     const same = c.del ? cur == null : cur === c.content;
     const d = !c.del && cur != null && !same ? lineDiff(cur, c.content) : null;
     const tag = c.del ? '<span class="bad">ลบ</span>' : cur == null ? '<span class="ok">ไฟล์ใหม่</span>' : d ? `<span class="ok">+${d.add}</span> <span class="bad">−${d.del}</span>` : '';
     return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span>${tag}
       ${same ? '<span class="muted">ใช้แล้ว ✓</span>' : `${c.del ? '' : `<button data-diff="${i}:${k}">View diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'Delete file' : 'Apply'}</button>`}</div>`;
-  }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(c => (c.del ? has(c.path) : content(c.path) !== c.content || !has(c.path))).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply all</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} Undo this batch</button>` : ''}</div></div>`;
+  }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(needsApply).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply all</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} Undo this batch</button>` : ''}</div></div>`;
 }
-async function apply(c, msg) {
+const needsApply = c => !c.error && (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content);
+// ใช้การแก้ไขทั้งหมดของข้อความนี้ · คืนรายการที่ใช้ไม่ได้ (SEARCH ไม่ตรง / ไฟล์ไม่ผ่านการตรวจ) เพื่อส่งกลับให้ AI แก้เอง
+async function applyChanges(ch, msg) {
+  const bad = [];
+  for (const c of ch) {
+    if (c.error) { bad.push(`${c.path}: ${c.error}`); continue; }
+    if (!needsApply(c)) continue;
+    try { await apply(c, msg, false); } catch (x) { if (x.problem) bad.push(`${c.path}: ${x.message}`); else throw x; }
+  }
+  if (bad.length) { msg.rejected = bad; $('#ce').textContent = 'มีไฟล์ที่ยังไม่ถูกใช้: ' + bad.length + ' ไฟล์'; drawAI(); }
+  return bad;
+}
+// ส่งปัญหากลับให้ AI (ไม่เกิน 3 รอบ) · AI ต้อง READ ไฟล์ก่อนแก้ซ้ำ
+async function feedBack(bad) {
+  if (!bad.length || (IDE.round ?? 0) >= 3) return;
+  IDE.round = (IDE.round ?? 0) + 1;
+  await codeSend({ auto: { text: `การแก้ไขบางไฟล์ยังไม่ถูกใช้ ไม่มีอะไรถูกเขียนทับในไฟล์เหล่านี้:\n${bad.map(x => '- ' + x).join('\n')}\n\nใช้ READ อ่านไฟล์ที่เกี่ยวข้องก่อน แล้วส่งการแก้ที่ถูกต้องใหม่ (ถ้าแก้ไฟล์ที่มีอยู่ ให้ SEARCH ตรงกับเนื้อหาจริงของไฟล์ ถ้าเปลี่ยนเกือบทั้งไฟล์ให้ส่งทั้งไฟล์)` } });
+}
+async function apply(c, msg, force = true) {
+  if (!c.del && !force) { const why = problemOf(c.path, c.content, has(c.path) ? content(c.path) : null); if (why) throw Object.assign(new Error(why), { problem: true }); }
   if (msg) {
     msg._prev ||= [];
     if (!msg._prev.some(x => x.path === c.path)) msg._prev.push({ path: c.path, existed: has(c.path), prev: has(c.path) ? content(c.path) : '' });
@@ -687,6 +754,7 @@ function stepsBar(m, i) {
   return `<button type="button" class="steps-bar" data-steps="${i}">${ic('terminal', 'sm')}<span>${parts.join(', ')}</span>${ic('right', 'sm')}</button>`;
 }
 const runCard = (m, i) => { const r = runsOf(m.content); return r.length ? `<div class="changes runs"><span class="muted">AI ขอรันคำสั่ง</span>${r.map(c => `<code>${esc(c)}</code>`).join('')}${m.ran ? '<span class="muted">รันแล้ว ✓</span>' : `<button class="btn blue sm" data-runai="${i}">${ic('terminal', 'sm')} รันแล้วส่งผลให้ AI</button>`}</div>` : ''; };
+const ktok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 function aiMsgHTML(m, i) {
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
@@ -696,7 +764,7 @@ function aiMsgHTML(m, i) {
   const cleanBody = stripTools(ask.text);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${hasSegs(m) ? segHTML(m, cleanBody) : cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : waitHTML(m)}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
-    + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;
+    + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${m.tin || m.tout ? `<span class="tok" title="Input ${m.tin || 0} · Output ${m.tout || 0} token">↑${ktok(m.tin || 0)} ↓${ktok(m.tout || 0)}${m.rounds ? ` · ${m.rounds} รอบ` : ''}${m.cost ? ` · ฿${m.cost}` : ''}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;
 }
 function drawAI() {
   const box = $('#cmsgs'); if (!box) return;
@@ -720,7 +788,13 @@ async function codeSend(auto) {
   await saveNow();
   const files = []; // ไม่มีระบบแนบไฟล์: AI อ่านไฟล์เองด้วย READ / GREP
   const tree = resume ? '' : [...IDE.files.keys()].join('\n').slice(0, 15000) + (IDE.active && has(IDE.active) ? `\n\n[ไฟล์ที่เปิดอยู่ในตัวแก้ไข: ${IDE.active}]` : '');
-  const full = resume ? '' : `${text}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${tree}`;
+  // ไฟล์ที่เปิดอยู่ (ถ้าเป็นข้อความและไม่ใหญ่เกิน) + ข้อความที่ผู้ใช้เลือกไว้: AI ไม่ต้อง READ ซ้ำ (เซิร์ฟเวอร์ตัดออกจากข้อความเก่า)
+  const openBlock = (() => {
+    if (resume || auto || !IDE.active || !has(IDE.active) || isImg(IDE.active)) return '';
+    const c = content(IDE.active), sel = IDE.view && !IDE.view.state.selection.main.empty ? IDE.view.state.sliceDoc(IDE.view.state.selection.main.from, IDE.view.state.selection.main.to) : '';
+    return `\n\n[เนื้อหาไฟล์ที่เปิดอยู่]\n${IDE.active}${c.length > 8000 ? ' (ตัดเหลือ 8000 ตัวอักษรแรก)' : ''}:\n${c.slice(0, 8000)}${sel ? `\n\n[ข้อความที่ผู้ใช้เลือกไว้]\n${sel.slice(0, 3000)}` : ''}`;
+  })();
+  const full = resume ? '' : `${text}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${tree}${openBlock}`;
   const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
   const images = auto?.images || [];
   if (!auto) { t.value = ''; t.style.height = 'auto'; }
@@ -746,7 +820,8 @@ async function codeSend(auto) {
         if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) { const stick = nearBottom(b); paintStreaming(last, ai); if (stick) b.scrollTop = b.scrollHeight; } }); }
         if (d.error) $('#ce').textContent = d.error;
-        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; }
+        if (d.round) setStatus(`AI กำลังทำงาน · รอบที่ ${d.round}/${d.of}`);
+        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }
     }
   } catch (x) {
@@ -774,7 +849,7 @@ async function codeSend(auto) {
   try {
     if (imgs.length && !ai.imgdone && (IDE.round ?? 0) < 5) await imagesForAI(ai, imgs);
     else if (autoOn && runs.length && (IDE.round ?? 0) < 5) await runForAI(ai, runs);
-    else if (autoOn && ch.length) { for (const c of ch) if (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content) await apply(c, ai); if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < 3) await check(); }
+    else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < 3) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
 }
 
@@ -1081,8 +1156,13 @@ async function codeView(id) {
     const ref = (b.dataset.diff || b.dataset.apply || '').split(':').map(Number);
     const c = ref.length === 2 ? changesOf(IDE.msgs[ref[0]].content)[ref[1]] : null;
     try {
-      if (b.dataset.diff) showDiff(c);
-      if (b.dataset.apply) { b.disabled = true; await apply(c); }
+      if (b.dataset.diff) { if (c.error) { toast(c.error, 'bad'); return; } showDiff(c); }
+      if (b.dataset.apply) {
+        if (c.error) { toast(c.error, 'bad'); return; }
+        const why = c.del ? '' : problemOf(c.path, c.content, has(c.path) ? content(c.path) : null);
+        if (why && !await confirmSheet(`${why}\n\nเขียนทับต่อไหม?`, { title: 'ตรวจพบปัญหาในไฟล์', ok: 'เขียนทับ', danger: true })) return;
+        b.disabled = true; await apply(c);
+      }
       if (b.dataset.steps != null) {
         const steps = stepsOf(IDE.msgs[+b.dataset.steps]?.content);
         sheet('ขั้นตอนการทำงาน', `<div class="step-tl">${steps.map(s => `<div class="step-i"><span class="step-ic">${ic(TOOL_LABEL[s.op][0], 'sm')}</span><div><b>${TOOL_LABEL[s.op][1]}</b><code>${esc(s.arg || '/')}</code></div></div>`).join('')}</div>`);
@@ -1097,7 +1177,7 @@ async function codeView(id) {
         for (const dp of dels) { await api(`/projects/${IDE.pid}/file?path=${encodeURIComponent(dp)}`, { method: 'DELETE' }); dropFile(dp); }
         delete msg._prev; refresh(); drawAI(); toast('ย้อนกลับไฟล์เรียบร้อย', 'ok'); return;
       }
-      if (b.dataset.applyall) { b.disabled = true; for (const x of changesOf(IDE.msgs[+b.dataset.applyall].content)) if (x.del ? has(x.path) : content(x.path) !== x.content || !has(x.path)) await apply(x, IDE.msgs[+b.dataset.applyall]); }
+      if (b.dataset.applyall) { b.disabled = true; const m = IDE.msgs[+b.dataset.applyall], bad = await applyChanges(changesOf(m.content), m); if (bad.length) toast(bad[0], 'bad'); }
     } catch (x) { $('#ce').textContent = x.message; drawAI(); }
   };
   drawAI();

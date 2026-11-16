@@ -406,6 +406,7 @@ export async function chat(req, env, u, ctx) {
     chatRow = await env.DB.prepare('SELECT summary,summary_upto FROM chats WHERE id=?').bind(cid).first();
     hist = (await env.DB.prepare('SELECT role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id DESC LIMIT ?').bind(cid, chatRow?.summary_upto || 0, pid ? HISTORY_CODE : HISTORY).all()).results.reverse().map(x => ({ ...x, content: String(x.content || '').replace(/\u2063/g, '') })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
     while (hist.length && hist[0].role !== 'user') hist.shift();
+    if (pid) hist.forEach((x, i) => { if (i < hist.length - 1 && x.role === 'user') x.content = stripOpenFile(x.content); }); // เนื้อหาไฟล์ที่เปิดอยู่ส่งเฉพาะข้อความล่าสุด (ไม่ซ้ำทุกรอบ ประหยัด token)
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
@@ -432,7 +433,8 @@ export async function runChat(env, J, send, st) {
   await send({ chat_id: cid, model: m.name, overflow: !!overflow });
   const sources = !pid && (J.search || await autoSearch(env, hist.at(-1).content)) ? await webSearch(env, hist.at(-1).content) : [];
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
-  const projIns = pid ? (await env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid).first())?.instructions?.trim() : '';
+  const projFile = pid ? (await env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid).first())?.content?.trim() : ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์กับ GitHub ไปด้วย)
+  const projIns = pid ? [(await env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid).first())?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : ''].filter(Boolean).join('\n\n') : '';
   const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, sources, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (await imagePrompt(env, !!pid)); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
   const mcpTools = [], mcpMap = new Map();
   if (J.mcp_ids?.length) {
@@ -454,7 +456,9 @@ export async function runChat(env, J, send, st) {
   }
   let msgs = hist, imgs = imgs0, beat = Date.now(), lastKind = '';
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
+  let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
+    round_ = round + 1;
     let part = '', ru = null;
     const tcs = new Map(), anthIdx = new Map();
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -515,6 +519,7 @@ export async function runChat(env, J, send, st) {
     }
     const reqs = pid && !st.gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
     if (!reqs.length) break;
+    await send({ round: round + 2, of: TOOL_ROUNDS + 1 }); // บอกหน้าเว็บว่าเข้ารอบถัดไป (อ่านไฟล์แล้วคิดต่อ)
     const result = await runTools(env, pid, reqs);
     await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
     msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: result }]; imgs = [];
@@ -528,9 +533,9 @@ export async function runChat(env, J, send, st) {
   let mid = null;
   if ((out || think) && cid) mid = (await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id')
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).first())?.id ?? null;
-  if (usage) await logUsage(env, u.id, model, usage, { wallet: overflow, plan });
+  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan }) : 0;
   await unlimit(env, lock);
-  await send({ done: true, tok, mid, ...(await usageStatus(env, u, plan)) });
+  await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ...(await usageStatus(env, u, plan)) });
   if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
 }
 
@@ -628,6 +633,8 @@ export async function mcpCall(url, token, name, args) {
 
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
 export const TOOL_ROUNDS = 6, READ_MAX = 100e3;
+// หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
+export const stripOpenFile = t => String(t || '').replace(/\n\n\[เนื้อหาไฟล์ที่เปิดอยู่\][\s\S]*$/, '');
 // โมเดลบางตัวเขียนคำสั่งติดกับข้อความ (เช่น "...ครับREAD path=a.js" หรือ "READ path=a.jsกำลังอ่าน...") → แยกบรรทัด และอ่านพาธเฉพาะตัวอักษรที่เป็นพาธ ไม่เอาข้อความไทยที่ติดมา (เดิมทำให้หาไฟล์ไม่พบแล้วโมเดลสั่งอ่านซ้ำวน)
 export const toolReqs = text => [...text.replace(/```[\s\S]*?```/g, '').replace(/(\S)(READ path=)/g, '$1\n$2').matchAll(/^\s*(READ|GREP|LIST)\b[ \t]*(?:path=)?(.*)$/gm)].map(m => {
   let arg = m[2].trim().replace(/^`|`$/g, '');
@@ -646,7 +653,9 @@ export async function runTools(env, pid, reqs) {
       const c = f.content.slice(0, Math.min(READ_MAX, budget)); budget -= c.length;
       out.push(`[READ ${arg}]\n${c}${c.length < f.content.length ? '\n…(ตัดเหลือ ' + c.length + ' ตัวอักษรแรก)' : ''}`); continue;
     }
-    let re; try { re = new RegExp(arg, 'i'); } catch { re = { test: l => l.toLowerCase().includes(arg.toLowerCase()) }; }
+    // shortcut: ไม่มี timeout ให้ regex ใน Worker จึงกันแบบ backtracking ซ้อน ((a+)+ ฯลฯ) และรูปแบบยาวเกินด้วยการค้นข้อความตรงๆ แทน; ถ้าต้องการเข้มกว่านี้ให้ใช้ RE2
+    const risky = arg.length > 200 || /\([^)]*[+*][^)]*\)[+*{]/.test(arg);
+    let re; try { if (risky) throw 0; re = new RegExp(arg, 'i'); } catch { re = { test: l => l.toLowerCase().includes(arg.toLowerCase()) }; }
     const hits = [];
     for (const f of files) { if (f.content.startsWith('data:image/')) continue; const L = f.content.split('\n'); for (let i = 0; i < L.length && hits.length < 200; i++) if (L[i].length < 2000 && re.test(L[i])) hits.push(`${f.path}:${i + 1}: ${L[i].trim().slice(0, 200)}`); }
     out.push(`[GREP ${arg}]\n${hits.join('\n') || '(ไม่พบ)'}`);

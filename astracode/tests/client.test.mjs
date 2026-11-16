@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/code.js'), 'utf8');
 const pick = (a, b) => src.slice(src.indexOf(a), src.indexOf(b));
-const ctx = new Function(`${pick('const NOT_FILE_LANG', 'function lineDiff')}\n${pick('function stepsOf', 'function stepsBar')}\nreturn { changesOf, stepsOf, stripTools };`)();
+const ctx = new Function(`${pick('const NOT_FILE_LANG', 'function lineDiff')}\n${pick('function stepsOf', 'function stepsBar')}\nreturn { changesOf, stepsOf, stripTools, applyEdits, problemOf, isEditBody };`)();
 
 test('changesOf: path= blocks, heading-named blocks, ignores shell and plain examples', () => {
   const t = '# `index.html`\n```html\n<h1>x</h1>\n```\n\n```js path=a.js\nlet a\n```\n\nรัน:\n```bash\nnpm i\n```\n\nตัวอย่าง:\n```js\nconsole.log(1)\n```\nDELETE path=old.txt';
@@ -30,4 +30,41 @@ test('biLang picks the Thai or English half of "ไทย || English" text, deep
   const d = { note: 'ปิดปรับปรุง || Maintenance', plans: [{ name: 'Pro', desc: 'คุ้มสุด || Best value' }], n: 3 };
   assert.deepEqual(run('th')(d), { note: 'ปิดปรับปรุง', plans: [{ name: 'Pro', desc: 'คุ้มสุด' }], n: 3 });
   assert.deepEqual(run('en')(d), { note: 'Maintenance', plans: [{ name: 'Pro', desc: 'Best value' }], n: 3 });
+});
+
+const edit = (path, ...pairs) => '```js path=' + path + '\n' + pairs.map(([a, b]) => `<<<<<<< SEARCH\n${a}\n=======\n${b}\n>>>>>>> REPLACE`).join('\n') + '\n```';
+const SRC = 'function a() {\n  return 1;\n}\n\nfunction b() {\n  return 2;\n}\n';
+
+test('SEARCH/REPLACE: exact edit, several pairs, whitespace-tolerant match, idempotent re-run', () => {
+  const get = p => p === 'x.js' ? SRC : null;
+  const one = ctx.changesOf(edit('x.js', ['  return 1;', '  return 10;']), get)[0];
+  assert.equal(one.content, SRC.replace('return 1;', 'return 10;')); assert.ok(one.edit);
+  const two = ctx.changesOf(edit('x.js', ['  return 1;', '  return 10;'], ['  return 2;', '  return 20;']), get)[0];
+  assert.equal(two.content, SRC.replace('return 1;', 'return 10;').replace('return 2;', 'return 20;'));
+  const loose = ctx.changesOf(edit('x.js', ['return 2;   ', '  return 22;']), get)[0]; // ต่างแค่ช่องว่างท้าย/การเยื้อง
+  assert.equal(loose.content, SRC.replace('  return 2;', '  return 22;'));
+  const done = ctx.changesOf(edit('x.js', ['  return 1;', '  return 10;']), p => SRC.replace('return 1;', 'return 10;'))[0];
+  assert.equal(done.content, SRC.replace('return 1;', 'return 10;'), 'applying again changes nothing');
+});
+
+test('SEARCH/REPLACE: missing, ambiguous and unknown-file edits report an error instead of writing', () => {
+  const get = p => p === 'x.js' ? SRC : null;
+  assert.match(ctx.changesOf(edit('x.js', ['  return 99;', 'x']), get)[0].error, /ไม่พบ/);
+  assert.match(ctx.changesOf(edit('x.js', ['}', 'x']), get)[0].error, /ซ้ำหลายที่/);
+  assert.match(ctx.changesOf(edit('new.js', ['a', 'b']), get)[0].error, /ยังไม่มี/);
+  const create = ctx.changesOf(edit('new.js', ['', 'const a = 1;']), get)[0];
+  assert.equal(create.content, 'const a = 1;\n', 'empty SEARCH creates a new file');
+  const plain = ctx.changesOf('```js path=y.js\nlet y = 1;\n```', get)[0];
+  assert.equal(plain.content, 'let y = 1;\n', 'whole-file blocks still work');
+});
+
+test('problemOf: bad JSON, JS syntax errors and suspicious shrinking are caught; valid files pass', () => {
+  assert.match(ctx.problemOf('a.json', '{"a": }', ''), /JSON/);
+  assert.equal(ctx.problemOf('a.json', '{"a": 1}', ''), '');
+  assert.match(ctx.problemOf('a.js', 'function (', ''), /syntax error/);
+  assert.equal(ctx.problemOf('a.js', 'const x = await Promise.resolve(1);', ''), '', 'top-level await is fine');
+  assert.equal(ctx.problemOf('a.js', "import x from './x.js';\nexport default x;", ''), '', 'modules are not judged');
+  assert.equal(ctx.problemOf('a.js', 'const el = <div>{x</div>;', ''), '', 'JSX-looking files are not judged');
+  assert.match(ctx.problemOf('big.js', 'x', 'y'.repeat(3000)), /หดลง/);
+  assert.equal(ctx.problemOf('notes.md', 'x', 'y'.repeat(3000)), '', 'docs may shrink');
 });
