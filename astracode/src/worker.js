@@ -66,7 +66,7 @@ export default {
     if ((r = path.match(/^(?:\/api\/page)?\/blog\/([\w-]+)$/))) return secure(await blogPage(req, env, r[1])); // บทความ: ใส่ meta ให้ Google/social
     if (!path.startsWith('/api/')) { // URL สะอาด: ไม่มี .html, หน้าแรกอยู่ที่ / (ไฟล์ home.html)
       const clean = path === '/index.html' || path === '/home' || path === '/home.html' ? '/' : path.endsWith('.html') ? path.slice(0, -5) : null;
-      if (clean) return Response.redirect(new URL(clean + url.search, req.url), 301);
+      if (clean) return new Response(null, { status: 301, headers: { location: clean + url.search } }); // Location แบบ relative: ผ่าน Vercel แล้วไม่หลุดไปโดเมน workers.dev
       const res = await env.ASSETS.fetch(path === '/' ? new Request(new URL('/home', req.url), req) : req);
       if (res.status === 404 && M === 'GET') return secure(new Response((await env.ASSETS.fetch(new Request(new URL('/404.html', req.url), req))).body, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })); // หน้าไม่มีจริง: แสดงหน้าแรก
       return secure(res);
