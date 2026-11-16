@@ -265,3 +265,24 @@ test('team owner can switch a member API off, list and revoke member keys; non-o
   assert.equal((await t.call('/v1/models', { headers: { authorization: 'Bearer ' + k.data.key } })).status, 401, 'revoked key stops working');
   assert.equal((await t.json(`/api/team/members/${mem.id}/keys`, { cookie: owner.cookie })).data.length, 0);
 });
+
+test('history window moves in half-window steps so the prompt prefix stays stable (cache friendly)', async () => {
+  const { histStart } = await import('../src/core.js');
+  const starts = Array.from({ length: 80 }, (_, i) => histStart(i + 1, 20));
+  assert.ok(starts.every((s, i) => i === 0 || s >= starts[i - 1]), 'never moves backwards');
+  assert.ok(starts.every((s, i) => i + 1 - s <= 20 && (i + 1 <= 20 || i + 1 - s >= 10)), 'window stays between max/2 and max');
+  assert.ok(new Set(starts).size <= 8, 'start changes only every half window');
+  const fm = await fakeModel((q, res) => fm.sse(res, 'ok'));
+  const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'C1', base_url: fm.url }); const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 0 });
+  const u = await t.user(); give(t.DB, u, plan);
+  let cid;
+  for (let k = 1; k <= 30; k++) {
+    t.DB.raw.exec('DELETE FROM rate'); // ไม่ให้ตัวจำกัดความถี่มาปนกับสิ่งที่ทดสอบ
+    const r = await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'msg ' + k, chat_id: cid } });
+    const ev = await readSSE(r); cid ||= ev.find(e => e.chat_id)?.chat_id; assert.equal(r.status, 200);
+  }
+  const firsts = fm.hits.filter(h => h.body.messages).map(h => h.body.messages.find(x => x.role === 'user').content);
+  assert.equal(firsts.length, 30); assert.ok(new Set(firsts).size <= 8, 'first message changes rarely: ' + new Set(firsts).size);
+  fm.close();
+});
