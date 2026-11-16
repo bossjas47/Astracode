@@ -124,16 +124,19 @@ test('watchdog: a model that stays silent is cut off, logged and reported', asyn
 test('health check pings idle models and records a failure as an error event', async () => {
   const bad = await fakeModel((q, res) => { res.writeHead(500); res.end('boom'); });
   const t = await makeEnv({ K: 'k' }); const m = addModel(t.DB, { name: 'H', base_url: bad.url });
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('health_check','1')").run(); // ปิดเป็นค่าเริ่มต้น
   await t.worker.default.scheduled({}, t.env, t.ctx); await Promise.all(t.ctx.pending);
   const ev = t.DB.raw.prepare("SELECT detail FROM events WHERE model_id=?").all(m.id);
   assert.ok(ev.some(e => /health check/.test(e.detail)), JSON.stringify(ev));
   bad.close();
 });
 
-test('/api/me does not expose model cost prices', async () => {
-  const t = await makeEnv(); const m = addModel(t.DB, { name: 'C', base_url: 'http://x', cost_in: 7.77 }); const plan = addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+test('/api/me does not expose model cost prices, and hides models whose key is not set', async () => {
+  const t = await makeEnv({ K: 'k' }); const m = addModel(t.DB, { name: 'C', base_url: 'http://x', cost_in: 7.77 }); const plan = addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
   const me = await t.json('/api/me', { cookie: u.cookie });
-  assert.equal(me.data.models.length, 1); assert.ok(!JSON.stringify(me.data).includes('7.77') && !('cost_in' in me.data.models[0]));
+  assert.equal(me.data.models.length, 1); assert.ok(!JSON.stringify(me.data).includes('7.77') && !('cost_in' in me.data.models[0]) && !('key_name' in me.data.models[0]));
+  const { allowedModels } = await import('../src/core.js'); t.DB.raw.prepare("UPDATE models SET key_name='NOPE' WHERE id=?").run(m.id);
+  assert.equal((await allowedModels(t.env, plan.id)).length, 0, 'model without a Worker key is hidden (the /api/me list is cached 30 s)');
 });
 
 test('sessions: list devices, revoke one, revoke all others', async () => {
@@ -297,4 +300,14 @@ test('admin model form: billing is either per token or per request, never mixed'
   const row = t.DB.raw.prepare("SELECT id,bill,req_cost,req_price FROM models WHERE name='Flat'").get(); assert.deepEqual([row.bill, row.req_cost, row.req_price], ['request', 0.4, 1]);
   await t.json('/api/admin/models/' + row.id, { method: 'PUT', cookie: adm.cookie, body: { ...base, bill: 'token', req_cost: 0.4, req_price: 1 } });
   const back = t.DB.raw.prepare('SELECT bill,req_cost,req_price FROM models WHERE id=?').get(row.id); assert.deepEqual([back.bill, back.req_cost, back.req_price], [null, null, null], 'token mode clears the per-request fields');
+});
+
+test('chat images older than 30 days are deleted, newer ones stay', async () => {
+  const t = await makeEnv(); const { cleanImages } = await import('../src/jobs.js'); const { ensureImgTable } = await import('../src/ai.js');
+  await ensureImgTable(t.env);
+  const cols = t.DB.raw.prepare("SELECT name FROM pragma_table_info('chat_images')").all().map(x => x.name);
+  const row = (key, age) => { const v = { key, n: 0, user_id: 1, mime: 'image/png', data: 'x', created_at: Date.now() - age * 864e5 }; const ks = Object.keys(v).filter(k => cols.includes(k)); t.DB.raw.prepare(`INSERT INTO chat_images (${ks}) VALUES (${ks.map(() => '?')})`).run(...ks.map(k => v[k])); };
+  row('old', 31); row('new', 2);
+  await cleanImages(t.env);
+  assert.deepEqual(t.DB.raw.prepare('SELECT key FROM chat_images').all().map(x => x.key), ['new']);
 });

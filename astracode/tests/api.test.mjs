@@ -179,3 +179,11 @@ test('a model with a flat per-request price charges that price whatever the toke
   const p = (await t.json('/api/pricing')).data.models.find(x => x.id === m.id); assert.equal(p.req, 1.2);
   fm.close();
 });
+
+test('IP allowlist supports IPv4 and IPv6 CIDR; token estimate counts Thai denser than English', async () => {
+  const a = await import('../src/api.js');
+  assert.ok(a.ipAllowed('2001:db8::/32', '2001:db8:1::5')); assert.ok(!a.ipAllowed('2001:db8::/32', '2001:db9::1'));
+  assert.ok(a.ipAllowed('10.0.0.0/8, 1.2.3.4', '1.2.3.4')); assert.ok(!a.ipAllowed('10.0.0.0/8', '11.0.0.1'));
+  assert.ok(a.ipAllowed('::1', '::1')); assert.ok(!a.ipAllowed('2001:db8::/200', '2001:db8::1'));
+  assert.ok(a.estTokens('สวัสดีครับ') > a.estTokens('hello now'));
+});

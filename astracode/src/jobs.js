@@ -30,7 +30,7 @@ export async function cron(env) {
   // 4) สำรองข้อมูลวันละครั้ง (ตี 3 เวลาไทย) เก็บ 14 ชุด
   if (env.SLIPS && new Date(now + BKK).getUTCHours() === 3) await backup(env);
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
-  if ((await getSetting(env, 'health_check')) !== '0') await healthCheck(env).catch(e => console.log('health', e.message));
+  if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream
   if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)
   // 5) ล้างข้อมูลหมดอายุ
   await DB.batch([DB.prepare('DELETE FROM rate WHERE reset<?').bind(now), DB.prepare('DELETE FROM tokens WHERE expires<?').bind(now), DB.prepare('DELETE FROM sessions WHERE expires<?').bind(now), DB.prepare('DELETE FROM events WHERE created_at<?').bind(now - 90 * DAY), DB.prepare('DELETE FROM api_log WHERE created_at<?').bind(now - 30 * DAY)]);
@@ -53,15 +53,18 @@ export async function healthCheck(env) {
   }
 }
 // รูปแชตที่ไม่มีข้อความไหนอ้างถึงแล้ว (เก่ากว่า 7 วัน): ลบจาก D1 และ R2
-export async function cleanImages(env) {
-  const cut = Date.now() - 7 * DAY;
+export const IMG_KEEP_DAYS = 30;
+export async function cleanImages(env) { // รูปในแชตเก็บ 30 วัน: เก่ากว่านั้นลบทิ้ง (ข้อความยังอยู่ แต่รูปจะหาย)
+  const cut = Date.now() - IMG_KEEP_DAYS * DAY;
   await ensureImgTable(env);
-  await env.DB.prepare('DELETE FROM chat_images WHERE created_at<? AND NOT EXISTS (SELECT 1 FROM messages WHERE instr(messages.content, chat_images.key) > 0)').bind(cut).run();
+  await env.DB.prepare('DELETE FROM chat_images WHERE created_at<?').bind(cut).run();
   if (!env.SLIPS) return;
-  for (const o of (await env.SLIPS.list({ prefix: 'img/', limit: 300 })).objects) {
-    if (o.uploaded?.getTime?.() > cut) continue;
-    const key = o.key.split('/').pop().replace(/\.\w+$/, '');
-    if (!await env.DB.prepare('SELECT 1 FROM messages WHERE instr(content, ?) > 0 LIMIT 1').bind(key).first()) await env.SLIPS.delete(o.key);
+  let cursor;
+  for (let page = 0; page < 10; page++) { // R2 ลิสต์ทีละ 1000 · วันละไม่เกิน 10 หน้า ที่เหลือลบรอบถัดไป
+    const l = await env.SLIPS.list({ prefix: 'img/', limit: 1000, cursor });
+    const old = l.objects.filter(o => !(o.uploaded?.getTime?.() > cut)).map(o => o.key);
+    if (old.length) await env.SLIPS.delete(old);
+    if (!l.truncated) break; cursor = l.cursor;
   }
 }
 export async function backup(env) {

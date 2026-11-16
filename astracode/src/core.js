@@ -310,4 +310,5 @@ export const creditsOf = async (env, uid) => (await creditList(env, uid)).reduce
 export const flat = m => m.bill === 'request' && m.req_cost > 0;
 export const msgCost = m => flat(m) ? m.req_cost : (20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6;
 export const allowedModels = (env, planId) => env.DB.prepare(
-  'SELECT m.id,m.name,m.provider,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 AND m.provider<>\'embedding\' ORDER BY m.sort').bind(planId).all().then(r => r.results);
+  'SELECT m.id,m.name,m.provider,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct,m.key_name FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 AND m.provider<>\'embedding\' ORDER BY m.sort').bind(planId).all()
+  .then(r => r.results.filter(m => env[m.key_name]).map(({ key_name, ...m }) => m)); // ซ่อนโมเดลที่ Worker ยังไม่มีคีย์ (เรียกไปก็ error)

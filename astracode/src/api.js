@@ -30,6 +30,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
   const en = m => { for (const [r, f] of EN) { const g = m.match(r); if (g) return f(...g); } return m; };
   const fail = (m, s, type = 'invalid_request_error', h = {}) => { lg.err = en(m); return out({ error: { message: en(m), message_th: m, type } }, s, h); };
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  let walletKey = null; // ล็อก Wallet ทีละคำขอ: ต้องปลดทุกทางออก (สำเร็จ/ผิดพลาด) ไม่งั้นผู้ใช้ติดล็อก 3 นาที
   try {
     const key = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '') || req.headers.get('x-api-key') || '';
     const k = key && await env.DB.prepare('SELECT k.id kid, k.budget, k.models kmodels, k.use_plan, k.spent, k.spent_month, k.ip_allow, k.name kname, u.* FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.key_hash=? AND k.revoked=0').bind(await sha(key)).first();
@@ -116,12 +117,12 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (JSON.stringify(hist).length > 800000) return fail('ข้อความยาวเกินไป', 413);
     const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.reasoning_effort) ? b.reasoning_effort : null, id = 'chatcmpl-' + rand(12), created = Math.floor(Date.now() / 1000);
     const tools = Array.isArray(b.tools) && b.tools.length ? b.tools : undefined, toolChoice = b.tool_choice;
-    let maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined, walletKey = null;
+    let maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined;
     if (billingMode === 'wallet') { // ตัดเงินหลังตอบ: จำกัดผลลัพธ์ไม่ให้เกินยอดที่เหลือ และให้ใช้ Wallet ทีละคำขอต่อผู้ใช้ กันยิงขนานจนยอดติดลบ
       const pr = await priceOf(env, m), need = Math.ceil((JSON.stringify(hist).length + system.length) / 2) * pr.in / 1e6, room = k.balance - need;
       if (pr.req > 0 ? k.balance < pr.req : (!(room > 0) || (isImg && room < pr.out))) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
       if (!(pr.req > 0)) maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * 1e6 / Math.max(pr.out, 1e-9)))); // คิดเหมาต่อ request ไม่ต้องจำกัดความยาวตามยอดที่เหลือ
-      walletKey = 'walletlock:' + k.id; // shortcut: ล็อกหมดอายุเอง 3 นาทีถ้าคำขอล้มก่อนจบ, ถ้าต้องการเข้มกว่านี้ให้จองยอดล่วงหน้าแบบ atomic
+      walletKey = 'walletlock:' + k.id; // shortcut: ถ้า Worker ถูกตัดกลางคัน ล็อกหมดอายุเอง 3 นาที (ทางออกปกติปลดล็อกทุกทาง), ถ้าต้องการให้ยิงขนานได้ให้จองยอดล่วงหน้าแบบ atomic
       if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(walletKey, Date.now() + 180e3, Date.now()).first()) return fail('มีคำขอที่ใช้ Wallet ค้างอยู่ รอให้เสร็จก่อน', 429, 'rate_limit_error');
     }
     let activeModel = m; lg.model = slug(m);
@@ -174,6 +175,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
           if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { activeModel = fb; continue; }
+          if (walletKey) await unlimit(env, walletKey);
           return fail('โมเดลตอบไม่ได้ตอนนี้', 502, 'api_error');
         }
       }
@@ -219,18 +221,32 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
     return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors, ...rl } });
-  } catch (e) { console.log('v1 error', e.stack); return fail(e.user ? e.message : 'เซิร์ฟเวอร์ผิดพลาด', e.user ? 400 : 500, 'api_error'); }
+  } catch (e) { console.log('v1 error', e.stack); if (walletKey) await unlimit(env, walletKey).catch(() => {}); return fail(e.user ? e.message : 'เซิร์ฟเวอร์ผิดพลาด', e.user ? 400 : 500, 'api_error'); }
 }
 
 // ---------- ตัวช่วย /v1: บันทึกคำขอ, IP allowlist, ตัวห่อและตัวแปลง Anthropic Messages / OpenAI Responses ----------
 export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
   .bind(lg.kid, lg.uid, lg.path, lg.model || null, status, lg.tin || 0, lg.tout || 0, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
 export const v4 = x => { const p = String(x).split('.'); return p.length === 4 && p.every(n => /^\d{1,3}$/.test(n) && +n < 256) ? p.reduce((a, n) => a * 256 + +n, 0) : null; };
-// list = IP หรือ IPv4 CIDR คั่นด้วย , (shortcut: IPv6 เทียบแบบตรงตัวเท่านั้น ไม่รองรับ CIDR)
+// ประมาณ token: ตัวอักษรละติน/ตัวเลข ~4 ตัวต่อ token, ภาษาไทยและอักษรอื่น ~1.5 ตัวต่อ token (BPE แตกภาษาไทยละเอียดกว่ามาก)
+export const estTokens = s => { s = String(s || ''); const ascii = s.replace(/[^\x00-\x7f]/g, '').length; return Math.ceil(ascii / 4 + (s.length - ascii) / 1.5); };
+// IPv6 เป็น BigInt 128 บิต (รองรับ :: ย่อ) · null = ไม่ใช่ IPv6
+export const v6 = x => {
+  x = String(x).toLowerCase(); if (!x.includes(':') || x.includes('.')) return null;
+  const [h, t, extra] = x.split('::'); if (extra != null) return null;
+  const a = h ? h.split(':') : [], b = t != null ? (t ? t.split(':') : []) : null, parts = b ? [...a, ...Array(8 - a.length - b.length).fill('0'), ...b] : a;
+  if (parts.length !== 8 || !parts.every(p => /^[0-9a-f]{1,4}$/.test(p))) return null;
+  return parts.reduce((n, p) => (n << 16n) + BigInt(parseInt(p, 16)), 0n);
+};
+// list = IP หรือ CIDR (IPv4 และ IPv6) คั่นด้วย ,
 export const ipAllowed = (list, addr) => list.split(',').some(e => {
-  e = e.trim(); if (!e) return false; if (!e.includes('/')) return e === addr;
-  const [base, n] = e.split('/'), a = v4(addr), c = v4(base), bits = +n; if (a == null || c == null || !(bits >= 0 && bits <= 32)) return false;
-  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0; return ((a & mask) >>> 0) === ((c & mask) >>> 0);
+  e = e.trim(); if (!e) return false;
+  const [base, n] = e.split('/'), bits = n == null ? null : +n;
+  const a4 = v4(addr), c4 = v4(base);
+  if (a4 != null && c4 != null) { const b = bits ?? 32; if (!(b >= 0 && b <= 32)) return false; const mask = b === 0 ? 0 : (~0 << (32 - b)) >>> 0; return ((a4 & mask) >>> 0) === ((c4 & mask) >>> 0); }
+  const a6 = v6(addr), c6 = v6(base);
+  if (a6 != null && c6 != null) { const b = bits ?? 128; if (!(b >= 0 && b <= 128)) return false; const sh = BigInt(128 - b); return a6 >> sh === c6 >> sh; }
+  return n == null && e === addr;
 });
 export async function v1(req, env, ctx, path) {
   const lg = { t0: Date.now(), path };
@@ -293,10 +309,10 @@ export async function anthropicApi(req, env, ctx, path, lg) {
   const b = await req.json().catch(() => null);
   if (!b || typeof b !== 'object') return new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'Invalid JSON body.' } }), { status: 400, headers: { 'content-type': 'application/json', ...V1_CORS } });
   const chat = anthropicToChat(b);
-  if (path === '/v1/messages/count_tokens') { // ประมาณจากจำนวนตัวอักษร (shortcut: ไม่ใช่ tokenizer จริง) · ต้องมี key ที่ใช้ได้
+  if (path === '/v1/messages/count_tokens') { // ประมาณ (shortcut: ไม่ใช่ tokenizer จริง คลาดได้ ~20%) · ต้องมี key ที่ใช้ได้
     const probe = await v1core(new Request(new URL('/v1/models', req.url), { headers: (() => { const h = new Headers(req.headers); h.set('authorization', 'Bearer ' + ((h.get('authorization') || '').replace(/^Bearer\s+/i, '') || h.get('x-api-key') || '')); return h; })() }), env, ctx, '/v1/models', lg);
     if (!probe.ok) return anthropicErr(probe);
-    return new Response(JSON.stringify({ input_tokens: Math.ceil(JSON.stringify(chat.messages).length / 2) }), { headers: { 'content-type': 'application/json', ...V1_CORS } });
+    return new Response(JSON.stringify({ input_tokens: estTokens(chat.messages.map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content)).join('\n')) + chat.messages.length * 4 }), { headers: { 'content-type': 'application/json', ...V1_CORS } });
   }
   const res = await innerChat(req, env, ctx, lg, chat);
   if (!res.ok) return anthropicErr(res);

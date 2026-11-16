@@ -9,6 +9,13 @@ import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
 // ข้อมูลหน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
 const pubCache = new Map();
+// รายการโมเดลของแต่ละแพลน (ใช้ใน /api/me ทุกหน้า) แคชในหน่วยความจำ 30 วินาที
+const modelCache = new WeakMap(); // แยกตามฐานข้อมูล (env.DB) กันปนกันระหว่าง env
+const cachedModels = async (env, planId) => {
+  let m = modelCache.get(env.DB); if (!m) modelCache.set(env.DB, m = new Map());
+  const hit = m.get(planId); if (hit && hit.exp > Date.now()) return hit.body;
+  const body = await allowedModels(env, planId); m.set(planId, { exp: Date.now() + 30e3, body }); return body;
+};
 async function pricingBody(env) {
     const [ms, ps, pm] = await Promise.all([
       env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort,id').all(),
@@ -203,12 +210,13 @@ export async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/me') {
         const plan = await planOf(env, u);
+        const [usage, credits, models, pay] = await Promise.all([usageStatus(env, u, plan), creditList(env, u.id), cachedModels(env, plan.id), getSettings(env, ['promptpay_id', 'bank_name', 'bank_account', 'bank_holder'])]); // ยิงพร้อมกัน ไม่ต่อคิวทีละอัน
         return json({
           email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, paid: plan.price > 0, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
-          usage: await usageStatus(env, u, plan), reset_credits: await creditsOf(env, u.id), reset_list: await creditList(env, u.id), models: (await allowedModels(env, plan.id)).map(({ cost_in, cost_out, cost_cache, ...m }) => m),
-          promptpay_id: await getSetting(env, 'promptpay_id'), pay_info: await getSettings(env, ['bank_name', 'bank_account', 'bank_holder']),
+          usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, models: models.map(({ cost_in, cost_out, cost_cache, ...m }) => m),
+          promptpay_id: pay.promptpay_id, pay_info: { bank_name: pay.bank_name, bank_account: pay.bank_account, bank_holder: pay.bank_holder },
         });
       }
       if (path === '/api/chat' && M === 'POST') return await chat(req, env, u, ctx);

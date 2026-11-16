@@ -261,6 +261,11 @@ export async function pay(req, env, u) {
     if (!(c.amount >= min)) c.code = '200404'; else if (c.amount > 50000) c.code = 'over_limit'; else amount = Math.round(c.amount * 100) / 100;
   }
   const fail = SLIP_FAIL[c.code];
+  if (c.code != null) { // ระบบตรวจสลิปอัตโนมัติพัง (คีย์/URL/รูปแบบคำขอผิด) ติดกัน 3 ครั้ง = เตือนแอดมินชัดๆ ไม่ใช่ปล่อยค้างรอเงียบๆ
+    const broken = !fail && !['200000', '200200'].includes(c.code), n = broken ? (+(await getSetting(env, 'slip_fail_streak')) || 0) + 1 : 0;
+    await env.DB.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').bind('slip_fail_streak', String(n)).run();
+    if (n === 3) await notify(env, `⚠️ ตรวจสลิปอัตโนมัติไม่สำเร็จ 3 ครั้งติดกัน (ล่าสุด: ${String(c.code).slice(0, 120)}) สลิปค้างรออนุมัติเอง · เช็คคีย์/URL ในหน้าตั้งค่า แล้วกด Test connection`);
+  }
   // ผ่านทุกเงื่อนไข (หรือพบสลิปและยอดตรง) และเปิดอนุมัติอัตโนมัติ: เปิดแพลน/เติมเงินทันที
   const pass = !fail && (c.code === '200200' || (c.code === '200000' && c.amount === amount)) && (await getSetting(env, 'slip_auto_approve')) !== '0';
   const now = Date.now(), what = kind === 'topup' ? 'เติม Wallet' : plan.name + (period === 'year' ? ' รายปี' : '');

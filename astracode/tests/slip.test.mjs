@@ -110,3 +110,12 @@ test('EasySlip v2: a 400 on the JSON body falls back to a multipart image upload
   const x = await setup(() => ({}), { easyslip_url: fm.url + '/v2/verify/bank', promptpay_id: '0629708835', easyslip_receiver_names: 'ณัฐภูมินทร์' }); x.fm.close();
   const r = await x.topup(100); assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.deepEqual(seen, ['/v2/verify/bank application/json', '/v2/verify/bank multipart/form-data']); fm.close();
 });
+
+test('three automatic slip checks in a row that the provider could not process raise the failure streak; a good slip resets it', async () => {
+  let good = false; const { t, fm, topup } = await setup(() => good ? slipData() : { status: 404, message: 'NOT_FOUND' });
+  const streak = () => t.DB.raw.prepare("SELECT value FROM settings WHERE key='slip_fail_streak'").get()?.value;
+  for (let i = 0; i < 3; i++) { t.DB.raw.exec("DELETE FROM rate; UPDATE payments SET status='rejected'"); await topup(200); }
+  assert.equal(streak(), '3');
+  good = true; t.DB.raw.exec("DELETE FROM rate; UPDATE payments SET status='rejected'"); await topup(200); assert.equal(streak(), '0');
+  fm.close();
+});
