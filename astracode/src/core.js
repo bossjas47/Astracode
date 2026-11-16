@@ -177,11 +177,11 @@ export async function planOf(env, u) {
   if (u.plan_id && u.plan_expires > now) {
     personal = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(u.plan_id).first();
   }
-  const tm = await env.DB.prepare(`SELECT t.id tid,t.name tname,t.owner_id,t.expires,t.invite_code,t.max_seats,t.shared_pool tshared,tm.role trole,p.*
+  const tm = await env.DB.prepare(`SELECT t.id tid,t.name tname,t.owner_id,t.expires,t.invite_code,t.max_seats,t.shared_pool tshared,tm.role trole,tm.api_off tapioff,p.*
     FROM team_members tm JOIN teams t ON t.id=tm.team_id JOIN plans p ON p.id=t.plan_id
     WHERE tm.user_id=? AND t.expires>? ORDER BY p.limit_week DESC, t.expires DESC LIMIT 1`).bind(u.id, now).first().catch(() => null);
   if (tm && (!personal || tm.limit_week >= personal.limit_week)) {
-    tm._team = { id: tm.tid, name: tm.tname, owner_id: tm.owner_id, expires: tm.expires, invite_code: tm.invite_code, max_seats: tm.max_seats, shared_pool: !!tm.tshared, role: tm.trole };
+    tm._team = { id: tm.tid, name: tm.tname, owner_id: tm.owner_id, expires: tm.expires, invite_code: tm.invite_code, max_seats: tm.max_seats, shared_pool: !!tm.tshared, role: tm.trole, api_off: !!tm.tapioff };
     return tm;
   }
   if (personal) return personal;
@@ -218,7 +218,7 @@ export const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 export let colsDone;
 // เดิมสั่ง ALTER ทีละคำสั่งทุกครั้งที่ isolate เริ่ม (13 รอบไป-กลับ D1 ก่อนตอบคำขอแรก) ตอนนี้ถามโครงสร้างครั้งเดียวแล้วเพิ่มเฉพาะที่ขาด
-const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
+const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
 const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
 export const ensureCols = env => colsDone ||= (async () => {
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;

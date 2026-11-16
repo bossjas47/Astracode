@@ -76,7 +76,7 @@ export function addModel(DB, o) {
     .get(o.name, o.provider || 'openai', o.api_model || 'm', o.base_url, o.key_name || 'K', o.cost_in ?? 1, o.cost_out ?? 2, o.cost_cache ?? 0.1, o.cost_cache_write ?? 1, o.sort || 0, o.fallback_id ?? null, o.effort || 'none');
 }
 export function addPlan(DB, o = {}) {
-  const p = DB.raw.prepare('INSERT INTO plans (name,price,limit_4h,limit_week,seats,shared_pool,active,sort) VALUES (?,?,?,?,?,?,1,?) RETURNING *').get(o.name || 'P', o.price ?? 100, o.limit_4h ?? 5, o.limit_week ?? 20, o.seats ?? 1, o.shared_pool ?? 0, o.sort ?? 1);
+  const p = DB.raw.prepare('INSERT INTO plans (name,price,limit_4h,limit_week,seats,shared_pool,active,sort,api_limit) VALUES (?,?,?,?,?,?,1,?,?) RETURNING *').get(o.name || 'P', o.price ?? 100, o.limit_4h ?? 5, o.limit_week ?? 20, o.seats ?? 1, o.shared_pool ?? 0, o.sort ?? 1, o.api_limit ?? 0);
   for (const m of o.models || []) DB.raw.prepare('INSERT INTO plan_models VALUES (?,?)').run(p.id, m);
   return p;
 }

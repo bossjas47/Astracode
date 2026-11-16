@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS team_members (
   role TEXT NOT NULL DEFAULT 'member',
   joined_at INTEGER NOT NULL,
   cap_pct REAL,                             -- เพดานต่อคน (% ของงบสัปดาห์ทีม) ใช้กับทีมที่ใช้งบรวม
+  api_off INTEGER,                          -- 1 = หัวหน้าทีมปิดสิทธิ์ใช้ API ด้วยงบทีมของคนนี้
   PRIMARY KEY (team_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS team_members_user ON team_members(user_id);

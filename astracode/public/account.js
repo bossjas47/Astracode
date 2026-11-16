@@ -59,7 +59,7 @@ PAGES.account = async function account() {
         ${tm.team.role === 'owner' ? '<p class="muted" style="margin:0 0 8px;font-size:12.5px">แถบด้านล่างคือการใช้ 7 วันล่าสุดของแต่ละคน (% ของงบสัปดาห์ของแพลน)</p>' : ''}
         <div id="tmemlist">${tm.members.map(m => `<div class="mem tm"><span>${esc(m.email)} <small class="muted">${m.role === 'owner' ? '(หัวหน้าทีม)' : ''}</small></span>
           ${(tm.team.role === 'owner' && m.role !== 'owner') || (tm.team.role !== 'owner' && m.email === me.email) ? `<button data-rmm="${m.id}" aria-label="นำออก">${ic('x')}</button>` : ''}
-          ${tm.team.role === 'owner' ? `<div class="mu"><div class="bar1"><div style="width:${Math.min(100, m.wk_pct || 0)}%"></div></div><b>${m.wk_pct || 0}%</b>${tm.team.shared_pool && m.role !== 'owner' ? `<select data-cap="${m.id}" aria-label="เพดานต่อคน"><option value="">ไม่จำกัด</option>${[10, 25, 50, 75].map(v => `<option value="${v}" ${m.cap_pct === v ? 'selected' : ''}>เพดาน ${v}%</option>`).join('')}</select>` : ''}</div>` : ''}</div>`).join('')}</div>
+          ${tm.team.role === 'owner' ? `<div class="mu"><div class="bar1"><div style="width:${Math.min(100, m.wk_pct || 0)}%"></div></div><b>${m.wk_pct || 0}%</b>${tm.team.shared_pool && m.role !== 'owner' ? `<select data-cap="${m.id}" aria-label="เพดานต่อคน"><option value="">ไม่จำกัด</option>${[10, 25, 50, 75].map(v => `<option value="${v}" ${m.cap_pct === v ? 'selected' : ''}>เพดาน ${v}%</option>`).join('')}</select>` : ''}${m.role !== 'owner' ? `<label class="muted" style="font-size:12.5px"><input type="checkbox" data-apiok="${m.id}" ${m.api_off ? '' : 'checked'}> API</label><button class="btn out sm" data-mkeys="${m.id}" data-mem="${esc(m.email)}">คีย์</button>` : ''}</div>` : ''}</div>`).join('')}</div>
       ` : `
         <p class="muted">ยังไม่ได้อยู่ในทีม ซื้อแพลนทีมได้ที่ <a href="/plans">หน้าแพลน</a> หรือใส่โค้ดเชิญเพื่อเข้าร่วมทีม</p>
         <form id="tjoinf" class="row" style="flex-wrap:nowrap"><input name="code" placeholder="โค้ดเชิญทีม (เช่น A1B2C3D4)" value="${esc((qs().get('join') || '').toUpperCase().slice(0, 12))}" autocapitalize="characters" required><button class="btn blue sm">Join team</button></form>
@@ -162,11 +162,28 @@ PAGES.account = async function account() {
     catch (x) { toast(x.message, 'bad'); }
   });
   $('#tmemlist')?.addEventListener('change', async e => {
+    const k = e.target.closest('[data-apiok]');
+    if (k) { try { await api('/team/members/' + k.dataset.apiok, { method: 'PUT', body: { api_off: !k.checked } }); toast(k.checked ? 'เปิดสิทธิ์ใช้ API แล้ว' : 'ปิดสิทธิ์ใช้ API แล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); boot(); } return; }
     const c = e.target.closest('[data-cap]'); if (!c) return;
     try { await api('/team/members/' + c.dataset.cap, { method: 'PUT', body: { cap_pct: c.value ? +c.value : null } }); toast('ตั้งเพดานแล้ว', 'ok'); }
     catch (x) { toast(x.message, 'bad'); boot(); }
   });
   $('#tmemlist')?.addEventListener('click', async e => {
+    const mk = e.target.closest('[data-mkeys]');
+    if (mk) { // รายการ API key ของสมาชิก + ปุ่มเพิกถอน
+      const id = mk.dataset.mkeys, load = async d => {
+        const ks = await api(`/team/members/${id}/keys`).catch(x => { toast(x.message, 'bad'); return []; });
+        d.querySelector('.sheet-b').innerHTML = ks.length ? ks.map(k => `<div class="mem tm"><span>${esc(k.name)} <small class="muted">${esc(k.prefix)}… · ใช้ล่าสุด ${k.last_used ? new Date(k.last_used).toLocaleDateString(LOC) : '-'} · เดือนนี้ ฿${(+k.spent || 0).toFixed(2)}</small></span><button class="btn out sm" data-revk="${k.id}">เพิกถอน</button></div>`).join('') : '<p class="muted">สมาชิกคนนี้ยังไม่มี API key</p>';
+      };
+      sheet('API key ของ ' + mk.dataset.mem, '', async d => {
+        await load(d);
+        d.addEventListener('click', async ev => {
+          const r = ev.target.closest('[data-revk]'); if (!r) return; // เพิกถอนทันที (confirmSheet จะปิดชีตนี้)
+          try { await api(`/team/members/${id}/keys/${r.dataset.revk}`, { method: 'DELETE' }); toast('เพิกถอนแล้ว', 'ok'); await load(d); } catch (x) { toast(x.message, 'bad'); }
+        });
+      });
+      return;
+    }
     const b = e.target.closest('[data-rmm]'); if (!b) return;
     if (!await confirmSheet(tm.team.role === 'owner' ? 'นำสมาชิกคนนี้ออกจากทีม?' : 'ออกจากทีมนี้?', { title: 'ยืนยัน', ok: 'Confirm', danger: true })) return;
     try { await api('/team/members/' + b.dataset.rmm, { method: 'DELETE' }); toast('อัปเดตสมาชิกทีมแล้ว'); boot(); }

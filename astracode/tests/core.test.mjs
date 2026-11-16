@@ -248,3 +248,20 @@ test('admin area needs a second password: set on first entry, wrong one refused,
   assert.equal((await t.json('/api/admin/quality', { cookie: a.cookie })).status, 403, 'changing the password locks the other sessions');
   assert.equal((await t.json('/api/admin/quality', { cookie: a2.cookie })).status, 200);
 });
+
+test('team owner can switch a member API off, list and revoke member keys; non-owners cannot', async () => {
+  const t = await makeEnv(); const owner = await t.user(), mem = await t.user(), other = await t.user();
+  const plan = await addPlan(t.DB, { name: 'Team5', price: 1790, limit_4h: 51, limit_week: 205, seats: 5, shared_pool: 1, api_limit: 1 });
+  const team = t.DB.raw.prepare("INSERT INTO teams (name,owner_id,plan_id,expires,invite_code,max_seats,shared_pool,created_at) VALUES ('T',?,?,?,'ABCD1234',5,1,?) RETURNING id").get(owner.id, plan.id, Date.now() + 864e5, Date.now());
+  for (const [u, r] of [[owner, 'owner'], [mem, 'member']]) t.DB.raw.prepare('INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,?,?)').run(team.id, u.id, r, Date.now());
+  const k = await t.json('/api/keys', { method: 'POST', cookie: mem.cookie, body: { name: 'm' } }); assert.equal(k.status, 200, JSON.stringify(k.data));
+  const ks = await t.json(`/api/team/members/${mem.id}/keys`, { cookie: owner.cookie }); assert.equal(ks.data.length, 1);
+  assert.equal((await t.json(`/api/team/members/${mem.id}/keys`, { cookie: other.cookie })).status, 404);
+  assert.equal((await t.json(`/api/team/members/${mem.id}`, { method: 'PUT', cookie: mem.cookie, body: { api_off: true } })).status, 403);
+  assert.equal((await t.json(`/api/team/members/${mem.id}`, { method: 'PUT', cookie: owner.cookie, body: { api_off: true } })).status, 200);
+  assert.equal((await t.json('/api/keys', { method: 'POST', cookie: mem.cookie, body: { name: 'm2' } })).status, 403, 'blocked from creating keys');
+  const v1 = await t.call('/v1/models', { headers: { authorization: 'Bearer ' + k.data.key } }); assert.equal(v1.status, 200);
+  assert.equal((await t.json(`/api/team/members/${mem.id}/keys/${ks.data[0].id}`, { method: 'DELETE', cookie: owner.cookie })).status, 200);
+  assert.equal((await t.call('/v1/models', { headers: { authorization: 'Bearer ' + k.data.key } })).status, 401, 'revoked key stops working');
+  assert.equal((await t.json(`/api/team/members/${mem.id}/keys`, { cookie: owner.cookie })).data.length, 0);
+});

@@ -101,6 +101,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path === '/api/keys') {
     if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,ip_allow,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
     if (M === 'POST' && !((await planOf(env, u))?.price > 0)) return err('แพลนฟรีสร้าง API key ไม่ได้ ต้องใช้แพลนที่ชำระเงิน', 403);
+    if (M === 'POST' && (await planOf(env, u))?._team?.api_off) return err('หัวหน้าทีมปิดสิทธิ์สร้าง API key ของคุณไว้', 403);
     if ((await DB.prepare('SELECT COUNT(*) n FROM api_keys WHERE user_id=? AND revoked=0').bind(u.id).first()).n >= 10) return err('สร้าง key ได้สูงสุด 10 อัน');
     const name = String((await req.json()).name || 'default').trim().slice(0, 40) || 'default', key = 'sk-astra-' + rand(24);
     await DB.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').bind(u.id, name, await sha(key), key.slice(0, 14), Date.now()).run();
@@ -196,9 +197,9 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const tm = await DB.prepare('SELECT t.*, tm.role, p.name plan_name, p.limit_week, p.price plan_price, p.id pid FROM team_members tm JOIN teams t ON t.id=tm.team_id LEFT JOIN plans p ON p.id=t.plan_id WHERE tm.user_id=? ORDER BY t.expires DESC LIMIT 1').bind(u.id).first();
     if (M === 'GET') {
       if (!tm) return json({ team: null });
-      const own = tm.role === 'owner', members = (await DB.prepare('SELECT u.id, u.email, tm.role, tm.joined_at, tm.cap_pct, (SELECT COALESCE(SUM(g.units),0) FROM usage g WHERE g.user_id=u.id AND g.created_at>=?2) wk FROM team_members tm JOIN users u ON u.id=tm.user_id WHERE tm.team_id=?1 ORDER BY tm.role DESC, tm.joined_at').bind(tm.id, Date.now() - 7 * DAY).all()).results;
+      const own = tm.role === 'owner', members = (await DB.prepare('SELECT u.id, u.email, tm.role, tm.joined_at, tm.cap_pct, tm.api_off, (SELECT COALESCE(SUM(g.units),0) FROM usage g WHERE g.user_id=u.id AND g.created_at>=?2) wk FROM team_members tm JOIN users u ON u.id=tm.user_id WHERE tm.team_id=?1 ORDER BY tm.role DESC, tm.joined_at').bind(tm.id, Date.now() - 7 * DAY).all()).results;
       // หัวหน้าทีมเห็นการใช้ 7 วันล่าสุดของทุกคน (% ของงบสัปดาห์ของแพลน) · สมาชิกเห็นแค่รายชื่อ
-      members.forEach(m => { if (own) m.wk_pct = tm.limit_week > 0 ? Math.round(m.wk / tm.limit_week * 1000) / 10 : 0; else { delete m.cap_pct; } delete m.wk; });
+      members.forEach(m => { if (own) m.wk_pct = tm.limit_week > 0 ? Math.round(m.wk / tm.limit_week * 1000) / 10 : 0; else { delete m.cap_pct; delete m.api_off; } delete m.wk; });
       return json({ team: { id: tm.id, name: tm.name, plan_name: tm.plan_name, plan_id: tm.pid, expires: tm.expires, max_seats: tm.max_seats, shared_pool: !!tm.shared_pool, role: tm.role, invite_code: own ? tm.invite_code : null }, members });
     }
     if (M === 'PUT') {
@@ -231,14 +232,28 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     await DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'member',?)").bind(tm.id, target.id, Date.now()).run();
     return json({ ok: true });
   }
-  if ((r = path.match(/^\/api\/team\/members\/(\d+)$/)) && M === 'PUT') { // เพดานต่อคน (% ของงบสัปดาห์ทีม) เฉพาะทีมที่ใช้งบรวม
+  if ((r = path.match(/^\/api\/team\/members\/(\d+)$/)) && M === 'PUT') { // ตั้งเพดานต่อคน (% ของงบสัปดาห์ทีม · เฉพาะงบรวม) และเปิด/ปิดสิทธิ์ใช้ API ของสมาชิก
     const tm = await DB.prepare("SELECT t.* FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=? AND tm.role='owner'").bind(u.id).first();
     if (!tm) return err('เฉพาะหัวหน้าทีมเท่านั้น', 403);
-    if (!tm.shared_pool) return err('แพลนนี้แยกโควตาต่อคนอยู่แล้ว ไม่ต้องตั้งเพดาน');
-    const cap = (await req.json()).cap_pct;
-    if (cap != null && !(cap > 0 && cap <= 100)) return err('เพดานต้องอยู่ระหว่าง 1–100%');
-    const ch = await DB.prepare("UPDATE team_members SET cap_pct=? WHERE team_id=? AND user_id=? AND role!='owner'").bind(cap ?? null, tm.id, +r[1]).run();
+    const b = await req.json(), sets = [], vals = [];
+    if ('cap_pct' in b) {
+      if (!tm.shared_pool) return err('แพลนนี้แยกโควตาต่อคนอยู่แล้ว ไม่ต้องตั้งเพดาน');
+      if (b.cap_pct != null && !(b.cap_pct > 0 && b.cap_pct <= 100)) return err('เพดานต้องอยู่ระหว่าง 1–100%');
+      sets.push('cap_pct=?'); vals.push(b.cap_pct ?? null);
+    }
+    if ('api_off' in b) { sets.push('api_off=?'); vals.push(b.api_off ? 1 : 0); }
+    if (!sets.length) return err('ไม่มีอะไรให้แก้');
+    const ch = await DB.prepare(`UPDATE team_members SET ${sets.join(',')} WHERE team_id=? AND user_id=? AND role!='owner'`).bind(...vals, tm.id, +r[1]).run();
     return ch.meta.changes ? json({ ok: true }) : err('ไม่พบสมาชิกคนนี้', 404);
+  }
+  if ((r = path.match(/^\/api\/team\/members\/(\d+)\/keys(?:\/(\d+))?$/)) && (M === 'GET' || M === 'DELETE')) { // หัวหน้าทีมดู/เพิกถอน API key ของสมาชิก
+    const own = await DB.prepare("SELECT team_id FROM team_members WHERE user_id=? AND role='owner'").bind(u.id).first();
+    if (!own || !await DB.prepare("SELECT 1 FROM team_members WHERE team_id=? AND user_id=? AND role!='owner'").bind(own.team_id, +r[1]).first()) return err('ไม่พบสมาชิกคนนี้ในทีมของคุณ', 404);
+    if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), +r[1]).all()).results);
+    if (!r[2]) return err('ระบุ key ที่จะเพิกถอน');
+    const ch = await DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=? AND revoked=0').bind(+r[2], +r[1]).run();
+    if (ch.meta.changes) await audit(env, u, 'revoke member api key', { key: +r[2], member: +r[1] });
+    return ch.meta.changes ? json({ ok: true }) : err('ไม่พบ key', 404);
   }
   if (path === '/api/team/invite' && M === 'POST') { // ส่งคำเชิญทางอีเมล: ลิงก์พาไปล็อกอินแล้วเข้าทีมด้วยโค้ด
     const tm = await DB.prepare("SELECT t.* FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=? AND tm.role='owner' AND t.expires>?").bind(u.id, Date.now()).first();
