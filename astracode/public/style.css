@@ -810,7 +810,8 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
   radial-gradient(40vmax 40vmax at 15% 10%, rgba(217, 119, 87, .5), transparent 65%),
   radial-gradient(36vmax 36vmax at 88% 28%, rgba(120, 110, 200, .38), transparent 65%),
   radial-gradient(44vmax 44vmax at 45% 95%, rgba(222, 170, 120, .3), transparent 65%);
-  } /* static: an animated full-screen layer under backdrop blur made scrolling freeze on phones */
+  animation: drift 28s ease-in-out infinite alternate; }
+@keyframes drift { to { transform: translate3d(3%, 4%, 0) scale(1.08); } }
 [data-page=home] .hero { padding: 80px 16px 24px; --hx: 50%; --hy: 20%; }
 [data-page=home] .hero::before { top: 0; left: 0; transform: none; width: 100%; height: 100%; background: radial-gradient(circle 260px at var(--hx) var(--hy), rgba(var(--ov), .1), transparent 70%); }
 [data-page=home] .hero .name { font: 500 13px/1 var(--font); letter-spacing: .16em; text-transform: uppercase; color: var(--ash); }
