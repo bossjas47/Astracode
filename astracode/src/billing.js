@@ -54,7 +54,7 @@ export async function useToken(env, t, kind) {
 // code: ผลแบบ Slip2Go (200200 = ผ่านทุกเงื่อนไข, 200401 บัญชีผู้รับไม่ตรง, 200402 ยอดไม่ตรง, 200500 สลิปปลอม, 200501 สลิปซ้ำ, 200404 ไม่พบ)
 export const SLIP_FAIL = { '200401': 'บัญชีผู้รับเงินไม่ตรงกับร้าน', '200402': 'ยอดเงินในสลิปไม่ตรงกับยอดที่ต้องจ่าย', '200403': 'วันที่โอนไม่ถูกต้อง', '200500': 'สลิปไม่ถูกต้องหรือเป็นสลิปปลอม', '200501': 'สลิปนี้ถูกใช้ไปแล้ว' };
 export async function checkSlip(env, buf, type, amount) {
-  const s = await getSettings(env, ['slip_provider', 'slip_api_url', 'slip_amount_field', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account']);
+  const s = await getSettings(env, ['slip_provider', 'slip_api_url', 'slip_amount_field', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'easyslip_url', 'easyslip_receiver', 'promptpay_id']);
   const provider = s.slip_provider || (s.slip_api_url ? 'byshop' : '');
   try {
     if (provider === 'slip2go') {
@@ -66,6 +66,7 @@ export async function checkSlip(env, buf, type, amount) {
       const d = await r.json().catch(() => ({}));
       return { result: JSON.stringify(d).slice(0, 4000), amount: typeof d.data?.amount === 'number' ? d.data.amount : null, code: String(d.code || r.status), ref: d.data?.transRef || null };
     }
+    if (provider === 'easyslip') return await easySlip(env, s, buf, type, amount);
     if (provider === 'byshop') { // shortcut: ส่ง multipart (file + keyapi) และ Bearer ถ้า byshop ใช้รูปแบบอื่นให้แก้ตรงนี้ที่เดียว
       if (!s.slip_api_url || !env.SLIP_API_KEY) return { result: null, amount: null };
       const fd = new FormData(); fd.append('file', new File([buf], 'slip.' + type.split('/')[1], { type })); fd.append('keyapi', env.SLIP_API_KEY);
@@ -75,6 +76,44 @@ export async function checkSlip(env, buf, type, amount) {
     }
   } catch (e) { return { result: JSON.stringify({ error: e.message }), amount: null }; }
   return { result: null, amount: null };
+}
+
+// ---------- EasySlip (https://easyslip.com) ----------
+// ส่งรูปสลิป (multipart `file` + checkDuplicate) ด้วย Bearer EASYSLIP_KEY · อ่านผลได้ทั้งรูปแบบ v1 (status/data.amount.amount) และ v2 (data.rawSlip.amount.amount)
+// ผลที่คืน: code 200000 = สลิปจริงและยอดตรง (pay() อนุมัติเมื่อเปิดอัตโนมัติ) · 200401/200402/200403/200501 = ปฏิเสธ · อย่างอื่น (ไม่พบสลิป โควตาหมด ตรวจผู้รับไม่ได้ ฯลฯ) = รอแอดมินตรวจเอง
+export const EASYSLIP_URL = 'https://developer.easyslip.com/api/v1/verify';
+const numOf = v => { const n = typeof v === 'number' ? v : parseFloat(v); return Number.isFinite(n) ? n : null; };
+const slipAmount = d => numOf(d?.amount?.amount ?? d?.amount ?? d?.rawSlip?.amount?.amount);
+// เลขผู้รับในสลิปถูกปิดบังบางส่วน (เช่น 088-xxx-1234, x-xxx-x5678-x): เทียบทีละหลัก x = อะไรก็ได้ · คืน true/false หรือ null (เทียบไม่ได้)
+export function receiverMatches(slip, expected) {
+  let want = String(expected || '').replace(/\D/g, ''); if (!want) return true; // ไม่ได้ตั้งไว้ = ไม่ตรวจ
+  if (want.startsWith('66') && want.length === 11) want = '0' + want.slice(2);
+  const found = []; (function walk(o, k) { if (typeof o === 'string' && /account$/i.test(k || '')) found.push(o); else if (o && typeof o === 'object') for (const [kk, v] of Object.entries(o)) walk(v, kk); })(slip?.receiver ?? slip?.rawSlip?.receiver, '');
+  let comparable = false;
+  for (let c of found) {
+    c = c.replace(/[\s-]/g, ''); if (c.startsWith('+66')) c = '0' + c.slice(3);
+    if (c.length !== want.length || (c.match(/\d/g) || []).length < 3) continue; // ยาวไม่เท่ากัน/เห็นเลขน้อยเกินไป: เทียบไม่ได้
+    comparable = true; if ([...c].every((ch, i) => /[xX*•]/.test(ch) || ch === want[i])) return true;
+  }
+  return comparable ? false : null;
+}
+export async function easySlip(env, s, buf, type, amount) {
+  if (!env.EASYSLIP_KEY) return { result: null, amount: null };
+  const fd = new FormData(); fd.append('file', new File([buf], 'slip.' + (type.split('/')[1] || 'jpg'), { type })); fd.append('checkDuplicate', 'true');
+  const r = await fetch(s.easyslip_url || EASYSLIP_URL, { method: 'POST', headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY }, body: fd, signal: AbortSignal.timeout(25000) });
+  const d = await r.json().catch(() => ({})), st = +d.status || r.status, msg = String(d.message || d.error?.message || ''), slip = d.data && typeof d.data === 'object' ? d.data : null;
+  const out = (code, extra = {}) => ({ result: JSON.stringify(d).slice(0, 4000), amount: slip ? slipAmount(slip) : null, ref: slip?.transRef || slip?.rawSlip?.transRef || null, code, ...extra });
+  if (/duplicate/i.test(msg)) return out('200501');
+  if (!(st === 200 || d.success === true) || !slip) return out(msg || String(st)); // ไม่ใช่สลิปที่อ่านได้: ปล่อยให้แอดมินดู (ไม่ปฏิเสธเอง)
+  const got = slipAmount(slip);
+  if (got == null) return out('amount_missing');
+  if (Math.abs(got - amount) > 0.004) return out('200402');
+  const when = Date.parse(slip.date || slip.rawSlip?.date || '');
+  if (Number.isFinite(when) && (Date.now() - when > 48 * 3600e3 || when - Date.now() > 3600e3)) return out('200403'); // สลิปเก่ากว่า 48 ชม. หรือวันที่อยู่ในอนาคต
+  const rm = receiverMatches(slip, s.easyslip_receiver || s.promptpay_id);
+  if (rm === false) return out('200401');
+  if (rm === null) return out('receiver_unverified'); // ตั้งผู้รับไว้แต่สลิปไม่มีเลขที่เทียบได้ → ให้แอดมินตรวจ
+  return out('200000');
 }
 
 // ดูชนิดไฟล์จากไบต์จริง ไม่เชื่อชนิดที่เบราว์เซอร์ส่งมา

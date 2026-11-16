@@ -13,7 +13,7 @@ export const TABLES = {
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
-  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices'];
+  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'easyslip_url', 'easyslip_receiver'];
 
 export async function admin(req, env, path, url, me) {
   const M = req.method, DB = env.DB;
@@ -131,7 +131,7 @@ export async function admin(req, env, path, url, me) {
     if (M === 'PUT') await ctxAudit('update settings', Object.keys(await req.clone().json()));
     if (M === 'PUT') { const b = await req.json(), q = SETTINGS.filter(k => k in b && (k !== 'google_client_secret' || b[k])).map(k => DB.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').bind(k, String(b[k]))); if (q.length) await DB.batch(q); } // ช่อง secret ว่าง = คงค่าเดิม
     const rows = (await DB.prepare('SELECT * FROM settings').all()).results;
-    return json({ ...Object.fromEntries(rows.filter(x => x.key !== 'google_client_secret').map(x => [x.key, x.value])), google_secret_set: rows.some(x => x.key === 'google_client_secret' && x.value), slip_key_set: !!env.SLIP_API_KEY, slip2go_key_set: !!env.SLIP2GO_KEY,
+    return json({ ...Object.fromEntries(rows.filter(x => x.key !== 'google_client_secret').map(x => [x.key, x.value])), google_secret_set: rows.some(x => x.key === 'google_client_secret' && x.value), slip_key_set: !!env.SLIP_API_KEY, slip2go_key_set: !!env.SLIP2GO_KEY, easyslip_key_set: !!env.EASYSLIP_KEY,
       env: Object.fromEntries(['RESEND_KEY', 'TAVILY_KEY', 'TURNSTILE_SECRET', 'SECRET_KEY', 'GOOGLE_CLIENT_ID', 'LINE_CHANNEL_ID', 'LINE_ALERT_TOKEN', 'PUBLIC_URL'].map(k => [k, !!env[k]])), r2: !!env.SLIPS });
   }
   if (path === '/api/admin/coupons') {
@@ -218,6 +218,12 @@ export async function admin(req, env, path, url, me) {
     return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="astracode-${type}-${new Date().toISOString().slice(0, 10)}.csv"` } });
   }
   if (path === '/api/admin/slip-test' && M === 'POST') { // ตรวจการเชื่อมต่อ Slip2Go: ดูข้อมูลบัญชี/โควตาที่เหลือ
+    if ((await getSetting(env, 'slip_provider')) === 'easyslip') { // EasySlip: อ่านข้อมูลแอป/โควตาที่เหลือ
+      if (!env.EASYSLIP_KEY) return err('ตั้ง Secret EASYSLIP_KEY ก่อน');
+      const u = ((await getSetting(env, 'easyslip_url')) || 'https://developer.easyslip.com/api/v1/verify').replace(/\/verify\/?$/, '/info');
+      const r = await fetch(u, { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY } }).catch(e => ({ ok: false, json: async () => ({ message: e.message }) }));
+      return json({ ok: r.ok, data: await r.json().catch(() => null) });
+    }
     const base = await getSetting(env, 'slip2go_url');
     if (!base || !env.SLIP2GO_KEY) return err('ใส่ API URL และตั้ง Secret SLIP2GO_KEY ก่อน');
     const r = await fetch(base.replace(/\/$/, '') + '/api/account/info', { headers: { authorization: 'Bearer ' + env.SLIP2GO_KEY } }).catch(e => ({ ok: false, json: async () => ({ message: e.message }) }));

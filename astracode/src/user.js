@@ -100,6 +100,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   }
   if (path === '/api/keys') {
     if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,ip_allow,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
+    if (M === 'POST' && !((await planOf(env, u))?.price > 0)) return err('แพลนฟรีสร้าง API key ไม่ได้ ต้องใช้แพลนที่ชำระเงิน', 403);
     if ((await DB.prepare('SELECT COUNT(*) n FROM api_keys WHERE user_id=? AND revoked=0').bind(u.id).first()).n >= 10) return err('สร้าง key ได้สูงสุด 10 อัน');
     const name = String((await req.json()).name || 'default').trim().slice(0, 40) || 'default', key = 'sk-astra-' + rand(24);
     await DB.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').bind(u.id, name, await sha(key), key.slice(0, 14), Date.now()).run();

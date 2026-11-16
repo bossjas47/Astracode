@@ -383,7 +383,14 @@ const ADMIN = {
     box.innerHTML = `<form class="panel form-p" id="f">
       <h2>การชำระเงิน</h2>
       <label>PromptPay (เบอร์โทรหรือเลขบัตรประชาชน)</label><input name="promptpay_id" value="${esc(s.promptpay_id)}">
-      <label>ตรวจสลิปอัตโนมัติ</label><select name="slip_provider" id="sp">${[['', 'ไม่ใช้ (แอดมินตรวจเอง)'], ['slip2go', 'Slip2Go'], ['byshop', 'byshop']].map(([k, l]) => `<option value="${k}" ${(s.slip_provider || (s.slip_api_url ? 'byshop' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label>ตรวจสลิปอัตโนมัติ</label><select name="slip_provider" id="sp">${[['', 'ไม่ใช้ (แอดมินตรวจเอง)'], ['easyslip', 'EasySlip'], ['slip2go', 'Slip2Go'], ['byshop', 'byshop']].map(([k, l]) => `<option value="${k}" ${(s.slip_provider || (s.slip_api_url ? 'byshop' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <div data-sp="easyslip">
+        <p class="muted">Secret Key (จากหน้า Application ใน EasySlip) ตั้งที่ Worker เป็น Secret ชื่อ <code>EASYSLIP_KEY</code> ${s.easyslip_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'}</p>
+        <label>API URL (เว้นว่าง = ค่ามาตรฐาน <code>https://developer.easyslip.com/api/v1/verify</code>)</label><input name="easyslip_url" value="${esc(s.easyslip_url)}" placeholder="https://developer.easyslip.com/api/v1/verify">
+        <label>เลขพร้อมเพย์/บัญชีผู้รับที่ต้องตรงกับสลิป (เว้นว่าง = ใช้ PromptPay ด้านบน)</label><input name="easyslip_receiver" value="${esc(s.easyslip_receiver)}" placeholder="0812345678">
+        <div class="row" style="margin-top:8px"><button type="button" class="btn out sm" id="est">Test connection</button><span id="esr" class="muted"></span></div>
+        <p class="muted">ระบบส่งสลิปให้ EasySlip ตรวจ: สลิปซ้ำ, ยอดต้องตรงเป๊ะ, วันที่ไม่เกิน 48 ชม. และบัญชีผู้รับ (เลขในสลิปถูกปิดบังบางหลัก ระบบเทียบเฉพาะหลักที่เห็น) · ตรวจไม่ได้หรือไม่พบสลิป = รอแอดมินตรวจเอง ไม่ปฏิเสธเอง</p>
+      </div>
       <div data-sp="slip2go">
         <label>API URL ของ Slip2Go (ดูในหน้า API Connect หลังล็อกอิน Slip2Go)</label><input name="slip2go_url" value="${esc(s.slip2go_url)}" placeholder="https://...">
         <p class="muted">Secret Key ตั้งที่ Worker เป็น Secret ชื่อ <code>SLIP2GO_KEY</code> ${s.slip2go_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'} · ที่ Slip2Go ตั้ง IP Whitelist เป็น <code>*</code> (IP ของ Cloudflare เปลี่ยนได้)</p>
@@ -397,7 +404,7 @@ const ADMIN = {
         <label>ตำแหน่งยอดเงินในผลลัพธ์ JSON (เช่น data.amount)</label><input name="slip_amount_field" value="${esc(s.slip_amount_field)}">
         <p class="muted">API key: ${s.slip_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'} · ตั้งเป็น Secret ชื่อ <code>SLIP_API_KEY</code></p>
       </div>
-      <label class="sw-row" data-sp="slip2go byshop"><span class="sw"><input type="checkbox" data-b="slip_auto_approve" ${s.slip_auto_approve !== '0' ? 'checked' : ''}><span></span></span> อนุมัติอัตโนมัติเมื่อสลิปผ่าน (ปิด = รอแอดมินกดเหมือนเดิม)</label>
+      <label class="sw-row" data-sp="easyslip slip2go byshop"><span class="sw"><input type="checkbox" data-b="slip_auto_approve" ${s.slip_auto_approve !== '0' ? 'checked' : ''}><span></span></span> อนุมัติอัตโนมัติเมื่อสลิปผ่าน (ปิด = รอแอดมินกดเหมือนเดิม)</label>
       <h2 style="margin-top:28px">หน้าราคา <a href="/pricing" style="font-size:14px;font-weight:400">ดูหน้าราคา ›</a></h2>
       <label>Markup อัตโนมัติ (%) ใช้กับโมเดลที่ไม่ได้ตั้งราคาขายเอง</label><input name="price_markup" type="number" step="any" inputmode="decimal" value="${esc(s.price_markup || '0')}">
       <p class="muted">ตัวอย่าง: ทุน 1.00 บาท + markup 30% = ขาย 1.30 บาท ต่อ 1M token</p>
@@ -438,6 +445,11 @@ const ADMIN = {
       <div class="row" style="margin-top:20px"><button class="btn blue">Save</button><span id="sv" class="ok"></span></div></form>`;
     const sp = () => box.querySelectorAll('[data-sp]').forEach(el => el.hidden = !el.dataset.sp.split(' ').includes($('#sp').value));
     $('#sp').onchange = sp; sp();
+    $('#est').onclick = async () => {
+      $('#esr').textContent = 'กำลังทดสอบ... (กดบันทึกก่อนถ้าเพิ่งแก้ค่า)';
+      try { const r = await api('/admin/slip-test', { method: 'POST' }); $('#esr').innerHTML = r.ok ? `<span class="ok">✓ เชื่อมต่อได้</span> <code>${esc(JSON.stringify(r.data?.data ?? r.data)).slice(0, 300)}</code>` : `<span class="bad">✕ ${esc(r.data?.message || 'เชื่อมต่อไม่ได้')}</span>`; }
+      catch (x) { $('#esr').innerHTML = `<span class="bad">${esc(x.message)}</span>`; }
+    };
     $('#s2t').onclick = async () => {
       $('#s2r').textContent = 'กำลังทดสอบ... (กดบันทึกก่อนถ้าเพิ่งแก้ URL)';
       try { const r = await api('/admin/slip-test', { method: 'POST' }); $('#s2r').innerHTML = r.ok ? `<span class="ok">✓ เชื่อมต่อได้</span> <code>${esc(JSON.stringify(r.data?.data ?? r.data)).slice(0, 300)}</code>` : `<span class="bad">✕ ${esc(r.data?.message || 'เชื่อมต่อไม่ได้')}</span>`; }

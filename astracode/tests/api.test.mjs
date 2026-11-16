@@ -1,7 +1,7 @@
 // /v1 (API แบบ OpenAI สำหรับนักพัฒนา): เงิน, งบ key, rate limit, พารามิเตอร์, รูป, ข้อความ error
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeEnv, addModel, fakeModel, sha } from './helpers.mjs';
+import { makeEnv, addModel, addPlan, fakeModel, sha } from './helpers.mjs';
 
 async function setup(opt = {}) {
   const fm = await fakeModel((q, res, body) => {
@@ -14,7 +14,7 @@ async function setup(opt = {}) {
   const m = addModel(t.DB, { name: 'Chat One', base_url: fm.url, cost_in: 1000, cost_out: 2000 });
   const img = addModel(t.DB, { name: 'Pic One', provider: 'image', base_url: fm.url, cost_out: 4 });
   const emb = addModel(t.DB, { name: 'Embed One', provider: 'embedding', base_url: fm.url, cost_in: 1000 });
-  const u = await t.user({ balance: opt.balance ?? 100 });
+  const u = await t.user({ balance: opt.balance ?? 100 }), paidPlan = addPlan(t.DB, { name: 'Paid', price: 100 }); t.DB.raw.prepare('UPDATE users SET plan_id=?,plan_expires=? WHERE id=?').run(paidPlan.id, Date.now() + 864e5, u.id);
   const key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
   t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at,budget,models) VALUES (?,?,?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now(), opt.budget ?? null, opt.models ?? null);
   const v1 = async (path, body, k = key) => { const r = await t.call(path, { method: body ? 'POST' : 'GET', body, headers: { authorization: 'Bearer ' + k } }); const d = await r.json(); await Promise.all(t.ctx.pending); return { status: r.status, d, h: r.headers }; };
@@ -152,4 +152,14 @@ test('IP allowlist, request log, usage history and budget crossing', async () =>
   assert.equal((await v1('/v1/chat/completions', msg)).status, 200);
   assert.equal((await v1('/v1/chat/completions', msg)).status, 429);
   void u; fm.close();
+});
+
+test('free plan cannot create API keys and old keys of free users stop working', async () => {
+  const { t, fm, v1, u, key } = await setup();
+  t.DB.raw.prepare('UPDATE users SET plan_id=NULL WHERE id=?').run(u.id); // แพลนหมด = ฟรี
+  const r = await v1('/v1/models'); assert.equal(r.status, 403); assert.equal(r.d.error.type, 'permission_error');
+  const mk = await t.json('/api/keys', { method: 'POST', cookie: u.cookie, body: { name: 'x' } }); assert.equal(mk.status, 403);
+  const paid = addPlan(t.DB, { name: 'P2', price: 50 }); t.DB.raw.prepare('UPDATE users SET plan_id=?,plan_expires=? WHERE id=?').run(paid.id, Date.now() + 864e5, u.id);
+  assert.equal((await t.json('/api/keys', { method: 'POST', cookie: u.cookie, body: { name: 'x' } })).status, 200);
+  assert.equal((await v1('/v1/models')).status, 200); void key; fm.close();
 });

@@ -60,7 +60,7 @@ export async function makeEnv(extra = {}) {
 // โมเดลปลอมแบบ OpenAI-compatible: ตอบข้อความตามที่ตั้ง หรือค้าง (stall) หรือตอบ error
 export async function fakeModel(handler) {
   const hits = [];
-  const srv = createServer((req, res) => { let b = ''; req.on('data', d => b += d); req.on('end', () => { const body = b ? JSON.parse(b) : {}; hits.push({ url: req.url, body }); handler(req, res, body); }); });
+  const srv = createServer((req, res) => { let b = ''; req.on('data', d => b += d); req.on('end', () => { let body = {}; try { body = b ? JSON.parse(b) : {}; } catch { body = { raw: b }; } hits.push({ url: req.url, body }); handler(req, res, body); }); }); // body ที่ไม่ใช่ JSON (เช่น multipart สลิป) เก็บเป็น { raw }
   await new Promise(r => srv.listen(0, r));
   const sse = (res, text, usage = { prompt_tokens: 10, completion_tokens: 5 }) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });

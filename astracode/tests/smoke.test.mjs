@@ -34,7 +34,7 @@ test('browser errors are stored as client events, with a per-IP burst limit', as
 
 test('security: broken JSON bodies answer 400, not 500', async () => {
   const t = await makeEnv(), u = await t.user();
-  for (const path of ['/api/keys', '/api/folders', '/api/feedback', '/api/coupon/redeem']) {
+  for (const path of ['/api/folders', '/api/feedback', '/api/coupon/redeem']) {
     const r = await t.worker.default.fetch(new Request('https://t.test' + path, { method: 'POST', headers: { cookie: u.cookie, 'content-type': 'application/json' }, body: '{oops' }), t.env, t.ctx);
     assert.equal(r.status, 400, path);
   }

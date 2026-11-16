@@ -37,6 +37,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     lg.kid = k.kid; lg.uid = k.id;
     if (k.ip_allow && !ipAllowed(k.ip_allow, ip(req, env))) return fail('This IP address is not allowed for this API key.', 403, 'permission_error');
     const plan = await planOf(env, k);
+    if (!(plan?.price > 0)) return fail('API access needs a paid plan. See /plans.', 403, 'permission_error'); // แพลนฟรีใช้ API ไม่ได้ (key เก่าของคนที่แพลนหมดก็หยุดใช้ได้ด้วย)
     const canPlan = !!plan?.api_limit && k.use_plan !== 0;
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
     const allPublic = (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results;
