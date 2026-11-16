@@ -507,7 +507,7 @@ async function imagesForAI(msg, list) {
   if (IDE.round <= 5) await codeSend({ text: text + '\n\nใส่รูปลงในโค้ดตามที่ต้องการ แล้วสรุปสั้นๆ ถ้าสร้างรูปไม่สำเร็จให้ใช้ CSS หรือ SVG แทน' });
 }
 async function runForAI(msg, cmds) {
-  const bad = await applyChanges(changesOf(msg.content), msg);
+  const bad = await applyChanges(changesOf(msg.content, undefined, activeRef()), msg);
   if (bad.length) { drawAI(); return feedBack(bad); } // ไฟล์พัง: ไม่รันคำสั่ง ส่งกลับให้ AI แก้ก่อน
   msg.ran = true; drawAI();
   const cut = s => s.length > 6000 ? s.slice(0, 2000) + '\n…(ตัดกลาง)…\n' + s.slice(-4000) : s;
@@ -635,7 +635,10 @@ function problemOf(path, next, cur) {
   if (cur && cur.length > 2000 && next.length < cur.length * 0.5 && !/\.(?:md|txt|csv|log)$/i.test(path)) return `ไฟล์หดลงเหลือ ${Math.round(next.length / cur.length * 100)}% ของเดิม (${cur.length} → ${next.length} ตัวอักษร) อาจถูกตัดกลางทาง`;
   return '';
 }
-function changesOf(text, getFile = p => has(p) ? content(p) : null) {
+// โมเดลบางตัวส่งโค้ดทั้งไฟล์โดยไม่ใส่ path= : ถ้าเป็นบล็อกเดียว ภาษาตรงกับไฟล์ที่เปิดอยู่ และยาวพอ (≥60% ของไฟล์เดิม) ให้เสนอเป็นการ์ด "ใช้กับไฟล์นี้" (ไม่ใช้อัตโนมัติ)
+const LANG_EXT = { javascript: 'js', js: 'js', jsx: 'js', typescript: 'ts', ts: 'ts', tsx: 'ts', python: 'py', py: 'py', html: 'html', htm: 'html', css: 'css', json: 'json', markdown: 'md', md: 'md', yaml: 'yml', yml: 'yml', xml: 'xml', sql: 'sql', java: 'java', c: 'c', cpp: 'cpp', go: 'go', rust: 'rs', rs: 'rs', php: 'php', ruby: 'rb', rb: 'rb' };
+const looseCode = text => [...String(text || '').matchAll(/```([^\n`]*)\n([\s\S]*?)\n?```/g)].filter(m => { const info = m[1].trim(); return info && !/\bpath=/.test(info) && !NOT_FILE_LANG.test(info.split(/\s+/)[0]) && !/^(?:ask|mermaid|math)$/i.test(info); });
+function changesOf(text, getFile = p => has(p) ? content(p) : null, active = null) {
   const map = new Map();
   text = String(text || '');
   let last = 0;
@@ -658,6 +661,13 @@ function changesOf(text, getFile = p => has(p) ? content(p) : null) {
     } else if (path) map.set(path, { path, content: m[2].replace(/\n?$/, '\n') });
   }
   for (const m of text.matchAll(/^DELETE path=(\S+)/gm)) map.set(m[1], { path: m[1], del: true });
+  if (!map.size && active) { // เดาไฟล์จากบล็อกเดียวที่ไม่มี path=
+    const loose = looseCode(text), cur = getFile(active.path);
+    if (loose.length === 1 && cur != null && cur.length > 0) {
+      const lang = loose[0][1].trim().split(/\s+/)[0].toLowerCase(), ext = (active.path.match(/\.([^.\/]+)$/)?.[1] || '').toLowerCase(), body = loose[0][2];
+      if (LANG_EXT[lang] && LANG_EXT[lang] === ext && body.length >= cur.length * 0.6 && !isEditBody(body)) map.set(active.path, { path: active.path, content: body.replace(/\n?$/, '\n'), guess: true });
+    }
+  }
   return [...map.values()];
 }
 function lineDiff(a, b) {
@@ -680,7 +690,7 @@ function lineDiff(a, b) {
   return { before: A.slice(Math.max(0, s - 3), s), ops, after: A.slice(ea, ea + 3), start: s, add: ops.filter(o => o[0] === '+').length, del: ops.filter(o => o[0] === '-').length };
 }
 function changeCards(m, i) {
-  const ch = changesOf(m.content); if (!ch.length) return '';
+  const ch = changesOf(m.content, undefined, activeRef()); if (!ch.length) return '';
   return `<div class="changes">${ch.map((c, k) => {
     if (c.error) return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span><span class="bad" title="${esc(c.error)}">แก้ไม่ได้</span><span class="muted" style="font-size:12px">${esc(c.error.slice(0, 90))}</span></div>`;
     const cur = has(c.path) ? content(c.path) : null;
@@ -688,10 +698,11 @@ function changeCards(m, i) {
     const d = !c.del && cur != null && !same ? lineDiff(cur, c.content) : null;
     const tag = c.del ? '<span class="bad">ลบ</span>' : cur == null ? '<span class="ok">ไฟล์ใหม่</span>' : d ? `<span class="ok">+${d.add}</span> <span class="bad">−${d.del}</span>` : '';
     return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span>${tag}
-      ${same ? '<span class="muted">ใช้แล้ว ✓</span>' : `${c.del ? '' : `<button data-diff="${i}:${k}">View diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'Delete file' : 'Apply'}</button>`}</div>`;
+      ${same ? '<span class="muted">ใช้แล้ว ✓</span>' : `${c.del ? '' : `<button data-diff="${i}:${k}">View diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'Delete file' : c.guess ? 'Apply to this file' : 'Apply'}</button>`}</div>`;
   }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(needsApply).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply all</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} Undo this batch</button>` : ''}</div></div>`;
 }
-const needsApply = c => !c.error && (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content);
+const activeRef = () => IDE.active && has(IDE.active) && !isImg(IDE.active) ? { path: IDE.active } : null;
+const needsApply = c => !c.error && !c.guess && (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content);
 // ใช้การแก้ไขทั้งหมดของข้อความนี้ · คืนรายการที่ใช้ไม่ได้ (SEARCH ไม่ตรง / ไฟล์ไม่ผ่านการตรวจ) เพื่อส่งกลับให้ AI แก้เอง
 async function applyChanges(ch, msg) {
   const bad = [];
@@ -844,11 +855,15 @@ async function codeSend(auto) {
   IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
   // โหมดอัตโนมัติ: ใช้การแก้ไขทันที แล้วให้ AI ดูผลลัพธ์เอง (สูงสุด 3 รอบ)
   // Auto-apply: ใช้การแก้ไขทันที (และรันคำสั่งที่ AI ขอ) · ตรวจผลเอง: ใช้การแก้ไข แล้วรัน + จับภาพให้ AI ดู (สูงสุด 3 รอบ)
-  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content) : [], autoOn = IDE.autoApply || IDE.autoMode || barAuto() || IDE.applyNext, imgs = ai.content ? imagesOf(ai.content) : [];
+  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content, undefined, activeRef()) : [], autoOn = IDE.autoApply || IDE.autoMode || barAuto() || IDE.applyNext, imgs = ai.content ? imagesOf(ai.content) : [];
   IDE.applyNext = false; // หลังสร้างรูปเสร็จ คำตอบถัดไปที่ใส่รูปลงโค้ดจะถูกใช้ทันที
   try {
     if (imgs.length && !ai.imgdone && (IDE.round ?? 0) < 5) await imagesForAI(ai, imgs);
     else if (autoOn && runs.length && (IDE.round ?? 0) < 5) await runForAI(ai, runs);
+    else if (!ch.length && !runs.length && !(ai.content && /^\s*(?:READ|GREP|LIST)\b/m.test(ai.content.replace(/```[\s\S]*?```/g, ''))) && ai.content && looseCode(ai.content).length && (IDE.round ?? 0) < 2) { // ตอบเป็นโค้ดลอยๆ ไม่ใช้รูปแบบที่ระบบแก้ไฟล์ได้: ขอให้ส่งใหม่ให้ถูก (ไม่เกิน 2 รอบ)
+      IDE.round = (IDE.round ?? 0) + 1;
+      await codeSend({ auto: { text: 'ข้อความก่อนหน้ายังไม่ได้แก้ไฟล์ เพราะโค้ดไม่ได้อยู่ในรูปแบบที่ระบบใช้ได้ คุณแก้ไฟล์ในโปรเจกต์ได้จริง ให้ส่งใหม่: ไฟล์ที่มีอยู่แล้วใช้บล็อก ```<ภาษา> path=<ไฟล์> ที่ข้างในเป็น <<<<<<< SEARCH / ======= / >>>>>>> REPLACE (คัดลอก SEARCH จากเนื้อหาไฟล์จริง) หรือส่งทั้งไฟล์ใน path= เดียวกัน ห้ามตอบว่าแก้ไฟล์ไม่ได้ และห้ามส่งโค้ดที่ไม่มี path=' } });
+    }
     else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < 3) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
 }
@@ -1154,7 +1169,7 @@ async function codeView(id) {
     if (b.dataset.cs) { ct.value = b.dataset.cs; ct.focus(); return; }
     if (b.dataset.runai) { if (IDE.busy) return; b.disabled = true; const m = IDE.msgs[+b.dataset.runai]; IDE.round = 0; try { await runForAI(m, runsOf(m.content)); } catch (x) { $('#ce').textContent = x.message; } return; }
     const ref = (b.dataset.diff || b.dataset.apply || '').split(':').map(Number);
-    const c = ref.length === 2 ? changesOf(IDE.msgs[ref[0]].content)[ref[1]] : null;
+    const c = ref.length === 2 ? changesOf(IDE.msgs[ref[0]].content, undefined, activeRef())[ref[1]] : null;
     try {
       if (b.dataset.diff) { if (c.error) { toast(c.error, 'bad'); return; } showDiff(c); }
       if (b.dataset.apply) {
@@ -1177,7 +1192,7 @@ async function codeView(id) {
         for (const dp of dels) { await api(`/projects/${IDE.pid}/file?path=${encodeURIComponent(dp)}`, { method: 'DELETE' }); dropFile(dp); }
         delete msg._prev; refresh(); drawAI(); toast('ย้อนกลับไฟล์เรียบร้อย', 'ok'); return;
       }
-      if (b.dataset.applyall) { b.disabled = true; const m = IDE.msgs[+b.dataset.applyall], bad = await applyChanges(changesOf(m.content), m); if (bad.length) toast(bad[0], 'bad'); }
+      if (b.dataset.applyall) { b.disabled = true; const m = IDE.msgs[+b.dataset.applyall], bad = await applyChanges(changesOf(m.content, undefined, activeRef()), m); if (bad.length) toast(bad[0], 'bad'); }
     } catch (x) { $('#ce').textContent = x.message; drawAI(); }
   };
   drawAI();

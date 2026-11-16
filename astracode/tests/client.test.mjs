@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/code.js'), 'utf8');
 const pick = (a, b) => src.slice(src.indexOf(a), src.indexOf(b));
-const ctx = new Function(`${pick('const NOT_FILE_LANG', 'function lineDiff')}\n${pick('function stepsOf', 'function stepsBar')}\nreturn { changesOf, stepsOf, stripTools, applyEdits, problemOf, isEditBody };`)();
+const ctx = new Function(`${pick('const NOT_FILE_LANG', 'function lineDiff')}\n${pick('function stepsOf', 'function stepsBar')}\nreturn { changesOf, stepsOf, stripTools, applyEdits, problemOf, isEditBody, looseCode };`)();
 
 test('changesOf: path= blocks, heading-named blocks, ignores shell and plain examples', () => {
   const t = '# `index.html`\n```html\n<h1>x</h1>\n```\n\n```js path=a.js\nlet a\n```\n\nรัน:\n```bash\nnpm i\n```\n\nตัวอย่าง:\n```js\nconsole.log(1)\n```\nDELETE path=old.txt';
@@ -67,4 +67,15 @@ test('problemOf: bad JSON, JS syntax errors and suspicious shrinking are caught;
   assert.equal(ctx.problemOf('a.js', 'const el = <div>{x</div>;', ''), '', 'JSX-looking files are not judged');
   assert.match(ctx.problemOf('big.js', 'x', 'y'.repeat(3000)), /หดลง/);
   assert.equal(ctx.problemOf('notes.md', 'x', 'y'.repeat(3000)), '', 'docs may shrink');
+});
+
+test('unpathed code: a same-language, nearly whole-file block becomes a "guess" card for the open file; fragments are not guessed', () => {
+  const html = '<!DOCTYPE html>\n<html>\n<body>\n  <h1>A</h1>\n  <button>x</button>\n</body>\n</html>\n', get = p => p === 'index.html' ? html : null, act = { path: 'index.html' };
+  const whole = '```html\n<!DOCTYPE html>\n<html>\n<body>\n  <h1>B</h1>\n  <button>x</button>\n</body>\n</html>\n```';
+  const g = ctx.changesOf('เสร็จแล้ว\n' + whole, get, act);
+  assert.equal(g.length, 1); assert.equal(g[0].path, 'index.html'); assert.ok(g[0].guess); assert.match(g[0].content, /<h1>B<\/h1>/);
+  assert.deepEqual(ctx.changesOf('```html\n<h1>B</h1>\n```', get, act), [], 'a fragment is too short to guess');
+  assert.deepEqual(ctx.changesOf(whole, get, { path: 'style.css' }), [], 'language must match the open file');
+  assert.deepEqual(ctx.changesOf(whole, get, null), [], 'no open file, no guess');
+  assert.equal(ctx.looseCode('```html\n<h1>x</h1>\n```').length, 1); assert.equal(ctx.looseCode('```bash\nls\n```\n```js path=a.js\nx\n```').length, 0);
 });
