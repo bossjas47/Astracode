@@ -274,7 +274,7 @@ export async function imagePrompt(env, code) {
 // shortcut: ยังไม่มีงานลบรูปเก่า (ลบตอนลบบัญชีเท่านั้น) ถ้ารูปสะสมมากให้เพิ่มลบตามอายุใน cron
 export const IMG_CHUNK = 900e3, IMG_MAX = 8e6;
 export let imgTable;
-export const ensureImgTable = env => imgTable ||= env.DB.prepare('CREATE TABLE IF NOT EXISTS chat_images (key TEXT NOT NULL, n INTEGER NOT NULL, user_id INTEGER NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (key, n))').run();
+export const ensureImgTable = env => imgTable ||= env.DB.prepare('CREATE TABLE IF NOT EXISTS chat_images (key TEXT NOT NULL, n INTEGER NOT NULL, user_id INTEGER NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (key, n))').run().catch(e => { imgTable = undefined; throw e; }); // ล้มครั้งเดียวไม่ควรจำค่าล้มไว้ตลอดอายุ isolate
 export async function putImage(env, uid, mime, b64s) {
   if (b64s.length > IMG_MAX) throw new Error('รูปที่ได้ใหญ่เกินไป');
   const ext = mime === 'image/png' ? 'png' : 'jpg', key = rand(12);
@@ -291,7 +291,7 @@ export let fbTable;
 export const ensureFb = env => fbTable ||= env.DB.batch([
   env.DB.prepare('CREATE TABLE IF NOT EXISTS feedback (message_id INTEGER NOT NULL, user_id INTEGER NOT NULL, model_id INTEGER, vote INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (message_id, user_id))'),
   env.DB.prepare("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, user_id INTEGER, model_id INTEGER, reason TEXT, snippet TEXT, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL)"),
-]);
+]).catch(e => { fbTable = undefined; throw e; });
 // หน้าเว็บของโปรเจกต์ที่แชร์: รวม CSS/JS/รูปเข้าไฟล์ HTML เดียว (เวอร์ชันฝั่งเซิร์ฟเวอร์ของ buildHtml ในหน้า Code · ไม่รองรับ ES module ที่ import ข้ามไฟล์)
 export const STORAGE_SHIM = `<script>try{localStorage.getItem('_')}catch(e){for(const n of['localStorage','sessionStorage']){const m=new Map();Object.defineProperty(window,n,{configurable:true,value:{getItem:k=>m.has(k)?m.get(k):null,setItem:(k,v)=>{m.set(String(k),String(v))},removeItem:k=>{m.delete(k)},clear:()=>m.clear(),key:i=>[...m.keys()][i]??null,get length(){return m.size}}})}}</script>`;
 export function bundleProject(files) {

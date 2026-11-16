@@ -79,3 +79,10 @@ test('unpathed code: a same-language, nearly whole-file block becomes a "guess" 
   assert.deepEqual(ctx.changesOf(whole, get, null), [], 'no open file, no guess');
   assert.equal(ctx.looseCode('```html\n<h1>x</h1>\n```').length, 1); assert.equal(ctx.looseCode('```bash\nls\n```\n```js path=a.js\nx\n```').length, 0);
 });
+
+test('safeNext only accepts in-site paths (no open redirect)', () => {
+  const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/app.js'), 'utf8');
+  const safeNext = new Function(app.slice(app.indexOf('const safeNext'), app.indexOf('async function api(')) + '\nreturn safeNext;')();
+  for (const ok of ['/chat', '/code?p=3', '/plans?topup=1']) assert.equal(safeNext(ok), ok);
+  for (const bad of ['https://evil.com', '//evil.com', '/\\evil.com', 'javascript:alert(1)', '', null, undefined, 'evil.com']) assert.equal(safeNext(bad), '/chat', String(bad));
+});

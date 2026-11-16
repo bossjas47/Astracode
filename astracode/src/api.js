@@ -62,7 +62,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (over) return fail('ส่งคำขอเร็วเกินไป (60 ครั้ง/นาที)', 429, 'rate_limit_error', { 'retry-after': String(secs) });
     const b = await req.json().catch(() => null) || {}, pool = allPublic.filter(x => (!allow || allow.includes(slug(x))) && (isImg ? x.provider === 'image' : isEmb ? x.provider === 'embedding' : x.provider !== 'embedding'));
     const m = pool.find(x => slug(x) === b.model || x.api_model === b.model) || ((isImg || isEmb) && !b.model ? pool[0] : null);
-    if (!m) return fail(`ไม่พบโมเดล "${b?.model}" ดูรายชื่อที่ /v1/models`, 404);
+    if (!m) return fail(`ไม่พบโมเดล "${String(b?.model ?? '').slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404);
     let billingMode = 'wallet';
     if (canPlan && planIds.has(m.id)) {
       if (await capHit(env, k, plan, m)) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');

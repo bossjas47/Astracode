@@ -217,9 +217,19 @@ export async function usageStatus(env, u, plan) {
 export const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4h: null, use4h: false } : { ...st, use4h: true };
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 export let colsDone;
+// เดิมสั่ง ALTER ทีละคำสั่งทุกครั้งที่ isolate เริ่ม (13 รอบไป-กลับ D1 ก่อนตอบคำขอแรก) ตอนนี้ถามโครงสร้างครั้งเดียวแล้วเพิ่มเฉพาะที่ขาด
+const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['projects', 'share_token', 'TEXT']];
+const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
 export const ensureCols = env => colsDone ||= (async () => {
-  for (const q of ['ALTER TABLE api_keys ADD COLUMN ip_allow TEXT', 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)', 'CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id)', 'ALTER TABLE plans ADD COLUMN use_4h INTEGER', 'ALTER TABLE models ADD COLUMN use_mult REAL', 'ALTER TABLE models ADD COLUMN promo_mult REAL', 'ALTER TABLE team_members ADD COLUMN cap_pct REAL', 'ALTER TABLE models ADD COLUMN first_token_s REAL', 'ALTER TABLE models ADD COLUMN idle_s REAL', 'ALTER TABLE sessions ADD COLUMN created_at INTEGER', 'ALTER TABLE sessions ADD COLUMN ua TEXT', 'ALTER TABLE sessions ADD COLUMN ip TEXT', 'ALTER TABLE projects ADD COLUMN share_token TEXT'])
-    try { await env.DB.prepare(q).run(); } catch { /* มีคอลัมน์แล้ว */ }
+  let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
+  try {
+    const rows = (await env.DB.prepare("SELECT m.name t, p.name c FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name IN ('api_keys','plans','models','team_members','sessions','projects','api_log')").all()).results;
+    const has = new Set(rows.map(r => r.t + '.' + r.c));
+    todo = NEW_COLS.filter(([t, c]) => !has.has(t + '.' + c)).map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`);
+    apiLog = !rows.some(r => r.t === 'api_log');
+  } catch { /* ถามโครงสร้างไม่ได้: ใช้วิธีเดิม ลองเพิ่มทุกคอลัมน์ */ }
+  if (apiLog) todo.push(API_LOG, 'CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id)');
+  for (const q of todo) try { await env.DB.prepare(q).run(); } catch { /* มีคอลัมน์แล้ว */ }
 })();
 // ตัวคูณหน่วยลิมิตของโมเดล: ช่วงโปรใช้ promo_mult (ถ้าตั้ง) ไม่งั้นใช้ use_mult · ว่าง = 1
 export const limMult = (m, now = Date.now()) => { const inPromo = (m.promo_pct > 0 || m.promo_mult != null) && (!m.promo_start || m.promo_start <= now) && (!m.promo_end || now <= m.promo_end), v = inPromo && m.promo_mult != null ? m.promo_mult : m.use_mult; return v != null && v >= 0 ? +v : 1; };

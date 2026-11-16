@@ -31,3 +31,22 @@ test('browser errors are stored as client events, with a per-IP burst limit', as
   const rows = t.DB.raw.prepare("SELECT detail FROM events WHERE kind='client'").all();
   assert.equal(rows.length, 10); assert.match(rows[0].detail, /\/chat · x is not defined 0 @ \/chat\.js:1:2/);
 });
+
+test('security: broken JSON bodies answer 400, not 500', async () => {
+  const t = await makeEnv(), u = await t.user();
+  for (const path of ['/api/keys', '/api/folders', '/api/feedback', '/api/coupon/redeem']) {
+    const r = await t.worker.default.fetch(new Request('https://t.test' + path, { method: 'POST', headers: { cookie: u.cookie, 'content-type': 'application/json' }, body: '{oops' }), t.env, t.ctx);
+    assert.equal(r.status, 400, path);
+  }
+});
+
+test('ensureCols adds only what is missing (old schema is upgraded on the first request)', async () => {
+  const t = await makeEnv();
+  t.DB.raw.exec('DROP INDEX IF EXISTS api_log_key; DROP TABLE api_log; ALTER TABLE api_keys DROP COLUMN ip_allow; ALTER TABLE models DROP COLUMN idle_s;');
+  const stmts = []; const prep = t.DB.prepare; t.DB.prepare = sql => { stmts.push(sql); return prep(sql); };
+  assert.equal((await t.call('/api/settings/public')).status, 200);
+  const cols = t.DB.raw.prepare("SELECT name FROM pragma_table_info('api_keys')").all().map(x => x.name);
+  assert.ok(cols.includes('ip_allow')); assert.ok(t.DB.raw.prepare("SELECT 1 FROM sqlite_master WHERE name='api_log'").get());
+  assert.ok(t.DB.raw.prepare("SELECT name FROM pragma_table_info('models')").all().some(x => x.name === 'idle_s'));
+  assert.equal(stmts.filter(s => /^ALTER TABLE/.test(s)).length, 2, 'only the two missing columns were altered');
+});

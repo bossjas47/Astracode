@@ -108,7 +108,7 @@ export async function route(req, env, ctx, url, path, M) {
   let r;
   if (path === '/api/version') return json({ version: env.VERSION || 'dev' }); // workflow ใช้ยืนยันว่า deploy ขึ้นจริง
   if (path === '/api/clienterr' && M === 'POST') { // error ที่เกิดในเบราว์เซอร์ผู้ใช้ → events (แอดมินดูที่แท็บระบบ)
-    if (burstHit('ce:' + ip(req, env), 10, 600e3)) return new Response(null, { status: 204 });
+    if (burstHit('ce:' + ip(req, env), 10, 600e3) || await limited(env, 'ce:' + ip(req, env), 30, 3600e3)) return new Response(null, { status: 204 }); // ในหน่วยความจำ + ในฐานข้อมูล (กันถูกยิงข้าม isolate จนตาราง events บวม)
     const b = await req.json().catch(() => null), s = v => String(v ?? '').replace(/\s+/g, ' ').slice(0, 300);
     if (b?.msg) await event(env, 'client', null, `${s(b.page).slice(0, 80)} · ${s(b.msg)} @ ${s(b.src).slice(0, 160)} · ${s(req.headers.get('user-agent')).slice(0, 90)}`);
     return new Response(null, { status: 204 });
@@ -272,6 +272,7 @@ export async function route(req, env, ctx, url, path, M) {
       return err('not found', 404);
     } catch (e) {
       if (e.user) return err(e.message, e.status);
+      if (e instanceof SyntaxError && /JSON/.test(e.message)) return err('คำขอไม่ถูกต้อง (ต้องเป็น JSON)', 400); // body ว่าง/พัง = ความผิดของผู้เรียก ไม่ใช่ 500
       console.log('error', path, e.stack);
       return err('เซิร์ฟเวอร์ผิดพลาด', 500);
     }

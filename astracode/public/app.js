@@ -27,6 +27,8 @@ let me = null, installEvt = null, site = {};
 // ใช้เฉพาะข้อมูลสาธารณะ ไม่แตะแชตหรือโค้ดของผู้ใช้ (ซึ่งมี || ได้ตามปกติ)
 const biLang = v => typeof v === 'string' ? (v.includes(' || ') ? v.split(' || ')[window.LANG === 'en' ? 1 : 0].trim() : v)
   : Array.isArray(v) ? v.map(biLang) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, biLang(x)])) : v;
+// ?next= ต้องเป็นเส้นทางในเว็บเราเท่านั้น (กัน open redirect เช่น //evil.com, https://evil.com, /\evil.com)
+const safeNext = n => /^\/(?![\/\\])/.test(String(n || '')) ? n : '/chat';
 async function api(path, opt = {}) {
   if (opt.body && !(opt.body instanceof FormData)) { opt.body = JSON.stringify(opt.body); opt.headers = { 'content-type': 'application/json' }; }
   const r = await fetch('/api' + path, opt);
@@ -378,7 +380,7 @@ function auth() {
   forms.mfa = forms.code;
   const title = { login: 'เข้าสู่ระบบ', register: 'สมัครสมาชิก', forgot: 'ลืมรหัสผ่าน', verify: 'ยืนยันอีเมล', code: 'ยืนยันตัวตน 2 ขั้น', mfa: 'ยืนยันตัวตน 2 ขั้น' };
   const btn = { login: 'Log in', register: 'Sign up', forgot: 'Send link', verify: 'Verified, log in', code: 'Confirm', mfa: 'Confirm' };
-  const done = async () => { localStorage.removeItem('ref'); await loadMe(); go(q.get('next') || '/chat'); };
+  const done = async () => { localStorage.removeItem('ref'); await loadMe(); go(safeNext(q.get('next'))); };
   const send = async (action, code) => {
     const r = await api('/auth', { method: 'POST', body: { ...cred, action, ref, code, cf: cfToken() } }).catch(x => { if (x.data?.need2fa) return { need2fa: true }; throw x; });
     if (r.verify) { if (action === 'check') throw new Error('ยังไม่ได้ยืนยัน กดลิงก์ในอีเมลก่อน'); mode = 'verify'; msg = ''; return draw(); }
@@ -971,7 +973,7 @@ function go(p) { if (window.DEMO) { setUrl(p); boot(); } else location.href = p;
 const PAGES = {
   notfound: () => page(nav() + `<section class="hero" style="padding:96px 0 32px"><div class="name">404</div><h1>ไม่พบหน้านี้</h1><p>ลิงก์อาจพิมพ์ผิด หรือหน้านี้ถูกย้ายไปแล้ว</p><div class="row" style="justify-content:center;margin-top:16px"><a class="btn blue" href="/">Home</a><a class="btn out" href="/chat">Open Chat</a></div></section>${footer()}`),
   home: () => landing(),
-  login: () => me ? go(qs().get('next') || '/chat') : auth(),
+  login: () => me ? go(safeNext(qs().get('next'))) : auth(),
   plans: plansPage, terms, pricing,
   share: async () => {
     const tok = qs().get('t');
