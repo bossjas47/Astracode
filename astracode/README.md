@@ -60,6 +60,8 @@ If a migration fails with "duplicate column", it was already run. Skip to the ne
 
 Run `wrangler deploy` (uses `src/worker.js` and `public/`).
 
+The Worker source is split by area: `worker.js` (entry, router, security headers), `core.js` (helpers, auth, plans and limits), `ai.js` (model providers, chat runs, MCP, Code tools), `billing.js` (slips, payments), `projects.js` (Code projects, GitHub), `admin.js`, `user.js` (account endpoints, 2FA, social login, images), `api.js` (developer API `/v1`), `jobs.js` (cron, status, SEO, the ChatRun Durable Object). Every top-level name is exported and imported where it is used; run `npm test` after moving code.
+
 ### Bindings
 
 | Type | Variable name | Points to |

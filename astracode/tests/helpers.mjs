@@ -1,7 +1,7 @@
 // ตัวช่วยทดสอบ: รัน Worker จริงใน Node กับ D1 จำลอง (node:sqlite) และโมเดลปลอมในเครื่อง ไม่แตะบริการจริง
 import { DatabaseSync } from 'node:sqlite';
 import { createServer } from 'node:http';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -31,10 +31,9 @@ export function makeDB() {
 // แต่ละการทดสอบโหลด Worker ชุดใหม่ (ตัวแปรระดับโมดูลอย่างแคชตารางที่สร้างตอนรันจะไม่ข้ามฐานข้อมูล)
 let seq = 0;
 export async function loadWorker() {
-  const dir = mkdtempSync(join(tmpdir(), 'astra-'));
-  const f = join(dir, `worker${++seq}.mjs`);
-  writeFileSync(f, readFileSync(join(root, 'src/worker.js'), 'utf8'));
-  return import(pathToFileURL(f).href);
+  const dir = mkdtempSync(join(tmpdir(), `astra-${++seq}-`)); // คัดลอกทุกโมดูลใน src (แต่ละชุดมีตัวแปรระดับโมดูลของตัวเอง)
+  cpSync(join(root, 'src'), dir, { recursive: true }); writeFileSync(join(dir, 'package.json'), '{"type":"module"}');
+  return import(pathToFileURL(join(dir, 'worker.js')).href);
 }
 
 export const sha = async s => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('');
