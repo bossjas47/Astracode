@@ -311,3 +311,15 @@ test('chat images older than 30 days are deleted, newer ones stay', async () => 
   await cleanImages(t.env);
   assert.deepEqual(t.DB.raw.prepare('SELECT key FROM chat_images').all().map(x => x.key), ['new']);
 });
+
+test('team owner can revoke all of a member key at once; admin quality report includes cache hit per model', async () => {
+  const t = await makeEnv(); const owner = await t.user(), mem = await t.user(), adm = await t.user({ role: 'admin' });
+  const plan = await addPlan(t.DB, { name: 'T', price: 1790, seats: 5, shared_pool: 1, api_limit: 1 });
+  const team = t.DB.raw.prepare("INSERT INTO teams (name,owner_id,plan_id,expires,invite_code,max_seats,shared_pool,created_at) VALUES ('T',?,?,?,'ZZ11',5,1,?) RETURNING id").get(owner.id, plan.id, Date.now() + 864e5, Date.now());
+  for (const [u, r] of [[owner, 'owner'], [mem, 'member']]) t.DB.raw.prepare('INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,?,?)').run(team.id, u.id, r, Date.now());
+  for (const n of ['a', 'b']) assert.equal((await t.json('/api/keys', { method: 'POST', cookie: mem.cookie, body: { name: n } })).status, 200);
+  assert.equal((await t.json(`/api/team/members/${mem.id}/keys`, { method: 'DELETE', cookie: owner.cookie })).status, 200);
+  assert.equal((await t.json(`/api/team/members/${mem.id}/keys`, { cookie: owner.cookie })).data.length, 0);
+  t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)').run(mem.id, 1, 100, 10, 300, 0, 0, Date.now());
+  const q = await t.json('/api/admin/quality', { cookie: adm.cookie }); assert.equal(q.data.cache[0].cached, 300); assert.equal(q.data.cache[0].fresh, 100);
+});

@@ -250,9 +250,9 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const own = await DB.prepare("SELECT team_id FROM team_members WHERE user_id=? AND role='owner'").bind(u.id).first();
     if (!own || !await DB.prepare("SELECT 1 FROM team_members WHERE team_id=? AND user_id=? AND role!='owner'").bind(own.team_id, +r[1]).first()) return err('ไม่พบสมาชิกคนนี้ในทีมของคุณ', 404);
     if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), +r[1]).all()).results);
-    if (!r[2]) return err('ระบุ key ที่จะเพิกถอน');
-    const ch = await DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=? AND revoked=0').bind(+r[2], +r[1]).run();
-    if (ch.meta.changes) await audit(env, u, 'revoke member api key', { key: +r[2], member: +r[1] });
+    const ch = r[2] ? await DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=? AND revoked=0').bind(+r[2], +r[1]).run()
+      : await DB.prepare('UPDATE api_keys SET revoked=1 WHERE user_id=? AND revoked=0').bind(+r[1]).run(); // ไม่ระบุ key = เพิกถอนทุก key ของสมาชิก
+    if (ch.meta.changes) await audit(env, u, 'revoke member api key', { key: r[2] ? +r[2] : 'all', member: +r[1], n: ch.meta.changes });
     return ch.meta.changes ? json({ ok: true }) : err('ไม่พบ key', 404);
   }
   if (path === '/api/team/invite' && M === 'POST') { // ส่งคำเชิญทางอีเมล: ลิงก์พาไปล็อกอินแล้วเข้าทีมด้วยโค้ด

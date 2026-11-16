@@ -838,7 +838,11 @@ async function codeSend(auto) {
         if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) { const stick = nearBottom(b); paintStreaming(last, ai); if (stick) b.scrollTop = b.scrollHeight; } }); }
         if (d.error) $('#ce').textContent = d.error;
-        if (d.round) { setStatus(`AI กำลังทำงาน · รอบที่ ${d.round}/${d.of}`); ai.doing = `รอบที่ ${d.round}/${d.of}${d.doing ? ' · ' + d.doing : ''}`; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }
+        if (d.round) { setStatus(`AI กำลังทำงาน · รอบที่ ${d.round}/${d.of}`); ai.doingBase = `รอบที่ ${d.round}/${d.of}${d.doing ? ' · ' + d.doing : ''}`; ai.doingAt = Date.now(); ai.doing = ai.doingBase; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai);
+          clearInterval(IDE.tick); IDE.tick = setInterval(() => { // นับวินาทีที่รอในรอบนี้ ให้เห็นว่ายังทำงานอยู่
+            if (!ai.doing || !ai.streaming) { clearInterval(IDE.tick); return; }
+            ai.doing = `${ai.doingBase} · ${Math.round((Date.now() - ai.doingAt) / 1000)} วินาที`; const el = $('#cmsgs')?.lastElementChild?.querySelector('.doing'); if (el) el.textContent = ai.doing;
+          }, 1000); }
         if (d.t?.trim() && ai.doing) ai.doing = '';
         if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }

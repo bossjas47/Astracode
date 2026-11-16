@@ -173,13 +173,13 @@ PAGES.account = async function account() {
     if (mk) { // รายการ API key ของสมาชิก + ปุ่มเพิกถอน
       const id = mk.dataset.mkeys, load = async d => {
         const ks = await api(`/team/members/${id}/keys`).catch(x => { toast(x.message, 'bad'); return []; });
-        d.querySelector('.sheet-b').innerHTML = ks.length ? ks.map(k => `<div class="mem tm"><span>${esc(k.name)} <small class="muted">${esc(k.prefix)}… · ใช้ล่าสุด ${k.last_used ? new Date(k.last_used).toLocaleDateString(LOC) : '-'} · เดือนนี้ ฿${(+k.spent || 0).toFixed(2)}</small></span><button class="btn out sm" data-revk="${k.id}">เพิกถอน</button></div>`).join('') : '<p class="muted">สมาชิกคนนี้ยังไม่มี API key</p>';
+        d.querySelector('.sheet-b').innerHTML = ks.length ? `<button class="btn red sm" data-revk="all" style="margin-bottom:10px">เพิกถอนทั้งหมด (${ks.length})</button>` + ks.map(k => `<div class="mem tm"><span>${esc(k.name)} <small class="muted">${esc(k.prefix)}… · ใช้ล่าสุด ${k.last_used ? new Date(k.last_used).toLocaleDateString(LOC) : '-'} · เดือนนี้ ฿${(+k.spent || 0).toFixed(2)}</small></span><button class="btn out sm" data-revk="${k.id}">เพิกถอน</button></div>`).join('') : '<p class="muted">สมาชิกคนนี้ยังไม่มี API key</p>';
       };
       sheet('API key ของ ' + mk.dataset.mem, '', async d => {
         await load(d);
         d.addEventListener('click', async ev => {
           const r = ev.target.closest('[data-revk]'); if (!r) return; // เพิกถอนทันที (confirmSheet จะปิดชีตนี้)
-          try { await api(`/team/members/${id}/keys/${r.dataset.revk}`, { method: 'DELETE' }); toast('เพิกถอนแล้ว', 'ok'); await load(d); } catch (x) { toast(x.message, 'bad'); }
+          try { await api(`/team/members/${id}/keys${r.dataset.revk === 'all' ? '' : '/' + r.dataset.revk}`, { method: 'DELETE' }); toast('เพิกถอนแล้ว', 'ok'); await load(d); } catch (x) { toast(x.message, 'bad'); }
         });
       });
       return;

@@ -59,6 +59,17 @@ async function adminGateView(tab, set) {
     try { await api('/admin-gate', { method: 'POST', body: { password: new FormData(ev.target).get('password') } }); adminView(tab); } catch (x) { $('#ge').textContent = x.message; }
   };
 }
+// เปลี่ยนรหัสผ่านหลังบ้าน (เครื่องอื่นที่ปลดล็อกไว้ต้องใส่รหัสใหม่)
+function gatePwCard(box) {
+  box.insertAdjacentHTML('beforeend', `<div class="card"><b>รหัสผ่านหลังบ้าน</b><form id="gpw" class="sheet-form" style="margin-top:10px">
+    <input type="password" name="password" placeholder="รหัสผ่านปัจจุบัน" autocomplete="current-password" required>
+    <input type="password" name="new" placeholder="รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)" autocomplete="new-password" minlength="8" required>
+    <div class="row"><button class="btn blue sm">เปลี่ยนรหัสผ่าน</button><span class="muted" id="gpwm"></span></div></form></div>`);
+  $('#gpw').onsubmit = async e => {
+    e.preventDefault(); const fd = Object.fromEntries(new FormData(e.target));
+    try { await api('/admin-gate', { method: 'POST', body: fd }); e.target.reset(); $('#gpwm').textContent = '✓ เปลี่ยนแล้ว เครื่องอื่นต้องใส่รหัสใหม่'; } catch (x) { $('#gpwm').textContent = x.message; }
+  };
+}
 async function adminView(tab = 'stats') {
   if (me?.role !== 'admin') return go('/');
   const g = await api('/admin-gate').catch(() => null);
@@ -67,7 +78,7 @@ async function adminView(tab = 'stats') {
   page(nav() + `<div class="adm"><aside class="adm-nav">${TABS.map(([k, i, l]) => `<a class="${k === tab ? 'on' : ''}" href="/admin?tab=${k}"><span class="ai">${ic(i)}</span>${l}${k === 'payments' && pending ? `<b class="cnt">${pending}</b>` : ''}${k === 'tickets' && open ? `<b class="cnt">${open}</b>` : ''}</a>`).join('')}</aside>
     <main class="adm-main"><h1 class="adm-h">${TABS.find(t => t[0] === tab)?.[2] || ''}</h1><div id="ad"></div></main></div>`);
   const box = $('#ad'), reload = () => adminView(tab);
-  try { await ADMIN[tab]?.(box, reload); } catch (x) { if (x.data?.gate) return adminGateView(tab, x.data.set); box.innerHTML = `<p class="err">${esc(x.message)}</p>`; }
+  try { await ADMIN[tab]?.(box, reload); if (tab === 'settings') gatePwCard(box); } catch (x) { if (x.data?.gate) return adminGateView(tab, x.data.set); box.innerHTML = `<p class="err">${esc(x.message)}</p>`; }
 }
 
 // ---------- กราฟ (SVG ล้วน ไม่ใช้ไลบรารี) ----------
@@ -313,6 +324,7 @@ const ADMIN = {
     const d = await api('/admin/quality');
     box.innerHTML = `<p class="muted hint">คะแนน 👍/👎 จากผู้ใช้ใน 30 วันล่าสุด และรายงานคำตอบที่ไม่เหมาะสม</p>
       <div class="card"><b>คะแนนต่อโมเดล</b>${d.votes.length ? `<div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>👍</th><th>👎</th><th>พอใจ</th></tr>${d.votes.map(v => `<tr><td>${esc(v.name || '#' + v.model_id)}</td><td>${v.up}</td><td>${v.down}</td><td>${Math.round(v.up / Math.max(1, v.up + v.down) * 100)}%</td></tr>`).join('')}</table></div>` : '<p class="muted">ยังไม่มีคะแนน</p>'}</div>
+      <div class="card"><b>อัตรา cache hit (7 วัน)</b>${d.cache?.length ? `<div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>คำขอ</th><th>token เข้า (ไม่ cache)</th><th>อ่านจาก cache</th><th>hit</th></tr>${d.cache.map(c => { const all = (c.fresh || 0) + (c.cached || 0); return `<tr><td>${esc(c.name || '#' + c.model_id)}</td><td>${c.n}</td><td>${(c.fresh || 0).toLocaleString()}</td><td>${(c.cached || 0).toLocaleString()}</td><td><b>${all ? Math.round(c.cached / all * 100) : 0}%</b></td></tr>`; }).join('')}</table></div>` : '<p class="muted">ยังไม่มีการใช้งาน</p>'}</div>
       <div class="card"><b>รายงานคำตอบ</b>${d.reports.length ? d.reports.map(r => `<div class="rep ${r.status}"><div class="muted" style="font-size:12px">#${r.message_id} · ${esc(r.model || '-')} · ${esc(r.email || '-')} · ${when(r.created_at)}</div><div><b>${esc(r.reason || '(ไม่ระบุเหตุผล)')}</b></div><div class="muted" style="font-size:13px;white-space:pre-wrap">${esc(r.snippet)}</div><button class="btn out sm" data-rep="${r.id}" data-s="${r.status === 'open' ? 'done' : 'open'}">${r.status === 'open' ? 'Mark done' : 'Reopen'}</button></div>`).join('') : '<p class="muted">ไม่มีรายงาน</p>'}</div>`;
     box.querySelectorAll('[data-rep]').forEach(b => b.onclick = async () => { await api('/admin/reports/' + b.dataset.rep, { method: 'PUT', body: { status: b.dataset.s } }); reload(); });
   },

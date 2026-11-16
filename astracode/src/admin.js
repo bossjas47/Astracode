@@ -191,7 +191,9 @@ export async function admin(req, env, path, url, me) {
     const from = Date.now() - 30 * DAY;
     const votes = (await DB.prepare("SELECT f.model_id, md.name, SUM(f.vote>0) up, SUM(f.vote<0) down FROM feedback f LEFT JOIN models md ON md.id=f.model_id WHERE f.created_at>=? GROUP BY f.model_id ORDER BY (up+down) DESC").bind(from).all()).results;
     const reports = (await DB.prepare("SELECT r.id,r.message_id,r.reason,r.snippet,r.status,r.created_at,u.email,md.name model FROM reports r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN models md ON md.id=r.model_id ORDER BY (r.status='open') DESC, r.id DESC LIMIT 100").all()).results;
-    return json({ votes, reports });
+    // อัตรา cache hit ต่อโมเดล 7 วัน: token ที่อ่านจาก cache ÷ token ขาเข้าทั้งหมด (ดูว่า prefix คงที่ได้ผลไหม)
+    const cache = (await DB.prepare('SELECT g.model_id, md.name, COUNT(*) n, SUM(g.tokens_in) fresh, SUM(g.tokens_cache) cached FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? GROUP BY g.model_id ORDER BY (fresh+cached) DESC').bind(Date.now() - 7 * DAY).all()).results;
+    return json({ votes, reports, cache });
   }
   if ((r = path.match(/^\/api\/admin\/reports\/(\d+)$/)) && M === 'PUT') { await ensureFb(env); await DB.prepare('UPDATE reports SET status=? WHERE id=?').bind((await req.json()).status === 'open' ? 'open' : 'done', r[1]).run(); return json({ ok: true }); }
   if (path === '/api/admin/tickets') return json((await DB.prepare("SELECT t.*,u.email,(SELECT COUNT(*) FROM ticket_msgs WHERE ticket_id=t.id) n FROM tickets t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, t.updated_at DESC LIMIT 200").all()).results);
