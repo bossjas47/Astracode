@@ -522,7 +522,7 @@ export async function runChat(env, J, send, st) {
     }
     const reqs = pid && !st.gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
     if (!reqs.length) break;
-    await send({ round: round + 2, of: TOOL_ROUNDS + 1 }); // บอกหน้าเว็บว่าเข้ารอบถัดไป (อ่านไฟล์แล้วคิดต่อ)
+    await send({ round: round + 2, of: TOOL_ROUNDS + 1, doing: doingOf(reqs) }); // บอกหน้าเว็บว่าเข้ารอบถัดไป (อ่านไฟล์แล้วคิดต่อ)
     const result = await runTools(env, pid, reqs);
     await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
     msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: result }]; imgs = [];
@@ -637,13 +637,16 @@ export async function mcpCall(url, token, name, args) {
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
 export const TOOL_ROUNDS = 6, READ_MAX = 100e3;
 // หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
-export const stripOpenFile = t => String(t || '').replace(/\n\n\[เนื้อหาไฟล์ที่เปิดอยู่\][\s\S]*$/, '');
+export const stripOpenFile = t => String(t || '').replace(/\n\n\[(?:เนื้อหาไฟล์ที่เปิดอยู่|เนื้อหาไฟล์ในโปรเจกต์)\][\s\S]*$/, '');
 // โมเดลบางตัวเขียนคำสั่งติดกับข้อความ (เช่น "...ครับREAD path=a.js" หรือ "READ path=a.jsกำลังอ่าน...") → แยกบรรทัด และอ่านพาธเฉพาะตัวอักษรที่เป็นพาธ ไม่เอาข้อความไทยที่ติดมา (เดิมทำให้หาไฟล์ไม่พบแล้วโมเดลสั่งอ่านซ้ำวน)
 export const toolReqs = text => [...text.replace(/```[\s\S]*?```/g, '').replace(/(\S)(READ path=)/g, '$1\n$2').matchAll(/^\s*(READ|GREP|LIST)\b[ \t]*(?:path=)?(.*)$/gm)].map(m => {
   let arg = m[2].trim().replace(/^`|`$/g, '');
   if (m[1] !== 'GREP') arg = arg.match(/^[`'"]?([\w./@~-]*)/)?.[1] ?? arg;
   return { op: m[1], arg };
 }).slice(0, 12);
+// สรุปสิ่งที่ AI กำลังทำในรอบนี้ ให้หน้าเว็บโชว์ระหว่างรอ (เช่น "อ่าน a.js, b.js")
+export const doingOf = reqs => ['READ', 'GREP', 'LIST'].map(op => [op, reqs.filter(r => r.op === op).map(r => r.arg).filter(Boolean)]).filter(([, a]) => a.length)
+  .map(([op, a]) => `${{ READ: 'อ่าน', GREP: 'ค้นหา', LIST: 'ดูโฟลเดอร์' }[op]} ${a.slice(0, 3).join(', ')}${a.length > 3 ? ` +${a.length - 3}` : ''}`).join(' · ').slice(0, 120);
 export async function runTools(env, pid, reqs) {
   const files = (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all()).results;
   const out = []; let budget = 200e3;

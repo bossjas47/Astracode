@@ -185,6 +185,8 @@ function paintStreaming(el, m) {
     mp.innerHTML = `${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span>`;
   }
   el.querySelector('.b').innerHTML = body ? md(body) : m.thinking ? '' : waitHTML(m);
+  let dg = el.querySelector('.doing'); // สถานะสดระหว่างรอรอบถัดไป เช่น "รอบที่ 3/6 · อ่าน a.js"
+  if (m.doing) { if (!dg) { el.querySelector('.b').insertAdjacentHTML('afterend', '<div class="doing" role="status"></div>'); dg = el.querySelector('.doing'); } dg.textContent = m.doing; } else dg?.remove();
 }
 // นับเวลาคิด: จากความคิดคำแรก ถึงคำตอบคำแรก
 function onStreamEvent(m, d) {

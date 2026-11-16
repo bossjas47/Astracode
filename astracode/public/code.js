@@ -805,7 +805,14 @@ async function codeSend(auto) {
     const c = content(IDE.active), sel = IDE.view && !IDE.view.state.selection.main.empty ? IDE.view.state.sliceDoc(IDE.view.state.selection.main.from, IDE.view.state.selection.main.to) : '';
     return `\n\n[เนื้อหาไฟล์ที่เปิดอยู่]\n${IDE.active}${c.length > 8000 ? ' (ตัดเหลือ 8000 ตัวอักษรแรก)' : ''}:\n${c.slice(0, 8000)}${sel ? `\n\n[ข้อความที่ผู้ใช้เลือกไว้]\n${sel.slice(0, 3000)}` : ''}`;
   })();
-  const full = resume ? '' : `${text}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${tree}${openBlock}`;
+  // โปรเจกต์เล็ก: ส่งเนื้อหาทุกไฟล์ข้อความไปตั้งแต่รอบแรก AI ไม่ต้องเสียหลายรอบอ่านทีละไฟล์ (รวมไม่เกิน 14,000 ตัวอักษร ไม่งั้นให้ AI อ่านเอง)
+  const smallBlock = (() => {
+    if (resume || auto) return '';
+    const paths = [...IDE.files.keys()].filter(p => p !== IDE.active && !isImg(p)); let total = 0, parts = [];
+    for (const p of paths) { const c = content(p); if (typeof c !== 'string' || c.startsWith('data:')) continue; total += c.length; if (total > 14000) return ''; parts.push(`${p}:\n${c}`); }
+    return parts.length ? `\n\n[เนื้อหาไฟล์ในโปรเจกต์]\n${parts.join('\n\n')}` : '';
+  })();
+  const full = resume ? '' : `${text}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${tree}${openBlock}${smallBlock}`;
   const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
   const images = auto?.images || [];
   if (!auto) { t.value = ''; t.style.height = 'auto'; }
@@ -831,7 +838,8 @@ async function codeSend(auto) {
         if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) { const stick = nearBottom(b); paintStreaming(last, ai); if (stick) b.scrollTop = b.scrollHeight; } }); }
         if (d.error) $('#ce').textContent = d.error;
-        if (d.round) setStatus(`AI กำลังทำงาน · รอบที่ ${d.round}/${d.of}`);
+        if (d.round) { setStatus(`AI กำลังทำงาน · รอบที่ ${d.round}/${d.of}`); ai.doing = `รอบที่ ${d.round}/${d.of}${d.doing ? ' · ' + d.doing : ''}`; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }
+        if (d.t?.trim() && ai.doing) ai.doing = '';
         if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }
     }
