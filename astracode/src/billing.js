@@ -111,15 +111,17 @@ export function receiverNameMatches(slip, allowed) {
 export async function easySlip(env, s, buf, type, amount, flex = false) {
   if (!env.EASYSLIP_KEY) return { result: null, amount: null };
   const url = s.easyslip_url || EASYSLIP_URL, v2 = /\/v2(\/|$)/.test(url); // URL ที่มี /v2 = EasySlip v2 (JSON base64) ไม่งั้นใช้ v1 (multipart)
-  let init;
-  if (v2) init = { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ base64: b64(buf), checkDuplicate: true }) };
-  else { const fd = new FormData(); fd.append('file', new File([buf], 'slip.' + (type.split('/')[1] || 'jpg'), { type })); fd.append('checkDuplicate', 'true'); init = { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY }, body: fd }; }
-  const ends = v2 && !/\/verify/.test(url) ? ['/verify/bank/base64', '/verify/bank'].map(e => url.replace(/\/$/, '') + e) : [url]; // v2: ไม่แน่ใจชื่อเส้นทาง ลองตามลำดับจนกว่าจะไม่ใช่ NOT_FOUND
-  let r, d;
-  for (const e of ends) {
-    r = await fetch(e, { method: 'POST', ...init, signal: AbortSignal.timeout(25000) });
+  const bearer = { authorization: 'Bearer ' + env.EASYSLIP_KEY }, name = 'slip.' + (type.split('/')[1] || 'jpg');
+  const form = field => { const fd = new FormData(); fd.append(field, new File([buf], name, { type })); fd.append('checkDuplicate', 'true'); return { headers: bearer, body: fd }; };
+  const tries = v2 // v2: ปลายทางมาตรฐาน /v2/verify/bank (JSON base64) · ถ้าคำขอผิดรูปแบบลองส่งไฟล์ multipart ชื่อ image ต่อ (ยังไม่ได้ทดสอบกับเอกสารจริง)
+    ? [[/\/verify/.test(url) ? url : url.replace(/\/$/, '') + '/verify/bank', { headers: { ...bearer, 'content-type': 'application/json' }, body: JSON.stringify({ base64: b64(buf), checkDuplicate: true }) }], [null, form('image')]]
+    : [[url, form('file')]];
+  let r, d, last;
+  for (const [e, init] of tries) {
+    last = e || last;
+    r = await fetch(last, { method: 'POST', ...init, signal: AbortSignal.timeout(25000) });
     d = await r.json().catch(() => ({}));
-    if (!(r.status === 404 || d?.error?.code === 'NOT_FOUND')) break;
+    if (r.status < 400 || r.status >= 500 || [401, 403, 404].includes(r.status)) break; // ลองรูปแบบถัดไปเฉพาะคำขอผิดรูปแบบ (4xx อื่น)
   }
   d ||= {}; const st = +d.status || r.status, msg = String(d.message || d.error?.message || ''), slip = d.data && typeof d.data === 'object' ? d.data : null;
   const out = (code, extra = {}) => ({ flex, result: JSON.stringify(d).slice(0, 4000), amount: slip ? slipAmount(slip) : null, ref: slip?.transRef || slip?.rawSlip?.transRef || null, code, ...extra });

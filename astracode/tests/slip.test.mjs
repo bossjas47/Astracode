@@ -93,19 +93,20 @@ test('direct bank-account transfers (account number shown, not the phone) are ac
   assert.equal((await b.topup(100)).status, 400); b.fm.close();
 });
 
-test('EasySlip v2 (URL contains /v2): JSON base64 request to /verify/bank/base64 and the rawSlip response shape are understood', async () => {
+test('EasySlip v2 (URL contains /v2): JSON base64 request to /v2/verify/bank and the rawSlip response shape are understood', async () => {
   const v2 = () => ({ success: true, data: { rawSlip: { transRef: 'V2REF1', date: new Date(Date.now() - 60e3).toISOString(), amount: { amount: 120 }, receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, proxy: { type: 'MSISDN', account: '062-xxx-8835' } } } } } });
   const seen = []; const a = await setup(() => v2(), {}); a.fm.close();
   const fm = await (await import('./helpers.mjs')).fakeModel((q, res, body) => { seen.push({ url: q.url, ct: q.headers['content-type'], body }); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(v2())); });
   const b = await setup(() => v2(), { easyslip_url: fm.url + '/v2', promptpay_id: '0629708835', easyslip_receiver_names: 'ณัฐภูมินทร์' });
   const r = await b.topup(120); assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.equal(b.bal(), 120);
-  assert.equal(seen[0].url, '/v2/verify/bank/base64'); assert.match(seen[0].ct, /json/); assert.ok(seen[0].body.base64.length > 10); assert.equal(seen[0].body.checkDuplicate, true);
+  assert.equal(seen[0].url, '/v2/verify/bank'); assert.match(seen[0].ct, /json/); assert.ok(seen[0].body.base64.length > 10); assert.equal(seen[0].body.checkDuplicate, true);
   fm.close(); b.fm.close();
 });
 
-test('EasySlip v2: a NOT_FOUND on the first path falls back to /verify/bank', async () => {
+test('EasySlip v2: a 400 on the JSON body falls back to a multipart image upload on the same endpoint', async () => {
   const seen = []; const { fakeModel } = await import('./helpers.mjs');
-  const fm = await fakeModel((q, res) => { seen.push(q.url); res.writeHead(q.url.endsWith('/base64') ? 404 : 200, { 'content-type': 'application/json' }); res.end(JSON.stringify(q.url.endsWith('/base64') ? { success: false, error: { code: 'NOT_FOUND', message: 'Resource not found' } } : { success: true, data: { rawSlip: { transRef: 'FB1', date: new Date(Date.now() - 60e3).toISOString(), amount: { amount: 100 }, receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, proxy: { account: '062-xxx-8835' } } } } } })); });
-  const x = await setup(() => ({}), { easyslip_url: fm.url + '/v2', promptpay_id: '0629708835', easyslip_receiver_names: 'ณัฐภูมินทร์' }); x.fm.close();
-  const r = await x.topup(100); assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.deepEqual(seen, ['/v2/verify/bank/base64', '/v2/verify/bank']); fm.close();
+  const ok = { success: true, data: { rawSlip: { transRef: 'V2REF2', date: new Date(Date.now() - 60e3).toISOString(), amount: { amount: 100 }, receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, proxy: { type: 'MSISDN', account: '062-xxx-8835' } } } } } };
+  const fm = await fakeModel((q, res) => { seen.push(q.url + ' ' + String(q.headers['content-type']).split(';')[0]); const json = /json/.test(q.headers['content-type']); res.writeHead(json ? 400 : 200, { 'content-type': 'application/json' }); res.end(JSON.stringify(json ? { success: false, error: { code: 'VALIDATION_ERROR', message: 'bad body' } } : ok)); });
+  const x = await setup(() => ({}), { easyslip_url: fm.url + '/v2/verify/bank', promptpay_id: '0629708835', easyslip_receiver_names: 'ณัฐภูมินทร์' }); x.fm.close();
+  const r = await x.topup(100); assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.deepEqual(seen, ['/v2/verify/bank application/json', '/v2/verify/bank multipart/form-data']); fm.close();
 });

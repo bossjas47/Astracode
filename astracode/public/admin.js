@@ -388,7 +388,7 @@ const ADMIN = {
       <label>ตรวจสลิปอัตโนมัติ</label><select name="slip_provider" id="sp">${[['', 'ไม่ใช้ (แอดมินตรวจเอง)'], ['easyslip', 'EasySlip'], ['slip2go', 'Slip2Go'], ['byshop', 'byshop']].map(([k, l]) => `<option value="${k}" ${(s.slip_provider || (s.slip_api_url ? 'byshop' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <div data-sp="easyslip">
         <p class="muted">Secret Key (จากหน้า Application ใน EasySlip) ตั้งที่ Worker เป็น Secret ชื่อ <code>EASYSLIP_KEY</code> ${s.easyslip_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'}</p>
-        <label>API URL (เว้นว่าง = ค่ามาตรฐาน <code>https://developer.easyslip.com/api/v1/verify</code>)</label><input name="easyslip_url" value="${esc(s.easyslip_url)}" placeholder="https://developer.easyslip.com/api/v1/verify">
+        <label>API URL (เว้นว่าง = v1 มาตรฐาน · EasySlip v2 ใช้ <code>https://api.easyslip.com/v2/verify/bank</code>)</label><input name="easyslip_url" value="${esc(s.easyslip_url)}" placeholder="https://developer.easyslip.com/api/v1/verify">
         <label>เลขพร้อมเพย์/บัญชีผู้รับที่ต้องตรงกับสลิป (เว้นว่าง = ใช้ PromptPay ด้านบน)</label><input name="easyslip_receiver" value="${esc(s.easyslip_receiver)}" placeholder="0812345678">
         <label>ชื่อผู้รับที่อนุญาต (คั่นด้วยจุลภาค · ตรงชื่อใดชื่อหนึ่งก็ผ่าน · ใส่ชื่อต้นอย่างเดียวไว้สำรองได้ เพราะสลิปมักตัดนามสกุลเหลือตัวอักษรแรก)</label><input name="easyslip_receiver_names" value="${esc(s.easyslip_receiver_names)}" placeholder="ณัฐภูมินทร์ จูบ้ง, ณัฐภูมินทร์">
         <div class="row" style="margin-top:8px"><button type="button" class="btn out sm" id="est">Test connection</button><span id="esr" class="muted"></span></div>
