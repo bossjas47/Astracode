@@ -1163,3 +1163,11 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .trow.on .tico { background: var(--porcelain); color: var(--on-porcelain); }
 .tchk { margin-left: auto; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--porcelain); color: var(--on-porcelain); font-style: normal; }
 .tchk .ic { width: 14px; height: 14px; }
+
+/* home: live status badge under the hero buttons */
+.statusb { display: inline-flex; align-items: center; gap: 6px; margin: 14px auto 0; padding: 6px 14px; border-radius: 9999px; border: 1px solid var(--hair); background: rgba(var(--ov), .05); font-size: 13px; color: var(--ash); text-decoration: none; }
+.statusb[hidden] { display: none; }
+.statusb.ok { color: #34c759; } .statusb.warn { color: #ff9f0a; }
+[data-page=home] .hero { text-align: center; } [data-page=home] .hero .statusb { display: inline-flex; }
+[data-page=home] .hero .statusb[hidden] { display: none; }
+#vs .tbl td { white-space: normal; vertical-align: top; } #vs .vsp small { white-space: nowrap; } #vs .pill { margin-top: 6px; display: inline-block; }

@@ -3,7 +3,7 @@
   const DAY = 864e5, now = () => Date.now();
   const S = {
     logged: false, email: '', planId: 4, expires: now() + 20 * DAY, u4: 0, uw: 0,
-    settings: { promptpay_id: '', slip_api_url: '', slip_amount_field: 'data.amount', featured_plan: '3' },
+    settings: { promptpay_id: '', slip_api_url: '', slip_amount_field: 'data.amount', featured_plan: '3', official_prices: JSON.stringify({ 1: { in: 0.3, out: 1.2 }, 2: { in: 2, out: 10 } }) },
     models: [
       { id: 1, name: 'DeepSeek', promo_pct: 20, promo_start: now() - 2 * DAY, promo_end: now() + 12 * DAY, provider: 'openai', api_model: 'deepseek-flash', base_url: 'https://api.deepseek.com', key_name: 'DEEPSEEK_KEY', multiplier: 1, cost_in: 0.97, cost_out: 3.87, cost_cache: 0.02, cost_cache_write: 0.97, vision: 0, effort: 'deepseek', sort: 0, active: 1, has_key: true },
       { id: 2, name: 'Claude Sonnet 5.5', provider: 'anthropic', api_model: 'claude-sonnet-5-5', base_url: 'https://api.anthropic.com/v1', key_name: 'ANTHROPIC_KEY', multiplier: 35, cost_in: 24.9, cost_out: 124.6, cost_cache: 2.5, cost_cache_write: 31.2, vision: 1, effort: 'anthropic', sort: 1, active: 1, has_key: true },

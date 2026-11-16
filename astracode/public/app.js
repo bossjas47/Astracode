@@ -289,11 +289,16 @@ function bindInstall() {
 
 // ---------- หน้าแรก ----------
 async function landing() {
-  const [plans, posts] = await Promise.all([api('/plans').catch(() => []), api('/blog').catch(() => [])]);
+  const [plans, posts, pr] = await Promise.all([api('/plans').catch(() => []), api('/blog').catch(() => []), api('/pricing').catch(() => ({ models: [] }))]);
+  const cheapest = plans.filter(p => p.price > 0).sort((a, b) => a.price - b.price)[0];
+  // ถูกกว่าซื้อ API ทางการ: เฉพาะโมเดลที่ตั้งราคาทางการไว้และเราถูกกว่า (เรียงตามลำดับโมเดลในระบบ) · ทางการแปลงเป็นบาทด้วยอัตราเดียวกับหน้าราคา
+  const vs = pr.models.filter(m => m.official?.in > 0 && m.official?.out > 0 && m.out > 0).map(m => ({ m, pct: Math.round((1 - m.out / (m.official.out * usdRate())) * 100) })).filter(x => x.pct > 0).slice(0, 6);
+  const vsRow = ({ m, pct }) => `<tr><td><b>${esc(m.name)}</b><div><span class="pill sale">ถูกกว่า <b>${pct}%</b></span></div></td><td class="vsp"><div>Input ${curSign()}${money(toCur(m.in))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.in * usdRate()))}</small></div><div>Output ${curSign()}${money(toCur(m.out))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.out * usdRate()))}</small></div></td></tr>`;
   page(nav() + `<section class="hero"><div class="name">AstraCode</div>
     <h1>AI ทุกตัว<br>ในมือถือเครื่องเดียว</h1>
-    <p>ChatGPT, Claude, Gemini, DeepSeek และ Kimi ในเว็บเดียว เปิดบนมือถือได้ทันที ไม่ต้องลงแอป</p>
+    <p>Claude, ChatGPT, Gemini และ DeepSeek ในเว็บเดียว เปิดบนมือถือได้ทันที ไม่ต้องลงแอป${cheapest ? ` · เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''}</p>
     <div class="row" style="justify-content:center">${me ? `<a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>` : `<a class="btn blue" href="/login">Get started free</a><a class="btn out" href="#plans">View plans</a>`}</div>
+    <a class="statusb" href="/status" id="stb" hidden></a>
     <div class="showcase" aria-hidden="true">
       <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="ring" style="--p:24"></i>24%</span></div>
       <div class="sc-chat">
@@ -305,11 +310,14 @@ async function landing() {
     </div></section>
     <div class="wrap">
     <div class="band" id="plans"><h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}</div>
-    <div class="band facts"><h2>ออกแบบมาเพื่อมือถือ</h2><div class="grid">
-      <div class="tile"><div class="stat">5+</div><div class="muted">ผู้ให้บริการ AI ชั้นนำ สลับได้ในแชตเดียว</div></div>
-      <div class="tile"><div class="stat">PWA</div><div class="muted">เพิ่มลงหน้าจอหลัก ใช้เหมือนแอปจริง</div></div>
+    ${vs.length ? `<div class="band" id="vs"><h2>ถูกกว่าซื้อ API ทางการ</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">ราคาต่อ 1M token เทียบกับราคาทางการของเจ้าของโมเดล (คิดที่ $1 = ฿<b>${usdRate()}</b>)</p><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ราคาต่อ 1M token</th></tr>${vs.map(vsRow).join('')}</table></div><p style="text-align:center;margin-top:12px"><a href="/pricing">ดูราคาทุกโมเดล ›</a></p></div>` : ''}
+    <div class="band facts"><h2>ทำไมต้อง AstraCode</h2><div class="grid">
+      <div class="tile"><div class="stat">Web</div><div class="muted">เปิดในเบราว์เซอร์ได้ทันที ไม่ต้องติดตั้ง เพิ่มลงหน้าจอหลักได้</div></div>
+      <div class="tile"><div class="stat">฿</div><div class="muted">จ่ายผ่าน PromptPay${cheapest ? ` เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''} ไม่ต้องใช้บัตร</div></div>
       <div class="tile"><div class="stat">%</div><div class="muted">เห็นลิมิตชัดเจน รีเซ็ตทุก 4 ชั่วโมงและทุกสัปดาห์</div></div>
-      <div class="tile"><div class="stat">฿</div><div class="muted">จ่ายผ่าน PromptPay เริ่มต้นหลักสิบบาท</div></div>
+      <div class="tile"><div class="stat">API</div><div class="muted">รองรับ API รูปแบบ OpenAI และ Anthropic ใช้โมเดลเดียวกันจากเครื่องมือโค้ดของคุณ หักจากลิมิตแพลนได้</div></div>
+      <div class="tile"><div class="stat">ไทย</div><div class="muted">หน้าเว็บ ราคา และการสนับสนุนเป็นภาษาไทย สลับเป็นอังกฤษได้</div></div>
+      <div class="tile"><div class="stat">All-in-one</div><div class="muted">แชต เขียนโค้ด สร้างรูป ค้นเว็บ และ API ในเว็บเดียว</div></div>
     </div></div>
     <div class="band"><h2>ทำได้มากกว่าแชต</h2><div class="grid">
       <a class="tile link" href="/code"><div class="stat">${ic('code')}</div><div style="font:600 19px var(--display)">Code</div><div class="muted">เขียนโค้ดคล้าย VS Code บนเว็บ ให้ AI แก้ไฟล์ รันผล แล้ว push ขึ้น GitHub</div></a>
@@ -322,6 +330,10 @@ async function landing() {
     <div class="band"><h2>คำถามที่พบบ่อย</h2>${faqHTML()}</div>
     ${posts.length ? `<div class="band"><h2>บทความล่าสุด</h2><div class="grid">${posts.slice(0, 3).map(postTile).join('')}</div></div>` : ''}
     ${footer()}</div>`);
+  api('/status').then(d => { // สรุปสถานะโมเดลใต้ปุ่ม (ไม่รอก่อนวาดหน้า)
+    const b = $('#stb'); if (!b || !d?.models?.length) return; const bad = d.models.filter(m => m.state !== 'ok').length;
+    b.className = 'statusb ' + (bad ? 'warn' : 'ok'); b.innerHTML = bad ? `● โมเดลมีปัญหา <b>${bad}</b> ตัว · ดูสถานะ` : '● ทุกโมเดลทำงานปกติ'; b.hidden = false;
+  }).catch(() => {});
   const plBtn = $('a[href="#plans"]'); if (plBtn) plBtn.onclick = e => { e.preventDefault(); $('#plans')?.scrollIntoView({ behavior: 'smooth' }); };
   // สลับสกุลเงิน: วาดใหม่เฉพาะส่วนแพลนกับตารางเทียบ ไม่โหลดทั้งหน้า (กันหน้าสะดุด/ภาพแตกบนมือถือ)
   const bindCur = () => app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => {
