@@ -1171,3 +1171,11 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 [data-page=home] .hero { text-align: center; } [data-page=home] .hero .statusb { display: inline-flex; }
 [data-page=home] .hero .statusb[hidden] { display: none; }
 #vs .tbl td { white-space: normal; vertical-align: top; } #vs .vsp small { white-space: nowrap; } #vs .pill { margin-top: 6px; display: inline-block; }
+
+/* payment details block */
+.pay-info { max-width: 420px; margin: 14px auto 0; padding: 12px 14px; text-align: left; border: 1px solid var(--hair); border-radius: 16px; background: rgba(var(--ov), .04); }
+.pay-info .pi-r { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.pay-info .pi-r .muted { min-width: 78px; font-size: 13px; }
+.pay-info .pi-r b { flex: 1; font-weight: 600; word-break: break-all; }
+.pay-info summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
+.pay-info .thai-qr { display: block; width: min(300px, 100%); margin: 8px auto 0; border-radius: 12px; }

@@ -495,7 +495,14 @@ async function plansPage() {
   const hasTeam = plans.some(x => x.seats > 1), wantPlan = +qs().get('plan') || null;
   let aud = hasTeam && (qs().get('team') || me.plan.team) ? 'team' : 'solo', sel = plans.find(x => x.id === wantPlan && x.price > 0)?.id || null, period = 'month', coupon = null, tab = qs().get('topup') ? 'topup' : 'plan';
   const priceOf = p => period === 'year' && p.price_year ? p.price_year : p.price;
-  const qr = amount => me.promptpay_id ? `<p class="muted">สแกนจ่ายผ่าน PromptPay แล้วอัปโหลดสลิป</p><img class="qr" alt="QR PromptPay" src="https://promptpay.io/${encodeURIComponent(me.promptpay_id)}/${amount}.png">` : '<p class="warn">ยังไม่ได้ตั้งค่า PromptPay</p>';
+  const payInfo = () => { // ข้อมูลบัญชีรับเงิน + QR Thai QR รูปนิ่ง (สแกนได้จากแอปธนาคารไหนก็ได้ ใส่ยอดเอง)
+    const i = me.pay_info || {}, row = (l, v, cp) => v ? `<div class="pi-r"><span class="muted">${l}</span><b>${esc(v)}</b>${cp ? `<button type="button" class="btn out sm" data-cp="${esc(cp)}">Copy</button>` : ''}</div>` : '';
+    if (!me.promptpay_id && !i.bank_account) return '';
+    return `<div class="pay-info">${row('ชื่อบัญชี', i.bank_holder)}${row(i.bank_name || 'ธนาคาร', i.bank_account, String(i.bank_account || '').replace(/\D/g, ''))}${row('พร้อมเพย์', me.promptpay_id, me.promptpay_id)}
+      <details ${tab === 'topup' ? 'open' : ''}><summary>สแกน Thai QR (โอนได้ทุกธนาคาร ใส่ยอดเอง)</summary><img class="thai-qr" src="/thai-qr.jpg" alt="Thai QR PromptPay" loading="lazy"></details>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">${tab === 'topup' ? `โอนเท่าไหร่ก็ได้ตั้งแต่ ฿${+site.topup_min || 20} ระบบเติม Wallet ตามยอดในสลิป` : 'ต้องโอนยอดตรงตามที่ระบุเป๊ะ'} · อัปโหลดสลิปภายใน 15 นาทีหลังโอน · สลิปใช้ได้ครั้งเดียว</p></div>`;
+  };
+  const qr = amount => me.promptpay_id ? `<p class="muted">สแกนจ่ายผ่าน PromptPay แล้วอัปโหลดสลิป</p><img class="qr" alt="QR PromptPay" src="https://promptpay.io/${encodeURIComponent(me.promptpay_id)}/${amount}.png">${payInfo()}` : `<p class="warn">ยังไม่ได้ตั้งค่า PromptPay</p>${payInfo()}`;
   const slipForm = label => `<form id="f" style="max-width:400px;margin:16px auto 0"><label>รูปสลิป</label><input type="file" name="slip" accept="image/*" required style="border-radius:20px">
     <div class="err" id="e"></div><button class="btn blue" style="width:100%">${label}</button><p class="muted" style="margin:12px 0 0">การชำระเงินถือว่ายอมรับ<a href="/terms">เงื่อนไขการคืนเงิน</a></p></form>`;
   const draw = () => {
@@ -546,6 +553,7 @@ async function plansPage() {
       const upd = () => { $('#tq').innerHTML = qr(Math.max(0, Math.round(+amt.value || 0))); };
       amt.oninput = upd; app.querySelectorAll('[data-amt]').forEach(b => b.onclick = () => { amt.value = b.dataset.amt; upd(); });
     }
+    app.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => copy(b.dataset.cp, b));
     $('#f')?.addEventListener('submit', e => {
       e.preventDefault(); const fd = tab === 'plan' ? planFd() : new FormData();
       fd.append('slip', new FormData(e.target).get('slip'));

@@ -12,7 +12,7 @@ async function setup(reply, settings = {}) {
   const u = await t.user(), admin = await t.user({ role: 'admin' }); let n = 0;
   const topup = async amount => { const fd = new FormData(); fd.set('kind', 'topup'); fd.set('amount', String(amount)); fd.set('slip', new File([PNG, new Uint8Array([++n + Math.floor(Math.random() * 200)])], 's.png', { type: 'image/png' })); const r = await t.worker.default.fetch(new Request('https://t.test/api/pay', { method: 'POST', headers: { cookie: u.cookie }, body: fd }), t.env, t.ctx); return { status: r.status, d: await r.json() }; };
   const bal = () => t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance, pay = () => t.DB.raw.prepare('SELECT status,slip_check FROM payments WHERE user_id=? ORDER BY id DESC').get(u.id);
-  return { t, fm, hits, topup, bal, pay, admin };
+  return { t, fm, hits, topup, bal, pay, admin, u };
 }
 
 test('EasySlip: a real slip with the right amount, date and receiver is approved at once; the key is sent as Bearer', async () => {
@@ -22,7 +22,7 @@ test('EasySlip: a real slip with the right amount, date and receiver is approved
 });
 
 test('EasySlip: wrong amount, wrong receiver, old date and duplicates are rejected without crediting', async () => {
-  const cases = [[slipData({ amount: { amount: 150 } }), /ยอดเงิน/], [slipData({ receiver: { account: { bank: { account: 'x-xxx-x9999-x' }, proxy: { account: '099-xxx-9999' } } } }), /ผู้รับ/], [slipData({ date: new Date(Date.now() - 16 * 60e3).toISOString() }), /วันที่/], [{ status: 400, message: 'duplicate_slip', data: { transRef: 'R1', amount: { amount: 200 } } }, /ถูกใช้/]];
+  const cases = [[slipData({ receiver: { account: { bank: { account: 'x-xxx-x9999-x' }, proxy: { account: '099-xxx-9999' } } } }), /ผู้รับ/], [slipData({ date: new Date(Date.now() - 16 * 60e3).toISOString() }), /วันที่/], [{ status: 400, message: 'duplicate_slip', data: { transRef: 'R1', amount: { amount: 200 } } }, /ถูกใช้/]];
   for (const [reply, msg] of cases) {
     const { fm, topup, bal, pay } = await setup(reply); const r = await topup(200);
     assert.equal(r.status, 400); assert.match(r.d.error, msg); assert.equal(bal(), 0); assert.equal(pay().status, 'rejected'); fm.close();
@@ -54,10 +54,8 @@ test('receiverMatches compares only the visible digits of masked account numbers
 });
 
 test('EasySlip: slip must be within 15 minutes; a slip that was already scanned (even if rejected) can never be used again', async () => {
-  const same = slipData({ transRef: 'ONCE1', amount: { amount: 150 } }); // ยอดผิด → ถูกปฏิเสธ
-  const a = await setup(() => same); assert.equal((await a.topup(200)).status, 400);
-  const again = slipData({ transRef: 'ONCE1' }); // สลิปใบเดิม ยอดถูกต้องแล้ว ภาพคนละไฟล์
-  a.fm.close(); const b = await setup(() => again);
+  const again = slipData({ transRef: 'ONCE1' }); // สลิปใบเดิมที่เคยถูกสแกนและปฏิเสธไปแล้ว ภาพคนละไฟล์
+  const b = await setup(() => again);
   b.t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,slip_ref,status,kind,period,created_at) VALUES (?,?,?,?,?,?,?,?,?)").run(b.admin.id, 0, 200, 'slip/old', 'ONCE1', 'rejected', 'topup', 'month', Date.now());
   const r = await b.topup(200); assert.equal(r.status, 400); assert.match(r.d.error, /ถูกใช้/); assert.equal(b.bal(), 0); b.fm.close();
   const ok = await setup(() => slipData({ date: new Date(Date.now() - 12 * 60e3).toISOString() })); assert.equal((await ok.topup(200)).d.approved, true); ok.fm.close();
@@ -73,4 +71,24 @@ test('EasySlip: receiver name must match; first name alone is accepted as the fa
   const { receiverNameMatches } = await import(new URL('../src/billing.js', import.meta.url).href);
   assert.equal(receiverNameMatches({ receiver: { account: { name: { th: 'นางสาว ณัฐภูมินทร์ จ.' } } } }, ['ณัฐภูมินทร์']), true);
   assert.equal(receiverNameMatches({ receiver: { account: { name: { en: 'X' } } } }, ['ณัฐภูมินทร์']), null);
+});
+
+test('top-up is credited by the amount on the slip; a plan needs the exact amount; below the minimum is rejected', async () => {
+  const a = await setup(() => slipData({ amount: { amount: 150 } })); // กรอก 200 แต่สลิป 150
+  const r = await a.topup(200); assert.equal(r.d.approved, true); assert.equal(a.bal(), 150); assert.equal(a.pay().status, 'approved');
+  assert.equal(a.t.DB.raw.prepare('SELECT amount FROM payments ORDER BY id DESC').get().amount, 150); a.fm.close();
+  const low = await setup(() => slipData({ amount: { amount: 5 } }), { topup_min: '20' }); const lr = await low.topup(200);
+  assert.equal(lr.status, 400); assert.match(lr.d.error, /ขั้นต่ำ/); assert.equal(low.bal(), 0); low.fm.close();
+  const plan = await setup(() => slipData({ amount: { amount: 150 } })); // แพลน 349 แต่โอน 150 → ปฏิเสธ
+  const pl = plan.t.DB.raw.prepare("INSERT INTO plans (name,price,limit_4h,limit_week,seats,shared_pool,active,sort) VALUES ('P',349,1,5,1,0,1,1) RETURNING id").get();
+  const fd = new FormData(); fd.set('kind', 'plan'); fd.set('plan_id', String(pl.id)); fd.set('slip', new File([PNG, new Uint8Array([77])], 's.png', { type: 'image/png' }));
+  const pr = await plan.t.worker.default.fetch(new Request('https://t.test/api/pay', { method: 'POST', headers: { cookie: plan.u.cookie }, body: fd }), plan.t.env, plan.t.ctx);
+  assert.equal(pr.status, 400); assert.match((await pr.json()).error, /ยอดเงิน/); assert.equal(plan.t.DB.raw.prepare('SELECT plan_id FROM users WHERE id=?').get(plan.u.id).plan_id, null); plan.fm.close();
+});
+
+test('direct bank-account transfers (account number shown, not the phone) are accepted when the bank account is configured', async () => {
+  const slip = slipData({ receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, bank: { type: 'BANKAC', account: 'xxx-x-x3233-x' } } } });
+  const a = await setup(() => slip, { promptpay_id: '0629708835', bank_account: '193-1-13233-0' }); assert.equal((await a.topup(100)).d.approved, true); a.fm.close();
+  const b = await setup(() => slipData({ receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, bank: { type: 'BANKAC', account: 'xxx-x-x9999-x' } } } }), { promptpay_id: '0629708835', bank_account: '193-1-13233-0' });
+  assert.equal((await b.topup(100)).status, 400); b.fm.close();
 });

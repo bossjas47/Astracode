@@ -383,6 +383,8 @@ const ADMIN = {
     box.innerHTML = `<form class="panel form-p" id="f">
       <h2>การชำระเงิน</h2>
       <label>PromptPay (เบอร์โทรหรือเลขบัตรประชาชน)</label><input name="promptpay_id" value="${esc(s.promptpay_id)}">
+      <div class="form2"><div><label>ธนาคาร (แสดงในหน้าชำระเงิน)</label><input name="bank_name" value="${esc(s.bank_name)}" placeholder="กสิกรไทย"></div><div><label>เลขบัญชี</label><input name="bank_account" value="${esc(s.bank_account)}" placeholder="193-1-13233-0"></div></div>
+      <label>ชื่อบัญชี</label><input name="bank_holder" value="${esc(s.bank_holder)}" placeholder="นาย ณัฐภูมินทร์ จูบ้ง">
       <label>ตรวจสลิปอัตโนมัติ</label><select name="slip_provider" id="sp">${[['', 'ไม่ใช้ (แอดมินตรวจเอง)'], ['easyslip', 'EasySlip'], ['slip2go', 'Slip2Go'], ['byshop', 'byshop']].map(([k, l]) => `<option value="${k}" ${(s.slip_provider || (s.slip_api_url ? 'byshop' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <div data-sp="easyslip">
         <p class="muted">Secret Key (จากหน้า Application ใน EasySlip) ตั้งที่ Worker เป็น Secret ชื่อ <code>EASYSLIP_KEY</code> ${s.easyslip_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'}</p>

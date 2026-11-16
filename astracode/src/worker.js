@@ -208,7 +208,7 @@ export async function route(req, env, ctx, url, path, M) {
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
           usage: await usageStatus(env, u, plan), reset_credits: await creditsOf(env, u.id), reset_list: await creditList(env, u.id), models: (await allowedModels(env, plan.id)).map(({ cost_in, cost_out, cost_cache, ...m }) => m),
-          promptpay_id: await getSetting(env, 'promptpay_id'),
+          promptpay_id: await getSetting(env, 'promptpay_id'), pay_info: await getSettings(env, ['bank_name', 'bank_account', 'bank_holder']),
         });
       }
       if (path === '/api/chat' && M === 'POST') return await chat(req, env, u, ctx);
