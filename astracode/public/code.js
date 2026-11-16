@@ -60,16 +60,16 @@ async function codeHome() {
 // ---------- ตัวแก้โค้ด ----------
 const edTheme = () => CM.EditorView.theme({
   '&': { height: '100%', backgroundColor: 'transparent' }, // พื้นหลังไล่เฉดอยู่ที่ .ide-editor
-  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 12px)', lineHeight: '1.55' },
-  '.cm-content': { paddingTop: '10px', paddingBottom: '40px', caretColor: '#e8a183' },
-  '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#e8a183', borderLeftWidth: '2px' },
-  '.cm-gutters': { backgroundColor: 'rgba(255,255,255,.025)', borderRight: '1px solid rgba(255,255,255,.06)', color: '#6f665b' },
-  '.cm-activeLine': { backgroundColor: 'rgba(217,119,87,.07)' },
-  '.cm-activeLineGutter': { backgroundColor: 'rgba(217,119,87,.10)', color: '#e8a183' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'rgba(217,119,87,.30)' },
-  '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'rgba(217,119,87,.25)', outline: '1px solid rgba(217,119,87,.5)' },
-  '.cm-panels': { backgroundColor: '#221e1a', color: '#f4efe8' },
-  '.cm-ghost': { color: '#6e6e73', cursor: 'pointer' },
+  '.cm-scroller': { fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 12px)', lineHeight: '1.6', fontVariantLigatures: 'contextual' },
+  '.cm-content': { paddingTop: '10px', paddingBottom: '40px', caretColor: '#7dcfff' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#7dcfff', borderLeftWidth: '2px' },
+  '.cm-gutters': { backgroundColor: 'rgba(255,255,255,.025)', borderRight: '1px solid rgba(255,255,255,.06)', color: '#4f5a78' },
+  '.cm-activeLine': { backgroundColor: 'rgba(125,207,255,.05)' },
+  '.cm-activeLineGutter': { backgroundColor: 'rgba(125,207,255,.08)', color: '#9fb4e8' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'rgba(122,162,247,.28)' },
+  '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'rgba(122,162,247,.22)', outline: '1px solid rgba(122,162,247,.5)' },
+  '.cm-panels': { backgroundColor: '#1a1f2e', color: '#e6ebff' },
+  '.cm-ghost': { color: '#5f6b8c', cursor: 'pointer' },
 }, { dark: true });
 const wrap = new CM.Compartment(), ghostC = new CM.Compartment();
 // เติมโค้ดอัตโนมัติ: AI เดาต่อจากเคอร์เซอร์ (Tab หรือแตะข้อความเทาเพื่อรับ)
