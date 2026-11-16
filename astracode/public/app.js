@@ -1032,8 +1032,5 @@ addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = 
 const domReady = new Promise(r => document.readyState === 'loading' ? addEventListener('DOMContentLoaded', r) : r());
 const loadSite = async () => { site = await api('/settings/public').catch(() => ({})); };
 Promise.all([loadMe(), loadSite(), domReady]).then(boot);
-if ('serviceWorker' in navigator && !window.DEMO) {
-  const had = !!navigator.serviceWorker.controller; // ครั้งแรกที่ติดตั้งไม่ต้องแจ้ง
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) toast('มีเวอร์ชันใหม่แล้ว รีเฟรชหน้าเพื่ออัปเดต', 'ok'); });
-}
+// service worker retired: remove any copy a visitor still has (sw.js also clears its caches)
+if ('serviceWorker' in navigator && !window.DEMO) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
