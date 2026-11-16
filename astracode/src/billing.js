@@ -110,8 +110,11 @@ export function receiverNameMatches(slip, allowed) {
 }
 export async function easySlip(env, s, buf, type, amount, flex = false) {
   if (!env.EASYSLIP_KEY) return { result: null, amount: null };
-  const fd = new FormData(); fd.append('file', new File([buf], 'slip.' + (type.split('/')[1] || 'jpg'), { type })); fd.append('checkDuplicate', 'true');
-  const r = await fetch(s.easyslip_url || EASYSLIP_URL, { method: 'POST', headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY }, body: fd, signal: AbortSignal.timeout(25000) });
+  const url = s.easyslip_url || EASYSLIP_URL, v2 = /\/v2(\/|$)/.test(url); // URL ที่มี /v2 = EasySlip v2 (JSON base64) ไม่งั้นใช้ v1 (multipart)
+  let init;
+  if (v2) init = { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ base64: b64(buf), checkDuplicate: true }) };
+  else { const fd = new FormData(); fd.append('file', new File([buf], 'slip.' + (type.split('/')[1] || 'jpg'), { type })); fd.append('checkDuplicate', 'true'); init = { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY }, body: fd }; }
+  const r = await fetch(v2 && !/\/verify/.test(url) ? url.replace(/\/$/, '') + '/verify/bank/base64' : url, { method: 'POST', ...init, signal: AbortSignal.timeout(25000) });
   const d = await r.json().catch(() => ({})), st = +d.status || r.status, msg = String(d.message || d.error?.message || ''), slip = d.data && typeof d.data === 'object' ? d.data : null;
   const out = (code, extra = {}) => ({ flex, result: JSON.stringify(d).slice(0, 4000), amount: slip ? slipAmount(slip) : null, ref: slip?.transRef || slip?.rawSlip?.transRef || null, code, ...extra });
   if (/duplicate/i.test(msg)) return out('200501');

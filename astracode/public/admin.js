@@ -450,7 +450,7 @@ const ADMIN = {
     $('#sp').onchange = sp; sp();
     $('#est').onclick = async () => {
       $('#esr').textContent = 'กำลังทดสอบ... (กดบันทึกก่อนถ้าเพิ่งแก้ค่า)';
-      try { const r = await api('/admin/slip-test', { method: 'POST' }); $('#esr').innerHTML = r.ok ? `<span class="ok">✓ เชื่อมต่อได้</span> <code>${esc(JSON.stringify(r.data?.data ?? r.data)).slice(0, 300)}</code>` : `<span class="bad">✕ ${esc(r.data?.message || 'เชื่อมต่อไม่ได้')}</span>`; }
+      try { const r = await api('/admin/slip-test', { method: 'POST' }); $('#esr').innerHTML = r.ok ? `<span class="ok">✓ เชื่อมต่อได้</span> <code>${esc(JSON.stringify(r.data?.data ?? r.data)).slice(0, 300)}</code>` : `<span class="bad">✕ HTTP ${r.status ?? '?'} ${esc(r.data?.message || r.data?.error || '')}</span> <code>${esc(r.url || '')}</code>`; }
       catch (x) { $('#esr').innerHTML = `<span class="bad">${esc(x.message)}</span>`; }
     };
     $('#s2t').onclick = async () => {

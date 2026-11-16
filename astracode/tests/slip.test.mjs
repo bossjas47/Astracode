@@ -92,3 +92,13 @@ test('direct bank-account transfers (account number shown, not the phone) are ac
   const b = await setup(() => slipData({ receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, bank: { type: 'BANKAC', account: 'xxx-x-x9999-x' } } } }), { promptpay_id: '0629708835', bank_account: '193-1-13233-0' });
   assert.equal((await b.topup(100)).status, 400); b.fm.close();
 });
+
+test('EasySlip v2 (URL contains /v2): JSON base64 request to /verify/bank/base64 and the rawSlip response shape are understood', async () => {
+  const v2 = () => ({ success: true, data: { rawSlip: { transRef: 'V2REF1', date: new Date(Date.now() - 60e3).toISOString(), amount: { amount: 120 }, receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, proxy: { type: 'MSISDN', account: '062-xxx-8835' } } } } } });
+  const seen = []; const a = await setup(() => v2(), {}); a.fm.close();
+  const fm = await (await import('./helpers.mjs')).fakeModel((q, res, body) => { seen.push({ url: q.url, ct: q.headers['content-type'], body }); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(v2())); });
+  const b = await setup(() => v2(), { easyslip_url: fm.url + '/v2', promptpay_id: '0629708835', easyslip_receiver_names: 'ณัฐภูมินทร์' });
+  const r = await b.topup(120); assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.equal(b.bal(), 120);
+  assert.equal(seen[0].url, '/v2/verify/bank/base64'); assert.match(seen[0].ct, /json/); assert.ok(seen[0].body.base64.length > 10); assert.equal(seen[0].body.checkDuplicate, true);
+  fm.close(); b.fm.close();
+});

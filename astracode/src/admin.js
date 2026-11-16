@@ -220,9 +220,10 @@ export async function admin(req, env, path, url, me) {
   if (path === '/api/admin/slip-test' && M === 'POST') { // ตรวจการเชื่อมต่อ Slip2Go: ดูข้อมูลบัญชี/โควตาที่เหลือ
     if ((await getSetting(env, 'slip_provider')) === 'easyslip') { // EasySlip: อ่านข้อมูลแอป/โควตาที่เหลือ
       if (!env.EASYSLIP_KEY) return err('ตั้ง Secret EASYSLIP_KEY ก่อน');
-      const u = ((await getSetting(env, 'easyslip_url')) || 'https://developer.easyslip.com/api/v1/verify').replace(/\/verify\/?$/, '/info');
-      const r = await fetch(u, { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY } }).catch(e => ({ ok: false, json: async () => ({ message: e.message }) }));
-      return json({ ok: r.ok, data: await r.json().catch(() => null) });
+      const u = ((await getSetting(env, 'easyslip_url')) || 'https://developer.easyslip.com/api/v1/verify').replace(/\/verify.*$/, '').replace(/\/$/, '') + '/info';
+      const r = await fetch(u, { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY } }).catch(e => ({ ok: false, status: 0, text: async () => e.message }));
+      const text = await r.text().catch(() => ''); let data = null; try { data = JSON.parse(text); } catch { data = { message: text.slice(0, 200) }; }
+      return json({ ok: r.ok, status: r.status, url: u, data }); // แสดงสถานะและข้อความจริงให้แอดมินเห็นว่าพังเพราะอะไร
     }
     const base = await getSetting(env, 'slip2go_url');
     if (!base || !env.SLIP2GO_KEY) return err('ใส่ API URL และตั้ง Secret SLIP2GO_KEY ก่อน');
