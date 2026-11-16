@@ -16,9 +16,11 @@ export default async function handler(req) {
   h.set('x-client-ip', (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || req.headers.get('x-real-ip') || '');
   h.set('x-forwarded-host', u.host);
   let res;
+  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 22000); // Vercel ตัดที่ ~25 วินาทีถ้ายังไม่มีไบต์แรก: ตัดก่อนเองเพื่อตอบ JSON ที่อ่านรู้เรื่อง (หลังได้ header แล้วไม่ตัดสตรีมที่ยาว)
   try {
-    res = await fetch(target, { method: req.method, headers: h, redirect: 'manual', body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body, duplex: 'half' });
-  } catch (e) { return fail('ต่อ Worker ไม่ได้ ตรวจ WORKER_URL: ' + e.message); }
+    res = await fetch(target, { method: req.method, headers: h, redirect: 'manual', body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body, duplex: 'half', signal: ac.signal });
+  } catch (e) { clearTimeout(timer); return ac.signal.aborted ? new Response(JSON.stringify({ error: 'เซิร์ฟเวอร์ตอบช้ากว่าปกติ (เกิน 22 วินาที) กรุณาลองส่งอีกครั้ง' }), { status: 504, headers: { 'content-type': 'application/json' } }) : fail('ต่อ Worker ไม่ได้ ตรวจ WORKER_URL: ' + e.message); }
+  clearTimeout(timer);
   const out = new Headers(res.headers);
   out.delete('content-encoding'); out.delete('content-length'); // ให้ Vercel บีบอัดเอง และส่งแบบ stream ได้
   return new Response(res.body, { status: res.status, headers: out });
