@@ -15,8 +15,9 @@ PAGES.developers = async () => {
         ${keys.length ? keys.map(k => `<details class="ed key"><summary><b>${esc(k.name)}</b><span class="muted"><code>${esc(k.prefix)}…</code> · เดือนนี้ ฿${money(k.spent)}${k.budget != null ? ` / ฿${baht(k.budget)}` : ''}${k.models ? ` · ${k.models.split(',').length} โมเดล` : ''} · ใช้ล่าสุด ${when(k.last_used)}</span></summary>
           <form class="kset" data-k="${k.id}"><label>งบต่อเดือน (บาท) เว้นว่าง = ไม่จำกัด</label><input name="budget" type="number" min="0" step="any" value="${k.budget ?? ''}" placeholder="ไม่จำกัด">
             <label class="sw-row"><span class="sw"><input type="checkbox" name="use_plan" ${k.use_plan !== 0 ? 'checked' : ''}><span></span></span>หักจากลิมิตแพลนก่อน (ถ้าแพลนรองรับ)</label>
+            <label>IP ที่อนุญาต (เว้นว่าง = ทุก IP) คั่นด้วยจุลภาค รองรับ CIDR เช่น 203.0.113.0/24</label><input name="ip_allow" value="${esc(k.ip_allow || '')}" placeholder="203.0.113.7, 198.51.100.0/24">
             <label>โมเดลที่ key นี้ใช้ได้ (ไม่เลือก = ทุกโมเดล)</label><div class="chips-sel">${pr.models.map(m => `<label><input type="checkbox" name="m" value="${slug(m.name)}" ${k.models?.split(',').includes(slug(m.name)) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div>
-            <div class="row" style="margin-top:12px"><button class="btn blue sm">Save</button><button type="button" class="btn out sm danger" data-rk="${k.id}">Revoke key</button><span class="ok sv"></span></div></form></details>`).join('') : '<p class="muted">ยังไม่มี key</p>'}
+            <div class="row" style="margin-top:12px"><button class="btn blue sm">Save</button><button type="button" class="btn out sm" data-lg="${k.id}">Recent requests</button><button type="button" class="btn out sm danger" data-rk="${k.id}">Revoke key</button><span class="ok sv"></span></div><div class="klog muted" style="font-size:12.5px;margin-top:10px"></div></form></details>`).join('') : '<p class="muted">ยังไม่มี key</p>'}
         <form id="kf" class="row" style="flex-wrap:nowrap"><input name="name" placeholder="ชื่อ key เช่น my-app" maxlength="40"><button class="btn blue sm">Create key</button></form><div class="err" id="ke"></div></div>`
       : `<div class="card" style="text-align:center"><p>เข้าสู่ระบบเพื่อสร้าง API key</p><a class="btn blue" href="/login?next=/developers">Log in</a></div>`}
             ${me ? `<div class="card">${h3k('ทดสอบ API (Playground)')}
@@ -41,6 +42,11 @@ PAGES.developers = async () => {
         <p class="muted">JSON mode, tools และพารามิเตอร์ที่รองรับ: <code>temperature</code> (0–2), <code>top_p</code> (0–1), <code>presence_penalty</code> / <code>frequency_penalty</code> (-2–2), <code>seed</code>, <code>stop</code> (สูงสุด 4), <code>max_tokens</code>, <code>response_format</code> (<code>json_object</code> / <code>json_schema</code>), <code>tools</code> + <code>tool_choice</code>, <code>reasoning_effort</code>, <code>stream</code> (usage อยู่ใน chunk สุดท้ายเสมอ) · โมเดลที่กำลังคิด (ใส่ <code>reasoning_effort</code>) จะไม่รับ <code>temperature</code>/<code>top_p</code>/<code>stop</code> และโมเดลที่ไม่รองรับ JSON mode โดยตรงจะได้คำสั่งให้ตอบเป็น JSON แทน ค่าผิดรูปแบบตอบ 400</p>
         ${pre(['python', `r = client.chat.completions.create(\n    model="${first}",\n    messages=[{"role": "user", "content": "List 3 fruits as JSON"}],\n    response_format={"type": "json_object"},\n    temperature=0.2,\n    seed=7,\n)\nprint(r.choices[0].message.content)`])}
       </div>
+      <div class="band"><h2>เครื่องมือที่ใช้ได้เลย</h2>
+        <p class="muted">นอกจาก <code>/v1/chat/completions</code> ยังรองรับ <code>POST /v1/responses</code> (OpenAI Responses API), <code>POST /v1/messages</code> + <code>/v1/messages/count_tokens</code> (Anthropic Messages API ใช้กับ Claude Code และ SDK ของ Anthropic ได้ ส่ง key ทาง <code>x-api-key</code> หรือ <code>Authorization</code>), <code>POST /v1/embeddings</code> (เมื่อแอดมินเปิดโมเดลเวกเตอร์) และ <code>GET /v1/usage?days=30</code> (ประวัติรายวันและแยกโมเดล)</p>
+        ${pre(['claude code', `export ANTHROPIC_BASE_URL=${location.origin}\nexport ANTHROPIC_AUTH_TOKEN=sk-astra-...\nexport ANTHROPIC_MODEL=${first}`])}
+        ${pre(['python', `import anthropic\nc = anthropic.Anthropic(base_url="${location.origin}", api_key="sk-astra-...")\nm = c.messages.create(model="${first}", max_tokens=512, messages=[{"role": "user", "content": "สวัสดี"}])\nprint(m.content[0].text)`])}
+      </div>
       <div class="band"><h2>รหัสข้อผิดพลาด</h2><p class="muted">รูปแบบ <code>{"error": {"message": "...", "message_th": "...", "type": "..."}}</code> · <code>message</code> เป็นภาษาอังกฤษ ส่วน <code>message_th</code> เป็นไทย</p>
         <div class="tw"><table class="tbl"><tr><th>HTTP</th><th>type</th><th>ความหมาย</th></tr>
           <tr><td>400</td><td><code>invalid_request_error</code></td><td>พารามิเตอร์ผิด เช่น temperature เกินช่วง, messages ว่าง, ส่งรูปให้โมเดลที่ไม่รองรับ</td></tr>
@@ -48,6 +54,7 @@ PAGES.developers = async () => {
           <tr><td>402</td><td><code>insufficient_quota</code></td><td>ยอด Wallet ไม่พอ</td></tr>
           <tr><td>404</td><td><code>invalid_request_error</code></td><td>ไม่พบโมเดล หรือ key นี้ไม่ได้รับอนุญาตให้ใช้โมเดลนี้</td></tr>
           <tr><td>413</td><td><code>invalid_request_error</code></td><td>คำขอยาวเกินไป</td></tr>
+          <tr><td>403</td><td><code>permission_error</code></td><td>IP นี้ไม่อยู่ในรายการที่อนุญาตของ key</td></tr>
           <tr><td>429</td><td><code>rate_limit_error</code></td><td>เกิน 60 ครั้ง/นาที หรือมีคำขอ Wallet ค้างอยู่ — ดู <code>retry-after</code></td></tr>
           <tr><td>429</td><td><code>insufficient_quota</code></td><td>งบรายเดือนของ key หมด หรือลิมิตแพลนเต็ม (ไม่มี retry-after)</td></tr>
           <tr><td>502</td><td><code>api_error</code></td><td>โมเดลต้นทางตอบไม่ได้ (ระบบลองโมเดลสำรองให้แล้ว)</td></tr></table></div>
@@ -76,8 +83,15 @@ PAGES.developers = async () => {
     });
     app.querySelectorAll('.kset').forEach(f => f.onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(f);
-      try { await api('/keys/' + f.dataset.k, { method: 'PUT', body: { budget: fd.get('budget'), models: fd.getAll('m'), use_plan: fd.get('use_plan') ? 1 : 0 } }); keys.splice(0, keys.length, ...await api('/keys')); draw(); }
+      try { await api('/keys/' + f.dataset.k, { method: 'PUT', body: { budget: fd.get('budget'), models: fd.getAll('m'), use_plan: fd.get('use_plan') ? 1 : 0, ip_allow: fd.get('ip_allow') } }); keys.splice(0, keys.length, ...await api('/keys')); draw(); }
       catch (x) { toast(x.message, 'bad'); }
+    });
+    app.querySelectorAll('[data-lg]').forEach(b => b.onclick = async () => { // คำขอล่าสุดของ key
+      const box = b.closest('form').querySelector('.klog'); box.textContent = 'Loading…';
+      try {
+        const rows = await api('/keys/' + b.dataset.lg + '/log');
+        box.innerHTML = rows.length ? `<div class="tw"><table class="tbl"><tr><th>เวลา</th><th>endpoint</th><th>model</th><th>status</th><th>in/out</th><th>฿</th><th>ms</th></tr>${rows.map(r => `<tr><td>${new Date(r.created_at).toLocaleString(LOC)}</td><td><code>${esc(r.path)}</code></td><td>${esc(r.model || '-')}</td><td class="${r.status < 400 ? 'ok' : 'bad'}" title="${esc(r.err || '')}">${r.status}</td><td>${r.tin}/${r.tout}</td><td>${r.charge}</td><td>${r.ms}</td></tr>`).join('')}</table></div>` : 'ยังไม่มีคำขอ (เก็บ 30 วัน)';
+      } catch (x) { box.textContent = x.message; }
     });
     app.querySelectorAll('[data-rk]').forEach(b => b.onclick = async () => {
       if (!await confirmSheet('ยกเลิก API key นี้? แอปที่ใช้อยู่จะเรียกไม่ได้ทันที', { title: 'ยกเลิก API key', ok: 'Revoke key', danger: true })) return;

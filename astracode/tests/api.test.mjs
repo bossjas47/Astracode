@@ -5,19 +5,24 @@ import { makeEnv, addModel, fakeModel, sha } from './helpers.mjs';
 
 async function setup(opt = {}) {
   const fm = await fakeModel((q, res, body) => {
+    if (q.url.endsWith('/embeddings')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }], usage: { prompt_tokens: 7, total_tokens: 7 } })); }
+    if (body.tools) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'get_time', arguments: '' } }] } }] }) + '\n\n'); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"tz":"UTC"}' } }] } }] }) + '\n\n'); res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 12, completion_tokens: 6 } }) + '\n\n'); res.write('data: [DONE]\n\n'); return res.end(); }
     if (q.url.endsWith('/images/generations')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ b64_json: Buffer.from('PIXELS').toString('base64') }] })); }
     fm.sse(res, 'hello');
   });
   const t = await makeEnv({ K: 'k' });
   const m = addModel(t.DB, { name: 'Chat One', base_url: fm.url, cost_in: 1000, cost_out: 2000 });
   const img = addModel(t.DB, { name: 'Pic One', provider: 'image', base_url: fm.url, cost_out: 4 });
+  const emb = addModel(t.DB, { name: 'Embed One', provider: 'embedding', base_url: fm.url, cost_in: 1000 });
   const u = await t.user({ balance: opt.balance ?? 100 });
   const key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
   t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at,budget,models) VALUES (?,?,?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now(), opt.budget ?? null, opt.models ?? null);
   const v1 = async (path, body, k = key) => { const r = await t.call(path, { method: body ? 'POST' : 'GET', body, headers: { authorization: 'Bearer ' + k } }); const d = await r.json(); await Promise.all(t.ctx.pending); return { status: r.status, d, h: r.headers }; };
   const bal = () => t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance;
-  return { t, fm, m, img, u, key, v1, bal };
+  const raw = async (path, body, hdr = {}) => { const r = await t.call(path, { method: 'POST', body, headers: { 'x-api-key': key, ...hdr } }); const text = await r.text(); await Promise.all(t.ctx.pending); return { status: r.status, text, h: r.headers, json: () => JSON.parse(text) }; };
+  return { t, fm, m, img, emb, u, key, v1, raw, bal };
 }
+const events = txt => txt.split('\n\n').filter(Boolean).map(b => ({ name: b.match(/^event: (.*)$/m)?.[1], data: JSON.parse(b.match(/^data: (.*)$/m)[1]) }));
 const msg = { model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] };
 
 test('chat completion bills the wallet, sets rate-limit headers, errors are English with a Thai copy', async () => {
@@ -77,4 +82,74 @@ test('images/generations returns b64_json, charges per picture, validates input'
   const poor = await setup({ balance: 0.001 });
   assert.equal((await poor.v1('/v1/images/generations', { prompt: 'cat' })).status, 402);
   poor.fm.close();
+});
+
+test('embeddings are billed by input tokens and kept out of chat', async () => {
+  const { fm, v1, bal, t } = await setup(), before = bal();
+  const r = await v1('/v1/embeddings', { model: 'embed-one', input: ['a', 'b'] });
+  assert.equal(r.status, 200); assert.equal(r.d.data[0].embedding.length, 2); assert.equal(r.d.usage.prompt_tokens, 7); assert.ok(bal() < before);
+  assert.equal((await v1('/v1/embeddings', { model: 'embed-one', input: [] })).status, 400);
+  assert.equal((await v1('/v1/chat/completions', { ...msg, model: 'embed-one' })).status, 404);
+  assert.equal((await v1('/v1/embeddings', { model: 'chat-one', input: 'x' })).status, 404);
+  const list = await t.json('/api/models'); void list;
+  fm.close();
+});
+
+test('Anthropic /v1/messages: plain, streaming, tools, errors, x-api-key', async () => {
+  const { fm, raw } = await setup();
+  const a = await raw('/v1/messages', { model: 'chat-one', max_tokens: 50, system: 'be brief', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] });
+  assert.equal(a.status, 200); const j = a.json(); assert.equal(j.type, 'message'); assert.equal(j.content[0].text, 'hello'); assert.equal(j.stop_reason, 'end_turn'); assert.ok(j.usage.output_tokens >= 0);
+  assert.equal(fm.hits.at(-1).body.messages[0].role, 'system');
+  const s = await raw('/v1/messages', { model: 'chat-one', max_tokens: 50, stream: true, messages: [{ role: 'user', content: 'hi' }] });
+  const ev = events(s.text), names = ev.map(e => e.name);
+  assert.deepEqual(names.filter((n, i) => names.indexOf(n) === i), ['message_start', 'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop']);
+  assert.equal(ev.find(e => e.name === 'content_block_delta').data.delta.text, 'hello');
+  const tool = await raw('/v1/messages', { model: 'chat-one', max_tokens: 50, tools: [{ name: 'get_time', description: 'd', input_schema: { type: 'object', properties: {} } }], messages: [{ role: 'user', content: 'time?' }] });
+  const tj = tool.json(); assert.equal(tj.stop_reason, 'tool_use'); assert.deepEqual(tj.content.at(-1), { type: 'tool_use', id: 'call_1', name: 'get_time', input: { tz: 'UTC' } });
+  assert.equal(fm.hits.at(-1).body.tools[0].function.name, 'get_time');
+  const back = await raw('/v1/messages', { model: 'chat-one', max_tokens: 50, messages: [{ role: 'user', content: 'time?' }, { role: 'assistant', content: [{ type: 'tool_use', id: 'call_1', name: 'get_time', input: { tz: 'UTC' } }] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: '10:00' }] }] });
+  assert.equal(back.status, 200); const bm = fm.hits.at(-1).body.messages; assert.equal(bm.at(-1).role, 'tool'); assert.equal(bm.at(-1).tool_call_id, 'call_1'); assert.equal(bm.at(-2).tool_calls[0].function.arguments, '{"tz":"UTC"}');
+  const bad = await raw('/v1/messages', { model: 'chat-one', max_tokens: 5, messages: [{ role: 'user', content: 'x' }] }, { 'x-api-key': 'sk-astra-nope' });
+  assert.equal(bad.status, 401); assert.equal(bad.json().error.type, 'authentication_error'); assert.equal(bad.json().type, 'error');
+  const ct = await raw('/v1/messages/count_tokens', { model: 'chat-one', messages: [{ role: 'user', content: 'hello there' }] });
+  assert.equal(ct.status, 200); assert.ok(ct.json().input_tokens > 0);
+  fm.close();
+});
+
+test('OpenAI /v1/responses: plain, streaming, function calls', async () => {
+  const { fm, v1, raw, key } = await setup(), auth = { authorization: 'Bearer ' + key, 'x-api-key': '' };
+  const r = await v1('/v1/responses', { model: 'chat-one', instructions: 'brief', input: 'hi' });
+  assert.equal(r.status, 200); assert.equal(r.d.object, 'response'); assert.equal(r.d.output[0].content[0].text, 'hello'); assert.equal(r.d.status, 'completed');
+  assert.equal(fm.hits.at(-1).body.messages[0].content, 'brief');
+  const s = await raw('/v1/responses', { model: 'chat-one', input: [{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }], stream: true }, auth);
+  const ev = events(s.text), names = ev.map(e => e.name);
+  assert.equal(names[0], 'response.created'); assert.equal(names.at(-1), 'response.completed'); assert.ok(names.includes('response.output_text.delta'));
+  assert.equal(ev.at(-1).data.response.output[0].content[0].text, 'hello'); assert.ok(ev.at(-1).data.response.usage.total_tokens > 0);
+  const f = await v1('/v1/responses', { model: 'chat-one', input: 'time?', tools: [{ type: 'function', name: 'get_time', parameters: { type: 'object', properties: {} } }] });
+  const call = f.d.output.find(o => o.type === 'function_call'); assert.equal(call.name, 'get_time'); assert.equal(call.arguments, '{"tz":"UTC"}');
+  await v1('/v1/responses', { model: 'chat-one', input: [{ role: 'user', content: 'time?' }, { type: 'function_call', call_id: 'call_1', name: 'get_time', arguments: '{}' }, { type: 'function_call_output', call_id: 'call_1', output: '10:00' }] });
+  const bm = fm.hits.at(-1).body.messages; assert.equal(bm.at(-1).role, 'tool'); assert.equal(bm.at(-2).tool_calls[0].id, 'call_1');
+  assert.equal((await v1('/v1/responses', { model: 'zzz', input: 'x' })).status, 404);
+  fm.close();
+});
+
+test('IP allowlist, request log, usage history and budget crossing', async () => {
+  const { t, fm, v1, key, u } = await setup({ budget: 100 });
+  t.DB.raw.prepare('UPDATE api_keys SET ip_allow=?').run('203.0.113.0/24, 198.51.100.7');
+  const call = (ipaddr) => t.call('/v1/chat/completions', { method: 'POST', body: msg, headers: { authorization: 'Bearer ' + key, 'cf-connecting-ip': ipaddr } });
+  assert.equal((await call('203.0.113.9')).status, 200);
+  assert.equal((await call('198.51.100.7')).status, 200);
+  const no = await call('8.8.8.8'); assert.equal(no.status, 403); assert.equal((await no.json()).error.type, 'permission_error');
+  assert.equal((await call('203.0.114.1')).status, 403); // นอกช่วง /24
+  await Promise.all(t.ctx.pending);
+  t.DB.raw.prepare('UPDATE api_keys SET ip_allow=NULL').run();
+  await v1('/v1/chat/completions', msg);
+  const rows = t.DB.raw.prepare('SELECT status,model,tin,tout,charge FROM api_log ORDER BY id').all();
+  assert.deepEqual(rows.map(r => r.status), [200, 200, 403, 403, 200]); assert.equal(rows[0].model, 'chat-one'); assert.ok(rows[0].tin > 0 && rows[0].charge > 0);
+  const us = await v1('/v1/usage?days=7'); assert.equal(us.status, 200); assert.equal(us.d.history.at(-1).requests, 5); assert.equal(us.d.by_model[0].model, 'chat-one');
+  // key งบ: ข้ามเส้น 80% ต้องไม่ทำให้คำขอพัง (อีเมลส่งเฉพาะเมื่อมี RESEND_KEY)
+  t.DB.raw.prepare('UPDATE api_keys SET budget=0.0001, spent=0, spent_month=NULL').run();
+  assert.equal((await v1('/v1/chat/completions', msg)).status, 200);
+  assert.equal((await v1('/v1/chat/completions', msg)).status, 429);
+  void u; fm.close();
 });
