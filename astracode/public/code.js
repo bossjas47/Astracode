@@ -1157,6 +1157,7 @@ async function codeView(id) {
   IDE.autoMode = true; IDE.autoApply = true; // โหมด Code ใช้การแก้ไขและรันทดสอบอัตโนมัติเสมอ (ปิดไม่ได้)
   const ct = $('#ct');
   ct.oninput = () => { ct.style.height = 'auto'; ct.style.height = ct.scrollHeight + 'px'; };
+  slashSkills(ct, () => IDE.skills, ids => { IDE.skills = ids; localStorage.setItem('cskills', JSON.stringify(ids)); cUI(); });
   ct.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#cf').requestSubmit(); } };
   $('#cf').onsubmit = e => { e.preventDefault(); codeSend(); };
   const answer = e => { const a = askAnswer(e); if (a != null && !IDE.busy) { e.preventDefault?.(); ct.value = a; codeSend(); } return a != null; };

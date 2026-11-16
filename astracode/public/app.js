@@ -235,9 +235,11 @@ const cfToken = () => document.querySelector('[name=cf-turnstile-response]')?.va
 // สลับภาษา ไทย / English (โหลดหน้าใหม่เพื่อใช้ภาษาใหม่ทั้งหน้า)
 const langSeg = () => `<div class="seg langseg" role="group" aria-label="Language" data-notr><button type="button" data-lang="th" class="${window.LANG === 'en' ? '' : 'on'}">ไทย</button><button type="button" data-lang="en" class="${window.LANG === 'en' ? 'on' : ''}">English</button></div>`;
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-lang]'); if (!b || b.dataset.lang === (window.LANG || 'th')) return; try { localStorage.setItem('lang', b.dataset.lang); } catch { /* ไม่มีที่เก็บ */ } location.reload(); });
+// การ์ดโปรไฟล์ในเมนูข้าง: วงกลมตัวอักษร + อีเมล + แพลน (กดไปหน้าบัญชี)
+const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}${me.role === 'admin' ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navL('/account', 'Account', 'user')}`
+  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}${me.role === 'admin' ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
        : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
@@ -846,6 +848,41 @@ let _skillsCache = null;
 async function loadSkills(force) {
   if (!_skillsCache || force) _skillsCache = await api('/skills').catch(() => []);
   return _skillsCache;
+}
+// พิมพ์ / ที่ต้นช่องข้อความ = เลือก Skill (พิมพ์ต่อเพื่อค้นหา · ↑↓ Enter หรือแตะเพื่อเปิด/ปิด Skill นั้น · สูงสุด 3)
+function slashSkills(t, get, set) {
+  const pop = document.createElement('div'); pop.className = 'slash'; pop.hidden = true; pop.setAttribute('role', 'listbox');
+  (t.closest('.compose') || t.parentNode).append(pop);
+  let items = [], idx = 0, seq = 0;
+  const hide = () => { pop.hidden = true; items = []; };
+  const pick = s => {
+    const cur = new Set(get().map(Number));
+    if (cur.has(s.id)) cur.delete(s.id); else if (cur.size >= 3) return toast('เปิด Skill ได้สูงสุด 3 อัน', 'bad'); else cur.add(s.id);
+    set([...cur]); t.value = ''; t.oninput?.(); hide(); t.focus();
+  };
+  const draw = () => {
+    const on = new Set(get().map(Number));
+    pop.innerHTML = items.length ? items.map((s, i) => `<button type="button" role="option" class="${i === idx ? 'on' : ''}" data-i="${i}"><b>/${esc(s.name)}</b>${on.has(s.id) ? '<i>✓</i>' : ''}<small>${esc(s.description || s.content.slice(0, 70))}</small></button>`).join('') : '<p class="muted">ไม่พบ Skill ที่ตรงกัน</p>';
+    pop.hidden = false;
+    pop.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  };
+  t.addEventListener('input', async () => {
+    const m = /^\/([^\s/]*)$/.exec(t.value); if (!m) return hide();
+    const my = ++seq, q = m[1].toLowerCase(), all = await loadSkills();
+    if (my !== seq) return;
+    items = all.filter(s => !q || s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q)).slice(0, 8); idx = 0; draw();
+  });
+  t.addEventListener('keydown', e => {
+    if (pop.hidden) return;
+    const k = e.key;
+    if (k === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); return hide(); }
+    if (!items.length) return;
+    if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); idx = (idx + (k === 'ArrowDown' ? 1 : items.length - 1)) % items.length; draw(); }
+    else if ((k === 'Enter' && !e.shiftKey) || k === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); pick(items[idx]); }
+  }, true);
+  pop.addEventListener('mousedown', e => e.preventDefault()); // ไม่ให้ช่องข้อความเสียโฟกัส
+  pop.addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (b) pick(items[+b.dataset.i]); });
+  t.addEventListener('blur', () => setTimeout(hide, 150));
 }
 async function skillsSheet(selectedIds, onChange) {
   const sel = new Set((selectedIds || []).map(Number));

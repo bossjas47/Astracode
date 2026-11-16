@@ -89,7 +89,7 @@ async function chatView(id) {
       <div class="msgs" id="msgs"></div>
       <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div>
         <form id="f" class="cbox"><input type="file" id="file" multiple hidden>
-          <textarea id="t" rows="1" placeholder="ถามอะไรก็ได้" aria-label="ข้อความ"></textarea>
+          <textarea id="t" rows="1" placeholder="ถามอะไรก็ได้ · พิมพ์ / เลือก Skill" aria-label="ข้อความ"></textarea>
           <div id="flags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="plus" aria-label="แนบไฟล์และเครื่องมือ">${ic('plus')}</button>${('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? `<button type="button" class="cb" id="mic" aria-label="พิมพ์ด้วยเสียง">${ic('mic')}</button>` : ''}
             <button type="button" class="cb pick" id="mdl" aria-haspopup="dialog"></button>
             <button type="button" class="cb pick" id="mdl2" aria-haspopup="dialog" hidden></button>
@@ -148,6 +148,7 @@ async function chatView(id) {
   });
   const t = $('#t');
   t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
+  slashSkills(t, () => chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); });
   t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#f').requestSubmit(); } };
   $('#f').onsubmit = e => { e.preventDefault(); chat.busy ? stopRun() : send(); };
   $('#file').onchange = async e => { await addFiles([...e.target.files]); e.target.value = ''; };
