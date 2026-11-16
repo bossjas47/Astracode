@@ -2,7 +2,7 @@ import { DAY, allowedModels, creditList, creditsOf, emailAuth, ensureCols, err, 
 import { bundleProject, chat, ensureFb } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
-import { admin } from './admin.js';
+import { admin, adminGate, gateBlock } from './admin.js';
 import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
@@ -268,7 +268,11 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if (path === '/api/pay') return json((await env.DB.prepare('SELECT p.id,p.amount,p.status,p.created_at,p.kind,p.period,p.discount,pl.name plan_name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE user_id=? ORDER BY p.id DESC LIMIT 20').bind(u.id).all()).results);
 
-      if (path.startsWith('/api/admin/')) return u.role === 'admin' ? await admin(req, env, path, url, u) : err('forbidden', 403);
+      if (path === '/api/admin-gate') return u.role === 'admin' ? await adminGate(req, env, u) : err('forbidden', 403);
+      if (path.startsWith('/api/admin/')) {
+        if (u.role !== 'admin') return err('forbidden', 403);
+        return (await gateBlock(env, u)) || await admin(req, env, path, url, u); // ต้องผ่านรหัสผ่านชั้นที่สองก่อน
+      }
       return err('not found', 404);
     } catch (e) {
       if (e.user) return err(e.message, e.status);

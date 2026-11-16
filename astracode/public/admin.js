@@ -39,13 +39,26 @@ const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e
 const dayLabel = t => new Date(t).toLocaleDateString(LOC, { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
 const ago = t => { if (!t) return 'ไม่เคยใช้'; const m = (Date.now() - t) / 6e4; return m < 60 ? Math.max(1, Math.round(m)) + ' นาทีที่แล้ว' : m < 1440 ? Math.round(m / 60) + ' ชม.ที่แล้ว' : Math.round(m / 1440) + ' วันที่แล้ว'; };
 
+// รหัสผ่านชั้นที่สอง: ยังไม่ตั้ง = ให้ตั้งครั้งแรก · ตั้งแล้ว = ต้องใส่ก่อนเข้าหลังบ้านในแต่ละ session
+async function adminGateView(tab, set) {
+  page(nav() + `<div class="auth wrap"><h1>${set ? 'ยืนยันรหัสผ่านแอดมิน' : 'ตั้งรหัสผ่านแอดมิน'}</h1>
+    <form class="card" id="gf"><p class="muted">${set ? 'ใส่รหัสผ่านหลังบ้านเพื่อเข้าต่อ (ขอใหม่ทุก 12 ชั่วโมง หรือเมื่อเข้าจากเครื่อง/เบราว์เซอร์ใหม่)' : 'ครั้งแรก: ตั้งรหัสผ่านแยกสำหรับหลังบ้าน อย่างน้อย 8 ตัวอักษร (ไม่ซ้ำกับรหัสเข้าสู่ระบบ)'}</p>
+    <label>${set ? 'รหัสผ่านแอดมิน' : 'รหัสผ่านใหม่'}</label><input type="password" name="password" autocomplete="${set ? 'current-password' : 'new-password'}" required minlength="${set ? 1 : 8}">
+    <div class="err" id="ge"></div><button class="btn blue" style="width:100%">${set ? 'เข้าหลังบ้าน' : 'ตั้งรหัสผ่านและเข้า'}</button></form></div>`);
+  $('#gf').onsubmit = async ev => {
+    ev.preventDefault();
+    try { await api('/admin-gate', { method: 'POST', body: { password: new FormData(ev.target).get('password') } }); adminView(tab); } catch (x) { $('#ge').textContent = x.message; }
+  };
+}
 async function adminView(tab = 'stats') {
   if (me?.role !== 'admin') return go('/');
+  const g = await api('/admin-gate').catch(() => null);
+  if (g && !g.ok) return adminGateView(tab, g.set);
   const [pending, open] = await Promise.all([api('/admin/payments').then(p => p.filter(x => x.status === 'pending').length).catch(() => 0), api('/admin/tickets').then(t => t.filter(x => x.status === 'open').length).catch(() => 0)]);
   page(nav() + `<div class="adm"><aside class="adm-nav">${TABS.map(([k, i, l]) => `<a class="${k === tab ? 'on' : ''}" href="/admin?tab=${k}"><span class="ai">${ic(i)}</span>${l}${k === 'payments' && pending ? `<b class="cnt">${pending}</b>` : ''}${k === 'tickets' && open ? `<b class="cnt">${open}</b>` : ''}</a>`).join('')}</aside>
     <main class="adm-main"><h1 class="adm-h">${TABS.find(t => t[0] === tab)?.[2] || ''}</h1><div id="ad"></div></main></div>`);
   const box = $('#ad'), reload = () => adminView(tab);
-  try { await ADMIN[tab]?.(box, reload); } catch (x) { box.innerHTML = `<p class="err">${esc(x.message)}</p>`; }
+  try { await ADMIN[tab]?.(box, reload); } catch (x) { if (x.data?.gate) return adminGateView(tab, x.data.set); box.innerHTML = `<p class="err">${esc(x.message)}</p>`; }
 }
 
 // ---------- กราฟ (SVG ล้วน ไม่ใช้ไลบรารี) ----------

@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,
   expires INTEGER NOT NULL,
-  created_at INTEGER, ua TEXT, ip TEXT      -- อุปกรณ์ที่ล็อกอิน (ip เป็นแบบหยาบ)
+  created_at INTEGER, ua TEXT, ip TEXT,     -- อุปกรณ์ที่ล็อกอิน (ip เป็นแบบหยาบ)
+  admin_ok INTEGER                          -- เวลาหมดอายุของการปลดล็อกรหัสผ่านชั้นที่สองของหลังบ้าน
 );
 
 CREATE TABLE IF NOT EXISTS plans (

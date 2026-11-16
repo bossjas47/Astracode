@@ -230,3 +230,21 @@ test('project restore points bring files back to an earlier state and are themse
   assert.deepEqual(f, { 'a.txt': 'v1', 'b.txt': 'b2' });
   assert.ok(t.DB.raw.prepare("SELECT 1 FROM file_versions WHERE project_id=? AND source='restore' AND content='v3'").get(p.id), 'previous state kept');
 });
+
+test('admin area needs a second password: set on first entry, wrong one refused, unlocks only that session', async () => {
+  const t = await makeEnv(); const a = await t.user({ role: 'admin', locked: true }), u = await t.user();
+  const sid2 = 'b'.repeat(32), { sha } = await import('../src/core.js'); t.DB.raw.prepare('INSERT INTO sessions (token,user_id,expires) VALUES (?,?,?)').run(await sha(sid2), a.id, Date.now() + 864e5); const a2 = { cookie: 'sid=' + sid2 }; // เครื่องที่สองของแอดมินคนเดียวกัน
+  const g = await t.json('/api/admin/quality', { cookie: a.cookie });
+  assert.equal(g.status, 403); assert.equal(g.data.gate, true); assert.equal(g.data.set, false);
+  assert.equal((await t.json('/api/admin-gate', { cookie: u.cookie })).status, 403, 'normal user cannot touch the gate');
+  assert.equal((await t.json('/api/admin-gate', { method: 'POST', cookie: a.cookie, body: { password: 'short' } })).status, 400);
+  assert.equal((await t.json('/api/admin-gate', { method: 'POST', cookie: a.cookie, body: { password: 'first-pass-123' } })).status, 200);
+  assert.equal((await t.json('/api/admin/quality', { cookie: a.cookie })).status, 200);
+  assert.equal((await t.json('/api/admin/quality', { cookie: a2.cookie })).status, 403, 'another session is still locked');
+  assert.equal((await t.json('/api/admin-gate', { method: 'POST', cookie: a2.cookie, body: { password: 'wrong-pass' } })).status, 403);
+  assert.equal((await t.json('/api/admin-gate', { method: 'POST', cookie: a2.cookie, body: { password: 'first-pass-123' } })).data.ok, true);
+  assert.equal((await t.json('/api/admin/quality', { cookie: a2.cookie })).status, 200);
+  assert.equal((await t.json('/api/admin-gate', { method: 'POST', cookie: a2.cookie, body: { password: 'first-pass-123', new: 'second-pass-456' } })).status, 200);
+  assert.equal((await t.json('/api/admin/quality', { cookie: a.cookie })).status, 403, 'changing the password locks the other sessions');
+  assert.equal((await t.json('/api/admin/quality', { cookie: a2.cookie })).status, 200);
+});

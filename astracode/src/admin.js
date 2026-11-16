@@ -1,4 +1,4 @@
-import { BKK, DAY, creditsInit, err, esc, json, logReset, planOf, resetUsage, slipGet, usageStatus } from './core.js';
+import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { ensureFb, isSafeMcpUrl, mcpSync } from './ai.js';
 import { applyPayment, audit, getSetting, mail, mailBox, notify, walletAdd } from './billing.js';
 import { seal } from './projects.js';
@@ -15,6 +15,31 @@ export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', '
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
   'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
 
+// ---------- รหัสผ่านชั้นที่สองของหน้าแอดมิน (ตั้งครั้งแรกเอง · ปลดล็อกต่อ session 12 ชม.) ----------
+const GATE_MS = 12 * 36e5;
+const gateHash = async (pw, salt) => hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 100000 }, await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']), 256));
+export async function gateBlock(env, u) { // คืน Response 403 ถ้ายังไม่ปลดล็อก · null = ผ่าน
+  const ok = (await env.DB.prepare('SELECT admin_ok FROM sessions WHERE token=?').bind(u.sid).first())?.admin_ok;
+  return ok > Date.now() ? null : json({ error: 'admin_gate', gate: true, set: !!(await getSetting(env, 'admin_gate')) }, 403);
+}
+export async function adminGate(req, env, u) {
+  const saved = await getSetting(env, 'admin_gate'), unlocked = (await gateBlock(env, u)) === null;
+  if (req.method === 'GET') return json({ set: !!saved, ok: unlocked });
+  if (req.method !== 'POST') return err('method not allowed', 405);
+  const b = await req.json().catch(() => ({})), pw = String(b.password || ''), next = String(b.new || '');
+  if (await limited(env, 'agate:' + u.id, 8, 15 * 60e3)) return err('ลองผิดหลายครั้งเกินไป รอ 15 นาทีแล้วลองใหม่', 429);
+  const [salt, h] = saved.split(':');
+  if (saved && !same(await gateHash(pw, salt), h || '')) return err('รหัสผ่านไม่ถูกต้อง', 403);
+  const fresh = !saved ? pw : next; // ยังไม่ตั้ง = รหัสที่ส่งมาคือรหัสใหม่ · ตั้งแล้ว = ส่ง new เพื่อเปลี่ยน
+  if (fresh) {
+    if (fresh.length < 8) return err('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');
+    const s = hex(crypto.getRandomValues(new Uint8Array(12)));
+    await env.DB.batch([env.DB.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').bind('admin_gate', s + ':' + await gateHash(fresh, s)), env.DB.prepare('UPDATE sessions SET admin_ok=NULL WHERE user_id=?').bind(u.id)]); // เปลี่ยนรหัส = เครื่องอื่นต้องใส่ใหม่
+  }
+  await env.DB.prepare('UPDATE sessions SET admin_ok=? WHERE token=?').bind(Date.now() + GATE_MS, u.sid).run();
+  await unlimit(env, 'agate:' + u.id);
+  return json({ ok: true, set: true });
+}
 export async function admin(req, env, path, url, me) {
   const M = req.method, DB = env.DB;
   const ctxAudit = M === 'GET' ? async () => {} : (action, detail) => audit(env, me, action, detail); // บันทึกทุกการแก้ไขของแอดมิน
@@ -131,7 +156,7 @@ export async function admin(req, env, path, url, me) {
     if (M === 'PUT') await ctxAudit('update settings', Object.keys(await req.clone().json()));
     if (M === 'PUT') { const b = await req.json(), q = SETTINGS.filter(k => k in b && (k !== 'google_client_secret' || b[k])).map(k => DB.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').bind(k, String(b[k]))); if (q.length) await DB.batch(q); } // ช่อง secret ว่าง = คงค่าเดิม
     const rows = (await DB.prepare('SELECT * FROM settings').all()).results;
-    return json({ ...Object.fromEntries(rows.filter(x => x.key !== 'google_client_secret').map(x => [x.key, x.value])), google_secret_set: rows.some(x => x.key === 'google_client_secret' && x.value), slip_key_set: !!env.SLIP_API_KEY, slip2go_key_set: !!env.SLIP2GO_KEY, easyslip_key_set: !!env.EASYSLIP_KEY,
+    return json({ ...Object.fromEntries(rows.filter(x => !['google_client_secret', 'admin_gate'].includes(x.key)).map(x => [x.key, x.value])), google_secret_set: rows.some(x => x.key === 'google_client_secret' && x.value), slip_key_set: !!env.SLIP_API_KEY, slip2go_key_set: !!env.SLIP2GO_KEY, easyslip_key_set: !!env.EASYSLIP_KEY,
       env: Object.fromEntries(['RESEND_KEY', 'TAVILY_KEY', 'TURNSTILE_SECRET', 'SECRET_KEY', 'GOOGLE_CLIENT_ID', 'LINE_CHANNEL_ID', 'LINE_ALERT_TOKEN', 'PUBLIC_URL'].map(k => [k, !!env[k]])), r2: !!env.SLIPS });
   }
   if (path === '/api/admin/coupons') {

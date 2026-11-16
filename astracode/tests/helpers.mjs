@@ -52,6 +52,7 @@ export async function makeEnv(extra = {}) {
     const row = DB.raw.prepare('INSERT INTO users (email,pass_hash,role,created_at,ref_code,email_verified,balance) VALUES (?,?,?,?,?,1,?) RETURNING *').get(email, 'x', o.role || 'user', now, Math.random().toString(36).slice(2, 6).toUpperCase(), o.balance ?? 0);
     const sid = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
     DB.raw.prepare('INSERT INTO sessions (token,user_id,expires) VALUES (?,?,?)').run(await sha(sid), row.id, now + 864e5);
+    if (row.role === 'admin' && !o.locked) { await call('/api/me', { cookie: 'sid=' + sid }); DB.raw.prepare('UPDATE sessions SET admin_ok=? WHERE token=?').run(now + 864e5, await sha(sid)); } // ทดสอบทั่วไปให้แอดมินปลดล็อกชั้นที่สองแล้ว (locked: true = ไม่ปลด)
     return { ...row, cookie: 'sid=' + sid };
   };
   return { env, DB, call, json, user, ctx, worker };
