@@ -786,7 +786,7 @@ input, textarea { caret-color: var(--blue); }
 /* the glass recipe: translucent fill, blur + saturate, bright top edge, soft drop */
 .nav, .card, .tile, .showcase, .seg, .btn.out, .btn.dark, .tabs button, .chips button, .sc-pill, .lim, .toast {
   background-image: linear-gradient(135deg, rgba(var(--ov), .11), rgba(var(--ov), .03));
-  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
   border: 1px solid rgba(var(--ov), .14);
   box-shadow: inset 0 1px 0 rgba(var(--ov), .28), inset 0 -1px 0 rgba(var(--ov), .04), 0 8px 32px rgba(0, 0, 0, .3);
 }
@@ -1133,3 +1133,6 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 /* chat text size (S / M / L from the account page) */
 .msg .b { font-size: var(--msgfs, 15px); }
 .langseg { margin: 8px 12px; align-self: flex-start; }
+
+/* many stacked backdrop blurs corrupt GPU tiles on some phones (random broken pixels): only big surfaces keep the blur */
+.seg, .btn.out, .btn.dark, .tabs button, .chips button, .sc-pill, .lim, input, select, textarea, .compose .cbox { -webkit-backdrop-filter: none; backdrop-filter: none; }
