@@ -233,10 +233,10 @@ const cfToken = () => document.querySelector('[name=cf-turnstile-response]')?.va
 // สลับภาษา ไทย / English (โหลดหน้าใหม่เพื่อใช้ภาษาใหม่ทั้งหน้า)
 const langSeg = () => `<div class="seg langseg" role="group" aria-label="Language" data-notr><button type="button" data-lang="th" class="${window.LANG === 'en' ? '' : 'on'}">ไทย</button><button type="button" data-lang="en" class="${window.LANG === 'en' ? 'on' : ''}">English</button></div>`;
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-lang]'); if (!b || b.dataset.lang === (window.LANG || 'th')) return; try { localStorage.setItem('lang', b.dataset.lang); } catch { /* ไม่มีที่เก็บ */ } location.reload(); });
-const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="เมนู" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
-  <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="ปิดเมนู">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'แชต', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}${me.role === 'admin' ? navL('/admin', 'หลังบ้าน', 'dash') : ''}<span class="sp"></span>${langSeg()}${navL('/account', 'บัญชี', 'user')}`
-       : `${navL('/plans', 'แพลน', 'layers')}${navL('/pricing', 'ราคา', 'tag')}${navL('/blog', 'บล็อก', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
+const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
+  <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
+  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}${me.role === 'admin' ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navL('/account', 'Account', 'user')}`
+       : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
   if (e.target.closest?.('.nav-lim') && me) return limitSheet();

@@ -59,18 +59,18 @@ async function chatView(id) {
   app.innerHTML = `<div class="chat view"><aside class="side" id="side">
       <div class="side-top">
         <a class="logo" href="/">AstraCode</a>
-        <button type="button" class="icon-btn sm ghost" id="sbtn" aria-label="ค้นหาแชต">${ic('search')}</button>
+        <button type="button" class="icon-btn sm ghost" id="sbtn" aria-label="Search chats">${ic('search')}</button>
       </div>
-      <div class="side-search" id="sbox" hidden><input id="search" placeholder="ค้นหาแชต..." aria-label="ค้นหาแชต"></div>
+      <div class="side-search" id="sbox" hidden><input id="search" placeholder="Search chats…" aria-label="Search chats"></div>
       <nav class="side-nav">
         <a href="/code">${ic('code')}<span>Code</span></a>
-        <a href="/plans">${ic('layers')}<span>แพลน · ${esc(me.plan.name)}</span></a>
-        <a href="/pricing">${ic('tag')}<span>ราคาต่อ token</span></a>
-        <a href="/developers">${ic('braces')}<span>API นักพัฒนา</span></a>
-        <a href="/support">${ic('mail')}<span>ติดต่อเรา</span></a>
-        ${me.role === 'admin' ? `<a href="/admin">${ic('dash')}<span>หลังบ้าน</span></a>` : ''}
+        <a href="/plans">${ic('layers')}<span>Plans · ${esc(me.plan.name)}</span></a>
+        <a href="/pricing">${ic('tag')}<span>Pricing</span></a>
+        <a href="/developers">${ic('braces')}<span>Developer API</span></a>
+        <a href="/support">${ic('mail')}<span>Contact us</span></a>
+        ${me.role === 'admin' ? `<a href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
       </nav>
-      <div class="side-sec"><span>โฟลเดอร์ &amp; ล่าสุด</span><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></div>
+      <div class="side-sec"><span>Folders &amp; recent</span><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></div>
       <div class="list" id="list"></div>
       <div class="side-foot">
         <a class="side-user" href="/account" title="${esc(me.email)}">
@@ -212,18 +212,28 @@ function modelUI() {
     + (chat.mcps.length && _mcpCache ? chat.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
   if (!m?.vision && chat.images.length) { chat.images = []; drawThumbs(); showErr('โมเดลนี้อ่านรูปไม่ได้ จึงเอารูปออกแล้ว'); }
 }
+// ปุ่ม +: แผ่นล่างแบบ "ทางลัดแถวบน + รายการไอคอนพร้อมคำอธิบาย" · ชื่อเป็นอังกฤษ คำอธิบายเป็นไทย
+const toolRow = (v, icon, title, desc, on) => `<button type="button" class="trow ${on ? 'on' : ''}" data-v="${v}"><span class="tico">${ic(icon)}</span><span class="tbody"><b>${title}</b><small>${desc}</small></span>${on ? `<i class="tchk">${ic('check')}</i>` : ''}</button>`;
 function toolSheet() {
-  const web = localStorage.getItem('web') === '1';
-  sheet('เพิ่ม', '<div class="tgrid">' + optHTML('file', ic('clip') + 'แนบไฟล์/รูป', 'PDF Word Excel โค้ด รูป')
-    + (site.search ? optHTML('web', ic('globe') + 'ค้นเว็บ', 'ข้อมูลล่าสุด มีอ้างอิง', web) : '')
-    + (site.image ? optHTML('img', ic('image') + 'สร้างรูป', 'พิมพ์สิ่งที่อยากได้ก่อน') : '')
-    + optHTML('prm', ic('book') + 'คลัง Prompt', 'คำสั่งสำเร็จรูป')
-    + optHTML('cmp', ic('compare') + 'เทียบ 2 โมเดล', 'ถามครั้งเดียว ได้ 2 คำตอบ', chat.compare)
-    + optHTML('skl', ic('sparkles') + 'Skills', 'เปิดปิด หรือสร้างเอง')
-    + optHTML('mcp', ic('server') + 'Remote MCP', 'GitHub Notion n8n')
-    + optHTML('exp', ic('download') + 'ส่งออกแชต', 'Markdown หรือ PDF') + '</div>',
+  const web = localStorage.getItem('web') === '1', vision = curModel()?.vision;
+  sheet('Add', `<div class="tquick">
+      <button type="button" class="tq" data-v="photos">${ic('image')}<span>Photos</span></button>
+      <button type="button" class="tq" data-v="camera">${ic('camera')}<span>Camera</span></button>
+      <button type="button" class="tq" data-v="file">${ic('clip')}<span>Files</span></button>
+    </div>
+    ${vision ? '' : '<p class="tnote">โมเดลที่เลือกอ่านรูปไม่ได้ · เลือกโมเดลที่มีไอคอนตา (เช่น Claude) ถ้าจะส่งรูป</p>'}
+    <div class="tlist">
+      ${site.image ? toolRow('img', 'palette', 'Create image', 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้') : ''}
+      ${site.search ? toolRow('web', 'globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web) : ''}
+      ${toolRow('cmp', 'compare', 'Compare 2 models', 'ถามครั้งเดียว ได้คำตอบจาก 2 โมเดล', chat.compare)}
+      ${toolRow('prm', 'book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย')}
+      ${toolRow('skl', 'sparkles', 'Skills', 'สอนวิธีทำงานให้ AI · เปิดปิดหรือสร้างเอง')}
+      ${toolRow('mcp', 'server', 'Connect apps', 'ต่อ GitHub, Notion, n8n ผ่าน Remote MCP')}
+      ${toolRow('exp', 'download', 'Export chat', 'บันทึกเป็น Markdown หรือ PDF')}
+    </div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
-      close(); ({ file: () => $('#file').click(), img: genImage, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      close(); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), img: genImage, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 function toggleWeb() { localStorage.setItem('web', localStorage.getItem('web') === '1' ? '0' : '1'); modelUI(); }
