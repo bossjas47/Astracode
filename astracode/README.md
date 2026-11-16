@@ -114,7 +114,8 @@ Vercel serves `public/`. The Edge Function `api/proxy.js` forwards every `/api/*
 Because of this, cookies, streaming and rate limits work normally on your own domain.
 
 1. Import the whole project. `vercel.json` already sets the output directory, clean URLs and security headers.
-2. `vercel.json` also forwards `/v1/*`, `/robots.txt`, `/sitemap.xml` and `/blog/<slug>` to the Worker.
+2. `vercel.json` skips branches named `claude/*` and skips builds when nothing under `public/`, `api/` or `vercel.json` changed (the free plan limits deployments per day; Worker-only commits do not need a Vercel build).
+3. `vercel.json` also forwards `/v1/*`, `/robots.txt`, `/sitemap.xml` and `/blog/<slug>` to the Worker.
 3. In Settings → Environment Variables, add:
    - `WORKER_URL` = `https://astracode.xxx.workers.dev`
    - `PROXY_SECRET` = the same value as on the Worker
