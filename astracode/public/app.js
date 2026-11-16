@@ -1001,6 +1001,7 @@ const SKEL = '<div class="wrap skel"><div class="sk h"></div><div class="sk p"><
 async function boot() {
   document.querySelector('.shade')?.remove();
   const skT = setTimeout(() => { if (!app.querySelector('.view')) app.innerHTML = nav() + SKEL; }, 250);
+  setTimeout(() => { if (!app.querySelector('.view')) app.insertAdjacentHTML('beforeend', '<div style="text-align:center;margin:24px 16px"><p class="muted">โหลดนานผิดปกติ</p><button class="btn out" onclick="location.reload()">Try again</button></div>'); }, 8000);
   try {
     if (site.maintenance === '1' && me?.role !== 'admin' && !OPEN_IN_MAINTENANCE.includes(pageName()))
       page(nav() + `<section class="hero"><h1>ปิดปรับปรุงชั่วคราว</h1><p>เรากำลังอัปเกรดระบบ กลับมาใหม่อีกสักครู่ · <a href="/status">ดูสถานะระบบ</a></p></section>`);

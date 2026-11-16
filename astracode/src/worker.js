@@ -7,6 +7,37 @@ import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
+// ข้อมูลหน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
+const pubCache = new Map();
+async function pricingBody(env) {
+    const [ms, ps, pm] = await Promise.all([
+      env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort,id').all(),
+      env.DB.prepare('SELECT id,name,price,limit_week FROM plans WHERE active=1 ORDER BY sort').all(),
+      env.DB.prepare('SELECT * FROM plan_models').all(),
+    ]);
+    let official = {}; try { official = JSON.parse(await getSetting(env, 'official_prices') || '{}') || {}; } catch { /* ค่าเสีย ไม่แสดงเทียบ */ }
+    return {
+      note: await getSetting(env, 'price_note'),
+      plans: ps.results, // limit_week = งบต้นทุนต่อสัปดาห์ (บาท) ใช้คำนวณ % ในเครื่องคิดเลข
+      models: await Promise.all(ms.results.map(async m => {
+        const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
+        return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lim: limMult(m), note: m.note,
+          in: p.in, out: p.out, cache: p.cache, cache_write: p.write, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
+          official: official[m.id] || null, plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
+      })),
+    };
+}
+async function plansBody(env) {
+  const plans = (await env.DB.prepare('SELECT id,name,price,price_year,description,limit_week,seats,shared_pool,api_limit FROM plans WHERE active=1 ORDER BY sort').all()).results;
+  const [featured, lists] = await Promise.all([getSetting(env, 'featured_plan'), Promise.all(plans.map(p => allowedModels(env, p.id)))]);
+  plans.forEach((p, i) => { // ประมาณจำนวนข้อความ/สัปดาห์ ตามต้นทุนจริงของ 1 ข้อความทั่วไป
+    p.models = lists[i].map(m => ({ name: m.name, week: Math.floor(p.limit_week / Math.max(msgCost(m), 1e-6)) }));
+    p.featured = p.id === +featured;
+    delete p.limit_week;
+  });
+  return plans;
+}
+
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
@@ -117,35 +148,13 @@ export async function route(req, env, ctx, url, path, M) {
         return await startSession(env, u.id, req);
       }
       if (path === '/api/auth' && M === 'POST') return await emailAuth(req, env);
-      if (path === '/api/pricing') { // หน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
-        const [ms, ps, pm] = await Promise.all([
-          env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort,id').all(),
-          env.DB.prepare('SELECT id,name,price,limit_week FROM plans WHERE active=1 ORDER BY sort').all(),
-          env.DB.prepare('SELECT * FROM plan_models').all(),
-        ]);
-        let official = {}; try { official = JSON.parse(await getSetting(env, 'official_prices') || '{}') || {}; } catch { /* ค่าเสีย ไม่แสดงเทียบ */ }
-        return json({
-          note: await getSetting(env, 'price_note'),
-          plans: ps.results, // limit_week = งบต้นทุนต่อสัปดาห์ (บาท) ใช้คำนวณ % ในเครื่องคิดเลข
-          models: await Promise.all(ms.results.map(async m => {
-            const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
-            return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lim: limMult(m), note: m.note,
-              in: p.in, out: p.out, cache: p.cache, cache_write: p.write, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
-              official: official[m.id] || null, plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
-          })),
-        });
+      if ((path === '/api/pricing' || path === '/api/plans') && M === 'GET') { // ข้อมูลสาธารณะที่คิดหนัก (หลาย query): เก็บในหน่วยความจำ 30 วินาที แอดมินแก้แล้วเห็นผลภายใน 30 วิ
+        const hit = pubCache.get(path);
+        if (hit && hit.exp > Date.now()) return new Response(hit.body, { headers: { 'content-type': 'application/json' } });
+        const res = await (path === '/api/pricing' ? pricingBody : plansBody)(env);
+        pubCache.set(path, { exp: Date.now() + 30e3, body: JSON.stringify(res) });
+        return json(res);
       }
-      if (path === '/api/plans') {
-        const plans = (await env.DB.prepare('SELECT id,name,price,price_year,description,limit_week,seats,shared_pool,api_limit FROM plans WHERE active=1 ORDER BY sort').all()).results;
-        const featured = +await getSetting(env, 'featured_plan');
-        for (const p of plans) { // ประมาณจำนวนข้อความ/สัปดาห์ ตามต้นทุนจริงของ 1 ข้อความทั่วไป
-          p.models = (await allowedModels(env, p.id)).map(m => ({ name: m.name, week: Math.floor(p.limit_week / Math.max(msgCost(m), 1e-6)) }));
-          p.featured = p.id === featured;
-          delete p.limit_week;
-        }
-        return json(plans);
-      }
-
       const u = await getUser(req, env);
       if (!u || u.banned) return err('กรุณาเข้าสู่ระบบ', 401);
       if (u.role !== 'admin' && !['/api/me', '/api/logout'].includes(path) && (await getSetting(env, 'maintenance')) === '1') return json({ error: 'ระบบปิดปรับปรุงชั่วคราว', maintenance: true }, 503);
