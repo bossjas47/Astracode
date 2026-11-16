@@ -106,6 +106,6 @@ test('EasySlip v2 (URL contains /v2): JSON base64 request to /verify/bank/base64
 test('EasySlip v2: a NOT_FOUND on the first path falls back to /verify/bank', async () => {
   const seen = []; const { fakeModel } = await import('./helpers.mjs');
   const fm = await fakeModel((q, res) => { seen.push(q.url); res.writeHead(q.url.endsWith('/base64') ? 404 : 200, { 'content-type': 'application/json' }); res.end(JSON.stringify(q.url.endsWith('/base64') ? { success: false, error: { code: 'NOT_FOUND', message: 'Resource not found' } } : { success: true, data: { rawSlip: { transRef: 'FB1', date: new Date(Date.now() - 60e3).toISOString(), amount: { amount: 100 }, receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, proxy: { account: '062-xxx-8835' } } } } } })); });
-  const x = await setup(() => ({}), { easyslip_url: fm.url + '/v2', easyslip_receiver_names: 'ณัฐภูมินทร์' }); x.fm.close();
+  const x = await setup(() => ({}), { easyslip_url: fm.url + '/v2', promptpay_id: '0629708835', easyslip_receiver_names: 'ณัฐภูมินทร์' }); x.fm.close();
   const r = await x.topup(100); assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.deepEqual(seen, ['/v2/verify/bank/base64', '/v2/verify/bank']); fm.close();
 });
