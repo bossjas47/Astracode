@@ -12,6 +12,7 @@
   };
   window.LANG = get('lang') === 'en' ? 'en' : 'th';
   if (window.LANG === 'en') document.write('<script src="/i18n-en.js"><\/script><script src="/i18n.js"><\/script>'); // แปลทั้งเว็บเป็นอังกฤษ (โหลดแบบซิงก์ เพื่อไม่ให้เห็นภาษาไทยแวบก่อน)
+  root.lang = window.LANG; root.setAttribute('translate', 'no'); // กัน Chrome แปลหน้าซ้อนกับระบบแปลของเว็บเอง (ทำให้ DOM เปลี่ยนวนจนค้าง)
   apply(); mq.addEventListener?.('change', apply);
   window.applyTheme = apply;
   addEventListener('DOMContentLoaded', apply);
