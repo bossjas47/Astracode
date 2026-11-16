@@ -54,7 +54,7 @@ export async function useToken(env, t, kind) {
 // code: ผลแบบ Slip2Go (200200 = ผ่านทุกเงื่อนไข, 200401 บัญชีผู้รับไม่ตรง, 200402 ยอดไม่ตรง, 200500 สลิปปลอม, 200501 สลิปซ้ำ, 200404 ไม่พบ)
 export const SLIP_FAIL = { '200401': 'บัญชีผู้รับเงินไม่ตรงกับร้าน', '200402': 'ยอดเงินในสลิปไม่ตรงกับยอดที่ต้องจ่าย', '200403': 'วันที่โอนไม่ถูกต้อง', '200500': 'สลิปไม่ถูกต้องหรือเป็นสลิปปลอม', '200501': 'สลิปนี้ถูกใช้ไปแล้ว' };
 export async function checkSlip(env, buf, type, amount) {
-  const s = await getSettings(env, ['slip_provider', 'slip_api_url', 'slip_amount_field', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'easyslip_url', 'easyslip_receiver', 'promptpay_id']);
+  const s = await getSettings(env, ['slip_provider', 'slip_api_url', 'slip_amount_field', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'promptpay_id']);
   const provider = s.slip_provider || (s.slip_api_url ? 'byshop' : '');
   try {
     if (provider === 'slip2go') {
@@ -97,6 +97,14 @@ export function receiverMatches(slip, expected) {
   }
   return comparable ? false : null;
 }
+export const SLIP_MAX_AGE = 15 * 60e3; // สลิปใช้ได้ภายใน 15 นาทีหลังโอนเท่านั้น
+const nameKey = x => String(x || '').normalize('NFC').replace(/(?:นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.|mr\.?|mrs\.?|miss|ms\.?)/gi, '').replace(/[\s.]/g, '').toLowerCase();
+// ชื่อผู้รับในสลิป (ไทย) เทียบกับรายชื่อที่อนุญาต · true = ตรงอย่างน้อยหนึ่งชื่อ · false = มีชื่อไทยแต่ไม่ตรง · null = สลิปไม่มีชื่อไทยให้เทียบ
+export function receiverNameMatches(slip, allowed) {
+  const found = []; (function walk(o, k) { if (typeof o === 'string' && /^(th|name)$/i.test(k || '') && /[ก-๛]/.test(o)) found.push(o); else if (o && typeof o === 'object') for (const [kk, v] of Object.entries(o)) walk(v, kk); })(slip?.receiver?.account?.name ?? slip?.rawSlip?.receiver?.account?.name, 'name');
+  if (!found.length) return null;
+  return found.some(f => allowed.some(a => { const w = nameKey(a); return w && nameKey(f).includes(w); })); // ชื่อในสลิปมักตัดนามสกุลเหลือตัวอักษรแรก จึงรองรับ "ชื่อต้นอย่างเดียว" ที่ใส่เป็นชื่อสำรอง
+}
 export async function easySlip(env, s, buf, type, amount) {
   if (!env.EASYSLIP_KEY) return { result: null, amount: null };
   const fd = new FormData(); fd.append('file', new File([buf], 'slip.' + (type.split('/')[1] || 'jpg'), { type })); fd.append('checkDuplicate', 'true');
@@ -109,10 +117,13 @@ export async function easySlip(env, s, buf, type, amount) {
   if (got == null) return out('amount_missing');
   if (Math.abs(got - amount) > 0.004) return out('200402');
   const when = Date.parse(slip.date || slip.rawSlip?.date || '');
-  if (Number.isFinite(when) && (Date.now() - when > 48 * 3600e3 || when - Date.now() > 3600e3)) return out('200403'); // สลิปเก่ากว่า 48 ชม. หรือวันที่อยู่ในอนาคต
-  const rm = receiverMatches(slip, s.easyslip_receiver || s.promptpay_id);
-  if (rm === false) return out('200401');
-  if (rm === null) return out('receiver_unverified'); // ตั้งผู้รับไว้แต่สลิปไม่มีเลขที่เทียบได้ → ให้แอดมินตรวจ
+  if (!Number.isFinite(when) || Date.now() - when > SLIP_MAX_AGE || when - Date.now() > 5 * 60e3) return Number.isFinite(when) ? out('200403') : out('date_missing'); // สลิปต้องโอนภายใน 15 นาที (เผื่อนาฬิกาเร็วได้ 5 นาที) · ไม่มีวันที่ = ให้แอดมินตรวจ
+  const names = String(s.easyslip_receiver_names || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+  const dg = receiverMatches(slip, s.easyslip_receiver || s.promptpay_id), nm = names.length ? receiverNameMatches(slip, names) : null;
+  // มีรายชื่อผู้รับที่อนุญาต: ชื่อตรง (เต็มหรือเฉพาะชื่อต้นที่สำรองไว้) แล้วเลขบัญชีต้องไม่ขัดแย้ง · ชื่อไม่ตรง = ปฏิเสธ · ชื่อในสลิปเทียบไม่ได้ ใช้เลขบัญชีตัดสินแทน
+  if (names.length) { if (nm === false || dg === false) return out('200401'); if (nm === true) return out('200000'); return dg === true ? out('200000') : out('receiver_unverified'); }
+  if (dg === false) return out('200401');
+  if (dg === null) return out('receiver_unverified'); // ตั้งผู้รับไว้แต่สลิปไม่มีเลขที่เทียบได้ → ให้แอดมินตรวจ
   return out('200000');
 }
 
@@ -229,7 +240,7 @@ export async function pay(req, env, u) {
   if (await env.DB.prepare('SELECT 1 FROM payments WHERE slip_key=?').bind(key).first()) return err('สลิปนี้ถูกใช้แล้ว');
   await slipPut(env, key, buf, type);
   const c = await checkSlip(env, buf, type, amount);
-  if (c.ref && await env.DB.prepare("SELECT 1 FROM payments WHERE slip_ref=? AND status<>'rejected'").bind(c.ref).first()) c.code = '200501'; // เลขอ้างอิงธนาคารซ้ำในระบบเรา
+  if (c.ref && await env.DB.prepare('SELECT 1 FROM payments WHERE slip_ref=?').bind(c.ref).first()) c.code = '200501'; // สลิปที่เคยสแกนแล้วใช้ซ้ำไม่ได้ แม้ครั้งก่อนถูกปฏิเสธ // เลขอ้างอิงธนาคารซ้ำในระบบเรา
   const fail = SLIP_FAIL[c.code];
   // ผ่านทุกเงื่อนไข (หรือพบสลิปและยอดตรง) และเปิดอนุมัติอัตโนมัติ: เปิดแพลน/เติมเงินทันที
   const pass = !fail && (c.code === '200200' || (c.code === '200000' && c.amount === amount)) && (await getSetting(env, 'slip_auto_approve')) !== '0';

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { makeEnv, fakeModel } from './helpers.mjs';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8]);
-const slipData = (o = {}) => ({ status: 200, data: { transRef: 'REF' + Math.random().toString(36).slice(2, 8), date: new Date().toISOString(), amount: { amount: 200 }, receiver: { account: { name: { th: 'ร้าน' }, bank: { type: 'BANKAC', account: 'x-xxx-x5678-x' }, proxy: { type: 'MSISDN', account: '088-xxx-4567' } } }, ...o } });
+const slipData = (o = {}) => ({ status: 200, data: { transRef: 'REF' + Math.random().toString(36).slice(2, 8), date: new Date(Date.now() - 2 * 60e3).toISOString(), amount: { amount: 200 }, receiver: { account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, bank: { type: 'BANKAC', account: 'x-xxx-x5678-x' }, proxy: { type: 'MSISDN', account: '088-xxx-4567' } } }, ...o } });
 async function setup(reply, settings = {}) {
   const hits = []; const fm = await fakeModel((q, res, body) => { hits.push(q.headers.authorization); const r = typeof reply === 'function' ? reply() : reply; res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(r)); });
   const t = await makeEnv({ EASYSLIP_KEY: 'es-test' });
@@ -22,7 +22,7 @@ test('EasySlip: a real slip with the right amount, date and receiver is approved
 });
 
 test('EasySlip: wrong amount, wrong receiver, old date and duplicates are rejected without crediting', async () => {
-  const cases = [[slipData({ amount: { amount: 150 } }), /ยอดเงิน/], [slipData({ receiver: { account: { bank: { account: 'x-xxx-x9999-x' }, proxy: { account: '099-xxx-9999' } } } }), /ผู้รับ/], [slipData({ date: new Date(Date.now() - 5 * 864e5).toISOString() }), /วันที่/], [{ status: 400, message: 'duplicate_slip', data: { transRef: 'R1', amount: { amount: 200 } } }, /ถูกใช้/]];
+  const cases = [[slipData({ amount: { amount: 150 } }), /ยอดเงิน/], [slipData({ receiver: { account: { bank: { account: 'x-xxx-x9999-x' }, proxy: { account: '099-xxx-9999' } } } }), /ผู้รับ/], [slipData({ date: new Date(Date.now() - 16 * 60e3).toISOString() }), /วันที่/], [{ status: 400, message: 'duplicate_slip', data: { transRef: 'R1', amount: { amount: 200 } } }, /ถูกใช้/]];
   for (const [reply, msg] of cases) {
     const { fm, topup, bal, pay } = await setup(reply); const r = await topup(200);
     assert.equal(r.status, 400); assert.match(r.d.error, msg); assert.equal(bal(), 0); assert.equal(pay().status, 'rejected'); fm.close();
@@ -51,4 +51,26 @@ test('receiverMatches compares only the visible digits of masked account numbers
   assert.equal(receiverMatches(slip('099-xxx-4567'), '0881234567'), false);
   assert.equal(receiverMatches(slip('xxxxxxx'), '0881234567'), null);
   assert.equal(receiverMatches(slip('x'), ''), true);
+});
+
+test('EasySlip: slip must be within 15 minutes; a slip that was already scanned (even if rejected) can never be used again', async () => {
+  const same = slipData({ transRef: 'ONCE1', amount: { amount: 150 } }); // ยอดผิด → ถูกปฏิเสธ
+  const a = await setup(() => same); assert.equal((await a.topup(200)).status, 400);
+  const again = slipData({ transRef: 'ONCE1' }); // สลิปใบเดิม ยอดถูกต้องแล้ว ภาพคนละไฟล์
+  a.fm.close(); const b = await setup(() => again);
+  b.t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,slip_ref,status,kind,period,created_at) VALUES (?,?,?,?,?,?,?,?,?)").run(b.admin.id, 0, 200, 'slip/old', 'ONCE1', 'rejected', 'topup', 'month', Date.now());
+  const r = await b.topup(200); assert.equal(r.status, 400); assert.match(r.d.error, /ถูกใช้/); assert.equal(b.bal(), 0); b.fm.close();
+  const ok = await setup(() => slipData({ date: new Date(Date.now() - 12 * 60e3).toISOString() })); assert.equal((await ok.topup(200)).d.approved, true); ok.fm.close();
+});
+
+test('EasySlip: receiver name must match; first name alone is accepted as the fallback; a different name is rejected; account digits cannot contradict', async () => {
+  const names = { easyslip_receiver_names: 'ณัฐภูมินทร์ จูบ้ง, ณัฐภูมินทร์' };
+  const rcv = (name, acc = '088-xxx-4567') => ({ receiver: { account: { name: { th: name }, bank: { type: 'BANKAC', account: 'x-xxx-x5678-x' }, proxy: { type: 'MSISDN', account: acc } } } });
+  for (const [reply, approved, label] of [[slipData(rcv('นาย ณัฐภูมินทร์ จูบ้ง')), true, 'full name'], [slipData(rcv('นาย ณัฐภูมินทร์ จ')), true, 'first name + initial'], [slipData(rcv('น.ส. สมหญิง ใจดี')), false, 'other person'], [slipData(rcv('นาย ณัฐภูมินทร์ จ', '099-xxx-9999')), false, 'name ok but account contradicts'], [slipData({ receiver: { account: { name: { en: 'MR. NATTHAPHUMIN J' }, proxy: { account: '088-xxx-4567' } } } }), true, 'no Thai name: digits decide']]) {
+    const x = await setup(reply, names); const r = await x.topup(200);
+    assert.equal(!!r.d.approved, approved, label); if (!approved) assert.equal(x.pay().status, 'rejected', label); x.fm.close();
+  }
+  const { receiverNameMatches } = await import(new URL('../src/billing.js', import.meta.url).href);
+  assert.equal(receiverNameMatches({ receiver: { account: { name: { th: 'นางสาว ณัฐภูมินทร์ จ.' } } } }, ['ณัฐภูมินทร์']), true);
+  assert.equal(receiverNameMatches({ receiver: { account: { name: { en: 'X' } } } }, ['ณัฐภูมินทร์']), null);
 });
