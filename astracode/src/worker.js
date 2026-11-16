@@ -1,5 +1,5 @@
 import { DAY, allowedModels, flat, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy } from './core.js';
-import { bundleProject, chat, ensureFb } from './ai.js';
+import { bundleProject, chat, compact, ensureFb } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
 import { admin, adminGate, gateBlock } from './admin.js';
@@ -248,6 +248,11 @@ export async function route(req, env, ctx, url, path, M) {
         const who = await gh(token, '/user', { base: env.GITHUB_API });
         await env.DB.prepare('UPDATE users SET gh_token=?, gh_login=? WHERE id=?').bind(await seal(env, token), who.login, u.id).run();
         return json({ ok: true, login: who.login });
+      }
+      if ((r = path.match(/^\/api\/chats\/(\d+)\/compact$/)) && M === 'POST') { // ผู้ใช้กดย่อแชต: สรุปข้อความเก่าเหลือ 2 ข้อความล่าสุด (ลด context)
+        if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
+        if (await limited(env, 'compact:' + u.id, 10, 3600e3)) return err('ย่อแชตบ่อยเกินไป ลองใหม่ภายหลัง', 429);
+        return json({ ok: await compact(env, u, +r[1], true) });
       }
       if ((r = path.match(/^\/api\/chats\/(\d+)\/share$/))) {
         if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);

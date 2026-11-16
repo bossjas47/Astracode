@@ -1196,3 +1196,4 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .slash p { margin: 8px 10px; }
 
 .doing { color: var(--ash); font-size: 13px; padding: 2px 0 8px; }
+.ctxm.warn { color: #f5b74e; } .ctxm.bad { color: #ff6b6b; }

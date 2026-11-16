@@ -221,7 +221,7 @@ export const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 export let colsDone;
 // เดิมสั่ง ALTER ทีละคำสั่งทุกครั้งที่ isolate เริ่ม (13 รอบไป-กลับ D1 ก่อนตอบคำขอแรก) ตอนนี้ถามโครงสร้างครั้งเดียวแล้วเพิ่มเฉพาะที่ขาด
-const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
+const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
 const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
 export const ensureCols = env => colsDone ||= (async () => {
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
@@ -306,6 +306,29 @@ export async function creditList(env, uid) {
 }
 export const creditsOf = async (env, uid) => (await creditList(env, uid)).reduce((a, x) => a + x.n, 0);
 // ต้นทุนโดยประมาณของ 1 ข้อความทั่วไป (context 20K อยู่ใน cache, ส่งใหม่ 1K, ตอบ 1K) ใช้ประมาณจำนวนข้อความต่อสัปดาห์
+// ประมาณ token: ตัวอักษรละติน/ตัวเลข ~4 ตัวต่อ token, ภาษาไทยและอักษรอื่น ~1.5 ตัวต่อ token (BPE แตกภาษาไทยละเอียดกว่ามาก)
+export const estTokens = s => { s = String(s || ''); const ascii = s.replace(/[^\x00-\x7f]/g, '').length; return Math.ceil(ascii / 4 + (s.length - ascii) / 1.5); };
+// ขนาด context ของโมเดล (token) · ตั้งต่อโมเดลในหลังบ้าน (ctx_k = พัน token) ไม่ตั้ง = 128k
+export const ctxMax = m => (m?.ctx_k > 0 ? m.ctx_k : 128) * 1000;
+const msgTok = x => estTokens(typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '')) + (x.tool_calls ? estTokens(JSON.stringify(x.tool_calls)) : 0) + 4;
+// ให้ system + ข้อความพอดี context: ทิ้งข้อความเก่าสุดก่อน (ข้อความแรกต้องเป็นของผู้ใช้) ถ้ายังเกินค่อยตัดเนื้อหาที่ยาวสุด · เผื่อที่ให้คำตอบ 15% (ไม่เกิน 16k)
+export function fitContext(system, msgs, max) {
+  const budget = max - Math.min(16000, max * 0.15) - estTokens(system);
+  let list = [...msgs], sizes = list.map(msgTok), total = sizes.reduce((a, b) => a + b, 0), trimmed = false;
+  while (total > budget && list.length > 1) {
+    total -= sizes.shift(); list.shift(); trimmed = true;
+    while (list.length > 1 && list[0].role !== 'user') { total -= sizes.shift(); list.shift(); }
+  }
+  while (total > budget) { // เหลือข้อความที่ยาวมากเกินเอง: ตัดเนื้อหาข้อความที่ยาวสุด
+    let k = -1; list.forEach((x, i) => { if (typeof x.content === 'string' && (k < 0 || sizes[i] > sizes[k])) k = i; });
+    if (k < 0 || sizes[k] < 50) break;
+    const x = list[k], keep = Math.max(0, Math.floor(x.content.length * Math.max(0, sizes[k] - (total - budget) - 20) / sizes[k]));
+    list[k] = { ...x, content: x.content.slice(0, keep) + '\n\n[...ตัดส่วนที่เหลือออกเพราะยาวเกิน context ของโมเดล]' };
+    total += msgTok(list[k]) - sizes[k]; sizes[k] = msgTok(list[k]); trimmed = true;
+    if (keep === 0) break;
+  }
+  return { msgs: list, used: Math.round(total + estTokens(system)), trimmed };
+}
 // คิดเงินแบบใดแบบหนึ่งต่อโมเดล ไม่ผสม: bill='request' (และตั้ง req_cost แล้ว) = เหมาต่อ request · อื่นๆ = ตาม token
 export const flat = m => m.bill === 'request' && m.req_cost > 0;
 export const msgCost = m => flat(m) ? m.req_cost : (20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6;

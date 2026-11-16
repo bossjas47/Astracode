@@ -1,4 +1,4 @@
-import { HISTORY, HISTORY_CODE, LOCK_MS, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr } from './core.js';
+import { HISTORY, HISTORY_CODE, LOCK_MS, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr } from './core.js';
 import { event, getSetting, getSettings, priceOf, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
@@ -460,10 +460,12 @@ export async function runChat(env, J, send, st) {
   let msgs = sources.length ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: withSources(x.content, sources) } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
+  let ctxUsed = 0, cumIn = 0, capped = false; // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     round_ = round + 1;
     let part = '', ru = null;
     const tcs = new Map(), anthIdx = new Map();
+    const fit = fitContext(system, msgs, ctxMax(model)); msgs = fit.msgs; ctxUsed = fit.used; // ไม่ส่งเกิน context ของโมเดล (upstream จะ error)
     for (let attempt = 0; attempt < 2; attempt++) {
       // นาฬิกาเฝ้าโมเดล: ไม่มีข้อความ/ความคิดตัวแรกภายใน 90 วิ (effort สูงสุด 150 วิ) หรือเงียบเกิน 60 วิกลางทาง = ตัดการเชื่อมต่อ แล้วใช้ทางสลับโมเดลสำรอง/แจ้งข้อผิดพลาด แทนที่ผู้ใช้จะรอไม่จบ
       const ac = new AbortController(); let stalled = 0, wd;
@@ -500,6 +502,7 @@ export async function runChat(env, J, send, st) {
         break;
       }
     }
+    cumIn += ru ? ru.fresh + ru.read + ru.write : ctxUsed;
     if (ru) usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : ru;
     const toolCalls = [...tcs.values()];
     if (toolCalls.length && !st.gone && round < 5) {
@@ -522,6 +525,12 @@ export async function runChat(env, J, send, st) {
     }
     const reqs = pid && !st.gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
     if (!reqs.length) break;
+    if (cumIn >= ANSWER_IN_MAX) { // คำตอบเดียวใช้ input เกินเพดาน: ไม่อ่านไฟล์เพิ่ม ให้ทำต่อจากที่มี (รอบถัดไปถ้ายังขออ่านอีกก็จบเลย)
+      if (capped) break; capped = true;
+      await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
+      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: '[ระบบ] คำตอบนี้ใช้ context ครบเพดานแล้ว ห้าม READ / GREP / LIST เพิ่ม ทำงานต่อหรือตอบจากข้อมูลที่มีตอนนี้เลย' }];
+      continue;
+    }
     await send({ round: round + 2, of: TOOL_ROUNDS + 1, doing: doingOf(reqs) }); // บอกหน้าเว็บว่าเข้ารอบถัดไป (อ่านไฟล์แล้วคิดต่อ)
     const result = await runTools(env, pid, reqs);
     await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
@@ -538,7 +547,7 @@ export async function runChat(env, J, send, st) {
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).first())?.id ?? null;
   const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan }) : 0;
   await unlimit(env, lock);
-  await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ...(await usageStatus(env, u, plan)) });
+  await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: ctxUsed, max: ctxMax(model) }, ...(await usageStatus(env, u, plan)) });
   if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
 }
 
@@ -558,20 +567,21 @@ export async function autoModel(env, plan, u, { text, images, files, effort, reg
   return m.id;
 }
 export const COMPACT_CHARS = 30000, COMPACT_KEEP = 6;
-export async function compact(env, u, cid) {
+export async function compact(env, u, cid, force = false) { // force = ผู้ใช้กด "ย่อแชต" เอง (ไม่ต้องรอให้ยาวถึงเกณฑ์)
   const c = await env.DB.prepare('SELECT summary,summary_upto FROM chats WHERE id=?').bind(cid).first();
   const rows = (await env.DB.prepare('SELECT id,role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id').bind(cid, c?.summary_upto || 0).all()).results.map(r => ({ ...r, content: String(r.content || '').replace(/\u2063/g, '') }));
-  if (rows.length <= COMPACT_KEEP + 2 || rows.reduce((a, r) => a + r.content.length, 0) < COMPACT_CHARS) return;
-  const old = rows.slice(0, -COMPACT_KEEP);
+  if (rows.length <= (force ? 2 : COMPACT_KEEP + 2) || (!force && rows.reduce((a, r) => a + r.content.length, 0) < COMPACT_CHARS)) return false;
+  const old = rows.slice(0, force ? -2 : -COMPACT_KEEP);
   const want = +(await getSetting(env, 'summary_model'));
   const m = (await env.DB.prepare('SELECT * FROM models WHERE active=1 ORDER BY cost_in+cost_out').all()).results.filter(x => env[x.key_name]).find(x => !want || x.id === want);
-  if (!m) return;
+  if (!m) return false;
   const body = (c?.summary ? `Earlier summary:\n${c.summary}\n\n` : '') + old.map(r => `${r.role === 'user' ? 'User' : 'Assistant'}: ${r.content.slice(0, 6000)}`).join('\n\n');
   let summary = '', usage = null;
   for await (const e of callModel(env, m, [{ role: 'user', content: body.slice(-80000) }], { effort: null, maxTokens: 1500,
     system: 'Summarize this conversation so an assistant can continue it. Keep: the user\'s goals and preferences, decisions made, facts, names, numbers, file names, code identifiers and unfinished tasks. Drop small talk and long code (say what it does). Write in the same language as the conversation, at most 350 words, as bullet points.' })) { if (e.t) summary += e.t; if (e.usage) usage = e.usage; }
   if (usage) await logUsage(env, u.id, m, usage, { units: false }); // ต้นทุนของเรา ไม่หักลิมิตผู้ใช้
   if (summary.trim()) await env.DB.prepare('UPDATE chats SET summary=?, summary_upto=? WHERE id=?').bind(summary.trim().slice(0, 6000), old.at(-1).id, cid).run();
+  return !!summary.trim();
 }
 
 
@@ -635,7 +645,7 @@ export async function mcpCall(url, token, name, args) {
 }
 
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
-export const TOOL_ROUNDS = 6, READ_MAX = 100e3;
+export const TOOL_ROUNDS = 6, READ_MAX = 100e3, ANSWER_IN_MAX = 400e3; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
 // หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
 export const stripOpenFile = t => String(t || '').replace(/\n\n\[(?:เนื้อหาไฟล์ที่เปิดอยู่|เนื้อหาไฟล์ในโปรเจกต์)\][\s\S]*$/, '');
 // โมเดลบางตัวเขียนคำสั่งติดกับข้อความ (เช่น "...ครับREAD path=a.js" หรือ "READ path=a.jsกำลังอ่าน...") → แยกบรรทัด และอ่านพาธเฉพาะตัวอักษรที่เป็นพาธ ไม่เอาข้อความไทยที่ติดมา (เดิมทำให้หาไฟล์ไม่พบแล้วโมเดลสั่งอ่านซ้ำวน)

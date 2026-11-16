@@ -323,3 +323,26 @@ test('team owner can revoke all of a member key at once; admin quality report in
   t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)').run(mem.id, 1, 100, 10, 300, 0, 0, Date.now());
   const q = await t.json('/api/admin/quality', { cookie: adm.cookie }); assert.equal(q.data.cache[0].cached, 300); assert.equal(q.data.cache[0].fresh, 100);
 });
+
+test('fitContext drops the oldest messages first, keeps a user message first, and cuts one huge message to fit', async () => {
+  const { fitContext, estTokens } = await import('../src/core.js');
+  const big = 'x'.repeat(40000); // ~10k token
+  const msgs = [{ role: 'user', content: big }, { role: 'assistant', content: big }, { role: 'user', content: big }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'last' }];
+  const f = fitContext('sys', msgs, 30000);
+  assert.ok(f.trimmed); assert.equal(f.msgs[0].role, 'user'); assert.equal(f.msgs.at(-1).content, 'last'); assert.ok(f.used <= 30000 - 4500, String(f.used));
+  const one = fitContext('sys', [{ role: 'user', content: 'y'.repeat(400000) }], 20000);
+  assert.equal(one.msgs.length, 1); assert.match(one.msgs[0].content, /ตัดส่วนที่เหลือ/); assert.ok(estTokens(one.msgs[0].content) < 20000);
+  const small = fitContext('sys', [{ role: 'user', content: 'hi' }], 128000); assert.equal(small.trimmed, false);
+});
+
+test('chat reply reports context use against the model window, and the user can compact a chat by hand', async () => {
+  const fm = await fakeModel((q, res) => fm.sse(res, 'ok')); const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'Ctx', base_url: fm.url }); t.DB.raw.prepare('UPDATE models SET ctx_k=64 WHERE id=?').run(m.id);
+  const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+  let cid, done;
+  for (const text of ['one', 'two', 'three']) { t.DB.raw.exec('DELETE FROM rate'); const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text, chat_id: cid } })); cid ||= ev.find(e => e.chat_id)?.chat_id; done = ev.find(e => e.done); }
+  assert.equal(done.ctx.max, 64000); assert.ok(done.ctx.used > 0);
+  const c = await t.json(`/api/chats/${cid}/compact`, { method: 'POST', cookie: u.cookie }); assert.equal(c.status, 200); assert.equal(c.data.ok, true);
+  assert.ok(t.DB.raw.prepare('SELECT summary FROM chats WHERE id=?').get(cid).summary);
+  fm.close();
+});

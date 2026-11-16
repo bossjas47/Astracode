@@ -185,5 +185,5 @@ test('IP allowlist supports IPv4 and IPv6 CIDR; token estimate counts Thai dense
   assert.ok(a.ipAllowed('2001:db8::/32', '2001:db8:1::5')); assert.ok(!a.ipAllowed('2001:db8::/32', '2001:db9::1'));
   assert.ok(a.ipAllowed('10.0.0.0/8, 1.2.3.4', '1.2.3.4')); assert.ok(!a.ipAllowed('10.0.0.0/8', '11.0.0.1'));
   assert.ok(a.ipAllowed('::1', '::1')); assert.ok(!a.ipAllowed('2001:db8::/200', '2001:db8::1'));
-  assert.ok(a.estTokens('สวัสดีครับ') > a.estTokens('hello now'));
+  const { estTokens } = await import('../src/core.js'); assert.ok(estTokens('สวัสดีครับ') > estTokens('hello now'));
 });

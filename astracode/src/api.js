@@ -1,4 +1,4 @@
-import { BKK, DAY, capHit, err, ip, json, limited, planOf, rand, sha, unlimit, usageStatus } from './core.js';
+import { BKK, DAY, capHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, chat, logUsage } from './ai.js';
 import { event, mail, mailBox, origin, priceOf } from './billing.js';
 import { status } from './jobs.js';
@@ -228,8 +228,6 @@ export async function v1core(req, env, ctx, path, lg = {}) {
 export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
   .bind(lg.kid, lg.uid, lg.path, lg.model || null, status, lg.tin || 0, lg.tout || 0, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
 export const v4 = x => { const p = String(x).split('.'); return p.length === 4 && p.every(n => /^\d{1,3}$/.test(n) && +n < 256) ? p.reduce((a, n) => a * 256 + +n, 0) : null; };
-// ประมาณ token: ตัวอักษรละติน/ตัวเลข ~4 ตัวต่อ token, ภาษาไทยและอักษรอื่น ~1.5 ตัวต่อ token (BPE แตกภาษาไทยละเอียดกว่ามาก)
-export const estTokens = s => { s = String(s || ''); const ascii = s.replace(/[^\x00-\x7f]/g, '').length; return Math.ceil(ascii / 4 + (s.length - ascii) / 1.5); };
 // IPv6 เป็น BigInt 128 บิต (รองรับ :: ย่อ) · null = ไม่ใช่ IPv6
 export const v6 = x => {
   x = String(x).toLowerCase(); if (!x.includes(':') || x.includes('.')) return null;

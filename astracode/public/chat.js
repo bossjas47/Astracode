@@ -244,12 +244,14 @@ function toggleCompare() {
   modelUI(); renderAll();
 }
 async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api('/chats').catch(() => []), api('/folders').catch(() => [])]); drawSide(); head(); }
-// หัวแชต: ชื่อ + token รวมของแชตนี้
+// หัวแชต: ชื่อ + context ที่ใช้
 function head() {
   const ctl = $('#ctl'); if (!ctl) return;
   ctl.textContent = chat.compare ? 'เทียบ 2 โมเดล' : chat.chats.find(c => c.id === chat.id)?.title || 'Chat';
-  const n = chat.compare ? 0 : chat.msgs.reduce((a, m) => a + (m.tin || 0) + (m.tout || 0), 0);
-  $('#ctok').textContent = n ? `${kTok(n)} token` : '';
+  // แถบ context: ใช้ไปเท่าไรจากขนาด context ของโมเดล (จากคำตอบล่าสุด) · เกิน 70% มีปุ่มย่อแชต
+  const cx = !chat.compare && chat.ctx?.id === chat.id ? chat.ctx : null, pct = cx ? Math.min(100, Math.round(cx.used / cx.max * 100)) : 0;
+  $('#ctok').innerHTML = cx ? `<span class="ctxm ${pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : ''}" title="context ที่ใช้ในคำตอบล่าสุด เทียบกับขนาด context ของโมเดล">context ${kTok(cx.used)} / ${kTok(cx.max)} (${pct}%)</span>${pct >= 70 && chat.id ? ' <button type="button" class="linkb" id="cmpct">ย่อแชต</button>' : ''}` : '';
+  const cb = $('#cmpct'); if (cb) cb.onclick = async () => { cb.disabled = true; cb.textContent = 'กำลังย่อ...'; try { const r = await api(`/chats/${chat.id}/compact`, { method: 'POST' }); toast(r.ok ? 'ย่อแชตแล้ว ข้อความเก่าถูกสรุปไว้' : 'แชตยังสั้นเกินกว่าจะย่อ', r.ok ? 'ok' : ''); if (r.ok) chat.ctx = null; } catch (x) { toast(x.message, 'bad'); } head(); };
 }
 const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 function drawSide() {
@@ -547,6 +549,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
       if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateLast(); }); }
       if (d.error) streamErr = d.error;
       if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; }
+      if (d.ctx) { chat.ctx = { ...d.ctx, id: chat.id }; }
       if (d.done) { ai.pct = Math.max(0, d.pctWeek - me.usage.pctWeek); setUsage(d); }
     });
   } catch (x) {
