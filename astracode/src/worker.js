@@ -151,9 +151,13 @@ export async function route(req, env, ctx, url, path, M) {
       if ((path === '/api/pricing' || path === '/api/plans') && M === 'GET') { // ข้อมูลสาธารณะที่คิดหนัก (หลาย query): เก็บในหน่วยความจำ 30 วินาที แอดมินแก้แล้วเห็นผลภายใน 30 วิ
         const hit = pubCache.get(path);
         if (hit && hit.exp > Date.now()) return new Response(hit.body, { headers: { 'content-type': 'application/json' } });
-        const res = await (path === '/api/pricing' ? pricingBody : plansBody)(env);
-        pubCache.set(path, { exp: Date.now() + 30e3, body: JSON.stringify(res) });
-        return json(res);
+        const ck = new Request('https://cache.internal' + path), shared = typeof caches !== 'undefined' && caches.default; // แคชร่วมของศูนย์ข้อมูล (ทุก isolate ใช้ร่วมกัน)
+        const c = shared && await shared.match(ck).catch(() => null);
+        if (c) { const body = await c.text(); pubCache.set(path, { exp: Date.now() + 30e3, body }); return new Response(body, { headers: { 'content-type': 'application/json' } }); }
+        const body = JSON.stringify(await (path === '/api/pricing' ? pricingBody : plansBody)(env));
+        pubCache.set(path, { exp: Date.now() + 30e3, body });
+        if (shared) ctx.waitUntil(shared.put(ck, new Response(body, { headers: { 'cache-control': 'max-age=30' } })).catch(() => {}));
+        return new Response(body, { headers: { 'content-type': 'application/json' } });
       }
       const u = await getUser(req, env);
       if (!u || u.banned) return err('กรุณาเข้าสู่ระบบ', 401);
