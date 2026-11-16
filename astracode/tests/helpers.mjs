@@ -10,7 +10,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 class Stmt {
   constructor(db, sql) { this.db = db; this.sql = sql; this.args = []; }
-  bind(...a) { this.args = a.map(x => x === undefined ? null : x); return this; }
+  bind(...a) { this.args = a.map(x => x === undefined ? null : Array.isArray(x) ? new Uint8Array(x) : x); return this; } // D1 รับ array เป็น BLOB
   _s() { return this.db.prepare(this.sql); }
   async first(col) { const r = this._s().get(...this.args) ?? null; return col && r ? r[col] : r; }
   async all() { const results = this._s().all(...this.args); return { results, success: true, meta: { changes: 0 } }; }

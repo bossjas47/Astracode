@@ -1828,6 +1828,7 @@ function burstHit(key, max, ms) {
 }
 async function route(req, env, ctx, url, path, M) {
   let r;
+  if (path === '/api/version') return json({ version: env.VERSION || 'dev' }); // workflow ใช้ยืนยันว่า deploy ขึ้นจริง
   if (path.startsWith('/api/') && !/(?:^|;\s*)sid=/.test(req.headers.get('cookie') || '') && burstHit('anon:' + ip(req, env), 240, 60e3)) return err('ส่งคำขอถี่เกินไป รอสักครู่', 429);
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้

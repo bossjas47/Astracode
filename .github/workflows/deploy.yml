@@ -15,9 +15,22 @@ jobs:
       - name: Tests
         working-directory: astracode
         run: npm test
+      # wrangler uploads the Worker, then fails reading the workers.dev subdomain because the token
+      # lacks that permission. The next step decides success by asking the live site which version runs.
       - uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: astracode
-          command: deploy --keep-vars
+          command: deploy --keep-vars --var VERSION:${{ github.sha }}
+      - name: Verify live version
+        run: |
+          for i in $(seq 1 12); do
+            v=$(curl -fsS https://astracode.panderx.xyz/api/version || true)
+            echo "$v"
+            case "$v" in *"${{ github.sha }}"*) exit 0;; esac
+            sleep 10
+          done
+          echo "Live site is not running ${{ github.sha }}" >&2
+          exit 1
