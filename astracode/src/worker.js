@@ -1,4 +1,4 @@
-import { DAY, allowedModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy } from './core.js';
+import { DAY, allowedModels, flat, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy } from './core.js';
 import { bundleProject, chat, ensureFb } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
@@ -127,7 +127,7 @@ export async function route(req, env, ctx, url, path, M) {
         if (!m) return err('ไม่พบโมเดล', 404);
         const num = (v, max) => Math.min(max, Math.max(0, +v || 0)), n = num(b.n, 1e5), i = num(b.i, 2e6), o = num(b.o, 2e6), c = num(b.c, 100) / 100, p = await priceOf(env, m);
         const per1 = p.req > 0 ? p.req : (i * (1 - c) * p.in + i * c * p.cache + o * p.out) / 1e6;
-        const weekUnits = n * 7 * (m.req_cost > 0 ? m.req_cost : (i * (1 - c) * m.cost_in + i * c * m.cost_cache + o * m.cost_out) / 1e6) * limMult(m); // วิธีนับเดียวกับระบบลิมิต: ต้นทุนจริง × ตัวคูณโมเดล
+        const weekUnits = n * 7 * (flat(m) ? m.req_cost : (i * (1 - c) * m.cost_in + i * c * m.cost_cache + o * m.cost_out) / 1e6) * limMult(m); // วิธีนับเดียวกับระบบลิมิต: ต้นทุนจริง × ตัวคูณโมเดล
         const pls = (await env.DB.prepare('SELECT p.id, p.limit_week FROM plans p JOIN plan_models pm ON pm.plan_id=p.id WHERE pm.model_id=? AND p.active=1 AND p.limit_week>0').bind(m.id).all()).results;
         return json({ per1, month: per1 * n * 30, plans: pls.map(x => ({ id: x.id, pct: weekUnits / x.limit_week * 100 })) });
       }

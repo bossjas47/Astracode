@@ -4,6 +4,7 @@ PAGES.admin = () => adminView(qs().get('tab') || 'stats');
 const FIELDS = {
   plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['limit_4h', 'งบรอบ 4 ชม. (บาท ต้นทุนจริง)', 'n'], ['use_4h', 'เปิดรอบ 4 ชม. (ปิด = จำกัดเฉพาะรอบสัปดาห์)', 'b'], ['limit_week', 'งบรอบสัปดาห์ (บาท ต้นทุนจริง)', 'n'], ['seats', 'จำนวนคนในทีม (1 = เดี่ยว, 2+ = ทีม)', 'n'], ['shared_pool', 'ใช้งบลิมิตร่วมกันทั้งทีม', 'b'], ['api_limit', 'ใช้ API Key หักจากลิมิตแพลนได้ (ไม่ต้องเติม Wallet)', 'b'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
   models: [['name', 'ชื่อที่แสดง'], ['provider', 'รูปแบบ API (openai = /chat/completions · responses = /responses ของ OpenAI รุ่นใหม่ · image = โมเดลสร้างรูป ตอบเป็นรูป ใส่ราคาต่อ 1 รูปในช่อง ทุน output · embedding = โมเดลเวกเตอร์ใช้ผ่าน /v1/embeddings เท่านั้น คิดตาม token ขาเข้า · anthropic)', ['openai', 'responses', 'image', 'embedding', 'anthropic']], ['api_model', 'รหัสโมเดล'], ['base_url', 'Base URL'], ['key_name', 'ชื่อ secret ของ key'], ['multiplier', 'ความหนักสัมพัทธ์ (ใช้เรียง/แสดง ไม่ใช่ตัวหักลิมิต)', 'n'], ['cap_pct', 'เพดาน % ของงบสัปดาห์ (0 = ไม่จำกัด เช่น Opus 50)', 'n'],
+    ['bill', 'วิธีคิดเงิน (token = ตามจำนวน token · request = เหมาต่อครั้ง ไม่ผสมกัน)', ['token', 'request']],
     ['cost_in', 'ทุน input (บาท/1M)', 'n'], ['cost_out', 'ทุน output', 'n'], ['cost_cache', 'ทุน cache read', 'n'], ['cost_cache_write', 'ทุน cache write', 'n'],
     ['price_in', 'ราคาขาย input (บาท/1M)', 'o'], ['price_out', 'ราคาขาย output', 'o'], ['price_cache', 'ราคาขาย cache read', 'o'], ['price_cache_write', 'ราคาขาย cache write', 'o'],
     ['promo_pct', 'โปรลดราคา % (เว้นว่าง = ไม่มีโปร)', 'o'], ['promo_start', 'โปรเริ่ม (เว้นว่าง = ทันที)', 'd'], ['promo_end', 'โปรถึงวันที่ (เว้นว่าง = ไม่มีวันจบ)', 'd'],
@@ -13,6 +14,13 @@ const FIELDS = {
     ['note', 'คำอธิบายในหน้าราคา', 's'], ['code_prompt', 'คำสั่งเพิ่มในโหมด Code (เช่น บังคับให้อ่านไฟล์ก่อนแก้)', 'x'], ['fallback_id', 'โมเดลสำรองเมื่อตัวนี้ล่ม', 'm'],
     ['effort', 'รูปแบบ effort', ['none', 'openai', 'anthropic', 'deepseek', 'kimi', 'gemini']], ['effort_levels', 'ระดับ Effort ที่เลือกได้ (คั่นด้วย , เช่น none,low,medium,high,max · เว้นว่าง = ค่าเริ่มต้นค่าย)'], ['vision', 'อ่านรูปได้', 'b'], ['public', 'แสดงในหน้าราคา', 'b'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
   posts: [['title', 'หัวข้อ'], ['slug', 'slug (a-z 0-9 -) ใช้ใน URL'], ['summary', 'สรุปสั้น (แสดงในรายการและ Google)', 's'], ['cover', 'รูปปก (path บนเว็บ เช่น /og.png)', 's'], ['body', 'เนื้อหา (Markdown)', 't'], ['published', 'เผยแพร่', 'b']],
+};
+// โมเดลคิดเงินแบบเดียวต่อตัว: ช่องราคา token โชว์เฉพาะโหมด token · ช่องต่อ request โชว์เฉพาะโหมด request
+const BILL_GROUP = Object.fromEntries([...['cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write'].map(k => [k, 'token']), ['req_cost', 'request'], ['req_price', 'request']]);
+const billApply = f => {
+  const rq = f.querySelector('[name=bill]')?.value === 'request';
+  f.querySelectorAll('[data-bill]').forEach(d => { const hide = d.dataset.bill === (rq ? 'token' : 'request'); d.hidden = hide; d.querySelectorAll('input').forEach(i => { i.required = !hide && i.dataset.n === '1'; }); });
+  const rc = f.querySelector('[name=req_cost]'); if (rc) rc.required = rq;
 };
 // เทมเพลตเพิ่มโมเดล: รหัสโมเดลเปลี่ยนบ่อย ตรวจชื่อล่าสุดในเว็บผู้ให้บริการก่อนบันทึก
 const PRESETS = {
@@ -483,13 +491,13 @@ async function editors(tab, box, reload, kind) {
     : tab === 'plans'
     ? `<b>${esc(r.name)}</b><span class="muted">${r.price > 0 ? '฿' + baht(r.price) + '/เดือน' : 'ฟรี'} · ฿${+r.limit_week.toFixed(2)}/สัปดาห์ · ${r.use_4h === 0 ? 'ปิดรอบ 4 ชม.' : '฿' + +r.limit_4h.toFixed(2) + '/4 ชม.'} · ต้นทุนสูงสุด ฿${Math.round(r.limit_week * 4.33)}/เดือน${r.price > 0 ? ` (${Math.round(r.limit_week * 4.33 / r.price * 100)}% ของราคา)` : ''} · ${r.model_ids.length} โมเดล</span>`
     : `<b>${esc(r.name)}</b><span class="muted">${esc(r.api_model)} · ×${r.multiplier}${r.cap_pct > 0 ? ` · เพดาน ${r.cap_pct}%` : ''}${r.use_mult != null && r.use_mult !== 1 ? ` · หักลิมิต ×${r.use_mult}` : ''}${r.promo_mult != null ? ` · โปรหัก ×${r.promo_mult}` : ''} · ${r.price_in != null ? `ขาย ${r.price_in}/${r.price_out ?? '-'}` : 'ราคาอัตโนมัติ'}${r.promo_pct > 0 ? ` · <span class="warn">โปร -${r.promo_pct}%${r.promo_end ? ' ถึง ' + new Date(r.promo_end).toLocaleDateString(LOC) : ''}</span>` : ''}${r.public ? '' : ' · ซ่อนจากหน้าราคา'} · ${r.has_key ? '<span class="ok">key พร้อม</span>' : '<span class="bad">ไม่พบ key</span>'}${r.vision ? ' · อ่านรูป' : ''}${r.effort !== 'none' ? ' · effort' : ''}</span>`;
-  const form = (r = { active: 1, public: 1, use_4h: 1, model_ids: [], ...(kind === 'team' ? { seats: 5, shared_pool: 1 } : kind ? { seats: 1 } : {}) }) => `<form class="ed-f" data-id="${r.id || ''}"><div class="form2 ${tab === 'posts' ? 'one' : ''}">${FIELDS[tab].map(([k, l, t]) => `<div><label>${l}</label>${t === 'b' ? `<label class="sw"><input type="checkbox" name="${k}" ${r[k] ? 'checked' : ''}><span></span></label>`
+  const form = (r = { active: 1, public: 1, use_4h: 1, model_ids: [], ...(kind === 'team' ? { seats: 5, shared_pool: 1 } : kind ? { seats: 1 } : {}) }) => `<form class="ed-f" data-id="${r.id || ''}"><div class="form2 ${tab === 'posts' ? 'one' : ''}">${FIELDS[tab].map(([k, l, t]) => `<div ${BILL_GROUP[k] ? `data-bill="${BILL_GROUP[k]}"` : ''}><label>${l}</label>${t === 'b' ? `<label class="sw"><input type="checkbox" name="${k}" ${r[k] ? 'checked' : ''}><span></span></label>`
       : Array.isArray(t) ? `<select name="${k}">${t.map(o => `<option ${r[k] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`
       : t === 'm' ? `<select name="${k}"><option value="">ไม่มี</option>${models.filter(m => m.id !== r.id).map(m => `<option value="${m.id}" ${r[k] === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`
       : t === 't' ? `<textarea name="${k}" rows="12">${esc(r[k] ?? '')}</textarea>`
       : t === 'x' ? `<textarea name="${k}" rows="3" placeholder="เว้นว่างได้">${esc(r[k] ?? '')}</textarea>`
       : t === 'd' ? `<input type="date" name="${k}" value="${r[k] ? new Date(r[k] + 7 * 3600e3).toISOString().slice(0, 10) : ''}">`
-      : `<input name="${k}" ${t === 'n' || t === 'o' ? 'type="number" step="any" inputmode="decimal"' : ''} value="${esc(r[k] ?? '')}" ${t === 'o' ? `placeholder="${k.endsWith('_mult') ? '1' : 'อัตโนมัติ: ทุน + markup'}"` : t === 's' ? '' : 'required'}>`}</div>`).join('')}</div>
+      : `<input name="${k}" ${t === 'n' || t === 'o' ? 'type="number" step="any" inputmode="decimal"' : ''} ${t === 'n' ? 'data-n="1"' : ''} value="${esc(r[k] ?? '')}" ${t === 'o' ? `placeholder="${k.endsWith('_mult') ? '1' : 'อัตโนมัติ: ทุน + markup'}"` : t === 's' ? '' : 'required'}>`}</div>`).join('')}</div>
     ${tab === 'plans' ? `<label>โมเดลที่ใช้ได้</label><div class="chips-sel">${models.map(m => `<label><input type="checkbox" name="m" value="${m.id}" ${r.model_ids?.includes(m.id) ? 'checked' : ''}><span>${esc(m.name)} ×${m.multiplier}</span></label>`).join('')}</div>` : ''}
     <div class="row" style="margin-top:16px"><button class="btn blue sm">Save</button>${r.id ? `<button type="button" class="btn red sm" data-del="${r.id}">Delete</button>` : ''}<span class="ok sv"></span></div></form>`;
   box.innerHTML = `<p class="muted hint">${tab === 'posts' ? 'เขียนด้วย Markdown · บทความที่เผยแพร่จะขึ้นที่ /blog, หน้าแรก และ sitemap.xml' : tab === 'plans'
@@ -501,6 +509,7 @@ async function editors(tab, box, reload, kind) {
     const f = e.target.nextElementSibling, p = PRESETS[e.target.value]; if (!p) return;
     for (const [k, v] of Object.entries(p)) { const i = f.elements[k]; if (!i) continue; if (i.type === 'checkbox') i.checked = !!v; else i.value = v; }
   });
+  if (tab === 'models') box.querySelectorAll('form').forEach(f => { billApply(f); f.querySelector('[name=bill]').onchange = () => billApply(f); });
   box.querySelectorAll('form').forEach(f => f.onsubmit = async e => {
     e.preventDefault(); const fd = new FormData(f), body = {};
     FIELDS[tab].forEach(([k, , t]) => body[k] = t === 'b' ? (fd.get(k) ? 1 : 0) : t === 'n' ? +fd.get(k) : t === 'o' || t === 'm' ? (fd.get(k) === '' ? null : +fd.get(k))

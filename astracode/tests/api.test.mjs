@@ -165,15 +165,17 @@ test('free plan cannot create API keys and old keys of free users stop working',
 });
 
 test('a model with a flat per-request price charges that price whatever the token count', async () => {
-  const { fm, t, m, v1, bal } = await setup({ balance: 2 });
+  const { fm, t, m, v1, bal } = await setup({ balance: 3 });
   t.DB.raw.prepare('UPDATE models SET req_cost=0.5, req_price=1.2 WHERE id=?').run(m.id);
+  const tok = bal(); await v1('/v1/chat/completions', msg); const tokCharge = tok - bal(); assert.ok(tokCharge > 0 && tokCharge !== 1.2, 'without bill=request the per-request fields are ignored (token pricing)');
+  t.DB.raw.prepare("UPDATE models SET bill='request' WHERE id=?").run(m.id);
   const b0 = bal(), r = await v1('/v1/chat/completions', { ...msg, messages: [{ role: 'user', content: 'x'.repeat(5000) }] });
   assert.equal(r.status, 200); assert.equal(+(b0 - bal()).toFixed(4), 1.2, 'wallet charged the flat price');
   const row = t.DB.raw.prepare('SELECT cost, units FROM usage WHERE model_id=? ORDER BY id DESC').get(m.id);
   assert.equal(row.cost, 0.5); assert.equal(row.units, 0, 'wallet mode does not touch the plan limit');
-  const { logUsage } = await import('../src/ai.js'); await logUsage(t.env, 1, { ...m, req_cost: 0.5 }, { fresh: 1e6, read: 0, write: 0, out: 1e6 }, { units: true });
+  const { logUsage } = await import('../src/ai.js'); await logUsage(t.env, 1, { ...m, bill: 'request', req_cost: 0.5 }, { fresh: 1e6, read: 0, write: 0, out: 1e6 }, { units: true });
   assert.equal(t.DB.raw.prepare('SELECT units FROM usage ORDER BY id DESC').get().units, 0.5, 'plan limit units use the flat cost');
-  const low = await v1('/v1/chat/completions', msg); assert.equal(low.status, 402, 'balance 0.8 < 1.2 is refused up front');
+  t.DB.raw.prepare('UPDATE users SET balance=0.8').run(); const low = await v1('/v1/chat/completions', msg); assert.equal(low.status, 402, 'balance 0.8 < 1.2 is refused up front');
   const p = (await t.json('/api/pricing')).data.models.find(x => x.id === m.id); assert.equal(p.req, 1.2);
   fm.close();
 });

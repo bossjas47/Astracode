@@ -286,3 +286,15 @@ test('history window moves in half-window steps so the prompt prefix stays stabl
   assert.equal(firsts.length, 30); assert.ok(new Set(firsts).size <= 8, 'first message changes rarely: ' + new Set(firsts).size);
   fm.close();
 });
+
+test('admin model form: billing is either per token or per request, never mixed', async () => {
+  const t = await makeEnv(); const adm = await t.user({ role: 'admin' });
+  const base = { name: 'Flat', provider: 'openai', api_model: 'x', base_url: 'https://x.test', key_name: 'K', multiplier: 1, cost_in: 1, cost_out: 2, cost_cache: 0, cost_cache_write: 0, sort: 1, active: 1, public: 1, vision: 0, note: '', cap_pct: 0, effort: 'none' };
+  const bad = await t.json('/api/admin/models', { method: 'POST', cookie: adm.cookie, body: { ...base, bill: 'request' } });
+  assert.equal(bad.status, 400, 'request mode needs a per-request cost');
+  const ok = await t.json('/api/admin/models', { method: 'POST', cookie: adm.cookie, body: { ...base, bill: 'request', req_cost: 0.4, req_price: 1 } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  const row = t.DB.raw.prepare("SELECT id,bill,req_cost,req_price FROM models WHERE name='Flat'").get(); assert.deepEqual([row.bill, row.req_cost, row.req_price], ['request', 0.4, 1]);
+  await t.json('/api/admin/models/' + row.id, { method: 'PUT', cookie: adm.cookie, body: { ...base, bill: 'token', req_cost: 0.4, req_price: 1 } });
+  const back = t.DB.raw.prepare('SELECT bill,req_cost,req_price FROM models WHERE id=?').get(row.id); assert.deepEqual([back.bill, back.req_cost, back.req_price], [null, null, null], 'token mode clears the per-request fields');
+});

@@ -1,4 +1,4 @@
-import { DAY, err, hex, json, limited, rand, sha, slipPut, userErr, viaProxy } from './core.js';
+import { DAY, err, flat, hex, json, limited, rand, sha, slipPut, userErr, viaProxy } from './core.js';
 import { b64 } from './projects.js';
 import { status } from './jobs.js';
 // ---------- slip ----------
@@ -13,7 +13,7 @@ export const promoOn = (m, now = Date.now()) => m.promo_pct > 0 && (!m.promo_sta
 export async function priceOf(env, m, base) {
   const mk = +(await getSetting(env, 'price_markup')) || 0, off = !base && promoOn(m) ? 1 - Math.min(m.promo_pct, 100) / 100 : 1;
   const p = (v, c) => r4((v ?? c * (1 + mk / 100)) * off);
-  return { in: p(m.price_in, m.cost_in), out: p(m.price_out, m.cost_out), cache: p(m.price_cache, m.cost_cache), write: p(m.price_cache_write, m.cost_cache_write), req: m.req_cost > 0 ? p(m.req_price, m.req_cost) : 0 }; // req > 0 = คิดเหมาต่อ request
+  return { in: p(m.price_in, m.cost_in), out: p(m.price_out, m.cost_out), cache: p(m.price_cache, m.cost_cache), write: p(m.price_cache_write, m.cost_cache_write), req: flat(m) ? p(m.req_price, m.req_cost) : 0 }; // req > 0 = คิดเหมาต่อ request
 }
 export async function walletAdd(env, uid, amount, kind, ref) {
   const r = await env.DB.prepare('UPDATE users SET balance=ROUND(balance+?,4) WHERE id=? RETURNING balance').bind(amount, uid).first();

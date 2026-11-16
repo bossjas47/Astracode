@@ -7,7 +7,7 @@ import { backup, status } from './jobs.js';
 // ---------- admin ----------
 export const TABLES = {
   plans: ['name', 'price', 'price_year', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
-  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'req_cost', 'req_price', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active'],
+  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'bill', 'req_cost', 'req_price', 'code_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published'],
 };
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
@@ -58,7 +58,13 @@ export async function admin(req, env, path, url, me) {
       if (t !== 'posts') await DB.prepare(`DELETE FROM plan_models WHERE ${t === 'plans' ? 'plan_id' : 'model_id'}=?`).bind(id).run();
       return json({ ok: true });
     }
-    const b = await req.json(), vals = cols.map(c => b[c] ?? null);
+    const b = await req.json();
+    if (t === 'models') { // เลือกแบบเดียว: ตาม token หรือเหมาต่อ request
+      b.bill = b.bill === 'request' ? 'request' : null;
+      if (b.bill && !(+b.req_cost > 0)) return err('คิดต่อ request ต้องใส่ต้นทุนต่อ request มากกว่า 0');
+      if (!b.bill) { b.req_cost = null; b.req_price = null; } // โหมด token ล้างค่าต่อ request ทิ้ง ไม่ค้างปนกัน
+    }
+    const vals = cols.map(c => b[c] ?? null);
     if (t === 'posts' && !/^[a-z0-9-]{1,80}$/.test(b.slug || '')) return err('slug ใช้ได้เฉพาะ a-z 0-9 และ -');
     if (t === 'models' && b.promo_pct != null && !(b.promo_pct >= 0 && b.promo_pct <= 100)) return err('โปรลดราคาต้องอยู่ระหว่าง 0–100%');
     if (t === 'models' && [b.use_mult, b.promo_mult].some(v => v != null && !(v >= 0 && v <= 100))) return err('ตัวคูณลิมิตต้องอยู่ระหว่าง 0–100');
