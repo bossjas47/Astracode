@@ -12,6 +12,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Lint
+        working-directory: astracode
+        run: npm run lint
       - name: Tests
         working-directory: astracode
         run: npm test
@@ -34,3 +37,16 @@ jobs:
           done
           echo "Live site is not running ${{ github.sha }}" >&2
           exit 1
+      - name: Smoke test
+        env:
+          KEY: ${{ secrets.ASTRA_TEST_KEY }}
+        run: |
+          B=https://astracode.panderx.xyz; fail=0
+          for p in / /chat /code /plans /pricing /developers /api/settings/public /api/plans /api/pricing /api/status /sitemap.xml; do
+            c=$(curl -sS -o /dev/null -w '%{http_code}' "$B$p"); echo "$c $p"; [ "$c" = 200 ] || fail=1
+          done
+          c=$(curl -sS -o /dev/null -w '%{http_code}' "$B/v1/models"); echo "$c /v1/models (no key)"; [ "$c" = 401 ] || fail=1
+          if [ -n "$KEY" ]; then # optional: a real API key with a small budget, set as the ASTRA_TEST_KEY secret
+            c=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $KEY" "$B/v1/models"); echo "$c /v1/models (key)"; [ "$c" = 200 ] || fail=1
+          fi
+          exit $fail

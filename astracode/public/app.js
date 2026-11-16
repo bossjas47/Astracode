@@ -1017,6 +1017,15 @@ if (window.DEMO) addEventListener('click', e => { // เดโม: ลิงก�
   const a = e.target.closest('a[href^="/"]'); if (!a || e.defaultPrevented) return;
   e.preventDefault(); go(a.getAttribute('href'));
 });
+// ส่ง error ที่เกิดในเบราว์เซอร์ให้แอดมินเห็น (ไม่เกิน 5 รายการต่อการเปิดหน้า เฉพาะสคริปต์ของเว็บเอง ข้าม error ที่มาจาก API)
+const errSent = new Set();
+const reportErr = (msg, src) => {
+  if (window.DEMO || errSent.size >= 5 || !msg || errSent.has(msg + src)) return; errSent.add(msg + src);
+  const body = JSON.stringify({ msg: String(msg).slice(0, 300), src: String(src || '').slice(0, 200), page: location.pathname });
+  try { navigator.sendBeacon?.('/api/clienterr', new Blob([body], { type: 'application/json' })) || fetch('/api/clienterr', { method: 'POST', body, keepalive: true, headers: { 'content-type': 'application/json' } }); } catch { /* ส่งไม่ได้ก็ข้าม */ }
+};
+addEventListener('error', e => { if (e.filename?.startsWith(location.origin)) reportErr(e.message, `${e.filename.slice(location.origin.length)}:${e.lineno}:${e.colno}`); });
+addEventListener('unhandledrejection', e => { const r = e.reason; if (r?.status || r?.name === 'AbortError') return; reportErr(r?.message || String(r), (r?.stack || '').split('\n').find(l => l.includes(location.origin))?.trim().replace(location.origin, '')); });
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; });
 // รอให้สคริปต์ของหน้า (เช่น code.js) โหลดครบก่อน ไม่งั้นหน้านั้นยังไม่ได้ลงทะเบียนใน PAGES
 const domReady = new Promise(r => document.readyState === 'loading' ? addEventListener('DOMContentLoaded', r) : r());

@@ -24,3 +24,10 @@ test('chat: streams a reply, saves it, logs usage', async () => {
   assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM usage').get().n, 1);
   fm.close();
 });
+
+test('browser errors are stored as client events, with a per-IP burst limit', async () => {
+  const t = await makeEnv();
+  for (let i = 0; i < 12; i++) assert.equal((await t.call('/api/clienterr', { method: 'POST', body: { msg: 'x is not defined ' + i, src: '/chat.js:1:2', page: '/chat' } })).status, 204);
+  const rows = t.DB.raw.prepare("SELECT detail FROM events WHERE kind='client'").all();
+  assert.equal(rows.length, 10); assert.match(rows[0].detail, /\/chat · x is not defined 0 @ \/chat\.js:1:2/);
+});

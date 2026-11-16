@@ -2,6 +2,7 @@
   "name": "astracode",
   "private": true,
   "scripts": {
-    "test": "node --test --test-force-exit tests/*.test.mjs"
+    "test": "node --test --test-force-exit tests/*.test.mjs",
+    "lint": "npx --yes eslint@9 src"
   }
 }

@@ -1,6 +1,6 @@
 import { DAY, allowedModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy } from './core.js';
 import { bundleProject, chat, ensureFb } from './ai.js';
-import { getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
+import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
 import { admin } from './admin.js';
 import { oauth, totpOk, userRoutes } from './user.js';
@@ -76,6 +76,12 @@ export function burstHit(key, max, ms) {
 export async function route(req, env, ctx, url, path, M) {
   let r;
   if (path === '/api/version') return json({ version: env.VERSION || 'dev' }); // workflow ใช้ยืนยันว่า deploy ขึ้นจริง
+  if (path === '/api/clienterr' && M === 'POST') { // error ที่เกิดในเบราว์เซอร์ผู้ใช้ → events (แอดมินดูที่แท็บระบบ)
+    if (burstHit('ce:' + ip(req, env), 10, 600e3)) return new Response(null, { status: 204 });
+    const b = await req.json().catch(() => null), s = v => String(v ?? '').replace(/\s+/g, ' ').slice(0, 300);
+    if (b?.msg) await event(env, 'client', null, `${s(b.page).slice(0, 80)} · ${s(b.msg)} @ ${s(b.src).slice(0, 160)} · ${s(req.headers.get('user-agent')).slice(0, 90)}`);
+    return new Response(null, { status: 204 });
+  }
   if (path.startsWith('/api/') && !/(?:^|;\s*)sid=/.test(req.headers.get('cookie') || '') && burstHit('anon:' + ip(req, env), 240, 60e3)) return err('ส่งคำขอถี่เกินไป รอสักครู่', 429);
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้
