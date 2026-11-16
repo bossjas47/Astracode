@@ -114,8 +114,14 @@ export async function easySlip(env, s, buf, type, amount, flex = false) {
   let init;
   if (v2) init = { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ base64: b64(buf), checkDuplicate: true }) };
   else { const fd = new FormData(); fd.append('file', new File([buf], 'slip.' + (type.split('/')[1] || 'jpg'), { type })); fd.append('checkDuplicate', 'true'); init = { headers: { authorization: 'Bearer ' + env.EASYSLIP_KEY }, body: fd }; }
-  const r = await fetch(v2 && !/\/verify/.test(url) ? url.replace(/\/$/, '') + '/verify/bank/base64' : url, { method: 'POST', ...init, signal: AbortSignal.timeout(25000) });
-  const d = await r.json().catch(() => ({})), st = +d.status || r.status, msg = String(d.message || d.error?.message || ''), slip = d.data && typeof d.data === 'object' ? d.data : null;
+  const ends = v2 && !/\/verify/.test(url) ? ['/verify/bank/base64', '/verify/bank'].map(e => url.replace(/\/$/, '') + e) : [url]; // v2: ไม่แน่ใจชื่อเส้นทาง ลองตามลำดับจนกว่าจะไม่ใช่ NOT_FOUND
+  let r, d;
+  for (const e of ends) {
+    r = await fetch(e, { method: 'POST', ...init, signal: AbortSignal.timeout(25000) });
+    d = await r.json().catch(() => ({}));
+    if (!(r.status === 404 || d?.error?.code === 'NOT_FOUND')) break;
+  }
+  d ||= {}; const st = +d.status || r.status, msg = String(d.message || d.error?.message || ''), slip = d.data && typeof d.data === 'object' ? d.data : null;
   const out = (code, extra = {}) => ({ flex, result: JSON.stringify(d).slice(0, 4000), amount: slip ? slipAmount(slip) : null, ref: slip?.transRef || slip?.rawSlip?.transRef || null, code, ...extra });
   if (/duplicate/i.test(msg)) return out('200501');
   if (!(st === 200 || d.success === true) || !slip) return out(msg || String(st)); // ไม่ใช่สลิปที่อ่านได้: ปล่อยให้แอดมินดู (ไม่ปฏิเสธเอง)
