@@ -313,7 +313,7 @@ function nearEffort(errText, cur) {
   if (!ok.length || ci < 0) return null;
   return ok.sort((a, b) => Math.abs(EFFORT_ORDER.indexOf(a) - ci) - Math.abs(EFFORT_ORDER.indexOf(b) - ci) || EFFORT_ORDER.indexOf(b) - EFFORT_ORDER.indexOf(a))[0];
 }
-async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal } = {}) {
+async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false } = {}) {
   const key = env[m.key_name];
   const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
   if (!key) throw new Error('missing key ' + m.key_name);
@@ -357,6 +357,11 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
     }
     // shortcut: Max ของ Claude ส่งเป็น high เพราะ effort max ใช้ได้แค่บางรุ่น ถ้ารุ่นที่ใช้รองรับ ให้เปลี่ยนเป็น 'max'
     if (m.effort === 'anthropic' && effort) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: { minimal: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'max', max: 'max', on: 'medium' }[effort] || 'medium' }; }
+    if (!body.thinking) { // Claude รุ่นคิดไม่รับ temperature/top_p
+      if (extra.temperature !== undefined) body.temperature = Math.min(extra.temperature, 1);
+      else if (extra.top_p !== undefined) body.top_p = extra.top_p;
+    }
+    if (extra.stop) body.stop_sequences = extra.stop;
     const res = await fetch(m.base_url + '/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
@@ -382,7 +387,7 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
     if (!prompt) throw new Error('บอกว่าอยากได้รูปแบบไหน');
     const base0 = m.base_url.replace(/\/$/, '');
     const call = async extra => { // 404 = ไม่มีเส้นทางนี้ ลองใส่ /v1 ให้ (ผู้ให้บริการบางรายต้องมี)
-      const go = b => fetch(b + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify({ model: m.api_model, prompt, n: 1, size: '1024x1024', ...extra }) });
+      const go = b => fetch(b + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify({ model: m.api_model, prompt, n: 1, size: '1024x1024', ...extra, ...imageOpts }) });
       const r = await go(base0); return r.status === 404 && !/\/v1$/.test(base0) ? go(base0 + '/v1') : r;
     };
     let res = await call({ output_format: 'jpeg', output_compression: 80 }); // JPEG เพื่อให้ไฟล์เล็กพอเก็บในแชต (D1 แถวละไม่เกิน ~2MB)
@@ -393,7 +398,7 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
     if (item?.b64_json) {
       const mime = item.b64_json.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
       if (userId && item.b64_json.length > 300e3) src = await putImage(env, userId, mime, item.b64_json); // ใหญ่: เก็บเป็นไฟล์ในฐานข้อมูล ข้อความในแชตเป็นแค่ลิงก์
-      else if (item.b64_json.length > 1.8e6) throw new Error('รูปที่ได้ใหญ่เกินจะบันทึก ลองใช้ขนาดที่เล็กลง');
+      else if (!api && item.b64_json.length > 1.8e6) throw new Error('รูปที่ได้ใหญ่เกินจะบันทึก ลองใช้ขนาดที่เล็กลง');
       else src = `data:${mime};base64,` + item.b64_json;
     } else if (item?.url) src = item.url; else throw new Error('ไม่ได้รูปกลับมา');
     yield { t: `![${prompt.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${src})` }; // alt ต้องอยู่บรรทัดเดียว ไม่งั้น markdown ไม่แสดงรูป
@@ -460,6 +465,8 @@ async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, 
       if (effort) body.reasoning_effort = { on: 'medium', xhigh: 'max', minimal: 'low' }[effort] || effort;
     }
     if (m.effort === 'kimi') body.thinking = { type: effort ? 'enabled' : 'disabled' }; // Kimi K2.5+: เปิด/ปิดคิดอย่างเดียว ไม่มีระดับ
+    const thinking = body.reasoning_effort || body.thinking?.type === 'enabled'; // โหมดคิดไม่รับพารามิเตอร์สุ่ม
+    for (const k of ['seed', 'response_format', ...(thinking ? [] : ['temperature', 'top_p', 'presence_penalty', 'frequency_penalty', 'stop'])]) if (extra[k] !== undefined) body[k] = extra[k];
     const post = () => fetch(m.base_url + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
     let res = await post();
     if (res.status === 400 && body.reasoning_effort) { const t = await res.text(), ne = nearEffort(t, body.reasoning_effort); if (!ne) throw new Error(`upstream 400: ${t.slice(0, 300)}`); body.reasoning_effort = ne; res = await post(); }
@@ -2398,9 +2405,28 @@ async function complete(req, env, u) {
 const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 7); // เดือนตามเวลาไทย เช่น 2026-11
 const slug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
 async function v1(req, env, ctx, path) {
-  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
-  const out = (d, s = 200, h = {}) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json', ...cors, ...h } });
-  const fail = (m, s, type = 'invalid_request_error') => out({ error: { message: m, type } }, s);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-expose-headers': 'retry-after, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-astracode-billing' };
+  let rl = {}; // x-ratelimit-* ของคำขอนี้ (ใส่ในทุกคำตอบหลังผ่านการตรวจ key)
+  const out = (d, s = 200, h = {}) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json', ...cors, ...rl, ...h } });
+  const EN = [ // ข้อความ error เป็นอังกฤษ (SDK ต่างชาติแสดงให้ผู้ใช้เห็น) เก็บข้อความไทยไว้ใน message_th
+    [/^API key ไม่ถูกต้อง/, () => 'Invalid API key.'],
+    [/^ส่งคำขอเร็วเกินไป/, () => 'Rate limit reached: 60 requests per minute per key.'],
+    [/^ไม่พบโมเดล "(.*)"/, (_, n) => `The model "${n}" does not exist or is not available to this key. List models at /v1/models.`],
+    [/^(.*) ใช้ถึงเพดานรายสัปดาห์แล้ว/, (_, n) => `${n} has reached its weekly cap on your plan.`],
+    [/^ลิมิตแพลนเต็มแล้ว/, () => 'Plan limit reached (4-hour or weekly window).'],
+    [/^แพลน (.*) ไม่รวมโมเดลนี้/, (_, n) => `Plan ${n} does not include this model and the wallet balance is too low.`],
+    [/^ยอดเงินใน Wallet ไม่พอสำหรับ/, () => 'Wallet balance is too low for this request.'],
+    [/^ยอดเงินใน Wallet ไม่พอ/, () => 'Wallet balance is too low. Top up at /plans.'],
+    [/^key นี้ใช้ครบงบเดือนนี้แล้ว \(฿(.*)\)/, (_, b) => `This key has used its monthly budget (THB ${b}).`],
+    [/^messages ต้องลงท้าย/, () => 'The last message must have role "user" or "tool".'],
+    [/^โมเดล "(.*)" ไม่รองรับการส่งรูปภาพ/, (_, n) => `The model "${n}" does not accept images.`],
+    [/^ข้อความยาวเกินไป/, () => 'The request is too long.'],
+    [/^มีคำขอที่ใช้ Wallet ค้างอยู่/, () => 'Another wallet-billed request is still running on this account. Wait for it to finish.'],
+    [/^โมเดลตอบไม่ได้ตอนนี้/, () => 'The model could not answer right now.'],
+    [/^เซิร์ฟเวอร์ผิดพลาด/, () => 'Internal server error.'],
+  ];
+  const en = m => { for (const [r, f] of EN) { const g = m.match(r); if (g) return f(...g); } return m; };
+  const fail = (m, s, type = 'invalid_request_error', h = {}) => out({ error: { message: en(m), message_th: m, type } }, s, h);
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   try {
     const key = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
@@ -2418,9 +2444,14 @@ async function v1(req, env, ctx, path) {
       const month = monthKey(), keySpent = k.spent_month === month ? k.spent : 0;
       return out({ plan: plan.name, api_limit_enabled: !!plan.api_limit, key_use_plan: k.use_plan !== 0, wallet_balance: k.balance, key_spent_month: keySpent, key_budget: k.budget, usage: st });
     }
-    if (path !== '/v1/chat/completions' || req.method !== 'POST') return fail('not found', 404);
-    if (await limited(env, 'api:' + k.kid, 60, 60e3)) return fail('ส่งคำขอเร็วเกินไป (60 ครั้ง/นาที)', 429, 'rate_limit_error');
-    const b = await req.json().catch(() => null), m = allPublic.filter(x => !allow || allow.includes(slug(x))).find(x => slug(x) === b?.model || x.api_model === b?.model);
+    const isImg = path === '/v1/images/generations';
+    if ((path !== '/v1/chat/completions' && !isImg) || req.method !== 'POST') return fail('not found', 404);
+    const over = await limited(env, 'api:' + k.kid, 60, 60e3), rrow = await env.DB.prepare('SELECT n,reset FROM rate WHERE key=?').bind('api:' + k.kid).first();
+    const secs = Math.max(1, Math.ceil(((rrow?.reset || 0) - Date.now()) / 1e3));
+    rl = { 'x-ratelimit-limit-requests': '60', 'x-ratelimit-remaining-requests': String(Math.max(0, 60 - (rrow?.n || 0))), 'x-ratelimit-reset-requests': secs + 's' };
+    if (over) return fail('ส่งคำขอเร็วเกินไป (60 ครั้ง/นาที)', 429, 'rate_limit_error', { 'retry-after': String(secs) });
+    const b = await req.json().catch(() => null) || {}, pool = allPublic.filter(x => (!allow || allow.includes(slug(x))) && (!isImg || x.provider === 'image'));
+    const m = pool.find(x => slug(x) === b.model || x.api_model === b.model) || (isImg && !b.model ? pool[0] : null);
     if (!m) return fail(`ไม่พบโมเดล "${b?.model}" ดูรายชื่อที่ /v1/models`, 404);
     let billingMode = 'wallet';
     if (canPlan && planIds.has(m.id)) {
@@ -2434,16 +2465,34 @@ async function v1(req, env, ctx, path) {
     }
     const month = monthKey(), spent = k.spent_month === month ? k.spent : 0;
     if (k.budget != null && spent >= k.budget) return fail(`key นี้ใช้ครบงบเดือนนี้แล้ว (฿${k.budget})`, 429, 'insufficient_quota');
-    const msgs = Array.isArray(b.messages) ? b.messages : [];
+    // พารามิเตอร์แบบ OpenAI: ตรวจแล้วส่งต่อให้โมเดล (ค่าผิดรูปแบบ = 400 ไม่ทิ้งเงียบๆ)
+    const extra = {}, imageOpts = {};
+    for (const [k, lo, hi] of [['temperature', 0, 2], ['top_p', 0, 1], ['presence_penalty', -2, 2], ['frequency_penalty', -2, 2]]) if (b[k] != null) { if (typeof b[k] !== 'number' || !(b[k] >= lo && b[k] <= hi)) return fail(`${k} must be a number between ${lo} and ${hi}.`, 400); extra[k] = b[k]; }
+    if (b.seed != null) { if (!Number.isInteger(b.seed)) return fail('seed must be an integer.', 400); extra.seed = b.seed; }
+    if (b.stop != null) { const st = typeof b.stop === 'string' ? [b.stop] : b.stop; if (!Array.isArray(st) || st.length > 4 || st.some(x => typeof x !== 'string' || !x || x.length > 64)) return fail('stop must be a string or up to 4 strings.', 400); extra.stop = st; }
+    const rf = b.response_format;
+    if (rf != null) { if (!['text', 'json_object', 'json_schema'].includes(rf.type)) return fail('response_format.type must be text, json_object or json_schema.', 400); if (rf.type !== 'text') extra.response_format = rf; }
+    if (isImg) {
+      if (b.n != null && b.n !== 1) return fail('Only n=1 is supported.', 400);
+      if (b.size != null) { if (!/^(auto|\d{3,4}x\d{3,4})$/.test(b.size)) return fail('size must be auto or WIDTHxHEIGHT, for example 1024x1024.', 400); imageOpts.size = b.size; }
+      if (b.quality != null) { if (!['auto', 'low', 'medium', 'high', 'standard', 'hd'].includes(b.quality)) return fail('quality must be auto, low, medium, high, standard or hd.', 400); imageOpts.quality = b.quality; }
+      b.stream = false;
+    }
+    const msgs = isImg ? [{ role: 'user', content: String(b.prompt || '').trim().slice(0, 4000) }] : Array.isArray(b.messages) ? b.messages : [];
+    if (isImg && !msgs[0].content) return fail('prompt is required.', 400);
     const text = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text).join('\n') : '';
     const hasImg = c => Array.isArray(c) && c.some(x => x?.type === 'image_url');
     const normContent = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text' || x?.type === 'image_url') : '';
-    const system = msgs.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content)).filter(Boolean).join('\n\n');
+    let system = msgs.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content)).filter(Boolean).join('\n\n');
     const hist = msgs.filter(x => ['user', 'assistant', 'tool'].includes(x.role)).map(x => x.role === 'tool'
       ? { role: 'tool', tool_call_id: String(x.tool_call_id || ''), content: typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '') }
       : x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.length
         ? { role: 'assistant', content: text(x.content) || null, tool_calls: x.tool_calls }
         : { role: x.role, content: normContent(x.content) }).filter(x => x.role === 'tool' || (x.tool_calls?.length) || (Array.isArray(x.content) ? x.content.length : x.content));
+    if (extra.response_format && m.provider !== 'openai') { // Claude/Responses ไม่มี JSON mode แบบ chat/completions: สั่งผ่านคำสั่งระบบ
+      system += (system ? '\n\n' : '') + 'Respond with a single valid JSON value only: no prose, no code fences.' + (extra.response_format.json_schema?.schema ? ' It must match this JSON Schema: ' + JSON.stringify(extra.response_format.json_schema.schema).slice(0, 4000) : '');
+      delete extra.response_format;
+    }
     if (!hist.length || !['user', 'tool'].includes(hist.at(-1).role)) return fail('messages ต้องลงท้ายด้วยข้อความของ user หรือ tool', 400);
     if (hist.some(x => hasImg(x.content)) && !m.vision) return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
     if (JSON.stringify(hist).length > 800000) return fail('ข้อความยาวเกินไป', 413);
@@ -2452,7 +2501,7 @@ async function v1(req, env, ctx, path) {
     let maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined, walletKey = null;
     if (billingMode === 'wallet') { // ตัดเงินหลังตอบ: จำกัดผลลัพธ์ไม่ให้เกินยอดที่เหลือ และให้ใช้ Wallet ทีละคำขอต่อผู้ใช้ กันยิงขนานจนยอดติดลบ
       const pr = await priceOf(env, m), need = Math.ceil((JSON.stringify(hist).length + system.length) / 2) * pr.in / 1e6, room = k.balance - need;
-      if (!(room > 0)) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
+      if (!(room > 0) || (isImg && room < pr.out)) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
       maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * 1e6 / Math.max(pr.out, 1e-9))));
       walletKey = 'walletlock:' + k.id; // shortcut: ล็อกหมดอายุเอง 3 นาทีถ้าคำขอล้มก่อนจบ, ถ้าต้องการเข้มกว่านี้ให้จองยอดล่วงหน้าแบบ atomic
       if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(walletKey, Date.now() + 180e3, Date.now()).first()) return fail('มีคำขอที่ใช้ Wallet ค้างอยู่ รอให้เสร็จก่อน', 429, 'rate_limit_error');
@@ -2472,7 +2521,7 @@ async function v1(req, env, ctx, path) {
       let content = '', reasoning = '', usage = null, finishReason = 'stop', tcs = new Map(), anthIdx = new Map();
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice })) {
+          for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice, extra, imageOpts, api: true })) {
             if (e.t) content += e.t;
             if (e.th) reasoning += e.th;
             if (e.tc_start) { const idx = tcs.size; anthIdx.set(e.tc_start.index, idx); tcs.set(idx, { id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }); }
@@ -2493,6 +2542,12 @@ async function v1(req, env, ctx, path) {
           return fail('โมเดลตอบไม่ได้ตอนนี้', 502, 'api_error');
         }
       }
+      if (isImg) {
+        const src = content.match(/\]\((data:[^)]+|https?:[^)]+)\)/)?.[1];
+        await finish(src ? usage : null, 0);
+        if (!src) return fail('The image model returned no image.', 502, 'api_error');
+        return out({ created, data: [src.startsWith('data:') ? { b64_json: src.slice(src.indexOf(',') + 1) } : { url: src }] }, 200, { 'x-astracode-billing': billingMode });
+      }
       const toolCalls = [...tcs.values()]; if (toolCalls.length) finishReason = 'tool_calls';
       const used = await finish(usage, content.length + reasoning.length + JSON.stringify(toolCalls).length);
       return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined }, 200, { 'x-astracode-billing': billingMode });
@@ -2504,7 +2559,7 @@ async function v1(req, env, ctx, path) {
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice })) {
+            for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice, extra, imageOpts, api: true })) {
               if (!sentAny) { sentAny = true; await chunk({ role: 'assistant', content: '' }); }
               if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
               if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }
@@ -2525,10 +2580,10 @@ async function v1(req, env, ctx, path) {
         if (tcCount > 0 && finishReason === 'stop') finishReason = 'tool_calls';
         const used = await finish(usage, outChars);
         await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
-      } catch (e) { await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
+      } catch (e) { await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
-    return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors } });
+    return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors, ...rl } });
   } catch (e) { console.log('v1 error', e.stack); return fail(e.user ? e.message : 'เซิร์ฟเวอร์ผิดพลาด', e.user ? 400 : 500, 'api_error'); }
 }
 
