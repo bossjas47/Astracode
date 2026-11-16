@@ -1147,3 +1147,6 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .notif { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; margin-bottom: 8px; border-radius: 14px; border: 1px solid var(--hair); border-left: 3px solid rgba(var(--ov), .3); color: inherit; text-decoration: none; }
 .notif.ok { border-left-color: #34c759; } .notif.warn { border-left-color: #ff9f0a; } .notif.bad { border-left-color: #ff453a; }
 .notif.new { background: rgba(var(--ov), .06); }
+
+/* side menu: solid panel, no backdrop blur (a full-height blur sliding in over the glass cards froze phones) */
+.nav .nav-panel { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: rgba(var(--bg1), .985); box-shadow: 8px 0 24px rgba(0, 0, 0, .35); will-change: transform; }
