@@ -137,3 +137,15 @@ test('deep research: topics are searched in parallel, cheap model writes notes, 
   assert.equal(JSON.parse(msg.sources).length, 3, 'the same URL found by two topics is listed once');
   fm.close();
 });
+
+test('admin agent test button runs a real team job on a sample project with the cheap model', async () => {
+  const { t, fm, cheap } = await setup();
+  const plan = t.DB.raw.prepare('SELECT * FROM plans WHERE price>0 ORDER BY id DESC LIMIT 1').get(), adm = await t.user({ role: 'admin' }); give(t.DB, adm, plan);
+  assert.match((await t.json('/api/admin/agent-test', { method: 'POST', cookie: adm.cookie, body: { kind: 'research' } })).data.error, /TAVILY/);
+  const r = await t.json('/api/admin/agent-test', { method: 'POST', cookie: adm.cookie, body: { kind: 'team' } }); assert.equal(r.status, 200, JSON.stringify(r.data));
+  const job = t.DB.raw.prepare('SELECT * FROM agent_jobs WHERE id=?').get(r.data.id);
+  assert.equal(job.model_id, cheap.id); assert.equal(job.status, 'done', JSON.stringify(job));
+  assert.ok(t.DB.raw.prepare("SELECT 1 FROM projects WHERE id=? AND name='ทดสอบ Agent'").get(r.data.project_id));
+  assert.equal((await t.json('/api/admin/agent-test', { method: 'POST', cookie: (await t.user()).cookie, body: { kind: 'team' } })).status, 403);
+  fm.close();
+});

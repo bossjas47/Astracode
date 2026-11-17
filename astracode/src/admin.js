@@ -4,7 +4,7 @@ import { applyPayment, audit, getSetting, mail, mailBox, notify, walletAdd } fro
 import { seal } from './projects.js';
 import { slug } from './api.js';
 import { backup, status, verifyBackup } from './jobs.js';
-import { ensureAgentTable } from './agent.js';
+import { ensureAgentTable, launch, workerModel } from './agent.js';
 // ---------- admin ----------
 export const TABLES = {
   plans: ['name', 'price', 'price_year', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
@@ -380,6 +380,24 @@ export async function admin(req, env, path, url, me) {
       FROM agent_jobs j JOIN users u ON u.id=j.user_id WHERE j.parent_id IS NULL AND j.created_at>=? ORDER BY j.id DESC LIMIT 200`).bind(from).all()).results;
     const users = Object.values(jobs.reduce((a, j) => { const x = a[j.email] ||= { email: j.email, jobs: 0, teams: 0, cost: 0 }; x.jobs++; if (j.role === 'lead') x.teams++; x.cost += j.cost; return a; }, {})).sort((a, b) => b.cost - a.cost).slice(0, 20);
     return json({ jobs, users, total: jobs.reduce((a, j) => a + j.cost, 0) });
+  }
+  if (path === '/api/admin/agent-test' && M === 'POST') { // ทดสอบทีม Agent / Deep research กับโมเดลจริงในบัญชีแอดมิน (เสียต้นทุนจริงเล็กน้อย ใช้โมเดลลูกทีมทั้งหมด)
+    await ensureAgentTable(env); const b = await req.json().catch(() => ({})), research = b.kind === 'research', plan = await planOf(env, me);
+    if (!(plan?.price > 0)) return err('บัญชีแอดมินต้องมีแพลนเสียเงินก่อน (ให้แพลนตัวเองได้ที่แท็บผู้ใช้)');
+    const m = await workerModel(env, plan); if (!m) return err('ไม่มีโมเดลในแพลนของแอดมิน');
+    if (research && !env.TAVILY_KEY) return err('ยังไม่ได้ตั้งคีย์ค้นเว็บ (TAVILY_KEY)');
+    if (await DB.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND status IN ('queued','running','stopping','waiting','team','reviewing','plan')").bind(me.id).first()) return err('มีงาน Agent ของแอดมินค้างอยู่ รอให้เสร็จก่อน', 409);
+    let pid = 0;
+    if (!research) {
+      const now = Date.now(); pid = (await DB.prepare("SELECT id FROM projects WHERE user_id=? AND name='ทดสอบ Agent'").bind(me.id).first())?.id;
+      if (!pid) { pid = (await DB.prepare("INSERT INTO projects (user_id,name,created_at,updated_at) VALUES (?,'ทดสอบ Agent',?,?) RETURNING id").bind(me.id, now, now).first()).id; }
+      await DB.prepare("INSERT OR REPLACE INTO project_files (project_id,path,content,updated_at) VALUES (?,'index.html',?,?)").bind(pid, '<!DOCTYPE html>\n<html lang="th">\n<head><meta charset="utf-8"><title>ร้านกาแฟ</title></head>\n<body>\n  <h1>ร้านกาแฟ</h1>\n</body>\n</html>\n', now).run();
+    }
+    const prompt = research ? 'สรุปข้อดีข้อเสียของรถยนต์ไฟฟ้าในไทยปีนี้แบบสั้นๆ (ทดสอบระบบ)' : 'ทำเว็บร้านกาแฟเล็กๆ: หน้าแรก index.html มีเมนูลิงก์ไป menu.html, หน้า menu.html แสดงเมนู 4 อย่างพร้อมราคา, และไฟล์ style.css ใช้ร่วมกันทั้งสองหน้า (ทดสอบระบบ)';
+    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role) VALUES (?,?,?,?,'queued',?,?) RETURNING id").bind(me.id, pid, m.id, prompt, Date.now(), research ? 'research' : 'lead').first();
+    await ctxAudit('agent test', { kind: research ? 'research' : 'team', job: job.id });
+    await launch(env, job.id);
+    return json({ ok: true, id: job.id, model: m.name, project_id: pid });
   }
   if (path === '/api/admin/backups/verify' && M === 'POST') return json(await verifyBackup(env)); // เปิดไฟล์สำรองล่าสุด ตรวจว่าอ่านได้และนับแถวเทียบฐานข้อมูลจริง (ไม่เขียนอะไร)
   if (path === '/api/admin/audit') return json((await DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all()).results);

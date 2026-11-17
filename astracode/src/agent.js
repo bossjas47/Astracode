@@ -102,7 +102,7 @@ export const parsePlan = text => { // แผนของหัวหน้า: �
     .filter(t => t.prompt && t.files.length);
   return tasks.length ? tasks : null;
 };
-const launch = async (env, id) => {
+export const launch = async (env, id) => {
   if (env.CHATRUN) await env.CHATRUN.get(env.CHATRUN.idFromName('agent:' + id)).fetch('https://run/start', { method: 'POST', body: JSON.stringify({ agent_id: id }) }); // แต่ละตัวมี Durable Object ของตัวเอง = ทำงานพร้อมกันจริง
   else await runAgent(env, id); // ไม่มี Durable Object (ทดสอบ): ทำในคำขอนี้
 };

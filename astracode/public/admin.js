@@ -328,12 +328,14 @@ const ADMIN = {
       <div class="card"><b>ข้อผิดพลาดล่าสุด</b>${tbl(['เวลา', 'ผู้ใช้', 'endpoint', 'โมเดล', 'status', 'ข้อความ'], d.errors.map(r => `<tr><td>${when(r.created_at)}</td><td>${esc(r.email)}</td><td><code>${esc(r.path)}</code></td><td>${esc(r.model || '-')}</td><td class="bad">${r.status}</td><td>${esc(r.err || '')}</td></tr>`))}</div>`;
   },
 
-  async agents(box) { // ต้นทุน Agent / ทีม Agent (ต้นทุนจริงของเรา บาท)
+  async agents(box, reload) { // ต้นทุน Agent / ทีม Agent (ต้นทุนจริงของเรา บาท)
     const d = await api('/admin/agents'), tbl = (head, rows) => rows.length ? `<div class="tw"><table class="tbl"><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.join('')}</table></div>` : '<p class="muted">ยังไม่มีข้อมูล</p>';
     const dur = j => j.finished_at ? Math.max(1, Math.round((j.finished_at - j.created_at) / 60e3)) + ' นาที' : '-';
-    box.innerHTML = `<p class="muted hint">งาน Agent เบื้องหลังและทีม Agent 30 วันล่าสุด · ต้นทุนจริงของเรา รวมลูกทีมและผู้ตรวจ · รวม ฿${d.total.toFixed(2)}</p>
+    box.innerHTML = `<div class="row" style="margin-bottom:10px"><button class="btn out sm" data-agtest="team">ทดสอบทีม Agent</button><button class="btn out sm" data-agtest="research">ทดสอบ Deep research</button><span class="muted" style="font-size:12.5px">รันจริงด้วยบัญชีแอดมิน (ใช้โมเดลลูกทีมทั้งหมด ต้นทุนไม่กี่บาท) ผลขึ้นในตารางด้านล่าง</span></div>
+      <p class="muted hint">งาน Agent เบื้องหลังและทีม Agent 30 วันล่าสุด · ต้นทุนจริงของเรา รวมลูกทีมและผู้ตรวจ · รวม ฿${d.total.toFixed(2)}</p>
       <div class="card"><b>ผู้ใช้ที่ใช้มากสุด</b>${tbl(['ผู้ใช้', 'งาน', 'ทีม', 'ต้นทุน ฿'], d.users.map(r => `<tr><td>${esc(r.email)}</td><td>${r.jobs}</td><td>${r.teams}</td><td>${r.cost.toFixed(2)}</td></tr>`))}</div>
       <div class="card"><b>งานล่าสุด</b>${tbl(['เวลา', 'ผู้ใช้', 'งาน', 'แบบ', 'สถานะ', 'รอบ', 'ใช้เวลา', 'ต้นทุน ฿'], d.jobs.map(j => `<tr><td style="white-space:nowrap">${when(j.created_at)}</td><td>${esc(j.email)}</td><td style="min-width:200px">${esc(j.prompt.slice(0, 60))}</td><td style="white-space:nowrap">${j.role === 'lead' ? 'ทีม ' + j.workers + ' ตัว' : j.role === 'research' ? 'research' : 'เดี่ยว'}</td><td class="${['failed', 'limit', 'timeout'].includes(j.status) ? 'bad' : ''}">${esc(j.status)}</td><td>${j.rounds}</td><td>${dur(j)}</td><td>${j.cost.toFixed(2)}</td></tr>`))}</div>`;
+    box.querySelectorAll('[data-agtest]').forEach(b => b.onclick = async () => { b.disabled = true; try { const r = await api('/admin/agent-test', { method: 'POST', body: { kind: b.dataset.agtest } }); toast(`เริ่มทดสอบแล้ว (${r.model}) รอสักครู่แล้วกดรีเฟรชแท็บนี้`, 'ok'); setTimeout(reload, 4000); } catch (x) { toast(x.message, 'bad'); b.disabled = false; } });
   },
 
   async quality(box, reload) {
