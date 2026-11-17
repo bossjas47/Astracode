@@ -264,3 +264,15 @@ test('agent live status: writing a file shows its line, editing shows the matche
   assert.equal(doingNow('ขออ่านก่อน\nREAD path=index.html').text, 'กำลังอ่าน index.html');
   assert.match(doingNow('```js path=a.js\nx\n```\nเสร็จแล้ว').text, /^กำลังคิด: เสร็จแล้ว/);
 });
+
+test('shared multi-page site: /p/<link>/<page>.html serves that page with a base href; defer scripts move after the body', async () => {
+  const { bundleProject } = await import('../src/ai.js');
+  const out = bundleProject(new Map([['index.html', '<html><head><script src="a.js" defer></script></head><body data-page="x"><a href="add.html">add</a></body></html>'], ['a.js', 'document.body.dataset.page'], ['add.html', '<html><head></head><body>ADD</body></html>']]));
+  assert.ok(out.indexOf('document.body.dataset.page') > out.indexOf('<body')); assert.doesNotMatch(out, /defer/);
+  const t = await makeEnv(), u = await t.user();
+  const p = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'multi' } })).data;
+  t.DB.raw.prepare("INSERT OR REPLACE INTO project_files (project_id,path,content,updated_at) VALUES (?,?,?,0)").run(p.id, 'add.html', '<html><head></head><body>ADD PAGE</body></html>');
+  const tok = (await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: u.cookie })).data.token;
+  const h = await (await t.call(`/p/${tok}/add.html`)).text();
+  assert.match(h, /ADD PAGE/); assert.match(h, new RegExp(`<base href="/p/${tok}/">`));
+});

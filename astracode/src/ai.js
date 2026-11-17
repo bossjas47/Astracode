@@ -304,9 +304,9 @@ export const ensureFb = env => fbTable ||= env.DB.batch([
 ]).catch(e => { fbTable = undefined; throw e; });
 // หน้าเว็บของโปรเจกต์ที่แชร์: รวม CSS/JS/รูปเข้าไฟล์ HTML เดียว (เวอร์ชันฝั่งเซิร์ฟเวอร์ของ buildHtml ในหน้า Code · ไม่รองรับ ES module ที่ import ข้ามไฟล์)
 export const STORAGE_SHIM = `<script>try{localStorage.getItem('_')}catch(e){for(const n of['localStorage','sessionStorage']){const m=new Map();Object.defineProperty(window,n,{configurable:true,value:{getItem:k=>m.has(k)?m.get(k):null,setItem:(k,v)=>{m.set(String(k),String(v))},removeItem:k=>{m.delete(k)},clear:()=>m.clear(),key:i=>[...m.keys()][i]??null,get length(){return m.size}}})}}</script>`;
-export function bundleProject(files) {
+export function bundleProject(files, page = null) { // page = หน้า .html ที่ขอ (เว็บหลายหน้า) ไม่งั้น index.html
   const has = p => files.has(p), isImg = p => /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i.test(p), data = p => { const c = files.get(p) || ''; return c.startsWith('data:image/') ? c : null; };
-  const entry = has('index.html') ? 'index.html' : [...files.keys()].find(f => /\.html?$/i.test(f));
+  const entry = page && has(page) ? page : has('index.html') ? 'index.html' : [...files.keys()].find(f => /\.html?$/i.test(f));
   if (!entry) return null;
   const dir = entry.replace(/[^/]*$/, '');
   const resolve = ref => {
@@ -315,11 +315,13 @@ export function bundleProject(files) {
     const p = out.join('/'); return has(p) ? p : null;
   };
   const b64 = str => { let o = ''; for (const x of new TextEncoder().encode(str)) o += String.fromCharCode(x); return btoa(o); };
+  const deferred = [];
   let html = files.get(entry)
     .replace(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi, (m, h) => { const f = resolve(h); return f && /stylesheet/i.test(m) ? `<style>\n${files.get(f)}\n</style>` : m; })
     .replace(/<img\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>/gi, (m, a, src, b) => { const f = resolve(src); if (!f) return m; if (isImg(f) && data(f)) return `<img${a}src="${data(f)}"${b}>`; return /\.svg$/i.test(f) ? `<img${a}src="data:image/svg+xml;base64,${b64(files.get(f))}"${b}>` : m; })
-    .replace(/<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi, (m, a, src, b) => { const f = resolve(src); return f ? `<script${a}${b}>\n${files.get(f).replace(/<\/script/gi, '<\\/script')}\n</script>` : m; })
+    .replace(/<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi, (m, a, src, b) => { const f = resolve(src); if (!f) return m; const tag = `<script${(a + b).replace(/\s+defer\b(=["']?[^"'\s>]*["']?)?/gi, '')}>\n${files.get(f).replace(/<\/script/gi, '<\\/script')}\n</script>`; if (/\bdefer\b/i.test(a + b) && !/type\s*=\s*["']module/i.test(a + b)) { deferred.push(tag); return ''; } return tag; }) // defer ใช้กับสคริปต์ฝังไม่ได้ → ย้ายไปท้าย body (ลำดับเดิม)
     .replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, ref) => { const f = resolve(ref); return f && isImg(f) && data(f) ? `url(${q}${data(f)}${q})` : m; });
+  if (deferred.length) html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, deferred.join('\n') + '\n</body>') : html + deferred.join('\n');
   return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + STORAGE_SHIM) : STORAGE_SHIM + html;
 }
 export async function webSearch(env, q) { // Tavily

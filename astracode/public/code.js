@@ -340,6 +340,7 @@ function buildHtml(htmlPath, jsPath, forExport = false) {
     if (/\.m?js$/i.test(fp)) imports['@proj/' + fp] = 'data:text/javascript;base64,' + toB64(rewriteMod(content(fp), dirOf(fp)));
   }
   const importMap = Object.keys(imports).length ? `<script type="importmap">${JSON.stringify({ imports })}<\/script>` : '';
+  const deferred = [];
   const dir = dirOf(htmlPath);
   html = html.replace(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi, (m, href) => { const fp = resolveFrom(dir, href); return fp && has(fp) && /stylesheet/i.test(m) ? `<style>\n${content(fp)}\n</style>` : m; })
     .replace(/<img\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>/gi, (m, a, src, b) => { const fp = resolveFrom(dir, src); return fp && has(fp) && /\.svg$/i.test(fp) ? `<img${a}src="data:image/svg+xml;base64,${toB64(content(fp))}"${b}>` : fp && isImg(fp) && isDataImg(IDE.files.get(fp)) ? `<img${a}src="${IDE.files.get(fp)}"${b}>` : m; })
@@ -348,9 +349,12 @@ function buildHtml(htmlPath, jsPath, forExport = false) {
       if (!fp || !has(fp)) return m;
       const isMod = /\btype\s*=\s*["']module["']/i.test(a + b);
       const body = isMod ? rewriteMod(content(fp), dirOf(fp)) : content(fp);
-      return `<script${a}${b}>\n${body.replace(/<\/script/gi, '<\\/script')}\n</script>`;
+      const tag = `<script${(a + b).replace(/\s+defer\b(=["']?[^"'\s>]*["']?)?/gi, '')}>\n${body.replace(/<\/script/gi, '<\\/script')}\n</script>`;
+      if (!isMod && /\bdefer\b/i.test(a + b)) { deferred.push(tag); return ''; } // defer ใช้กับสคริปต์ฝังไม่ได้ → ย้ายไปท้าย body (ลำดับเดิม)
+      return tag;
     })
     .replace(/<script\b([^>]*\btype\s*=\s*["']module["'][^>]*)>([\s\S]*?)<\/script>/gi, (m, attrs, body) => /src=/.test(attrs) ? m : `<script${attrs}>${rewriteMod(body, dir).replace(/<\/script/gi, '<\\/script')}</script>`);
+  if (deferred.length) html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, deferred.join('\n') + '\n</body>') : html + deferred.join('\n');
   html = html.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, ref) => { const fp = resolveFrom(dir, ref); return fp && isImg(fp) && isDataImg(IDE.files.get(fp)) ? `url(${q}${IDE.files.get(fp)}${q})` : m; }); // รูปใน CSS
   const headAdd = (forExport ? '' : STORAGE_SHIM + CAPTURE) + importMap;
   return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + headAdd) : headAdd + html;
