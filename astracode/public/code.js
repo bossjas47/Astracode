@@ -65,7 +65,17 @@ async function codeHome() {
 }
 
 // ---------- ตัวแก้โค้ด ----------
-const edTheme = () => CM.EditorView.theme({
+const edLight = () => document.documentElement.dataset.theme === 'light';
+const edTheme = () => edLight() ? CM.EditorView.theme({ // ธีมขาว: ใช้สีไฮไลต์ตั้งต้นของ CodeMirror (ไม่ใส่ oneDark)
+  '&': { height: '100%', backgroundColor: 'transparent' },
+  '.cm-scroller': { fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 12px)', lineHeight: '1.6', fontVariantLigatures: 'contextual' },
+  '.cm-content': { paddingTop: '10px', paddingBottom: '40px', caretColor: '#c25b3a' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#c25b3a', borderLeftWidth: '2px' },
+  '.cm-gutters': { backgroundColor: 'rgba(20,16,12,.03)', borderRight: '1px solid rgba(20,16,12,.08)', color: '#a39a8d' },
+  '.cm-activeLine': { backgroundColor: 'rgba(194,91,58,.06)' }, '.cm-activeLineGutter': { backgroundColor: 'rgba(194,91,58,.1)', color: '#6a6256' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'rgba(194,91,58,.22)' },
+  '.cm-panels': { backgroundColor: '#f2ede5', color: '#1d1a16' }, '.cm-ghost': { color: '#a39a8d', cursor: 'pointer' },
+}, { dark: false }) : CM.EditorView.theme({
   '&': { height: '100%', backgroundColor: 'transparent' }, // พื้นหลังไล่เฉดอยู่ที่ .ide-editor
   '.cm-scroller': { fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--cfs, 12px)', lineHeight: '1.6', fontVariantLigatures: 'contextual' },
   '.cm-content': { paddingTop: '10px', paddingBottom: '40px', caretColor: '#7dcfff' },
@@ -83,7 +93,7 @@ const wrap = new CM.Compartment(), ghostC = new CM.Compartment();
 const ghostExt = () => localStorage.getItem('ghost') === '0' || window.DEMO ? [] : CM.ghost((prefix, suffix) => api('/complete', { method: 'POST', body: { prefix, suffix, path: IDE.active } }).then(r => r.text));
 function extensions(path) {
   return [
-    edTheme(), CM.basicSetup, CM.oneDark, CM.lang(path), CM.EditorView.contentAttributes.of({ 'aria-label': 'ตัวแก้ไขโค้ด', 'aria-multiline': 'true' }), // ธีมของเราไว้ก่อน oneDark เพื่อให้ชนะ
+    edTheme(), CM.basicSetup, ...(edLight() ? [] : [CM.oneDark]), CM.lang(path), CM.EditorView.contentAttributes.of({ 'aria-label': 'ตัวแก้ไขโค้ด', 'aria-multiline': 'true' }), // ธีมของเราไว้ก่อน oneDark เพื่อให้ชนะ
     wrap.of(localStorage.getItem('wrap') === '0' ? [] : CM.EditorView.lineWrapping), ghostC.of(ghostExt()),
     CM.keymap.of([CM.indentWithTab, { key: 'Mod-s', preventDefault: true, run: () => { saveNow(); return true; } }]),
     CM.EditorView.updateListener.of(u => { if (u.docChanged) markDirty(path); if (u.selectionSet || u.docChanged) { const b = $('#selai'); if (b) b.hidden = u.state.selection.main.empty; } }),
@@ -1276,7 +1286,7 @@ async function codeView(id) {
           <div class="cmd-in"><input id="cmdi" placeholder="สั่ง AI แก้ไฟล์นี้ เช่น เพิ่มปุ่มรีเซ็ต" aria-label="สั่ง AI" autocomplete="off"><button aria-label="ส่ง">${ic('up')}</button></div></form>
         <div class="mkeys" id="mkeys">${[['Tab', '  '], ['{ }', '{}', 1], ['( )', '()', 1], ['[ ]', '[]', 1], ['=>', ' => '], [';', ';'], ['" "', '""', 1], ["' '", "''", 1], ['< >', '<>', 1], ['/', '/'], ['=', ' = ']].map(([l, v, o]) => `<button type="button" data-ins="${esc(v)}" data-off="${o || 0}">${esc(l)}</button>`).join('')}</div>
         <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">Output</button><button data-rtab="con">Console</button><button data-rtab="term">Terminal</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
-          <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ">${ic('eye', 'sm')} Fullscreen</button><button id="stop">${ic('stop')} Stop</button><button id="clr">Clear</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
+          <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ" aria-label="ขยายเต็มจอ">${ic('eye', 'sm')}</button><button id="stop" title="หยุด" aria-label="หยุด">${ic('stop', 'sm')}</button><button id="clr">Clear</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
           <div id="out" class="run-out"><p class="muted" style="padding:16px">กด รัน เพื่อดูผล</p></div><div id="console" class="console" hidden></div><div id="term" class="term" hidden><pre id="term-o"></pre><form id="term-f"><span>$</span><input id="term-i" placeholder="npm install lodash / npm test / node app.js" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="คำสั่ง"></form></div></div></section>
       <aside class="ide-ai"><div class="ai-h"><b class="ai-t">${ic('sparkles')} AI</b><button type="button" class="ctxm" id="cctx" hidden title="context ที่ใช้อยู่ · แตะดูรายละเอียด"></button><span class="sp"></span><button class="lim" id="clim" aria-label="ลิมิตการใช้งาน"></button><button class="icon-btn sm" id="chist" aria-label="ประวัติแชตโปรเจกต์" title="ประวัติแชต">${ic('more')}</button><button class="icon-btn sm" id="cnew" aria-label="แชตใหม่">${ic('newchat')}</button>
         <button type="button" class="icon-btn sm" id="aiclose" aria-label="ปิดแผง AI">${ic('x')}</button>

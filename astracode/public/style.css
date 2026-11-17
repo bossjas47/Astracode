@@ -584,7 +584,7 @@ a.tk { color: var(--porcelain); padding: 12px 4px; border-top: 1px solid var(--s
 #plus { width: 36px; padding: 0; justify-content: center; font-size: 18px; }
 .cb.pick { min-width: 0; max-width: 46vw; flex: 0 1 auto; }
 .cb.pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#flags { display: contents; }
+#flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px 8px; } #flags:empty { display: none; } /* ป้ายโหมด (สร้างภาพ ปรับ prompt ฯลฯ) อยู่เหนือช่องพิมพ์ ไม่ทับข้อความ */
 .flag { min-height: 30px; padding: 0 10px; border-radius: 9999px; border: 0; background: rgba(217,119,87,.15); color: var(--link); font: 500 12px var(--font); cursor: pointer; white-space: nowrap; flex: none; }
 .cbox .send { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--porcelain); color: var(--on-porcelain); font: 600 18px var(--font); cursor: pointer; flex: none; transition: transform .15s, opacity .2s; }
 .cbox .send.stop { background: var(--red); color: #fff; font-size: 13px; }
@@ -1122,8 +1122,8 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
   --ov: 20, 16, 12; --bg0: 250, 247, 242; --bg1: 255, 253, 249; --bg2: 255, 255, 255; --on-porcelain: #faf7f2;
   color-scheme: light;
 }
-/* the code workspace, code blocks and the image viewer stay dark in both themes */
-:root[data-theme="light"] :is(.ide, .imgview) {
+/* code blocks and the image viewer stay dark in both themes (the Code workspace follows the theme) */
+:root[data-theme="light"] .imgview {
   --obsidian: #12100e; --graphite: #1a1714; --carbon: #221e1a; --steel: #3a342d; --slate: #6f665b; --ash: #a39a8d; --porcelain: #f4efe8; --blue: #d97757; --link: #e8a183;
   --glass: rgba(34, 30, 26, .6); --hair: rgba(255, 255, 255, .12); --green: #30d158; --yellow: #ffd500; --red: #ff453a;
   --ov: 255, 255, 255; --bg0: 18, 16, 14; --bg1: 26, 23, 20; --bg2: 34, 30, 26; --on-porcelain: #1d1d1f; color-scheme: dark;
@@ -1346,3 +1346,12 @@ small.ag-doing { display: block; margin: 2px 0 0; color: #d9a400; }
 .vopt .vmult { padding: 1px 6px; font-size: 11px; } .vopt .vck { width: 16px; height: 16px; }
 .vchips button { min-height: 30px; padding: 0 10px; font-size: 12px; }
 .vopt.lock { opacity: .55; } .vopt.lock:hover { opacity: .8; }
+
+/* Code workspace ในธีมขาว */
+:root[data-theme="light"] .ide-editor { background: linear-gradient(180deg, #fffdf9, #f7f2ea); }
+:root[data-theme="light"] .ide-tabs, :root[data-theme="light"] .tab { border-color: var(--hair); }
+:root[data-theme="light"] .tab.on { background: var(--carbon); }
+:root[data-theme="light"] .ide-tools { border-bottom-color: var(--hair); }
+:root[data-theme="light"] .ide-editor .cm-foldGutter span { color: #a39a8d; }
+
+.run-h > * { flex: none; } .run-h button { display: inline-flex; align-items: center; gap: 4px; } /* ปุ่มขวาบนของแผงรันไม่บีบทับกัน */
