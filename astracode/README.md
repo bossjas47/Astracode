@@ -28,33 +28,11 @@ To change a page's `<head>` (title, description, og tags), edit `tools/pages.mjs
 
 New database: run `schema.sql`.
 
-Existing database: run the migrations you haven't run yet, in order, in the D1 Console:
-
-1. `migrate-1.sql`
-2. `migrate-2.sql`
-3. `migrate-3.sql`
-4. `migrate-4.sql`
-5. `migrate-5.sql`
-6. `migrate-6.sql` (wallet, coupons, API keys, 2FA, memory, folders, file history, tickets, blog, audit log)
-7. `migrate-7.sql` (Slip2Go, API key budgets)
-8. `migrate-8.sql` (Firebase login, model price promos, tokens per message)
-9. `migrate-9.sql` (per-model Code mode instructions)
-10. `migrate-10.sql` (long-chat summaries)
-11. `migrate-11.sql` (cost-based limits; **run once only**, it converts the existing plan limits to baht and gives everyone a fresh window)
-12. `migrate-12.sql` (per-model custom effort levels)
-13. `migrate-13.sql` (Team plans & team management)
-14. `migrate-14.sql` (API key plan-limit billing)
-15. `migrate-15.sql` (Pin chats & shareable read-only chat links)
-16. `migrate-16.sql` (Per-project custom instructions)
-17. `migrate-17.sql` (Lightweight Skills system for global & user skills)
-18. `migrate-18.sql` (Remote MCP servers & tool calling)
-19. `migrate-19.sql` (per-plan 4h window switch, per-model limit multiplier; the Worker also adds these columns itself)
-12. optional `plans-new.sql` (replaces the sold plans with Free / DeepSeek Lite / DeepSeek Max / Plus / Pro / Max; existing subscribers keep their old plan until it expires)
+Existing database: columns added after `schema.sql` are added by the Worker itself on first use. The old SQL migrations (`migrate-1..19.sql`, `plans-new.sql`) were removed after the production database ran them all; an older copy of the database needs them from git history first.
 
 ### Limits (like Claude)
 Usage is metered in **real cost (baht)** from each model's cost prices (Admin → models), shown to users as %. Two limits per plan, both editable in Admin → plans: a 4-hour window that starts at the user's first message, and a weekly window that starts at the first use of the week and resets 7 days later. A model's `cap_pct` limits it to that share of the weekly budget (e.g. Opus 50). Chat, Code and autocomplete share one pool. When the limit is full the user can overflow to the Wallet at sell prices. Worst-case monthly cost of a plan = weekly budget × 4.33 (shown in the plans list).
 
-If a migration fails with "duplicate column", it was already run. Skip to the next one.
 
 ### Worker
 

@@ -1,1 +1,0 @@
-ALTER TABLE chats ADD COLUMN summary TEXT; ALTER TABLE chats ADD COLUMN summary_upto INTEGER;

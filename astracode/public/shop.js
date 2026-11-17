@@ -4,8 +4,8 @@ const PAY_STATUS = { pending: '<span class="warn">รออนุมัติ</s
 // ตารางเทียบแพลน: ราคา, จำนวนโมเดล, ข้อความโดยประมาณ, API, ที่นั่ง
 const cmpTable = ps => ps.length < 2 ? '' : `<details class="faq" style="max-width:920px;margin:14px auto"><summary>เปรียบเทียบแพลนแบบตาราง</summary><div class="tw"><table class="tbl cmp"><tr><th></th>${ps.map(p => `<th>${esc(p.name)}</th>`).join('')}</tr>
   ${[['ราคา/เดือน', p => p.price ? '฿' + baht(p.price) : 'ฟรี'], ['รายปี', p => p.price_year ? '฿' + baht(p.price_year) : '-'], ['จำนวนโมเดล', p => p.models?.length || 0],
-    ['ข้อความ/สัปดาห์ (โมเดลประหยัดสุด)', p => p.models?.length ? '~' + Math.max(...p.models.map(m => m.week)).toLocaleString(LOC) : '-'], ['API key', p => p.price > 0 ? '✓' : '-'], ['API หักจากลิมิตแพลน', p => p.api_limit ? '✓' : '-'],
-    ['ที่นั่ง', p => p.seats || 1], ['งบรวมทั้งทีม', p => p.shared_pool ? '✓' : '-']].map(([l, f]) => `<tr><td>${l}</td>${ps.map(p => `<td>${f(p)}</td>`).join('')}</tr>`).join('')}</table></div></details>`;
+    ['ข้อความ/สัปดาห์ (โมเดลประหยัดสุด)', p => p.models?.length ? '~' + Math.max(...p.models.map(m => m.week)).toLocaleString(LOC) : '-'], ['API key', p => p.price > 0 ? ic('check', 'sm ok') : '-'], ['API หักจากลิมิตแพลน', p => p.api_limit ? ic('check', 'sm ok') : '-'],
+    ['ที่นั่ง', p => p.seats || 1], ['งบรวมทั้งทีม', p => p.shared_pool ? ic('check', 'sm ok') : '-']].map(([l, f]) => `<tr><td>${l}</td>${ps.map(p => `<td>${f(p)}</td>`).join('')}</tr>`).join('')}</table></div></details>`;
 async function plansPage() {
   const plans = await api('/plans');
   const hasYear = plans.some(p => p.price_year > 0);

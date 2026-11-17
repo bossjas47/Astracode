@@ -262,7 +262,7 @@ function planTiles(plans, sel, period) {
     <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') : ''}</small></div>
     ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
     ${p.seats > 1 ? `<div style="font-size:12.5px;color:var(--link);font-weight:500">ทีม · สูงสุด ${p.seats} คน (${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'})</div>` : ''}<div class="muted">${esc(p.description)}</div>
-    <ul class="feat-list">${p.models.map(m => `<li>${esc(m.name)} <span class="muted">~${num(m.week)} ข้อความ/สัปดาห์</span></li>`).join('')}${p.api_limit ? '<li><span class="ok">✓</span> ใช้ API Key หักจากลิมิตแพลน</li>' : ''}</ul></div>`).join('')}</div>
+    <ul class="feat-list">${p.models.map(m => `<li>${esc(m.name)} <span class="muted">~${num(m.week)} ข้อความ/สัปดาห์</span></li>`).join('')}${p.api_limit ? `<li>${ic('check', 'sm ok')} ใช้ API Key หักจากลิมิตแพลน</li>` : ''}</ul></div>`).join('')}</div>
     <p class="muted" style="text-align:center;margin-top:16px">จำนวนข้อความเป็นค่าประมาณ (ข้อความละ ~2,500 token) ใช้หลายโมเดลได้ในลิมิตเดียวกัน</p>`;
 }
 function compareTable(plans) {
@@ -705,33 +705,35 @@ const BUILTIN_PROMPTS = [
   ['เขียน Unit Test', 'ช่วยเขียน Unit Test ที่ครอบคลุมทั้งกรณีปกติและ Edge Cases สำหรับโค้ดนี้:\n\n'],
   ['อธิบายโค้ดทีละขั้น', 'ช่วยอธิบายการทำงานของโค้ดนี้ทีละขั้นตอนแบบเข้าใจง่าย:\n\n'],
 ];
-function promptLibSheet(onPick) {
+// คลัง Prompt: พรอมต์ของฉันเก็บบนเซิร์ฟเวอร์เป็น Skill แบบ "พรอมต์สำเร็จรูป" (as_text) จึงใช้ได้ทุกเครื่องและเลือกได้จาก / ด้วย
+async function promptLibSheet(onPick) {
   const key = 'astra_prompts';
-  const load = () => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } };
-  const draw = () => {
-    const mine = load();
+  try { // ย้ายพรอมต์เก่าที่เคยเก็บในเครื่องขึ้นเซิร์ฟเวอร์ครั้งเดียว
+    const old = JSON.parse(localStorage.getItem(key) || '[]');
+    if (old.length) { for (const [t, b] of old) await api('/skills', { method: 'POST', body: { name: String(t).slice(0, 60), content: b, as_text: true } }).catch(() => {}); localStorage.removeItem(key); }
+  } catch { /* ไม่มีที่เก็บในเครื่อง */ }
+  const draw = async force => {
+    const mine = (await loadSkills(force)).filter(s => s.as_text && s.user_id);
     sheet('คลัง Prompt', `<div class="sheet-form">
-      <form id="plf" class="row" style="flex-wrap:nowrap"><input name="t" placeholder="ชื่อ Prompt" style="max-width:130px" required><input name="b" placeholder="ข้อความคำสั่ง..." required><button class="btn blue sm">Add</button></form>
-      ${mine.length ? `<div class="muted" style="font-size:12px">Prompt ของฉัน</div>` + mine.map((p, i) => `<div class="mem"><button type="button" class="linkb" style="flex:1;text-align:left;color:var(--porcelain)" data-use="m:${i}"><b>${esc(p[0])}</b></button><button type="button" data-delp="${i}" aria-label="ลบ">${ic('x')}</button></div>`).join('') : ''}
+      <form id="plf" class="row" style="flex-wrap:nowrap"><input name="t" placeholder="ชื่อ Prompt" style="max-width:130px" required maxlength="60"><input name="b" placeholder="ข้อความคำสั่ง..." required><button class="btn blue sm">Add</button></form>
+      <p class="muted" style="margin:0;font-size:12px">พิมพ์ / ในช่องข้อความเพื่อเลือกพรอมต์ได้เร็วขึ้น</p>
+      ${mine.length ? `<div class="muted" style="font-size:12px">Prompt ของฉัน</div>` + mine.map(p => `<div class="mem"><button type="button" class="linkb" style="flex:1;text-align:left;color:var(--porcelain)" data-use="m:${p.id}"><b>${esc(p.name)}</b> <span class="muted">${esc(p.content.slice(0, 50))}</span></button><button type="button" data-delp="${p.id}" aria-label="ลบ">${ic('x')}</button></div>`).join('') : ''}
       <div class="muted" style="font-size:12px">แนะนำ</div>
       ${BUILTIN_PROMPTS.map((p, i) => optHTML('b:' + i, ic('book') + esc(p[0]), esc(p[1].slice(0, 60)) + '...')).join('')}
     </div>`, (d, close) => {
-      d.querySelector('#plf').onsubmit = e => {
+      d.querySelector('#plf').onsubmit = async e => {
         e.preventDefault(); const fd = new FormData(e.target);
-        const list = load(); list.unshift([fd.get('t').trim().slice(0, 40), fd.get('b').trim()]);
-        localStorage.setItem(key, JSON.stringify(list.slice(0, 30))); draw();
+        try { await api('/skills', { method: 'POST', body: { name: fd.get('t').trim(), content: fd.get('b').trim(), as_text: true } }); draw(true); } catch (x) { toast(x.message, 'bad'); }
       };
-      d.querySelectorAll('[data-delp]').forEach(b => b.onclick = () => {
-        const list = load(); list.splice(+b.dataset.delp, 1); localStorage.setItem(key, JSON.stringify(list)); draw();
-      });
+      d.querySelectorAll('[data-delp]').forEach(b => b.onclick = async () => { await api('/skills/' + b.dataset.delp, { method: 'DELETE' }).catch(() => {}); draw(true); });
       d.querySelectorAll('[data-v],[data-use]').forEach(b => b.onclick = () => {
         const [kind, idx] = (b.dataset.v || b.dataset.use).split(':');
-        const item = kind === 'm' ? load()[+idx] : BUILTIN_PROMPTS[+idx];
-        close(); if (item) onPick(item[1]);
+        const text = kind === 'm' ? mine.find(x => x.id === +idx)?.content : BUILTIN_PROMPTS[+idx]?.[1];
+        close(); if (text) onPick(text);
       });
     });
   };
-  draw();
+  draw(true);
 }
 
 
@@ -779,14 +781,13 @@ function slashSkills(t, get, set) {
 async function skillsSheet(selectedIds, onChange) {
   const sel = new Set((selectedIds || []).map(Number));
   const draw = async (force) => {
-    const list = await loadSkills(force);
+    const list = (await loadSkills(force)).filter(x => !x.as_text); // พรอมต์สำเร็จรูปอยู่ในคลัง Prompt
     sheet('Skills (เลือกได้สูงสุด 3)', `<div class="sheet-form">
       <details class="ed" style="background:var(--obsidian);border:1px solid var(--hair);border-radius:16px"><summary style="padding:12px 14px"><b>+ New Skill</b></summary>
         <form id="skf" class="sheet-form" style="padding:0 14px 14px">
           <input name="name" placeholder="ชื่อ Skill (เช่น nextjs-expert)" maxlength="60" required>
           <input name="description" placeholder="คำอธิบายสั้นๆ" maxlength="200">
           <textarea name="content" rows="4" maxlength="6000" placeholder="คำสั่งหรือกติกาให้ AI ทำตามเมื่อเปิด Skill นี้..." required></textarea>
-          <label class="sw-row"><span class="sw"><input type="checkbox" name="as_text"><span></span></span> เป็นพรอมต์สำเร็จรูป (พิมพ์ / แล้วเลือก ข้อความจะถูกใส่ในช่องพิมพ์ ไม่ใช่คำสั่งระบบ)</label>
           <button class="btn blue sm">Save Skill</button>
         </form>
       </details>
@@ -800,7 +801,7 @@ async function skillsSheet(selectedIds, onChange) {
         e.preventDefault();
         try {
           const created = await api('/skills', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
-          if (sel.size < 3 && !created.as_text) sel.add(created.id);
+          if (sel.size < 3) sel.add(created.id);
           onChange([...sel]); toast('สร้าง Skill แล้ว', 'ok'); draw(true);
         } catch (x) { toast(x.message, 'bad'); }
       };
@@ -814,8 +815,7 @@ async function skillsSheet(selectedIds, onChange) {
         sel.delete(+b.dataset.delsk); onChange([...sel]); toast('ลบ Skill แล้ว'); draw(true);
       });
       d.querySelectorAll('[data-sk]').forEach(el => el.onclick = () => {
-        const id = +el.dataset.sk, sk = list.find(x => x.id === id);
-        if (sk?.as_text) { const ta = document.querySelector('.compose textarea'); if (ta) { ta.value = sk.content; ta.oninput?.(); ta.focus(); } document.querySelector('.sheet-bg')?.remove(); return toast('ใส่พรอมต์ในช่องพิมพ์แล้ว', 'ok'); }
+        const id = +el.dataset.sk;
         if (sel.has(id)) sel.delete(id);
         else if (sel.size >= 3) return toast('เปิดพร้อมกันได้สูงสุด 3 Skills');
         else sel.add(id);

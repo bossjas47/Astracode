@@ -1279,3 +1279,5 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 @keyframes dmFill { 0%, 8% { width: 0; } 40%, 100% { width: 100%; } }
 @keyframes dmDone { 0%, 38% { opacity: 0; } 42%, 92% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .dm-row, .dm-rep, .dm-row em { animation: none; opacity: 1; } .dm-bar i { animation: none; width: 100%; } }
+
+.ic.ok { color: var(--green); }
