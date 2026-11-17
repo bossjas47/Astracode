@@ -84,7 +84,7 @@ export async function backup(env) {
 export async function status(env) {
   const now = Date.now(), from = now - 30 * DAY, day = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`;
   const [models, ok, bad, recent] = await Promise.all([
-    env.DB.prepare('SELECT id,name FROM models WHERE active=1 AND public=1 ORDER BY sort').all(),
+    env.DB.prepare('SELECT id,name,key_name FROM models WHERE active=1 AND public=1 ORDER BY sort').all().then(r => ({ results: r.results.filter(m => env[m.key_name]) })), // โมเดลที่ยังไม่มีคีย์ไม่ได้เปิดขาย จึงไม่นับเป็น "ปกติ"
     env.DB.prepare(`SELECT model_id, ${day('created_at')} d, COUNT(*) n FROM usage WHERE created_at>=? GROUP BY model_id, d`).bind(from).all(),
     env.DB.prepare(`SELECT model_id, ${day('created_at')} d, COUNT(*) n, MAX(created_at) last FROM events WHERE kind='error' AND created_at>=? GROUP BY model_id, d`).bind(from).all(),
     env.DB.prepare("SELECT model_id, COUNT(*) n FROM events WHERE kind='error' AND created_at>? GROUP BY model_id").bind(now - 300e3).all(),

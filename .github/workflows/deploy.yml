@@ -18,6 +18,13 @@ jobs:
       - name: Tests
         working-directory: astracode
         run: npm test
+      # Opens every page in a real browser against a mocked API: a page that throws or renders empty stops the deploy.
+      - name: Browser page test
+        working-directory: astracode
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+          npm run e2e
       # wrangler uploads the Worker, then fails reading the workers.dev subdomain because the token
       # lacks that permission. The next step decides success by asking the live site which version runs.
       - uses: cloudflare/wrangler-action@v3

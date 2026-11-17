@@ -76,3 +76,15 @@ test('small-project file block is stripped from older messages, and the round st
   assert.equal(ai.doingOf(['1', '2', '3', '4', '5'].map(n => ({ op: 'READ', arg: n + '.js' }))), 'อ่าน 1.js, 2.js, 3.js +2');
   assert.equal(ai.doingOf([]), '');
 });
+
+test('long attached files are cut down to the parts that match the question; short files stay whole; each model family gets a hint', async () => {
+  const { ai } = await load();
+  const filler = 'lorem ipsum dolor sit amet '.repeat(80); // ~2k chars per block
+  const body = Array.from({ length: 40 }, (_, i) => i === 27 ? 'นโยบายคืนเงินภายใน 14 วัน refund_policy_days = 14 ' + filler : filler).join('');
+  const msg = `สรุปให้หน่อย\n\n[[file:doc.txt]]\n${body}\n[[/file]]`;
+  const out = ai.excerptFiles(msg, 'refund_policy_days คืนเงินกี่วัน');
+  assert.ok(out.length < msg.length / 2); assert.ok(out.includes('refund_policy_days = 14')); assert.ok(out.includes('[[file:doc.txt]]') && out.includes('[[/file]]') && out.startsWith('สรุปให้หน่อย'));
+  const small = 'x\n\n[[file:a.txt]]\nshort\n[[/file]]'; assert.equal(ai.excerptFiles(small, 'q'), small);
+  assert.match(ai.familyHint({ name: 'Gemini 4', api_model: 'gemini-4', provider: 'openai' }), /path=/);
+  assert.notEqual(ai.familyHint({ name: 'Claude', api_model: 'claude-x', provider: 'anthropic' }), ai.familyHint({ name: 'DeepSeek', api_model: 'deepseek', provider: 'openai' }));
+});

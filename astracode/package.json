@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "test": "node --test --test-force-exit tests/*.test.mjs",
-    "lint": "npx --yes eslint@9 src"
+    "lint": "npx --yes eslint@9 src",
+    "e2e": "node tests/e2e.mjs"
   }
 }

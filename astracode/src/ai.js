@@ -322,6 +322,47 @@ export async function webSearch(env, q) { // Tavily
     return ((await r.json()).results || []).slice(0, 5).map(x => ({ title: String(x.title || x.url).slice(0, 200), url: x.url, content: String(x.content || '').slice(0, 1200) }));
   } catch { return []; }
 }
+// คำแนะนำเพิ่มตามตระกูลโมเดลในโหมด Code (ใช้เมื่อแอดมินไม่ได้ตั้ง code_prompt ของโมเดลนั้นเอง) · จุดที่แต่ละตระกูลพลาดบ่อย
+export const familyHint = m => {
+  const n = `${m.name} ${m.api_model}`.toLowerCase();
+  if (m.provider === 'anthropic' || n.includes('claude')) return 'Keep prose short: one or two sentences before the edit blocks, none after unless something needs the user. Prefer several small SEARCH/REPLACE pairs over one large one.';
+  if (n.includes('gemini')) return 'Output format is strict: every file change must be a fenced block whose opening fence line contains path=<file>. Do not describe a change without writing its block. Do not wrap the whole answer in one outer code fence. Copy SEARCH text exactly from the file, including indentation.';
+  if (n.includes('deepseek')) return 'Do the reasoning silently and keep the visible answer short. Never print a whole file when a SEARCH/REPLACE pair is enough. Copy SEARCH text exactly from the file; do not retype it from memory.';
+  if (n.includes('gpt') || m.provider === 'responses') return 'Do not ask for confirmation before making a change the user asked for; make it. Do not use "..." or "rest of file unchanged" placeholders inside path= blocks. Batch all READ lines in one reply.';
+  return 'Copy SEARCH text exactly from the file, and put path=<file> on the opening fence line of every file block.';
+};
+// ค้นเว็บแบบหลายคำค้น: ให้โมเดลถูกสุดเขียนคำค้น 1-3 คำจากบทสนทนา (คำถามต่อเนื่องอย่าง "แล้วราคาล่ะ" ค้นตรงๆ ไม่เจอ) แล้วค้นพร้อมกัน รวมผลไม่ซ้ำ
+export async function smartSearch(env, u, hist) {
+  const last = String(hist.at(-1)?.content || '').replace(/\n\n\[\[file:[\s\S]*$/, '').slice(0, 1500);
+  let queries = [last];
+  if (env.TAVILY_KEY && (hist.length > 1 || last.length > 120)) try {
+    const m = (await env.DB.prepare("SELECT * FROM models WHERE active=1 AND provider NOT IN ('image','embedding') ORDER BY cost_in+cost_out").all()).results.find(x => env[x.key_name]);
+    if (m) {
+      const ctx = hist.slice(-5).map(x => `${x.role === 'user' ? 'User' : 'Assistant'}: ${String(x.content || '').slice(0, 500)}`).join('\n');
+      let outT = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 8000); // ช้าเกิน 8 วินาที = ใช้คำถามเดิมค้นเลย
+      try { for await (const e of callModel(env, m, [{ role: 'user', content: ctx }], { effort: null, maxTokens: 120, signal: ac.signal, system: 'Write 1 to 3 web search queries that would find the facts needed to answer the last user message. Resolve pronouns from the conversation. One query per line, no numbering, no quotes, nothing else. Use the language most likely to find good sources.' })) { if (e.t) outT += e.t; if (e.usage) usage = e.usage; } } finally { clearTimeout(timer); }
+      if (usage) await logUsage(env, u.id, m, usage, { units: false });
+      const qs = outT.split('\n').map(x => x.replace(/^[\s\d.)\-*"']+|["']+$/g, '').trim()).filter(x => x.length > 2 && x.length < 200).slice(0, 3);
+      if (qs.length) queries = qs;
+    }
+  } catch { /* ใช้คำถามเดิม */ }
+  const seen = new Set(), out = [];
+  for (const list of await Promise.all(queries.map(q => webSearch(env, q)))) for (const r of list) if (!seen.has(r.url)) { seen.add(r.url); out.push(r); }
+  return out.slice(0, 8);
+}
+// ไฟล์แนบที่ยาวมาก: ส่งเฉพาะท่อนที่เกี่ยวกับคำถาม (เทียบคำ/ชุดอักษร 3 ตัว) แทนการส่งทั้งไฟล์จนล้น context · ไฟล์สั้นส่งเต็ม
+export const FILE_FULL = 30000, FILE_CHUNK = 2000;
+const grams = s => { const out = new Set(), t = String(s).toLowerCase(); for (const w of t.match(/[a-z0-9_]{3,}/g) || []) out.add(w); const th = t.replace(/[\x00-\x7f]+/g, ' '); for (let i = 0; i + 3 <= th.length; i++) { const g = th.slice(i, i + 3); if (!g.includes(' ')) out.add(g); } return out; };
+export function excerptFiles(content, question) {
+  return String(content || '').replace(/(\[\[file:[^\]\n]+\]\]\n)([\s\S]*?)(\n\[\[\/file\]\])/g, (all, open, body, close) => {
+    if (body.length <= FILE_FULL) return all;
+    const q = grams(question), chunks = []; for (let i = 0; i < body.length; i += FILE_CHUNK) chunks.push({ i, text: body.slice(i, i + FILE_CHUNK) });
+    chunks.forEach((c, k) => { let s = 0; for (const g of grams(c.text)) if (q.has(g)) s++; c.score = s + (k === 0 ? 1e6 : 0); }); // ท่อนแรกเก็บเสมอ (หัวไฟล์/สารบัญ)
+    const keep = new Set([...chunks].sort((a, b) => b.score - a.score).slice(0, Math.floor(FILE_FULL / FILE_CHUNK)).map(c => c.i));
+    let outB = '', gap = false; for (const c of chunks) { if (keep.has(c.i)) { outB += (gap ? '\n[...ข้ามบางส่วน...]\n' : '') + c.text; gap = false; } else gap = true; }
+    return `${open}[ไฟล์ยาว ${body.length.toLocaleString()} ตัวอักษร: แสดงเฉพาะส่วนที่เกี่ยวกับคำถาม ถ้าต้องการส่วนอื่นให้ผู้ใช้ถามเจาะจง]\n${outB}${close}`;
+  });
+}
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
 export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null } = {}) {
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
@@ -411,6 +452,7 @@ export async function chat(req, env, u, ctx) {
     const hn = (await env.DB.prepare('SELECT COUNT(*) n FROM messages WHERE chat_id=? AND id>?').bind(cid, after).first()).n;
     hist = (await env.DB.prepare('SELECT role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id LIMIT -1 OFFSET ?').bind(cid, after, histStart(hn, hmax)).all()).results.map(x => ({ ...x, content: String(x.content || '').replace(/\u2063/g, '') })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
     while (hist.length && hist[0].role !== 'user') hist.shift();
+    if (!pid) { const q = text; hist.forEach(x => { if (x.role === 'user' && x.content.length > FILE_FULL) x.content = excerptFiles(x.content, q); }); }
     if (pid) hist.forEach((x, i) => { if (i < hist.length - 1 && x.role === 'user') x.content = stripOpenFile(x.content); }); // เนื้อหาไฟล์ที่เปิดอยู่ส่งเฉพาะข้อความล่าสุด (ไม่ซ้ำทุกรอบ ประหยัด token)
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
@@ -436,11 +478,11 @@ export async function runChat(env, J, send, st) {
   let imgs0 = J.images;
   let out = '', think = '', usage = null, model = m;
   await send({ chat_id: cid, model: m.name, overflow: !!overflow });
-  const sources = !pid && (J.search || await autoSearch(env, hist.at(-1).content)) ? await webSearch(env, hist.at(-1).content) : [];
+  const sources = !pid && (J.search || await autoSearch(env, hist.at(-1).content)) ? await smartSearch(env, u, hist) : [];
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
   const projFile = pid ? (await env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid).first())?.content?.trim() : ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์กับ GitHub ไปด้วย)
   const projIns = pid ? [(await env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid).first())?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : ''].filter(Boolean).join('\n\n') : '';
-  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + (m.code_prompt?.trim() ? '\n\n' + m.code_prompt.trim() : '') + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (await imagePrompt(env, !!pid)); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (await imagePrompt(env, !!pid)); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
   const mcpTools = [], mcpMap = new Map();
   if (J.mcp_ids?.length) {
     const srvs = (await env.DB.prepare(`SELECT * FROM mcp_servers WHERE id IN (${J.mcp_ids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...J.mcp_ids, u.id).all().catch(() => ({ results: [] }))).results;
@@ -565,8 +607,12 @@ export async function autoModel(env, plan, u, { text, images, files, effort, reg
   const all = (await allowedModels(env, plan.id)).filter(m => m.provider !== 'image' && m.provider !== 'embedding'); if (!all.length) return null; // โมเดลสร้างรูปไม่ใช่ตัวเลือกของ Auto
   const ok = [], healthy = [];
   for (const m of all) if (!(await capHit(env, u, plan, m))) { ok.push(m); if (!await modelDown(env, m.id)) healthy.push(m); }
-  const ms = healthy.length ? healthy : ok.length ? ok : all; // เลือกจากตัวที่ปกติก่อน (ข้ามโมเดลที่ล่มอยู่) ถ้าไม่เหลือใช้ตัวที่เหลือ · ติดเพดานหมดใช้ all เพื่อแจ้ง 429 ตามปกติ
+  const ms1 = healthy.length ? healthy : ok.length ? ok : all; // เลือกจากตัวที่ปกติก่อน (ข้ามโมเดลที่ล่มอยู่) ถ้าไม่เหลือใช้ตัวที่เหลือ · ติดเพดานหมดใช้ all เพื่อแจ้ง 429 ตามปกติ
+  // โมเดลที่ผู้ใช้กด 👎 มากกว่า 👍 ชัดเจนใน 30 วัน (อย่างน้อย 10 โหวต พอใจต่ำกว่า 40%) ถูกข้าม ถ้ายังมีตัวอื่นให้เลือก
+  const votes = await env.DB.prepare('SELECT model_id, SUM(vote>0) up, SUM(vote<0) down FROM feedback WHERE created_at>? GROUP BY model_id').bind(Date.now() - 30 * 864e5).all().then(r => r.results).catch(() => []);
+  const disliked = new Set(votes.filter(v => v.up + v.down >= 10 && v.up / (v.up + v.down) < 0.4).map(v => v.model_id)), liked = ms0 => { const g = ms0.filter(m => !disliked.has(m.id)); return g.length ? g : ms0; };
   const s = await getSettings(env, ['auto_cheap_model', 'auto_strong_model']), by = (a, b) => a.multiplier - b.multiplier;
+  const ms = liked(ms1);
   const cheap = ms.find(m => m.id === +s.auto_cheap_model) || [...ms].sort(by)[0];
   const strong = ms.find(m => m.id === +s.auto_strong_model) || [...ms].sort(by).at(-1);
   let m = regenerate || images.length || files.length || ['high', 'xhigh', 'max'].includes(effort) || text.length > 1200 || HARD_RE.test(text) ? strong : cheap;

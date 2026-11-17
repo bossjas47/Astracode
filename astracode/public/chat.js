@@ -48,6 +48,8 @@ function notice(u) {
 function setUsage(u) { me.usage = u; $('#lim').innerHTML = limHTML(u); $('#notice').innerHTML = notice(u); }
 // "อัตโนมัติ": เซิร์ฟเวอร์เลือกโมเดลถูกหรือเก่งตามคำถาม (ประหยัดลิมิต)
 const AUTO = () => ({ id: 'auto', name: 'อัตโนมัติ', effort: me.models.some(m => m.effort !== 'none') ? 'auto' : 'none', vision: me.models.some(m => m.vision) });
+// ข้อความที่ดูเป็นข้อมูลส่วนตัว/ความชอบถาวร: เน้นปุ่มจำ ให้กดบันทึกเป็นความจำได้ในคลิกเดียว
+const MEM_RE = /(^|\s)(ฉัน|ผม|หนู|เรา|ดิฉัน)(ชื่อ|ชอบ|ไม่ชอบ|ทำงาน|เป็น|ใช้|อยาก|ถนัด)|จำไว้|ต่อไปนี้ให้|ทุกครั้งให้|\b(my name is|i am a|i work|i prefer|i always|remember that|from now on|call me)\b/i;
 const curModel = () => $('#model')?.value === 'auto' ? AUTO() : me.models.find(m => m.id === +$('#model')?.value) || me.models[0];
 
 async function chatView(id) {
@@ -104,6 +106,13 @@ async function chatView(id) {
   side.addEventListener('click', e => { const a = e.target.closest('a[data-chat]'); if (!a) return; e.preventDefault(); openChat(+a.dataset.chat || null); });
   $('#menu').onclick = () => { side.classList.add('open'); const s = document.createElement('div'); s.className = 'shade'; s.onclick = () => { side.classList.remove('open'); s.remove(); }; side.parentElement.append(s); }; // ใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
+  if (!window.DEMO && !id) try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
+    if (!localStorage.getItem('onb')) { localStorage.setItem('onb', '1');
+      sheet('เริ่มใช้ AstraCode', `<div class="sheet-form"><p class="sheet-msg"><b>1. เลือกโมเดลหรือปล่อย Auto</b><br>Auto เลือกโมเดลที่คุ้มสุดให้ตามความยากของคำถาม เปลี่ยนเองได้ที่ปุ่มชื่อโมเดล</p>
+        <p class="sheet-msg"><b>2. พิมพ์ / เพื่อใช้ Skill</b><br>เช่น /translator /summarizer /code-reviewer ให้ AI ทำงานตามบทบาทนั้น</p>
+        <p class="sheet-msg"><b>3. โหมด Code</b><br>ให้ AI สร้างและแก้ไฟล์จริง รันดูผลได้ทันที เปิดจากเมนู Code</p>
+        <div class="sheet-acts"><button type="button" class="btn blue x">เริ่มเลย</button></div></div>`); }
+  } catch { /* ไม่มีที่เก็บ */ }
   $('#effort').onchange = e => { localStorage.setItem('effort', e.target.value); modelUI(); };
   $('#model2').onchange = e => { localStorage.setItem('model2', e.target.value); modelUI(); };
   $('#mdl').onclick = () => modelSheet('#model');
@@ -426,7 +435,7 @@ function msgHTML(m, i, isNew) {
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
     return `<div class="msg user ${isNew ? 'new' : ''}"><div class="b">${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}${m.content.startsWith('🎨 ') ? ic('image') + ' ' : ''}${esc(m.content.replace(FILE_RE, '').replace(/^🎨 /, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${ic('filetext')}<span>${esc(f[1])}</span><small>${tok(f[2].length)}</small></span>`).join('')}</div>` : ''}</div>
-      ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts">${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}">Remember</button></div>` : ''}</div>`;
+      ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts">${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}" class="${MEM_RE.test(m.content) ? 'memhint' : ''}">${MEM_RE.test(m.content) ? '💡 ให้ AI จำเรื่องนี้?' : 'Remember'}</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
   const { text: t00, mem } = parseMem(m.content, m.streaming), { text: t0 } = parseImg(t00, m.streaming), { text, asks } = parseAsk(t0, m.streaming);
@@ -463,8 +472,11 @@ function showErr(msg, retry) {
   // retry: true = เดาให้ว่าควรทำอะไรต่อ (มีคำถามค้าง → ต่อคำตอบ, ไม่มี → ตอบใหม่) หรือส่งฟังก์ชันมาเอง
   const fn = typeof retry === 'function' ? retry
     : retry ? () => (chat.id && chat.msgs.at(-1)?.role === 'user' ? send({ resume: true }) : send({ regenerate: true })) : null;
-  $('#e').innerHTML = esc(msg) + (fn ? ' <button class="btn out sm" id="retry">Try again</button>' : '');
+  // โมเดลที่เลือกมีปัญหา/ติดเพดาน: เสนอสลับเป็น Auto (ระบบเลือกตัวที่ใช้ได้) แล้วลองใหม่ในคลิกเดียว
+  const sel = $('#model'), canAuto = fn && sel && sel.value !== 'auto' && [...sel.options].some(o => o.value === 'auto') && /โมเดล|model|ขัดข้อง|เพดาน|ตอบไม่ได้|timeout|ช้ากว่าปกติ/i.test(msg);
+  $('#e').innerHTML = esc(msg) + (fn ? ' <button class="btn out sm" id="retry">Try again</button>' : '') + (canAuto ? ' <button class="btn blue sm" id="retryauto">สลับเป็น Auto แล้วลองใหม่</button>' : '');
   const b = $('#retry'); if (b) b.onclick = () => { $('#e').textContent = ''; fn(); };
+  const ba = $('#retryauto'); if (ba) ba.onclick = () => { sel.value = 'auto'; sel.onchange({ target: sel }); $('#e').textContent = ''; fn(); };
 }
 function setBusy(b) { chat.busy = b; const g = $('#go'); g.innerHTML = ic(b ? 'stop' : 'up'); g.setAttribute('aria-label', b ? 'หยุด' : 'ส่ง'); g.classList.toggle('stop', b); }
 
