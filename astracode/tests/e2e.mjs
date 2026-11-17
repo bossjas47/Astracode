@@ -4,7 +4,8 @@ import { createRequire } from 'node:module';
 import { existsSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const { chromium } = createRequire(import.meta.url)('playwright');
+const req = createRequire(import.meta.url); let pw; try { pw = req('playwright'); } catch { pw = req('playwright-core'); } // CI ใช้ playwright-core กับ Chrome ของเครื่อง (CHROME_PATH)
+const { chromium } = pw;
 const pub = join(dirname(fileURLToPath(import.meta.url)), '../public');
 const usage = { pct4h: 12, pctWeek: 34, reset4h: Date.now() + 3600e3, resetWeek: Date.now() + 5 * 864e5, use4h: true };
 const models = [{ id: 1, name: 'Flash', provider: 'openai', multiplier: 1, vision: 1, effort: 'none', cap_pct: 0 }, { id: 2, name: 'Sonnet', provider: 'anthropic', multiplier: 5, vision: 1, effort: 'anthropic', effort_levels: 'low,high', cap_pct: 30 }];
@@ -21,7 +22,7 @@ const API = (admin, loggedIn) => ({
   '/api/admin/settings': { env: {}, health_check: '0' }, '/api/pay': [], '/api/skills': [{ id: 1, user_id: 0, name: 'translator', description: 'แปล', content: 'x', enabled: 1 }],
 });
 const PAGES = [['/', 0, 1], ['/login', 0, 0], ['/chat', 0, 1], ['/plans', 0, 1], ['/plans?team=1', 0, 1], ['/pricing', 0, 1], ['/pricing', 0, 0], ['/account', 0, 1], ['/developers', 0, 1], ['/status', 0, 0], ['/terms', 0, 0], ['/support', 0, 1], ['/code', 0, 1], ['/admin?tab=quality', 1, 1], ['/admin?tab=settings', 1, 1], ['/admin?tab=models', 1, 1]];
-const browser = await chromium.launch(); let failed = 0;
+const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] } : {}); let failed = 0;
 for (const [url, admin, loggedIn] of PAGES) {
   const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], api = API(admin, loggedIn);
   page.on('pageerror', e => errs.push(e.message + (process.env.STACK ? ' @ ' + String(e.stack).split('\n').slice(1, 4).join(' < ') : '')));
