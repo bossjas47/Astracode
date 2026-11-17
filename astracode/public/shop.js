@@ -101,6 +101,8 @@ async function pricing() {
     return `<small class="oc">ทางการ ${curSign()}${f(thb)} · <span class="${pct >= 0 ? 'ok' : 'bad'}">${pct === 0 ? 'เท่ากัน' : pct > 0 ? 'ถูกกว่า ' + pct + '%' : 'แพงกว่า ' + -pct + '%'}</span></small>`;
   };
   const cell = (m, k) => `<span class="pc-v"><b>${m.promo ? `<s class="muted">${curSign()}${f(m.promo[k])}</s> ` : ''}${curSign()}${f(m[k])}</b>${offLine(m, k)}</span>`;
+  // ค่าใช้จ่ายต่อข้อความทั่วไป: ถูกมาก (ต่ำกว่า 0.1) บอกเป็น "กี่ข้อความต่อ 1 บาท/ดอลลาร์" จะอ่านง่ายกว่าเลขทศนิยมเล็กๆ
+  const msgLine = m => { const v = toCur(m.req || (2000 * m.in + 500 * m.out) / 1e6); return v > 0 && v < 0.1 ? `≈ <b>${num(Math.floor(1 / v))} ข้อความ</b> ต่อ ${curSign()}1` : `≈ <b>${curSign()}${money(v)}</b> ต่อข้อความ${m.req ? '' : 'ทั่วไป'}`; };
   const card = m => `<div class="pc ${m.promo ? 'promo' : ''}"><div class="pc-h"><b>${esc(m.name)}</b><span class="pc-tags">${m.promo ? `<span class="pill sale">ลด ${m.promo.pct}%</span>` : ''}${m.vision ? '<span class="pill">อ่านรูป</span>' : ''}${m.effort ? '<span class="pill">Thinking</span>' : ''}</span></div>
     ${m.promo ? `<p class="sale-t">${period(m.promo)}</p>` : ''}
     ${m.note ? `<p class="muted">${esc(m.note)}</p>` : ''}
@@ -110,11 +112,13 @@ async function pricing() {
       <div><span>Cache read <small class="muted">/ ${u1()}</small></span>${cell(m, 'cache')}</div>
       ${m.cache_write ? `<div><span>Cache write <small class="muted">/ ${u1()}</small></span>${cell(m, 'cache_write')}</div>` : ''}`}
     </div>
+    <p class="pc-msg">${msgLine(m)}${m.req ? '' : ' <small class="muted">(ถาม+ประวัติ ~2,000 token · ตอบ ~500 token)</small>'}</p>
     <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}${m.lim != null && m.lim !== 1 ? ` · หักจริง ×${m.lim}` : ''}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
   const draw = () => {
     page(nav() + `<div class="wrap"><section class="hero" style="padding:56px 0 24px"><div class="name">AstraCode</div><h1>ราคาต่อ token</h1>
       <p>ราคาของแต่ละโมเดล เป็น${getCur() === 'USD' ? 'ดอลลาร์ ($)' : 'บาท (฿)'} ${unit()} โมเดลที่แพงกว่าจะใช้ลิมิตแพลนเร็วกว่า</p>
       <div class="row" style="justify-content:center">${hasOff ? `<div class="seg" style="margin:0" role="group" aria-label="เทียบราคาทางการ"><button data-off="1" class="${showOff() ? 'on' : ''}">เทียบราคาทางการ</button><button data-off="0" class="${showOff() ? '' : 'on'}">ไม่เทียบ</button></div>` : ''}<div class="seg" style="margin:0" role="group" aria-label="หน่วย"><button data-per="M" class="${per === 'M' ? 'on' : ''}">ต่อ 1M token</button><button data-per="K" class="${per === 'K' ? 'on' : ''}">ต่อ 1K token</button></div>${curSegHTML()}</div></section>
+      <details class="card tok-help"><summary><b>Token คืออะไร?</b> <span class="muted">อ่าน 30 วินาที</span></summary><p>AI นับข้อความเป็น "token" ภาษาอังกฤษ 1 token ≈ 4 ตัวอักษร ภาษาไทย 1 token ≈ 1–2 ตัวอักษร ข้อความไทยยาวหนึ่งย่อหน้า (~300 ตัวอักษร) ≈ 200 token</p><p><b>Input</b> = สิ่งที่ส่งให้ AI (คำถาม ประวัติแชต ไฟล์แนบ) · <b>Output</b> = คำตอบของ AI · <b>Cache read</b> = ส่วนของประวัติแชตที่ AI จำไว้แล้ว ราคาถูกกว่ามาก</p><p>ราคาด้านล่างเป็นราคาต่อ <b>1 ล้าน token</b> (1M) ใช้เทียบกันระหว่างโมเดล ดูบรรทัด "≈ ต่อข้อความทั่วไป" จะเห็นค่าใช้จ่ายจริงง่ายกว่า ถ้าใช้ผ่านแพลน ไม่ต้องจ่ายตามนี้ แต่โมเดลที่แพงกว่าจะใช้ลิมิตเร็วกว่า</p></details>
       <div class="pgrid">${d.models.map(card).join('') || '<p class="muted">ยังไม่มีโมเดล</p>'}</div>
       ${d.note ? `<p class="muted" style="text-align:center;margin:20px auto;max-width:640px;white-space:pre-wrap">${esc(d.note)}</p>` : ''}
       <div class="band"><h2>คำนวณค่าใช้จ่าย</h2><div class="calc">
