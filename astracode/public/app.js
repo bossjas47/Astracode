@@ -261,7 +261,7 @@ const page = html => { const again = !!app.querySelector('.view'), y = scrollY; 
 
 function planTiles(plans, sel, period) {
   return `<div class="grid" tabindex="0" aria-label="แพลน (เลื่อนดูได้)">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
-    ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}
+    ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}${p.price > 0 && promoOn() ? `<div class="promo-pill">${ic('sparkles', 'sm')} ใช้ได้ x${site.promo.x4h} ถึง ${promoEnd()}<small>ลิมิตสัปดาห์ x${site.promo.xweek}</small></div>` : ''}
     <div style="font:600 19px var(--display)">${esc(p.name)}</div>
     <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') : ''}</small></div>
     ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
@@ -938,8 +938,10 @@ const PAGES = {
   },
 };
 const OPEN_IN_MAINTENANCE = ['home', 'login', 'terms', 'status', 'blog', 'pricing'];
-function banner() { // ประกาศจากแอดมิน: ปิดได้ จำไว้ว่าปิดข้อความไหน
-  const t = site.announcement; if (!t || localStorage.getItem('ann') === t || ['admin', 'code', 'receipt'].includes(pageName())) return;
+const promoOn = () => site.promo?.until > Date.now();
+const promoEnd = () => new Date(site.promo.until).toLocaleString(LOC, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+function banner() { // ประกาศจากแอดมิน: ปิดได้ จำไว้ว่าปิดข้อความไหน · โปรเพิ่มลิมิตที่ยังไม่หมดเขต แสดงก่อน (หายเองเมื่อหมดโปร)
+  const t = promoOn() ? (site.promo.label || `โปรเดือนนี้: ทุกแพลนใช้งานได้ x${site.promo.x4h} ในรอบ 4 ชม. (ลิมิตสัปดาห์ x${site.promo.xweek})`) + ` ถึง ${promoEnd()}` : site.announcement; if (!t || localStorage.getItem('ann') === t || ['admin', 'code', 'receipt'].includes(pageName())) return;
   const b = document.createElement('div'); b.className = 'ann ' + (site.announcement_level || 'info');
   b.innerHTML = `<span>${inline(esc(t))}</span><button aria-label="ปิดประกาศ">${ic('x')}</button>`;
   b.querySelector('button').onclick = () => { localStorage.setItem('ann', t); b.remove(); };

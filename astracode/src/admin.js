@@ -1,6 +1,6 @@
 import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { ensureFb, isSafeMcpUrl, mcpSync } from './ai.js';
-import { applyPayment, audit, getSetting, mail, mailBox, notify, walletAdd } from './billing.js';
+import { applyPayment, audit, getSetting, mail, mailBox, notify, siteUrl as siteUrlOf, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { slug } from './api.js';
 import { backup, status, verifyBackup } from './jobs.js';
@@ -14,7 +14,7 @@ export const TABLES = {
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
-  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
+  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
 
 // ---------- รหัสผ่านชั้นที่สองของหน้าแอดมิน (ตั้งครั้งแรกเอง · ปลดล็อกต่อ session 12 ชม.) ----------
 const GATE_MS = 12 * 36e5;
@@ -398,6 +398,17 @@ export async function admin(req, env, path, url, me) {
     await ctxAudit('agent test', { kind: research ? 'research' : 'team', job: job.id });
     await launch(env, job.id);
     return json({ ok: true, id: job.id, model: m.name, project_id: pid });
+  }
+  if (path === '/api/admin/broadcast' && M === 'POST') { // อีเมลถึงผู้ใช้ทุกคน (ยกเว้นคนที่ปิดอีเมลสรุป/ข่าวสาร) · test = ส่งให้แอดมินคนเดียวก่อน
+    const b = await req.json().catch(() => ({})), subject = String(b.subject || '').trim().slice(0, 150), body = String(b.body || '').trim().slice(0, 4000);
+    if (!subject || !body) return err('ใส่หัวข้อและข้อความ');
+    const html = mailBox(esc(subject), esc(body).replace(/\n/g, '<br>') + '<br><br><small>ไม่อยากรับอีเมลข่าวสาร ปิดได้ที่หน้าบัญชี (สรุปการใช้รายเดือน)</small>', b.button ? esc(String(b.button).slice(0, 40)) : null, b.button ? siteUrlOf(env) + '/plans' : null);
+    if (b.test) return json({ ok: await mail(env, me.email, subject, html), to: 1 });
+    if (await limited(env, 'broadcast', 2, DAY)) return err('ส่งอีเมลถึงทุกคนได้วันละ 2 ครั้ง', 429);
+    const to = (await DB.prepare("SELECT email FROM users WHERE banned=0 AND COALESCE(digest_off,0)=0 AND email NOT LIKE '%.local'").all()).results;
+    let sent = 0; for (const x of to) { if (await mail(env, x.email, subject, html)) sent++; await new Promise(r => setTimeout(r, 600)); } // Resend จำกัด ~2 ฉบับ/วินาที
+    await ctxAudit('broadcast', { subject, sent, total: to.length });
+    return json({ ok: true, sent, total: to.length });
   }
   if (path === '/api/admin/backups/verify' && M === 'POST') return json(await verifyBackup(env)); // เปิดไฟล์สำรองล่าสุด ตรวจว่าอ่านได้และนับแถวเทียบฐานข้อมูลจริง (ไม่เขียนอะไร)
   if (path === '/api/admin/audit') return json((await DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all()).results);

@@ -119,3 +119,20 @@ test('image prompt helper: uses ChatGPT 6.1 Sol when the plan has it, sends atta
   assert.equal((await t.json('/api/image/prompt', { method: 'POST', cookie: u.cookie, body: {} })).status, 400);
   fm.close();
 });
+
+test('site promo: paid plans get x2 on the 4h window and x1.5 on the week until the end date; free plan unchanged', async () => {
+  const t = await makeEnv(), paid = addPlan(t.DB, { price: 349, limit_4h: 10, limit_week: 40 }), u = await t.user(), f = await t.user();
+  t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(paid.id, Date.now() + 864e5, u.id);
+  t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,1,0,0,0,5,5,?)').run(u.id, Date.now());
+  t.DB.raw.prepare('UPDATE users SET sess_start=?, week_start=? WHERE id=?').run(Date.now() - 1000, Date.now() - 1000, u.id);
+  const pct = async c => (await t.json('/api/me', { cookie: c })).data.usage;
+  let st = await pct(u.cookie); assert.equal(st.pct4h, 50); assert.equal(st.pctWeek, 12.5);
+  for (const [k, v] of [['promo_until', String(Date.now() + 864e5)], ['promo_x4h', '2'], ['promo_xweek', '1.5']]) t.DB.raw.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').run(k, v);
+  const t2 = await makeEnv(); void t2; // แคชโปรอยู่ในโมดูล: ใช้ Worker ชุดใหม่เพื่ออ่านค่าใหม่
+  const { loadWorker } = await import('./helpers.mjs'); t.worker = await loadWorker();
+  const call = async c => (await (await t.worker.default.fetch(new Request('https://t.test/api/me', { headers: { cookie: c } }), t.env, t.ctx)).json());
+  st = (await call(u.cookie)).usage; assert.equal(st.pct4h, 25); assert.equal(st.pctWeek, 8.3);
+  const pub = await (await t.worker.default.fetch(new Request('https://t.test/api/settings/public'), t.env, t.ctx)).json(); assert.equal(pub.promo.x4h, 2);
+  t.DB.raw.prepare("UPDATE settings SET value=? WHERE key='promo_until'").run(String(Date.now() - 1000)); t.worker = await loadWorker();
+  st = (await call(u.cookie)).usage; assert.equal(st.pct4h, 50, 'promo ended'); void f;
+});

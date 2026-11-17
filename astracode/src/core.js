@@ -174,7 +174,19 @@ export async function fbSession(req, env, c, b) { // c มาจาก token ท
 }
 
 // ---------- plan + limits ----------
+// โปรเพิ่มลิมิตทั้งเว็บ (ตั้งในหลังบ้าน): promo_until = หมดเขต (ms), promo_x4h / promo_xweek = ตัวคูณลิมิตรอบ 4 ชม. / สัปดาห์ · เฉพาะแพลนเสียเงิน · แคช 60 วินาทีต่อ isolate
+let boostCache = null;
+export async function limitBoost(env) {
+  if (boostCache && boostCache.db === env.DB && boostCache.exp > Date.now()) return boostCache.v;
+  const s = await getSettings(env, ['promo_until', 'promo_x4h', 'promo_xweek', 'promo_label']), on = +s.promo_until > Date.now();
+  const v = on ? { until: +s.promo_until, x4h: Math.max(1, +s.promo_x4h || 1), xweek: Math.max(1, +s.promo_xweek || 1), label: s.promo_label || '' } : null;
+  boostCache = { db: env.DB, exp: Date.now() + 60e3, v }; return v;
+}
 export async function planOf(env, u) {
+  const p = await planOf0(env, u), b = p?.price > 0 && await limitBoost(env);
+  return b && b.until > Date.now() ? Object.assign(p, { limit_4h: p.limit_4h * b.x4h, limit_week: p.limit_week * b.xweek, boost: b }) : p;
+}
+async function planOf0(env, u) {
   const now = Date.now();
   let personal = null;
   if (u.plan_id && u.plan_expires > now) {
