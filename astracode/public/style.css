@@ -1199,3 +1199,11 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .ctxm.warn { color: #f5b74e; } .ctxm.bad { color: #ff6b6b; }
 .acts .memhint { color: #f5b74e; border-color: rgba(245,183,78,.5); }
 .flag.agent-on { color: #7dcfff; border-color: rgba(125,207,255,.55); background: rgba(125,207,255,.10); font-weight: 600; }
+
+/* รูปที่ AI สร้าง + ปุ่มดาวน์โหลดมุมขวาบน */
+.genfig { position: relative; display: block; margin: 4px 0; max-width: min(100%, 512px); min-width: 64px; }
+.genfig img.gen { margin: 0; }
+.img-dl { position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(255,255,255,.25); background: rgba(10,10,12,.62); color: #fff; backdrop-filter: blur(8px); cursor: pointer; }
+.img-dl .ic { width: 20px; height: 20px; }
+.img-dl:hover { background: rgba(10,10,12,.85); }
+.acts button .ic { width: 16px; height: 16px; vertical-align: -3px; }

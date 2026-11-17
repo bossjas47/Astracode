@@ -116,3 +116,10 @@ test('fenceBare wraps unfenced code runs for display and leaves prose and fenced
   const m = fb(mixed); assert.ok(m.includes('```js\nconst a = 1;') && m.includes('return c;\n```\nแล้วลองรันดู'), m);
   const short = 'const a = 1;\nconst b = 2;'; assert.equal(fb(short), short, 'two lines are not wrapped');
 });
+
+test('generated images get a download button; vote, speak and memory buttons use icons instead of emoji', () => {
+  const d = join(dirname(fileURLToPath(import.meta.url)), '../public'), app = readFileSync(join(d, 'app.js'), 'utf8'), chat = readFileSync(join(d, 'chat.js'), 'utf8');
+  assert.ok(app.includes('class="img-dl"') && app.includes("closest('.img-dl')"));
+  for (const k of ['thumbup', 'thumbdown', 'volume', 'bulb']) assert.ok(new RegExp(`"${k}":"<`).test(app), 'icon ' + k);
+  assert.ok(!/[\u{1F44D}\u{1F44E}\u{1F50A}\u{1F4A1}\u{1F4C4}]/u.test(chat), 'no emoji left in the chat page buttons');
+});

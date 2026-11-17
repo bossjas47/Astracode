@@ -966,7 +966,7 @@ async function check() {
   const s = isPy ? {} : await shot();
   const logs = IDE.logs.filter(l => l.type !== 'info').slice(-40).map(l => `[${l.type}] ${l.msg}`).join('\n') || '(ไม่มีข้อความในคอนโซล)';
   const images = s.img && m.vision ? [s.img] : [];
-  const text = `📸 ตรวจผลลัพธ์อัตโนมัติ รอบ ${IDE.round}${images.length ? '' : s.img ? ' (โมเดลนี้อ่านรูปไม่ได้ ส่งเฉพาะข้อความ)' : ''}\n\nคอนโซล:\n${logs}`
+  const text = `ตรวจผลลัพธ์อัตโนมัติ รอบ ${IDE.round}${images.length ? '' : s.img ? ' (โมเดลนี้อ่านรูปไม่ได้ ส่งเฉพาะข้อความ)' : ''}\n\nคอนโซล:\n${logs}`
     + `\n\n[คำสั่งตรวจ]\nนี่คือผลลัพธ์หลังรันโปรเจกต์${images.length ? ' พร้อมภาพหน้าจอ' : ''}${!images.length && s.text ? `\nข้อความบนหน้าเว็บ:\n${s.text}` : ''}\nตรวจว่าทำงานถูกต้องตามที่ผู้ใช้ขอหรือไม่ ถ้ามีข้อผิดพลาดหรือหน้าตาไม่ตรง ให้แก้ไฟล์ตามรูปแบบ path= ถ้าถูกต้องแล้วให้ตอบสั้นๆ ว่าเสร็จแล้ว โดยไม่ต้องแก้ไฟล์`;
   setStatus('บันทึกแล้ว ✓'); setPane('ai');
   await codeSend({ text, images });
