@@ -35,7 +35,7 @@ for (const k of ['setUrl', 'go', 'qs', 'here', 'pageName', 'limHTML', 'askHTML',
   if (typeof globalThis[k] !== 'function') console.warn('[AstraCode] app.js ไม่มี ' + k + '() — deploy app.js ให้ตรงกับ chat.js');
 let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ครั้งเดียว กันวนไม่จบ
 // กดหยุด = สั่งเซิร์ฟเวอร์หยุดตอบจริง (แค่ปิดจอหรือหลุดเน็ต AI จะตอบต่อเบื้องหลัง)
-function stopRun() { if (chat.id) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id }) }).catch(() => {}); chat.ctrl?.abort(); }
+function stopRun() { if (chat.enhancing) return chat.enhancing.abort(); if (chat.id) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id }) }).catch(() => {}); chat.ctrl?.abort(); }
 // สลับแชตโดยไม่โหลดหน้าใหม่
 function openChat(id) { if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
 addEventListener('popstate', () => { if (pageName() === 'chat') chatView(qs().get('id')); });
@@ -335,13 +335,16 @@ function exitImageMode() {
 async function enhancePrompt(auto) { // ให้ AI ช่วยเขียน prompt (รูปที่แนบใช้เป็นแรงบันดาลใจ แล้วเอาออก เพราะโมเดลสร้างภาพไม่ได้ใช้รูป)
   const t = $('#t'), text = t.value.trim(), images = chat.images;
   if (!text && !images.length) { if (!auto) toast('พิมพ์ว่าอยากได้ภาพแบบไหนก่อน', 'bad'); return false; }
-  const btn = $('[data-flag="enh"]'); if (btn) { btn.disabled = true; btn.innerHTML = ic('sparkles', 'sm') + 'กำลังปรับ...'; }
+  const ac = chat.enhancing = new AbortController(), t0 = Date.now();
+  const tick = () => { const b = $('[data-flag="enh"]'); if (b) { b.disabled = true; b.innerHTML = ic('sparkles', 'sm') + `AI กำลังปรับ prompt ${Math.round((Date.now() - t0) / 1e3)}s`; } };
+  tick(); const iv = setInterval(tick, 1e3);
+  if (auto) toast('AI กำลังปรับ prompt ก่อนสร้างภาพ · กดปุ่มหยุดเพื่อยกเลิก');
   try {
-    const r = await api('/image/prompt', { method: 'POST', body: { text, images } });
+    const r = await api('/image/prompt', { method: 'POST', body: { text, images }, signal: ac.signal });
     t.value = r.prompt; chat.enhanced = r.prompt; t.oninput?.(); chat.images = []; drawThumbs();
     if (!auto) toast(`${r.model} ปรับ prompt แล้ว แก้ได้ก่อนกดส่ง`, 'ok'); return true;
-  } catch (x) { showErr(x.message); return false; }
-  finally { modelUI(); }
+  } catch (x) { if (x.name === 'AbortError') toast('ยกเลิกการปรับ prompt แล้ว · ข้อความเดิมยังอยู่'); else showErr(x.message); return false; }
+  finally { clearInterval(iv); chat.enhancing = null; modelUI(); }
 }
 function toolSheet() {
   const web = localStorage.getItem('web') === '1', vision = curModel()?.vision;

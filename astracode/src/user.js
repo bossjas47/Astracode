@@ -240,12 +240,19 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (!pick) return err('แพลนของคุณยังไม่มีโมเดลที่ช่วยเขียน prompt ได้', 403);
     if (imgs.length && !pick.vision) pick = ms.find(x => x.vision) || pick; if (!pick.vision) imgs = []; // ต้องอ่านรูปได้ถึงจะใช้รูปตัวอย่าง
     const m = await DB.prepare('SELECT * FROM models WHERE id=?').bind(pick.id).first();
-    let out = '', usage = null;
-    try { for await (const e of callModel(env, m, [{ role: 'user', content: (text || 'Create an image inspired by the attached picture.') + (imgs.length ? '\n\n(Attached picture(s) are inspiration only.)' : '') }], { effort: null, images: imgs, maxTokens: 500, userId: u.id, signal: AbortSignal.timeout(60e3), system: IMG_PROMPT_SYS })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; } }
-    catch (x) { return err('ช่วยเขียน prompt ไม่สำเร็จ: ' + String(x.message).slice(0, 120), 502); }
-    if (usage) await logUsage(env, u.id, m, usage, { plan });
+    const msg = [{ role: 'user', content: (text || 'Create an image inspired by the attached picture.') + (imgs.length ? '\n\n(Attached picture(s) are inspiration only.)' : '') }];
+    // effort ต่ำ: ถ้าไม่ส่ง โมเดลคิดได้จะคิดนานตามค่าเริ่มต้น ทำให้ผู้ใช้รอค้าง
+    const run = async (mm, ms2, im) => { let o = '', us = null; for await (const e of callModel(env, mm, msg, { effort: mm.effort && mm.effort !== 'none' ? 'low' : null, images: im, maxTokens: 500, userId: u.id, signal: AbortSignal.timeout(ms2), system: IMG_PROMPT_SYS })) { if (e.t) o += e.t; if (e.usage) us = e.usage; } if (us) await logUsage(env, u.id, mm, us, { plan }); return o; };
+    let out = '', used = m.name;
+    try { out = await run(m, 25e3, imgs); }
+    catch (x) { // ช้าหรือพัง → ลองโมเดลเร็ว/ถูกสุดอีกรอบ (ไม่ส่งรูป)
+      const fast = !imgs.length && (ms.find(y => /deepseek.*4\.1.*flash/i.test(y.name)) || [...ms].sort((a, c) => a.multiplier - c.multiplier)[0]);
+      if (!fast || fast.id === m.id) return err('ช่วยเขียน prompt ไม่สำเร็จ: ' + String(x.message).slice(0, 120), 502);
+      try { out = await run(await DB.prepare('SELECT * FROM models WHERE id=?').bind(fast.id).first(), 20e3, []); used = fast.name; }
+      catch (y) { return err('ช่วยเขียน prompt ไม่สำเร็จ: ' + String(y.message).slice(0, 120), 502); }
+    }
     const prompt = out.replace(/<think>[\s\S]*?<\/think>/g, '').trim().replace(/^```\w*\n?|```$/g, '').replace(/^["'“”]+|["'“”]+$/g, '').trim().slice(0, 2000);
-    return prompt ? json({ prompt, model: m.name }) : err('AI ไม่ได้ส่ง prompt กลับมา ลองใหม่อีกครั้ง', 502);
+    return prompt ? json({ prompt, model: used }) : err('AI ไม่ได้ส่ง prompt กลับมา ลองใหม่อีกครั้ง', 502);
   }
   if (path === '/api/image' && M === 'POST') return await imageGen(req, env, u);
   if ((r = path.match(/^\/api\/img\/(\d+)\/([\w-]+)\.(png|jpg)$/))) {
