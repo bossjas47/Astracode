@@ -47,6 +47,7 @@ ${index ? `<link rel="canonical" href="${SITE}/${file === 'home' ? '' : file}">`
 <link rel="icon" href="/icon.svg">
 <link rel="apple-touch-icon" href="/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 ${file === 'home' ? `<script type="application/ld+json">${LD}</script>\n` : ''}</head>

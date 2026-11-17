@@ -113,7 +113,7 @@ function md(s) {
     const raw = nl >= 0 ? part.slice(nl + 1) : part;
     if (/^mermaid$/i.test(lang) && !file) return `<div class="mermaid-box"><div class="mermaid">${esc(raw.trim())}</div></div>`;
     const body = /^(json|csv|txt|text|md|markdown)$/i.test(lang) || file ? esc(raw) : hlCode(raw);
-    return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} Preview</button>` : ''}<button class="cp-code">Copy</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' Download' : ''}</button></div><pre><code>${body}</code></pre></div>`;
+    return `<div class="code ${file ? 'file' : ''}"><div class="code-h">${file ? `<span class="fname">${ic('filetext')} ${esc(file)}</span>` : `<span>${esc(lang || 'code')}</span>`}${/^(html|svg|xml)$/i.test(lang) ? `<button class="run-code">${ic('play')} Preview</button>` : ''}<button class="cp-code">Copy</button><button class="dl-code ${file ? 'main' : ''}" data-name="${esc(file || info.match(/\bpath=(\S+)/)?.[1]?.split('/').pop() || '')}" data-lang="${esc(lang)}" aria-label="ดาวน์โหลด">${ic('download')}${file ? ' Download' : ''}</button></div><pre tabindex="0"><code>${body}</code></pre></div>`;
   }).join('');
 }
 // แยกบล็อกคำถามของ AI ให้ใช้ร่วมกันทั้งหน้า Chat และหน้า Code
@@ -260,7 +260,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') document.que
 const page = html => { const again = !!app.querySelector('.view'), y = scrollY; app.innerHTML = `<div class="view${again ? ' still' : ''}">${html}</div>`; if (again) scrollTo(0, y); if (me) notifLoad(); };
 
 function planTiles(plans, sel, period) {
-  return `<div class="grid">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
+  return `<div class="grid" tabindex="0" aria-label="แพลน (เลื่อนดูได้)">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
     ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}
     <div style="font:600 19px var(--display)">${esc(p.name)}</div>
     <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') : ''}</small></div>
@@ -271,12 +271,12 @@ function planTiles(plans, sel, period) {
 }
 function compareTable(plans) {
   const names = [...new Set(plans.flatMap(p => p.models.map(m => m.name)))];
-  return `<div class="tw"><table class="cmp"><tr><th></th>${plans.map(p => `<th>${esc(p.name)}</th>`).join('')}</tr>
-    <tr><td>ราคา/เดือน</td>${plans.map(p => `<td>${p.price > 0 ? fmtPlanPrice(p.price) : 'ฟรี'}</td>`).join('')}</tr>
-    ${names.map(n => `<tr><td>${esc(n)}</td>${plans.map(p => { const m = p.models.find(x => x.name === n); return `<td>${m ? '~' + num(m.week) : '<span class="muted">—</span>'}</td>`; }).join('')}</tr>`).join('')}
-    <tr><td>จำนวนผู้ใช้</td>${plans.map(p => `<td>${p.seats > 1 ? `${p.seats} คน (${p.shared_pool ? 'งบรวม' : 'แยกโควตา'})` : '1 คน'}</td>`).join('')}</tr>
-    <tr><td>API Key</td>${plans.map(p => `<td>${p.api_limit ? '<span class="ok">หักลิมิตแพลนได้</span>' : '<span class="muted">หัก Wallet</span>'}</td>`).join('')}</tr>
-    <tr><td>รีเซ็ตลิมิต</td>${plans.map(() => '<td>4 ชม. + สัปดาห์</td>').join('')}</tr></table></div>
+  return `<div class="tw"><table class="cmp"><tr><th></th>${plans.map(p => `<th scope="col">${esc(p.name)}</th>`).join('')}</tr>
+    <tr><th scope="row">ราคา/เดือน</th>${plans.map(p => `<td>${p.price > 0 ? fmtPlanPrice(p.price) : 'ฟรี'}</td>`).join('')}</tr>
+    ${names.map(n => `<tr><th scope="row">${esc(n)}</th>${plans.map(p => { const m = p.models.find(x => x.name === n); return `<td>${m ? '~' + num(m.week) : '<span class="muted">—</span>'}</td>`; }).join('')}</tr>`).join('')}
+    <tr><th scope="row">จำนวนผู้ใช้</th>${plans.map(p => `<td>${p.seats > 1 ? `${p.seats} คน (${p.shared_pool ? 'งบรวม' : 'แยกโควตา'})` : '1 คน'}</td>`).join('')}</tr>
+    <tr><th scope="row">API Key</th>${plans.map(p => `<td>${p.api_limit ? '<span class="ok">หักลิมิตแพลนได้</span>' : '<span class="muted">หัก Wallet</span>'}</td>`).join('')}</tr>
+    <tr><th scope="row">รีเซ็ตลิมิต</th>${plans.map(() => '<td>4 ชม. + สัปดาห์</td>').join('')}</tr></table></div>
     <p class="muted" style="text-align:center">ตัวเลขในตาราง = จำนวนข้อความโดยประมาณต่อสัปดาห์</p>`;
 }
 const FAQ = [
@@ -309,7 +309,7 @@ async function landing() {
     <p>Claude, ChatGPT, Gemini และ DeepSeek ในเว็บเดียว เปิดบนมือถือได้ทันที ไม่ต้องลงแอป${cheapest ? ` · เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''}</p>
     <div class="row" style="justify-content:center">${me ? `<a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>` : `<a class="btn blue" href="/login">Get started free</a><a class="btn out" href="#plans">View plans</a>`}</div>
     <a class="statusb" href="/status" id="stb" hidden></a>
-    <div class="showcase" aria-hidden="true">
+    <div class="showcase" aria-hidden="true" inert>
       <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="ring" style="--p:24"></i>24%</span></div>
       <div class="sc-chat">
         <div class="sc-u">เขียนฟังก์ชัน Python เช็กเลขเฉพาะ พร้อมตัวอย่างทดสอบ</div>
@@ -335,7 +335,7 @@ async function landing() {
       <div class="tile"><div class="stat">${ic('globe')}</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
       <a class="tile link" href="/developers"><div class="stat">${ic('braces')}</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
     </div></div>
-    <div class="band"><h2>ทีม AI ทำงานแทนคุณ</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">สั่งครั้งเดียวแล้วปิดแอปได้ ทำงานต่อบนเซิร์ฟเวอร์ เสร็จแล้วแจ้งทางอีเมล</p><div class="grid demos" aria-hidden="true">
+    <div class="band"><h2>ทีม AI ทำงานแทนคุณ</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">สั่งครั้งเดียวแล้วปิดแอปได้ ทำงานต่อบนเซิร์ฟเวอร์ เสร็จแล้วแจ้งทางอีเมล</p><div class="grid demos" aria-hidden="true" inert>
       <div class="tile demo"><div class="dm-h">${ic('code', 'sm')} ทีม Agent · โหมด Code</div><div class="dm-q">ทำเว็บร้านกาแฟ หน้าแรก เมนู และฟอร์มติดต่อ</div>
         <div class="dm-row lead"><b>หัวหน้า</b><span>แบ่งงาน 3 ชิ้น</span></div>
         ${[['หน้าแรก', 'index.html', 1], ['หน้าเมนู', 'menu.html', 2], ['ฟอร์มติดต่อ', 'contact.html', 3]].map(([t, f, i]) => `<div class="dm-row w" style="--i:${i}"><b>ลูกทีม</b><span>${t} <small>${f}</small></span><i class="dm-bar"><i></i></i><em>✓</em></div>`).join('')}

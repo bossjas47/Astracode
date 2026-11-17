@@ -1284,3 +1284,9 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 .pc-msg { margin: 10px 0 0; font-size: 14px; } .pc-msg small { display: block; font-size: 12px; }
 .tok-help { max-width: 720px; margin: 0 auto 18px; text-align: left; } .tok-help summary { cursor: pointer; } .tok-help p { margin: 10px 0 0; line-height: 1.6; font-size: 14px; }
 .pill.new { background: var(--blue); color: #fff; font-size: 10.5px; padding: 1px 7px; margin-left: 4px; vertical-align: 1px; }
+.cmp th[scope=row], .tbl th[scope=row] { font-weight: inherit; text-align: left; color: inherit; }
+/* light theme: ผ่าน contrast 4.5:1 (axe) · ปุ่มส้มเข้มขึ้นเล็กน้อย, เขียวเข้มขึ้น, หัวกล่องโค้ด (พื้นเข้มทั้งสองธีม) ใช้สีอ่อน */
+:root[data-theme="light"] .btn.blue { background: #a4472a; }
+:root[data-theme="light"] .btn.blue:hover { background: #8f3d24; }
+:root[data-theme="light"] { --green: #177233; }
+:root[data-theme="light"] .code-h, :root[data-theme="light"] .code-h span, :root[data-theme="light"] .cp-code { color: #b8afa3; }

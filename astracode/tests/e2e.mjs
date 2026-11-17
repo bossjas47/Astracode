@@ -40,4 +40,60 @@ for (const [url, admin, loggedIn] of PAGES) {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${url}${loggedIn ? admin ? ' (admin)' : ' (user)' : ' (guest)'}${errs.length ? '  ' + errs.join(' | ').slice(0, 300) : ''}${text.length <= 20 ? '  (empty page)' : ''}${broke ? '  ' + text.match(/[^.\n]*(Cannot read properties|is not defined|is not a function|โหลดนานผิดปกติ)[^\n]*/)?.[0].slice(0, 160) : ''}`);
   await page.close();
 }
-await browser.close(); console.log(failed ? `${failed} page(s) failed` : 'all pages ok'); process.exit(failed ? 1 : 0);
+
+// ---------- เส้นทางหลัก: กดใช้งานจริงกับ API จำลอง แล้วตรวจว่าส่งคำขอถูกและหน้าแสดงผลถูก ----------
+async function open(url, extra = {}) {
+  const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], calls = [], api = { ...API(0, 1), ...extra };
+  page.on('pageerror', e => errs.push(e.message));
+  await page.addInitScript(() => { try { localStorage.setItem('onb', '1'); localStorage.setItem('whatsnew:2026-11', '1'); } catch {} });
+  await page.route('**/*', r => {
+    const q = r.request(), u = new URL(q.url()); if (u.hostname !== 't.test') return r.abort();
+    if (u.pathname.startsWith('/api/')) {
+      calls.push({ m: q.method(), p: u.pathname, body: q.postData() || '' });
+      if (u.pathname === '/api/chat') return r.fulfill({ status: 200, contentType: 'text/event-stream', body: ['{"chat_id":7}', '{"t":"สวัสดีครับ ทดสอบ"}', '{"done":true,"pct4h":12,"pctWeek":34,"mid":99}'].map(x => 'data: ' + x + '\n\n').join('') });
+      const d = typeof api[u.pathname] === 'function' ? api[u.pathname](q) : api[u.pathname];
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d ?? []) });
+    }
+    const f = join(pub, u.pathname === '/' ? 'home.html' : u.pathname), hit = [f, f + '.html'].find(x => existsSync(x) && statSync(x).isFile());
+    return hit ? r.fulfill({ path: hit }) : r.fulfill({ status: 404, body: '' });
+  });
+  await page.goto('http://t.test' + url); await page.waitForTimeout(800);
+  return { page, errs, calls };
+}
+const FLOWS = [
+  ['send a chat message and see the streamed answer', async () => {
+    const { page, errs, calls } = await open('/chat');
+    await page.fill('#t', 'สวัสดี'); await page.click('#go'); await page.waitForTimeout(800);
+    const sent = calls.find(c => c.p === '/api/chat'), text = await page.locator('#app').innerText();
+    return [!errs.length || errs.join(' | '), !!sent || 'no /api/chat call', /"text":"สวัสดี"/.test(sent?.body || '') || 'text not sent', text.includes('สวัสดีครับ ทดสอบ') || 'answer not shown'];
+  }],
+  ['delete a chat moves it to the trash', async () => {
+    const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
+    await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);
+    await page.evaluate(() => document.querySelector('.sheet-bg [data-v=del]').click()); await page.waitForTimeout(300);
+    const confirmText = await page.locator('.sheet-bg').innerText().catch(() => '');
+    await page.evaluate(() => [...document.querySelectorAll('.sheet-bg button')].find(b => /Delete/.test(b.textContent))?.click()); await page.waitForTimeout(400);
+    const del = calls.find(c => c.m === 'DELETE' && c.p === '/api/chats/80');
+    return [!errs.length || errs.join(' | '), /30 วัน/.test(confirmText) || 'confirm does not mention the 30-day trash', !!del || 'no DELETE /api/chats/80'];
+  }],
+  ['edit a file in Code mode saves it', async () => {
+    const { page, errs, calls } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] } });
+    await page.evaluate(() => setPane('code')); await page.click('.cm-content'); await page.keyboard.press('End'); await page.keyboard.type('<p>ok</p>'); await page.waitForTimeout(1800);
+    const put = calls.find(c => c.m === 'PUT' && c.p === '/api/projects/1/file');
+    return [!errs.length || errs.join(' | '), !!put || 'no save request', /<p>ok<\/p>/.test(put?.body || '') || 'typed text not saved'];
+  }],
+  ['pay for a plan with a slip uploads the image', async () => {
+    const { page, errs, calls } = await open('/plans');
+    await page.click('[data-plan="2"]'); await page.waitForTimeout(300);
+    await page.setInputFiles('input[name=slip]', { name: 's.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]) });
+    await page.click('#f button'); await page.waitForTimeout(500);
+    const pay = calls.find(c => c.m === 'POST' && c.p === '/api/pay');
+    return [!errs.length || errs.join(' | '), !!pay || 'no /api/pay call', /name="plan_id"[\s\S]*2/.test(pay?.body || '') || 'plan id missing'];
+  }],
+];
+for (const [name, fn] of FLOWS) {
+  let res; try { res = await fn(); } catch (e) { res = [e.message.split('\n')[0]]; }
+  const bad = res.filter(x => x !== true); if (bad.length) failed++;
+  console.log(`${bad.length ? 'FAIL' : 'ok  '} flow: ${name}${bad.length ? '  ' + bad.join(' · ') : ''}`);
+}
+await browser.close(); console.log(failed ? `${failed} check(s) failed` : 'all pages ok'); process.exit(failed ? 1 : 0);
