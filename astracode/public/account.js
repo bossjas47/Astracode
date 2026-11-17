@@ -18,6 +18,20 @@ function usageHTML(d) {
     ${d.models.length ? `<p class="muted" style="margin:12px 0 0">โมเดลที่ใช้: ${d.models.map(m => `${esc(m.name || 'อื่นๆ')} ${kfmt(m.tok)}`).join(' · ')}</p>` : ''}`;
 }
 
+// แปลงไฟล์ export: ChatGPT (mapping เป็นต้นไม้ เดินจาก current_node ย้อนขึ้น) หรือ Claude (chat_messages)
+function parseExport(d) {
+  const arr = Array.isArray(d) ? d : Array.isArray(d?.conversations) ? d.conversations : [];
+  return arr.map(c => {
+    let ms = [];
+    if (c.mapping) {
+      for (let id = c.current_node; id && c.mapping[id]; id = c.mapping[id].parent) {
+        const m = c.mapping[id].message, role = m?.author?.role, parts = m?.content?.parts;
+        if ((role === 'user' || role === 'assistant') && Array.isArray(parts)) { const t = parts.filter(p => typeof p === 'string').join('\n').trim(); if (t) ms.unshift({ role, content: t }); }
+      }
+    } else if (Array.isArray(c.chat_messages)) ms = c.chat_messages.map(m => ({ role: m.sender === 'human' ? 'user' : 'assistant', content: String(m.text || (Array.isArray(m.content) ? m.content.map(p => p?.text || '').join('\n') : '')).trim() })).filter(m => m.content);
+    return { title: c.title || c.name || 'แชตที่นำเข้า', created_at: (c.create_time ? c.create_time * 1000 : Date.parse(c.created_at || '')) || Date.now(), messages: ms };
+  }).filter(c => c.messages.length);
+}
 PAGES.account = async function account() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   await loadMe();
@@ -41,7 +55,7 @@ PAGES.account = async function account() {
       ${u.use4h === false ? '' : meterRow('รอบ 4 ชม.', u.pct4h, u.reset4h ? 'รีเซ็ต ' + when(u.reset4h) : 'เริ่มนับเมื่อส่งข้อความแรก')}
       ${meterRow('รอบสัปดาห์', u.pctWeek, 'รีเซ็ต ' + when(u.resetWeek))}</div>
 
-    <div class="card acc-c" id="sec-usage">${h3('การใช้งาน 30 วันล่าสุด')}${usageHTML(ud)}</div>
+    <div class="card acc-c" id="sec-usage">${h3('การใช้งาน 30 วันล่าสุด')}${usageHTML(ud)}<div id="badges" style="margin-top:16px"></div></div>
 
     
     <div class="card acc-c" id="sec-team">${h3('ทีม (Team Plan)')}
@@ -103,19 +117,34 @@ PAGES.account = async function account() {
     <div class="card acc-c" id="sec-security">${h3('ความปลอดภัย')}
       <div class="row"><button class="btn out sm" id="pw">Email password reset link</button><span id="pe"></span></div>
       <div style="margin-top:20px"><div style="font-weight:600;margin-bottom:6px">อุปกรณ์ที่ล็อกอินอยู่</div><div id="devs" class="muted">กำลังโหลด...</div></div>
+      <div style="margin-top:20px"><div style="font-weight:600;margin-bottom:6px">Passkey</div><p class="muted" style="margin:0 0 8px">ล็อกอินด้วยลายนิ้วมือ ใบหน้า หรือ PIN ของเครื่อง ไม่ต้องใช้รหัสผ่าน</p><div id="pks" class="muted">กำลังโหลด...</div><button type="button" class="btn out sm" id="pkadd" style="margin-top:8px">+ เพิ่ม Passkey ในเครื่องนี้</button></div>
       <div id="tfa" style="margin-top:20px"></div>
       ${me.line ? '<p class="muted" style="margin:16px 0 0">เชื่อม LINE แล้ว</p>' : ''}</div>
 
     <div class="card acc-c" id="sec-api">${h3('API สำหรับนักพัฒนา')}<p class="muted">สร้าง API key แล้วเรียกโมเดลทั้งหมดแบบ OpenAI จ่ายจาก Wallet</p><a class="btn out sm" href="/developers">Manage API keys</a></div>
 
     <div class="card acc-c" id="sec-data">${h3('ข้อมูลของคุณ')}
-      <div class="row"><a class="btn out sm" href="/api/me/export" download>Download all data</a><a class="btn out sm" href="/support">Contact us</a><button class="btn out sm danger" id="del">Delete account</button></div></div>
+      <div class="row"><a class="btn out sm" href="/api/me/export" download>Download all data</a><a class="btn out sm" href="/support">Contact us</a><button class="btn out sm danger" id="del">Delete account</button></div>
+      <div style="margin-top:16px"><div style="font-weight:600;margin-bottom:6px">นำเข้าแชตจาก ChatGPT / Claude</div><p class="muted" style="margin:0 0 8px">ChatGPT: Settings → Data controls → Export (ไฟล์ .zip) · Claude: Settings → Privacy → Export data · เลือกไฟล์ .zip หรือ conversations.json</p><label class="btn out sm" style="cursor:pointer">เลือกไฟล์<input type="file" id="impf" accept=".zip,.json,application/json,application/zip" hidden></label> <span id="impm" class="muted"></span></div></div>
 
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>${footer()}</div>`);
 
   const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
   $('#outTop').onclick = doOut;
   const pickSeg = (sel, attr, key) => document.querySelectorAll(sel + ' button').forEach(b => b.onclick = () => { localStorage.setItem(key, b.dataset[attr]); window.applyTheme?.(); document.querySelectorAll(sel + ' button').forEach(x => x.classList.toggle('on', x === b)); });
+  api('/badges').then(b => { const el = $('#badges'); if (!el) return; el.innerHTML = `<div style="font-weight:600;margin-bottom:6px">ตราสะสม · ${b.badges.filter(x => x.got).length}/${b.badges.length}${b.streak ? ` <span class="pill">🔥 ต่อเนื่อง ${b.streak} วัน</span>` : ''}</div><div class="row" style="flex-wrap:wrap;gap:8px">${b.badges.map(x => `<span class="pill" title="${esc(x.name)}" style="${x.got ? '' : 'opacity:.35;filter:grayscale(1)'}">${x.icon} ${esc(x.name)}</span>`).join('')}</div>`; }).catch(() => {});
+  $('#impf').onchange = async e => {
+    const f = e.target.files[0], m = $('#impm'); if (!f) return; e.target.value = '';
+    try {
+      m.textContent = 'กำลังอ่านไฟล์...';
+      let txt; if (/\.zip$/i.test(f.name)) { await lib('jszip'); const z = await JSZip.loadAsync(f), cf = z.file(/(^|\/)conversations\.json$/)[0]; if (!cf) throw new Error('ไม่พบ conversations.json ในไฟล์ zip'); txt = await cf.async('string'); } else txt = await f.text();
+      const chats = parseExport(JSON.parse(txt)); if (!chats.length) throw new Error('ไม่พบแชตในไฟล์นี้');
+      let done = 0; for (let i = 0; i < chats.length; i += 50) { m.textContent = `กำลังนำเข้า ${Math.min(i + 50, chats.length)}/${chats.length}...`; done += (await api('/chats/import', { method: 'POST', body: { chats: chats.slice(i, i + 50) } })).imported; }
+      m.textContent = ''; toast(`นำเข้าแล้ว ${done} แชต (ชื่อขึ้นต้นด้วย 📥)`, 'ok');
+    } catch (x) { m.textContent = ''; toast(x.message, 'bad'); }
+  };
+  const pkDraw = async () => { const l = await api('/passkeys').catch(() => []); $('#pks').innerHTML = l.length ? l.map(k => `<div class="row" style="justify-content:space-between;padding:6px 0"><span>${esc(k.name)} <small class="muted">· เพิ่ม ${when(k.created_at)}${k.used_at ? ' · ใช้ล่าสุด ' + when(k.used_at) : ''}</small></span><button type="button" class="btn red sm" data-pkdel="${k.id}">ลบ</button></div>`).join('') : 'ยังไม่มี Passkey'; $('#pks').querySelectorAll('[data-pkdel]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบ Passkey นี้? เครื่องนั้นจะล็อกอินด้วย Passkey ไม่ได้อีก', { title: 'ลบ Passkey', ok: 'ลบ', danger: true })) { await api('/passkeys/' + b.dataset.pkdel, { method: 'DELETE' }); pkDraw(); } }); };
+  pkDraw(); $('#pkadd').onclick = async e => { e.target.disabled = true; try { await passkeyAdd(); toast('เพิ่ม Passkey แล้ว', 'ok'); pkDraw(); } catch (x) { if (x.name !== 'NotAllowedError') toast(x.message, 'bad'); } e.target.disabled = false; };
   const pb = $('#pushbtn'), pt = $('#pushtest'), pdraw = on => { pb.textContent = on ? 'ปิดแจ้งเตือนในเครื่องนี้' : 'เปิดแจ้งเตือน'; pt.hidden = !on; };
   pushState().then(pdraw).catch(() => pdraw(false));
   pb.onclick = async () => { pb.disabled = true; try { if (await pushState()) { await disablePush(); pdraw(false); toast('ปิดแจ้งเตือนแล้ว'); } else { await enablePush(); pdraw(true); toast('เปิดแจ้งเตือนแล้ว', 'ok'); } } catch (x) { toast(x.message, 'bad'); } pb.disabled = false; };

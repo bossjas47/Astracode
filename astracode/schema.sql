@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   plan_period TEXT NOT NULL DEFAULT 'month', reminded_at INTEGER, has_password INTEGER NOT NULL DEFAULT 1, fb_uid TEXT UNIQUE,
   created_at INTEGER NOT NULL
   , webhook_url TEXT                       -- แจ้งเตือนงบ API key ถึงปลายทางนี้ (https)
+  , bill_info TEXT                        -- ข้อมูลผู้ซื้อในใบเสร็จ (JSON: name, address, tax_id)
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
 );
 
@@ -238,6 +239,7 @@ CREATE TABLE IF NOT EXISTS users (
   plan_period TEXT NOT NULL DEFAULT 'month', reminded_at INTEGER, has_password INTEGER NOT NULL DEFAULT 1, fb_uid TEXT UNIQUE,
   created_at INTEGER NOT NULL
   , webhook_url TEXT                       -- แจ้งเตือนงบ API key ถึงปลายทางนี้ (https)
+  , bill_info TEXT                        -- ข้อมูลผู้ซื้อในใบเสร็จ (JSON: name, address, tax_id)
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
 );
 

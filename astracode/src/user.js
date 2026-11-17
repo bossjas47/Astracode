@@ -201,12 +201,45 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     ].map(q => DB.prepare(q).bind(u.id)));
     return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
   }
+  if (path === '/api/chats/import' && M === 'POST') { // นำเข้าแชตจากไฟล์ export ของ ChatGPT/Claude (หน้าเว็บแกะไฟล์แล้วส่งมาเป็นชุด ชุดละไม่เกิน 50 แชต)
+    if (await limited(env, 'import:' + u.id, 40, 3600e3)) return err('นำเข้าบ่อยเกินไป รอสักครู่', 429);
+    const list = (await req.json().catch(() => ({}))).chats; if (!Array.isArray(list) || !list.length || list.length > 50) return err('ไม่มีแชตให้นำเข้า');
+    if ((await DB.prepare('SELECT COUNT(*) n FROM chats WHERE user_id=?').bind(u.id).first()).n + list.length > 5000) return err('มีแชตเกิน 5,000 แล้ว ลบแชตเก่าก่อน');
+    let n = 0;
+    for (const c of list) {
+      const ms = (Array.isArray(c?.messages) ? c.messages : []).filter(m => ['user', 'assistant'].includes(m?.role) && typeof m.content === 'string' && m.content.trim()).slice(0, 500);
+      if (!ms.length) continue;
+      const t0 = Math.min(Math.max(+c.created_at || Date.now(), 1e12), Date.now());
+      const id = (await DB.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').bind(u.id, ('📥 ' + String(c.title || 'แชตที่นำเข้า')).slice(0, 80), t0).first()).id;
+      const ops = ms.map((m, i) => DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(id, m.role, m.content.slice(0, 20000), t0 + i));
+      for (let i = 0; i < ops.length; i += 50) await DB.batch(ops.slice(i, i + 50));
+      n++;
+    }
+    return json({ imported: n });
+  }
+  if (path === '/api/badges') { // ตราสะสม: คำนวณจากข้อมูลที่มีอยู่ ไม่มีรางวัลเป็นเงิน
+    const now = Date.now(), BK = 7 * 3600e3;
+    const days = (await DB.prepare('SELECT DISTINCT CAST((created_at+?)/86400000 AS INTEGER) d FROM usage WHERE user_id=? AND created_at>? ORDER BY d').bind(BK, u.id, now - 400 * 864e5).all()).results.map(r => r.d);
+    let best = 0, run = 0; days.forEach((d, i) => { run = i && d === days[i - 1] + 1 ? run + 1 : 1; best = Math.max(best, run); });
+    const today = Math.floor((now + BK) / 864e5), cur = days.length && days.at(-1) >= today - 1 ? (() => { let n = 1; for (let i = days.length - 1; i > 0 && days[i] === days[i - 1] + 1; i--) n++; return n; })() : 0;
+    const q = async (sql, ...a) => (await DB.prepare(sql).bind(...a).first())?.n || 0;
+    const [msgs, projs, agents, refs, paid] = await Promise.all([
+      q("SELECT COUNT(*) n FROM messages m JOIN chats c ON c.id=m.chat_id WHERE c.user_id=? AND m.role='user'", u.id), q('SELECT COUNT(*) n FROM projects WHERE user_id=?', u.id),
+      q("SELECT COUNT(*) n FROM agent_jobs WHERE user_id=? AND parent_id IS NULL AND status='done'", u.id).catch(() => 0), q('SELECT COUNT(*) n FROM users WHERE referred_by=?', u.id), q("SELECT COUNT(*) n FROM payments WHERE user_id=? AND status='approved'", u.id)]);
+    const B = [['streak7', '🔥', 'ใช้ต่อเนื่อง 7 วัน', best >= 7], ['streak30', '🌋', 'ใช้ต่อเนื่อง 30 วัน', best >= 30], ['msg100', '💬', 'ส่งข้อความครบ 100', msgs >= 100], ['msg1000', '🗣️', 'ส่งข้อความครบ 1,000', msgs >= 1000],
+      ['proj', '🧑‍💻', 'สร้างโปรเจกต์แรก', projs >= 1], ['agent', '🤖', 'Agent ทำงานสำเร็จ', agents >= 1], ['ref', '🤝', 'ชวนเพื่อนสำเร็จ', refs >= 1], ['supporter', '💎', 'ผู้สนับสนุน', paid >= 1]];
+    return json({ streak: cur, best, msgs, badges: B.map(([id, icon, name, got]) => ({ id, icon, name, got })) });
+  }
+  if (path === '/api/bill-info' && M === 'PUT') { // ข้อมูลผู้ซื้อในใบเสร็จ (บริษัท): ชื่อ ที่อยู่ เลขผู้เสียภาษี
+    const b = await req.json().catch(() => ({})), v = { name: String(b.name || '').trim().slice(0, 120), address: String(b.address || '').trim().slice(0, 400), tax_id: String(b.tax_id || '').replace(/[^\d-]/g, '').slice(0, 20) };
+    await DB.prepare('UPDATE users SET bill_info=? WHERE id=?').bind(v.name || v.address || v.tax_id ? JSON.stringify(v) : null, u.id).run(); return json(v);
+  }
   if ((r = path.match(/^\/api\/receipt\/(\d+)$/))) {
-    const p = await DB.prepare("SELECT p.*,pl.name plan_name,us.email FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id JOIN users us ON us.id=p.user_id WHERE p.id=? AND p.status='approved'").bind(r[1]).first();
+    const p = await DB.prepare("SELECT p.*,pl.name plan_name,us.email,us.bill_info FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id JOIN users us ON us.id=p.user_id WHERE p.id=? AND p.status='approved'").bind(r[1]).first();
     if (!p || (p.user_id !== u.id && u.role !== 'admin')) return err('ไม่พบใบเสร็จ', 404);
     const b = await getSettings(env, ['business_name', 'business_address', 'business_tax_id']);
     return json({ id: p.id, no: 'AC' + String(p.id).padStart(6, '0'), date: p.approved_at || p.created_at, email: p.email, amount: p.amount, discount: p.discount, coupon: p.coupon,
-      item: p.kind === 'topup' ? 'เติมเงิน Wallet' : `แพลน ${p.plan_name} (${p.period === 'year' ? '1 ปี' : '30 วัน'})`, business: b });
+      item: p.kind === 'topup' ? 'เติมเงิน Wallet' : `แพลน ${p.plan_name} (${p.period === 'year' ? '1 ปี' : '30 วัน'})`, business: b, buyer: (() => { try { return JSON.parse(p.bill_info || 'null'); } catch { return null; } })(), mine: p.user_id === u.id });
   }
   if (path === '/api/tickets') {
     if (M === 'GET') return json((await DB.prepare('SELECT * FROM tickets WHERE user_id=? ORDER BY updated_at DESC').bind(u.id).all()).results);

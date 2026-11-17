@@ -8,6 +8,7 @@ import { contextApi } from './context.js';
 import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
+import { passkeyApi, passkeyPublic } from './passkey.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
 // ข้อมูลหน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
@@ -157,6 +158,7 @@ export async function route(req, env, ctx, url, path, M) {
         if (!await totpOk(env, u, b.code)) return err('รหัส 2FA ไม่ถูกต้อง', 401);
         return await startSession(env, u.id, req);
       }
+      if (path.startsWith('/api/passkey/login')) { const pr = await passkeyPublic(req, env, path); if (pr) return pr; }
       if (path === '/api/auth' && M === 'POST') return await emailAuth(req, env);
       if ((path === '/api/pricing' || path === '/api/plans') && M === 'GET') { // ข้อมูลสาธารณะที่คิดหนัก (หลาย query): เก็บในหน่วยความจำ 30 วินาที แอดมินแก้แล้วเห็นผลภายใน 30 วิ
         const hit = pubCache.get(path);
@@ -226,6 +228,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/context' && M === 'GET') return await contextApi(req, env, u);
       if (path === '/api/agent' || path.startsWith('/api/agent/')) return await agentApi(req, env, u, path);
       if (path.startsWith('/api/push/')) return await pushApi(req, env, u, path);
+      if (path.startsWith('/api/passkey')) { const pr = await passkeyApi(req, env, u, path); if (pr) return pr; }
       if ((path === '/api/chats/trash' || path === '/api/chats/archived') && M === 'GET') { // ถังขยะ (เก็บ 30 วัน แล้วลบถาวร) และแชตที่เก็บถาวร
         const trash = path.endsWith('trash');
         return json((await env.DB.prepare(`SELECT id,title,deleted_at FROM chats WHERE user_id=? AND project_id IS NULL AND ${trash ? 'deleted_at>?' : 'deleted_at IS NULL AND archived=1 AND ?>=0'} ORDER BY id DESC LIMIT 100`).bind(u.id, trash ? Date.now() - 30 * DAY : 0).all()).results);

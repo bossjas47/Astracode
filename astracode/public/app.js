@@ -413,6 +413,7 @@ function auth() {
       ${forms[mode]()}
       ${site.turnstile && ['login', 'register', 'forgot'].includes(mode) ? '<div id="cft" style="margin:12px 0"></div>' : ''}<div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${btn[mode]}</button>
       ${mode === 'verify' ? '<div class="row" style="justify-content:center;margin-top:12px"><button type="button" class="btn out sm" id="resend">Resend link</button><a href="#" data-m="login">ใช้อีเมลอื่น</a></div>' : ''}
+      ${mode === 'login' && window.PublicKeyCredential ? '<button type="button" class="btn out" id="pkl" style="width:100%;margin-top:10px">เข้าสู่ระบบด้วย Passkey</button>' : ''}
       ${mode === 'login' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="forgot">ลืมรหัสผ่าน?</a></p>' : ''}
       ${!tabs && mode !== 'verify' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="login">กลับไปเข้าสู่ระบบ</a></p>' : ''}
       <p class="muted" style="text-align:center;margin:12px 0 0">การ${mode === 'register' ? 'สมัคร' : 'ใช้งาน'}ถือว่ายอมรับ<a href="/terms">เงื่อนไขและนโยบายความเป็นส่วนตัว</a></p></form></div>`);
@@ -422,6 +423,7 @@ function auth() {
       if (window.turnstile) go(); else { const sc = document.createElement('script'); sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; sc.onload = go; document.head.append(sc); }
     }
     const busy = (b, on) => { b.disabled = on; b.classList.toggle('loading', on); };
+    $('#pkl')?.addEventListener('click', async e => { busy(e.target, true); $('#e').textContent = ''; try { await passkeyLogin(); await done(); } catch (x) { if (x.name !== 'NotAllowedError') $('#e').textContent = x.message; busy(e.target, false); } });
     $('#resend')?.addEventListener('click', async e => {
       busy(e.target, true);
       try { await send('login'); } catch (x) { $('#e').textContent = x.message; busy(e.target, false); }
@@ -1007,6 +1009,21 @@ const loadSite = async () => { site = await api('/settings/public').catch(() => 
 Promise.all([loadMe(), loadSite(), domReady]).then(boot);
 // service worker retired: remove any copy a visitor still has (sw.js also clears its caches)
 if ('serviceWorker' in navigator && !window.DEMO) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => { if (!/push-sw\.js$/.test(r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || '')) r.unregister(); })).catch(() => {});
+// Passkey (WebAuthn): ข้อมูลไบนารีส่งเป็น base64url
+const pkB64 = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const pkBin = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function passkeyLogin() {
+  const o = await api('/passkey/login-options');
+  const c = await navigator.credentials.get({ publicKey: { challenge: pkBin(o.challenge), rpId: o.rpId, userVerification: o.userVerification, timeout: o.timeout } });
+  await api('/passkey/login', { method: 'POST', body: { id: c.id, clientDataJSON: pkB64(c.response.clientDataJSON), authenticatorData: pkB64(c.response.authenticatorData), signature: pkB64(c.response.signature) } });
+}
+async function passkeyAdd() {
+  if (!window.PublicKeyCredential) throw new Error('เบราว์เซอร์นี้ไม่รองรับ Passkey');
+  const o = await api('/passkey/register-options', { method: 'POST' });
+  const c = await navigator.credentials.create({ publicKey: { ...o, challenge: pkBin(o.challenge), user: { ...o.user, id: pkBin(o.user.id) }, excludeCredentials: o.excludeCredentials.map(x => ({ ...x, id: pkBin(x.id) })) } });
+  const pub = c.response.getPublicKey?.(); if (!pub) throw new Error('เบราว์เซอร์นี้สร้าง Passkey ได้แต่ส่ง public key ไม่ได้ ลองอัปเดตเบราว์เซอร์');
+  await api('/passkey/register', { method: 'POST', body: { id: c.id, clientDataJSON: pkB64(c.response.clientDataJSON), publicKey: pkB64(pub), alg: c.response.getPublicKeyAlgorithm(), name: /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone/iPad' : /Android/.test(navigator.userAgent) ? 'Android' : /Mac/.test(navigator.userAgent) ? 'Mac' : /Windows/.test(navigator.userAgent) ? 'Windows' : 'อุปกรณ์' } });
+}
 // แจ้งเตือนเข้ามือถือ (Web Push): ใช้ service worker แยกที่รับแค่ push · iPhone ต้องเพิ่มเว็บลงหน้าจอโฮมก่อน
 const pushOK = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 async function pushReg() { return navigator.serviceWorker.register('/push-sw.js', { scope: '/push/' }); }

@@ -160,11 +160,15 @@ PAGES.receipt = async () => {
   page(`<div class="receipt"><div class="row no-print" style="margin-bottom:16px"><a href="/plans">← กลับ</a><span class="sp"></span><button class="btn blue sm" id="pr">Print / Save PDF</button></div>
     <div class="paper"><div class="row"><div><h1>${esc(b.business_name || 'AstraCode')}</h1>${b.business_address ? `<p>${esc(b.business_address).replace(/\n/g, '<br>')}</p>` : ''}${b.business_tax_id ? `<p>เลขประจำตัวผู้เสียภาษี ${esc(b.business_tax_id)}</p>` : ''}</div>
       <span class="sp"></span><div style="text-align:right"><h2>ใบเสร็จรับเงิน</h2><p>เลขที่ ${esc(r.no)}<br>วันที่ ${new Date(r.date).toLocaleDateString(LOC, { dateStyle: 'long' })}</p></div></div>
-      <p><b>ลูกค้า</b> ${esc(r.email)}</p>
+      <p><b>ลูกค้า</b> ${r.buyer?.name ? `${esc(r.buyer.name)}<br>${r.buyer.address ? esc(r.buyer.address).replace(/\n/g, '<br>') + '<br>' : ''}${r.buyer.tax_id ? 'เลขประจำตัวผู้เสียภาษี ' + esc(r.buyer.tax_id) + '<br>' : ''}<span class="muted">${esc(r.email)}</span>` : esc(r.email)}</p>
       <table><tr><th>รายการ</th><th style="text-align:right">จำนวนเงิน</th></tr>
         <tr><td>${esc(r.item)}</td><td style="text-align:right">฿${baht(r.amount + (r.discount || 0))}</td></tr>
         ${r.discount ? `<tr><td>ส่วนลด${r.coupon ? ` (${esc(r.coupon)})` : ''}</td><td style="text-align:right">-฿${baht(r.discount)}</td></tr>` : ''}
         <tr class="tot"><td>รวมทั้งสิ้น</td><td style="text-align:right">฿${baht(r.amount)}</td></tr></table>
-      <p class="muted">ชำระแล้ว · ขอบคุณที่ใช้บริการ</p></div></div>`);
+      <p class="muted">ชำระแล้ว · ขอบคุณที่ใช้บริการ</p></div>
+    ${r.mine ? `<details class="card no-print" style="margin-top:16px"><summary><b>ออกในนามบริษัท</b> <span class="muted">ใส่ชื่อ ที่อยู่ และเลขผู้เสียภาษีของผู้ซื้อ (ใช้กับใบเสร็จทุกใบ)</span></summary>
+      <form id="bif" class="sheet-form" style="margin-top:10px"><input name="name" maxlength="120" placeholder="ชื่อบริษัท / ผู้ซื้อ" value="${esc(r.buyer?.name || '')}"><textarea name="address" rows="2" maxlength="400" placeholder="ที่อยู่">${esc(r.buyer?.address || '')}</textarea><input name="tax_id" inputmode="numeric" maxlength="20" placeholder="เลขประจำตัวผู้เสียภาษี 13 หลัก" value="${esc(r.buyer?.tax_id || '')}"><button class="btn blue sm">บันทึก</button></form>
+      <p class="muted" style="font-size:12.5px">เอกสารนี้เป็นใบเสร็จรับเงิน ไม่ใช่ใบกำกับภาษี</p></details>` : ''}</div>`);
   $('#pr').onclick = () => print();
+  $('#bif')?.addEventListener('submit', async e => { e.preventDefault(); try { await api('/bill-info', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('บันทึกแล้ว', 'ok'); PAGES.receipt(); } catch (x) { toast(x.message, 'bad'); } });
 };

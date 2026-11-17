@@ -221,3 +221,37 @@ test('long PDF excerpts keep the page number in front of chunks cut from mid-pag
   assert.match(out, /--- หน้า 3[23]( \(ต่อ\))? ---\n[^]*ยอดขายไตรมาสสาม/);
   assert.ok(out.length < 34000);
 });
+
+test('passkey: register with a software authenticator, log in with a signed assertion, replay is refused', async () => {
+  const t = await makeEnv(), u = await t.user(), S = crypto.subtle, te = new TextEncoder();
+  const { b64u, unb64u } = await import('../src/push.js');
+  const kp = await S.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']), spki = b64u(await S.exportKey('spki', kp.publicKey));
+  const cd = (type, challenge) => b64u(te.encode(JSON.stringify({ type, challenge, origin: 'https://t.test' })));
+  const ro = (await t.json('/api/passkey/register-options', { method: 'POST', cookie: u.cookie })).data;
+  assert.equal(ro.rp.id, 't.test');
+  assert.equal((await t.json('/api/passkey/register', { method: 'POST', cookie: u.cookie, body: { id: 'cred-abcdefghijklmnop', clientDataJSON: cd('webauthn.create', 'wrong'), publicKey: spki, alg: -7 } })).status, 400);
+  assert.equal((await t.json('/api/passkey/register', { method: 'POST', cookie: u.cookie, body: { id: 'cred-abcdefghijklmnop', clientDataJSON: cd('webauthn.create', ro.challenge), publicKey: spki, alg: -7 } })).status, 200);
+  const toDer = raw => { const i = b => { let x = [...b]; while (x.length > 1 && x[0] === 0 && !(x[1] & 0x80)) x.shift(); if (x[0] & 0x80) x.unshift(0); return [2, x.length, ...x]; }; const body = [...i(raw.slice(0, 32)), ...i(raw.slice(32))]; return new Uint8Array([0x30, body.length, ...body]); };
+  const assertion = async (count) => {
+    const lo = (await t.json('/api/passkey/login-options')).data, c = cd('webauthn.get', lo.challenge);
+    const ad = new Uint8Array(37); ad.set(new Uint8Array(await S.digest('SHA-256', te.encode('t.test')))); ad[32] = 5; new DataView(ad.buffer).setUint32(33, count);
+    const msg = new Uint8Array([...ad, ...new Uint8Array(await S.digest('SHA-256', unb64u(c)))]);
+    const sig = toDer(new Uint8Array(await S.sign({ name: 'ECDSA', hash: 'SHA-256' }, kp.privateKey, msg)));
+    return { id: 'cred-abcdefghijklmnop', clientDataJSON: c, authenticatorData: b64u(ad), signature: b64u(sig) };
+  };
+  const a1 = await assertion(1), r1 = await t.call('/api/passkey/login', { method: 'POST', body: a1 });
+  assert.equal(r1.status, 200); assert.match(r1.headers.get('set-cookie'), /^sid=/);
+  assert.equal((await t.call('/api/passkey/login', { method: 'POST', body: a1 })).status, 401); // challenge ใช้ซ้ำไม่ได้
+  assert.equal((await t.call('/api/passkey/login', { method: 'POST', body: await assertion(1) })).status, 401); // ตัวนับไม่เดิน
+  assert.equal((await t.call('/api/passkey/login', { method: 'POST', body: await assertion(2) })).status, 200);
+});
+
+test('chat import stores user/assistant turns only; badges endpoint reports progress', async () => {
+  const t = await makeEnv(), u = await t.user();
+  const r = await t.json('/api/chats/import', { method: 'POST', cookie: u.cookie, body: { chats: [{ title: 'เก่า', created_at: 1.7e12, messages: [{ role: 'user', content: 'สวัสดี' }, { role: 'system', content: 'x' }, { role: 'assistant', content: 'ครับ' }] }, { title: 'ว่าง', messages: [] }] } });
+  assert.equal(r.data.imported, 1);
+  const c = t.DB.raw.prepare('SELECT id,title FROM chats WHERE user_id=?').get(u.id); assert.match(c.title, /เก่า/);
+  assert.deepEqual(t.DB.raw.prepare('SELECT role FROM messages WHERE chat_id=? ORDER BY id').all(c.id).map(x => x.role), ['user', 'assistant']);
+  const b = (await t.json('/api/badges', { cookie: u.cookie })).data;
+  assert.equal(b.badges.length, 8); assert.equal(b.msgs, 1);
+});
