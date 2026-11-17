@@ -587,29 +587,36 @@ async function shareProject() {
   });
 }
 // Agent เบื้องหลัง: ส่งงานให้เซิร์ฟเวอร์ทำเองทั้งชุด (ปิดแอปได้) · ดูสถานะ/หยุด/โหลดไฟล์ใหม่
-const AG_LABEL = { queued: 'รอคิว', running: 'กำลังทำงาน', stopping: 'กำลังหยุด', done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิต', failed: 'ไม่สำเร็จ', timeout: 'หมดเวลา', waiting: 'รอคิว (ไฟล์ชนกัน)', team: 'ทีมกำลังทำงาน', reviewing: 'กำลังตรวจรวม' };
-const agBusy = j => ['queued', 'running', 'stopping', 'team', 'reviewing'].includes(j?.status);
+const AG_LABEL = { queued: 'รอคิว', running: 'กำลังทำงาน', stopping: 'กำลังหยุด', done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิต', failed: 'ไม่สำเร็จ', timeout: 'หมดเวลา', waiting: 'รอคิว (ไฟล์ชนกัน)', team: 'ทีมกำลังทำงาน', reviewing: 'กำลังตรวจรวม', plan: 'รอยืนยันแผน', planned: 'ในแผน' };
+const agBusy = j => ['queued', 'running', 'stopping', 'team', 'reviewing', 'plan'].includes(j?.status);
 const AG_ROLE = { worker: 'ลูกทีม', review: 'ผู้ตรวจ' };
 // แผงทีม: ลูกทีมแต่ละตัว (สถานะ, ไฟล์, รอบ) + หยุดรายตัว
+// แผนของหัวหน้ารอยืนยัน: แก้ชื่อ/คำสั่ง/ไฟล์ หรือเอางานย่อยออก แล้วกดเริ่มทีม
+const planForm = j => `<p class="sheet-msg"><b>หัวหน้าแบ่งงานเสร็จแล้ว รอคุณยืนยัน</b><br><small class="muted">${esc(j.prompt.slice(0, 120))}</small></p><div id="agplan" data-id="${j.id}">${(j.team || []).filter(k => k.status === 'planned').map(k => { const p = JSON.parse(k.plan || '{}'); return `<div class="mem tm" style="display:block" data-k="${k.id}"><label class="sw-row" style="margin:0 0 6px"><span class="sw"><input type="checkbox" data-keep checked><span></span></span><input data-title value="${esc(p.title || '')}" maxlength="80" style="flex:1"></label><textarea data-prompt rows="3" maxlength="4000">${esc(p.prompt || '')}</textarea><input data-files value="${esc(JSON.parse(k.scope || '[]').join(', '))}" placeholder="ไฟล์ที่แก้ได้ คั่นด้วย ," style="margin-top:6px"></div>`; }).join('')}</div><div class="row"><button type="button" class="btn blue" id="agstart">เริ่มทีม</button><button type="button" class="btn red sm" id="agx">ยกเลิกแผน</button></div>`;
 const teamRows = j => (j.team || []).map(k => `<div class="mem tm"><span><b>${AG_ROLE[k.role] || k.role}</b> ${esc(k.role === 'review' ? 'ตรวจรวมผลงาน' : k.title)}<br><small class="muted">${AG_LABEL[k.status] || k.status}${k.rounds ? ' · ' + k.rounds + ' รอบ' : ''}${k.scope ? ' · ' + esc(JSON.parse(k.scope).join(', ')) : ''}</small></span>${['queued', 'running'].includes(k.status) ? `<button type="button" class="btn out sm" data-agstop="${k.id}">หยุด</button>` : ''}</div>`).join('');
 async function bgAgentSheet() {
   if (!me.plan.paid) return toast('Agent เบื้องหลังใช้ได้กับแพลนที่ชำระเงิน', 'bad');
   let timer = 0;
   const draw = async d => {
     const jobs = await api('/agent?project=' + IDE.pid).catch(() => []), busy = jobs.find(agBusy), box = d.querySelector('.sheet-b'); if (!box) return clearInterval(timer);
+    if (busy?.status === 'plan' && box.querySelector(`#agplan[data-id="${busy.id}"]`)) return; // กำลังแก้แผน: ไม่วาดทับ
     const m = $('#cmodel')?.value;
     box.innerHTML = `<div class="sheet-form">
-      ${busy ? `<p class="sheet-msg"><b>${AG_LABEL[busy.status]}</b>${busy.role === 'lead' ? (busy.team?.length ? ` · ทีม ${busy.team.filter(k => k.role === 'worker').length} ตัว` : ' · หัวหน้ากำลังแบ่งงาน') : ` · รอบที่ ${busy.rounds}/20`}<br><small class="muted">${esc(busy.prompt.slice(0, 120))}</small></p>${teamRows(busy)}<button type="button" class="btn red sm" id="agx">${busy.role === 'lead' ? 'หยุดทั้งทีม' : 'หยุดงานนี้'}</button>`
+      ${busy?.status === 'plan' ? planForm(busy) : busy ? `<p class="sheet-msg"><b>${AG_LABEL[busy.status]}</b>${busy.role === 'lead' ? (busy.team?.length ? ` · ทีม ${busy.team.filter(k => k.role === 'worker').length} ตัว` : ' · หัวหน้ากำลังแบ่งงาน') : ` · รอบที่ ${busy.rounds}/20`}<br><small class="muted">${esc(busy.prompt.slice(0, 120))}</small></p>${teamRows(busy)}<button type="button" class="btn red sm" id="agx">${busy.role === 'lead' ? 'หยุดทั้งทีม' : 'หยุดงานนี้'}</button>`
         : `<textarea id="agp" rows="4" maxlength="4000" placeholder="อธิบายงานให้ละเอียด เช่น ทำหน้า Contact พร้อมฟอร์ม ใส่ลิงก์ในเมนู และปรับสไตล์ให้เข้ากับหน้าแรก"></textarea>
-           <label class="sw-row"><span class="sw"><input type="checkbox" id="agteam"><span></span></span> ทีม Agent: หัวหน้า (โมเดลที่เลือก) แบ่งงาน ลูกทีม DeepSeek 4.1 Flash ทำพร้อมกันสูงสุด 5 ตัว แล้วตรวจรวม เหมาะกับงานใหญ่หลายไฟล์</label><button type="button" class="btn blue" id="agg">เริ่มให้ Agent ทำ</button><p class="muted" style="margin:0;font-size:12.5px">ใช้โมเดลที่เลือกอยู่ · ใช้ลิมิตแพลนตามจริง · แก้ไขย้อนกลับได้จาก "ประวัติโปรเจกต์"</p>`}
+           <label class="sw-row"><span class="sw"><input type="checkbox" id="agteam"><span></span></span> ทีม Agent: หัวหน้า (โมเดลที่เลือก) แบ่งงาน ลูกทีม DeepSeek 4.1 Flash ทำพร้อมกันสูงสุด 5 ตัว แล้วตรวจรวม เหมาะกับงานใหญ่หลายไฟล์</label><label class="sw-row" id="agcfw"><span class="sw"><input type="checkbox" id="agconfirm" checked><span></span></span> ให้ฉันตรวจแผนก่อนเริ่ม (ปิดถ้าจะสั่งแล้วปิดแอปเลย)</label><button type="button" class="btn blue" id="agg">เริ่มให้ Agent ทำ</button><p class="muted" style="margin:0;font-size:12.5px">ใช้โมเดลที่เลือกอยู่ · ใช้ลิมิตแพลนตามจริง · แก้ไขย้อนกลับได้จาก "ประวัติโปรเจกต์"</p>`}
       ${jobs.filter(j => !agBusy(j)).slice(0, 4).map(j => `<div class="mem tm" style="display:block"><b>${AG_LABEL[j.status] || j.status}</b> · ${j.rounds} รอบ · ${when(j.created_at)}<br><small class="muted">${esc(j.prompt.slice(0, 100))}</small>${j.summary ? `<br><small>${esc(j.summary.slice(0, 220))}</small>` : ''}${j.chat_id ? ` <a href="/chat?id=${j.chat_id}">ดูรายละเอียด</a>` : ''}</div>`).join('')}
     </div>`;
     box.querySelector('#agg')?.addEventListener('click', async e => {
       const prompt = box.querySelector('#agp').value.trim(); if (prompt.length < 10) return toast('อธิบายงานให้ละเอียดขึ้นอีกหน่อย', 'bad');
       e.target.disabled = true; await saveNow();
-      try { await api('/agent', { method: 'POST', body: { project_id: IDE.pid, model_id: +m, prompt, team: box.querySelector('#agteam')?.checked } }); toast('ส่งงานให้ Agent แล้ว ปิดแอปได้เลย จะอีเมลเมื่อเสร็จ', 'ok'); agWatch(); draw(d); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
+      try { await api('/agent', { method: 'POST', body: { project_id: IDE.pid, model_id: +m, prompt, team: box.querySelector('#agteam')?.checked, confirm: box.querySelector('#agconfirm')?.checked } }); toast('ส่งงานให้ Agent แล้ว ปิดแอปได้เลย จะอีเมลเมื่อเสร็จ', 'ok'); agWatch(); draw(d); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
     });
     box.querySelector('#agx')?.addEventListener('click', async () => { await api(`/agent/${busy.id}/stop`, { method: 'POST' }).catch(() => {}); draw(d); });
+    box.querySelector('#agstart')?.addEventListener('click', async e => {
+      const tasks = [...box.querySelectorAll('#agplan [data-k]')].filter(r => r.querySelector('[data-keep]').checked).map(r => ({ id: +r.dataset.k, title: r.querySelector('[data-title]').value, prompt: r.querySelector('[data-prompt]').value, files: r.querySelector('[data-files]').value }));
+      e.target.disabled = true; try { const r = await api(`/agent/${busy.id}/start`, { method: 'POST', body: { tasks } }); toast(`เริ่มทีม ${r.tasks} งานแล้ว ปิดแอปได้`, 'ok'); box.innerHTML = ''; agWatch(); draw(d); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
+    });
     box.querySelectorAll('[data-agstop]').forEach(b => b.onclick = async () => { await api(`/agent/${b.dataset.agstop}/stop`, { method: 'POST' }).catch(() => {}); draw(d); });
   };
   sheet('Agent บนเซิร์ฟเวอร์', '<p class="muted">กำลังโหลด...</p>', d => { draw(d); timer = setInterval(() => draw(d), 5000); new MutationObserver((_, o) => { if (!document.contains(d)) { clearInterval(timer); o.disconnect(); } }).observe(document.body, { childList: true }); });

@@ -82,7 +82,9 @@ async function applyChanges(env, pid, changes, raw = false) {
 // งานที่ค้าง 'running' เกิน 20 นาที (Durable Object ถูกตัดกลางทาง) ให้ปิดเป็น failed ไม่ให้ผู้ใช้ติดคิว
 export async function reapAgentJobs(env) {
   await ensureAgentTable(env);
-  const now = Date.now(), gone = (await env.DB.prepare("UPDATE agent_jobs SET status='failed', summary='งานถูกตัดกลางทาง (ระบบรีสตาร์ต) ไฟล์ที่แก้แล้วยังอยู่ สั่งต่อได้', finished_at=?1 WHERE (status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)<?2) OR (status IN ('waiting','team','reviewing') AND created_at<?3) RETURNING parent_id").bind(now, now - 20 * 60e3, now - 3 * 3600e3).all()).results;
+  const now = Date.now(), gone = (await env.DB.prepare("UPDATE agent_jobs SET status='failed', summary='งานถูกตัดกลางทาง (ระบบรีสตาร์ต) ไฟล์ที่แก้แล้วยังอยู่ สั่งต่อได้', finished_at=?1 WHERE (status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)<?2) OR (status IN ('waiting','team','reviewing') AND COALESCE(started_at,created_at)<?3) RETURNING parent_id").bind(now, now - 20 * 60e3, now - 3 * 3600e3).all()).results;
+  const exp = (await env.DB.prepare("UPDATE agent_jobs SET status='stopped', summary='แผนไม่ได้รับการยืนยันภายใน 24 ชม. ยกเลิกแล้ว', finished_at=?1 WHERE status='plan' AND created_at<?2 RETURNING id").bind(now, now - DAY).all()).results;
+  gone.push(...exp.map(x => ({ parent_id: x.id })));
   for (const pid of new Set(gone.map(g => g.parent_id).filter(Boolean))) await teamAdvance(env, pid).catch(() => {}); // ลูกทีมที่ค้างถูกปิดแล้ว ให้ทีมเดินต่อ (ตัวถัดไป/ผู้ตรวจ)
 }
 
@@ -108,7 +110,7 @@ const launch = async (env, id) => {
 export async function teamAdvance(env, leadId) {
   const DB = env.DB, lead = await DB.prepare('SELECT * FROM agent_jobs WHERE id=?').bind(leadId).first(); if (!lead) return;
   const kids = (await DB.prepare('SELECT id,status,scope,role FROM agent_jobs WHERE parent_id=? ORDER BY id').bind(leadId).all()).results;
-  if (lead.status !== 'team') { if (!['reviewing'].includes(lead.status)) await DB.prepare("UPDATE agent_jobs SET status='stopped', finished_at=? WHERE parent_id=? AND status='waiting'").bind(Date.now(), leadId).run(); return; }
+  if (lead.status !== 'team') { if (!['reviewing'].includes(lead.status)) await DB.prepare("UPDATE agent_jobs SET status='stopped', finished_at=? WHERE parent_id=? AND status IN ('waiting','planned')").bind(Date.now(), leadId).run(); return; }
   const files = k => { try { return JSON.parse(k.scope || '[]'); } catch { return []; } };
   const active = kids.filter(k => ['queued', 'running', 'stopping'].includes(k.status)), blocked = new Set(active.flatMap(files)), start = [];
   for (const w of kids.filter(k => k.status === 'waiting')) { const fs = files(w); if (!fs.some(f => blocked.has(f))) start.push(w); fs.forEach(f => blocked.add(f)); }
@@ -129,6 +131,7 @@ async function teamOver(env, u, plan, lead) {
   const used = (await env.DB.prepare('SELECT COALESCE(SUM(units),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(u.id, lead.created_at).first()).x;
   return used >= plan.limit_week * pct / 100;
 }
+const workerPrompt = (t, goal) => `${t.title || t.prompt.slice(0, 60)}\n\n${t.prompt}\n\n[งานรวมของทีม (ส่วนอื่นมีลูกทีมคนอื่นทำ)]\n${goal}\n\n[ขอบเขต] แก้หรือสร้างได้เฉพาะไฟล์: ${t.files.join(', ')} · อ่านไฟล์อื่นได้แต่ห้ามแก้`;
 // หัวหน้า: อ่านโปรเจกต์ (ไม่เกิน 3 รอบ) แล้วตอบแผน JSON → สร้างลูกทีม → เริ่มทีม
 async function runLead(env, J, u, plan, m) {
   const DB = env.DB, files = (await DB.prepare('SELECT path,length(content) n FROM project_files WHERE project_id=? ORDER BY path').bind(J.project_id).all()).results;
@@ -146,10 +149,11 @@ async function runLead(env, J, u, plan, m) {
     note = 'หัวหน้าส่งแผนไม่ถูกรูปแบบ';
   }
   if (!tasks) return { status: 'failed', note: note || 'หัวหน้าแบ่งงานไม่สำเร็จ' };
-  const wm = await workerModel(env, plan), goal = J.prompt.slice(0, 1500), now = Date.now();
-  await DB.batch(tasks.map(t => DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,parent_id,role,scope) VALUES (?,?,?,?,'waiting',?,?,'worker',?)")
-    .bind(J.user_id, J.project_id, (wm || m).id, `${t.title || t.prompt.slice(0, 60)}\n\n${t.prompt}\n\n[งานรวมของทีม (ส่วนอื่นมีลูกทีมคนอื่นทำ)]\n${goal}\n\n[ขอบเขต] แก้หรือสร้างได้เฉพาะไฟล์: ${t.files.join(', ')} · อ่านไฟล์อื่นได้แต่ห้ามแก้`, now, J.id, JSON.stringify(t.files))));
-  await setJob(env, J.id, { status: 'team', log: `แบ่งงาน ${tasks.length} ชิ้น (ลูกทีมใช้ ${(wm || m).name})\n` + tasks.map((t, i) => `${i + 1}. ${t.title} → ${t.files.join(', ')}`).join('\n') });
+  const wm = await workerModel(env, plan), goal = J.prompt.slice(0, 1500), now = Date.now(), confirm = J.scope === 'confirm'; // scope ของงานหัวหน้า = 'confirm' → รอผู้ใช้ยืนยันแผน
+  await DB.batch(tasks.map(t => DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,parent_id,role,scope,summary) VALUES (?,?,?,?,?,?,?,'worker',?,?)")
+    .bind(J.user_id, J.project_id, (wm || m).id, workerPrompt(t, goal), confirm ? 'planned' : 'waiting', now, J.id, JSON.stringify(t.files), confirm ? JSON.stringify({ title: t.title, prompt: t.prompt }) : null)));
+  await setJob(env, J.id, { status: confirm ? 'plan' : 'team', log: `แบ่งงาน ${tasks.length} ชิ้น (ลูกทีมใช้ ${(wm || m).name})\n` + tasks.map((t, i) => `${i + 1}. ${t.title} → ${t.files.join(', ')}`).join('\n') });
+  if (confirm) { await mail(env, u.email, 'AstraCode ทีม Agent: แผนพร้อมแล้ว รอคุณยืนยัน', mailBox('แผนงานพร้อมแล้ว', `หัวหน้าทีมแบ่งงานเป็น ${tasks.length} ชิ้น ตรวจ แก้ หรือตัดงานย่อยได้ แล้วกด "เริ่มทีม" (แผนหมดอายุใน 24 ชม.)`, 'ดูแผน', `${siteUrl(env)}/code?p=${J.project_id}`)).catch(() => {}); return null; }
   await teamAdvance(env, J.id);
   return null;
 }
@@ -166,7 +170,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
   const proj = await DB.prepare('SELECT * FROM projects WHERE id=? AND user_id=?').bind(J.project_id, J.user_id).first();
   const m = await DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(J.model_id).first();
   const log = [], changedAll = new Set(); let usageNote = '', final = '', status = 'done', cumIn = 0, round = 0; const t0 = Date.now(), transcript = [];
-  const lead = J.parent_id ? await DB.prepare('SELECT * FROM agent_jobs WHERE id=?').bind(J.parent_id).first() : null, scope = J.scope ? JSON.parse(J.scope) : null;
+  const lead = J.parent_id ? await DB.prepare('SELECT * FROM agent_jobs WHERE id=?').bind(J.parent_id).first() : null, scope = J.role === 'worker' && J.scope ? JSON.parse(J.scope) : null;
   const finish = async () => {
     if (J.role === 'worker') { // ลูกทีม: ไม่สร้างแชต ไม่ส่งอีเมล (ผู้ตรวจสรุปรวมทีเดียว) แล้วให้ทีมเดินต่อ
       await setJob(env, jobId, { status, rounds: round, log: log.join('\n').slice(0, 8000), summary: (final || usageNote).slice(0, 4000), changed: JSON.stringify([...changedAll]), finished_at: Date.now() });
@@ -235,7 +239,7 @@ export async function agentApi(req, env, u, path) {
     const pj = new URL(req.url).searchParams.get('project');
     const list = (await DB.prepare(`SELECT id,project_id,prompt,status,rounds,summary,changed,chat_id,created_at,finished_at,role FROM agent_jobs WHERE user_id=? AND parent_id IS NULL${pj ? ' AND project_id=?' : ''} ORDER BY id DESC LIMIT 10`).bind(...(pj ? [u.id, +pj] : [u.id])).all()).results;
     const leads = list.filter(j => j.role === 'lead').map(j => j.id);
-    if (leads.length) { const kids = (await DB.prepare(`SELECT id,parent_id,role,prompt,status,rounds,changed,scope FROM agent_jobs WHERE parent_id IN (${leads.map(() => '?')}) ORDER BY id`).bind(...leads).all()).results; list.forEach(j => { if (j.role === 'lead') j.team = kids.filter(k => k.parent_id === j.id).map(({ prompt, ...k }) => ({ ...k, title: prompt.split('\n')[0].slice(0, 80) })); }); }
+    if (leads.length) { const kids = (await DB.prepare(`SELECT id,parent_id,role,prompt,status,rounds,changed,scope,CASE WHEN status='planned' THEN summary END plan FROM agent_jobs WHERE parent_id IN (${leads.map(() => '?')}) ORDER BY id`).bind(...leads).all()).results; list.forEach(j => { if (j.role === 'lead') j.team = kids.filter(k => k.parent_id === j.id).map(({ prompt, ...k }) => ({ ...k, title: prompt.split('\n')[0].slice(0, 80) })); }); }
     return json(list);
   }
   if (path === '/api/agent' && M === 'POST') {
@@ -245,17 +249,29 @@ export async function agentApi(req, env, u, path) {
     if (!await DB.prepare('SELECT 1 FROM projects WHERE id=? AND user_id=?').bind(+b.project_id, u.id).first()) return err('ไม่พบโปรเจกต์', 404);
     const model = (await allowedModels(env, plan.id)).find(x => x.id === +b.model_id && !['image', 'embedding'].includes(x.provider)); if (!model) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
     const lim = await usageStatus(env, u, plan); if (lim.pct4h >= 100 || lim.pctWeek >= 100) return err('ลิมิตเต็มแล้ว', 429);
-    if (await DB.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND ((status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)>?) OR status IN ('waiting','team','reviewing'))").bind(u.id, Date.now() - 20 * 60e3).first()) return err('มีงาน Agent ที่กำลังทำอยู่ รอให้เสร็จหรือกดหยุดก่อน', 409);
+    if (await DB.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND ((status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)>?) OR status IN ('waiting','team','reviewing','plan'))").bind(u.id, Date.now() - 20 * 60e3).first()) return err('มีงาน Agent ที่กำลังทำอยู่ รอให้เสร็จหรือกดหยุดก่อน', 409);
     if (await limited(env, 'agent:' + u.id, 12, DAY)) return err('สั่ง Agent วันนี้ครบแล้ว (12 งานต่อวัน)', 429);
-    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role) VALUES (?,?,?,?,'queued',?,?) RETURNING id").bind(u.id, +b.project_id, model.id, prompt, Date.now(), b.team ? 'lead' : null).first();
+    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role,scope) VALUES (?,?,?,?,'queued',?,?,?) RETURNING id").bind(u.id, +b.project_id, model.id, prompt, Date.now(), b.team ? 'lead' : null, b.team && b.confirm !== false ? 'confirm' : null).first();
     await launch(env, job.id); // ทำต่อใน Durable Object แม้ผู้ใช้ปิดแอป
     return json({ id: job.id });
+  }
+  const st = path.match(/^\/api\/agent\/(\d+)\/start$/);
+  if (st && M === 'POST') { // ผู้ใช้ยืนยันแผน (แก้ชื่อ/คำสั่ง/ไฟล์ หรือตัดงานย่อยทิ้งได้) แล้วเริ่มทีม
+    const L = await DB.prepare("SELECT * FROM agent_jobs WHERE id=? AND user_id=? AND status='plan'").bind(+st[1], u.id).first(); if (!L) return err('ไม่พบแผนที่รอยืนยัน', 404);
+    const kids = (await DB.prepare("SELECT id FROM agent_jobs WHERE parent_id=? AND status='planned'").bind(L.id).all()).results.map(k => k.id), b = await req.json().catch(() => ({}));
+    const keep = (Array.isArray(b.tasks) ? b.tasks : []).filter(t => kids.includes(+t.id)).map(t => ({ id: +t.id, title: String(t.title || '').trim().slice(0, 80), prompt: String(t.prompt || '').trim().slice(0, 4000), files: [...new Set((Array.isArray(t.files) ? t.files : String(t.files || '').split(',')).map(f => String(f).trim().replace(/^\.?\//, '')).filter(f => PATH_RE.test(f)))].slice(0, 15) }));
+    if (!keep.length || keep.some(t => !t.prompt || !t.files.length)) return err('ต้องเหลืออย่างน้อย 1 งาน และทุกงานต้องมีคำสั่งกับไฟล์อย่างน้อย 1 ไฟล์');
+    if (!(await DB.prepare("UPDATE agent_jobs SET status='team' WHERE id=? AND status='plan'").bind(L.id).run()).meta.changes) return err('แผนนี้ถูกเริ่มหรือยกเลิกไปแล้ว', 409);
+    await DB.batch([...keep.map(t => DB.prepare("UPDATE agent_jobs SET prompt=?, scope=?, summary=NULL, status='waiting' WHERE id=?").bind(workerPrompt(t, L.prompt.slice(0, 1500)), JSON.stringify(t.files), t.id)),
+      DB.prepare(`DELETE FROM agent_jobs WHERE parent_id=? AND status='planned'`).bind(L.id)]);
+    await teamAdvance(env, L.id);
+    return json({ ok: true, tasks: keep.length });
   }
   const r = path.match(/^\/api\/agent\/(\d+)\/stop$/);
   if (r && M === 'POST') {
     const id = +r[1], stopDo = i => env.CHATRUN?.get(env.CHATRUN.idFromName('agent:' + i)).fetch('https://run/stop', { method: 'POST' }).catch(() => {});
-    if ((await DB.prepare("UPDATE agent_jobs SET status='stopped', finished_at=?, summary=COALESCE(summary,'หยุดทั้งทีมแล้ว (ไฟล์ที่แก้แล้วยังอยู่)') WHERE id=? AND user_id=? AND status IN ('team','reviewing')").bind(Date.now(), id, u.id).run()).meta.changes) { // หยุดทั้งทีม
-      await DB.prepare("UPDATE agent_jobs SET status='stopped', finished_at=? WHERE parent_id=? AND status='waiting'").bind(Date.now(), id).run();
+    if ((await DB.prepare("UPDATE agent_jobs SET status='stopped', finished_at=?, summary=COALESCE(summary,'หยุดทั้งทีมแล้ว (ไฟล์ที่แก้แล้วยังอยู่)') WHERE id=? AND user_id=? AND status IN ('team','reviewing','plan')").bind(Date.now(), id, u.id).run()).meta.changes) { // หยุดทั้งทีม / ยกเลิกแผน
+      await DB.prepare("UPDATE agent_jobs SET status='stopped', finished_at=? WHERE parent_id=? AND status IN ('waiting','planned')").bind(Date.now(), id).run();
       const run = (await DB.prepare("UPDATE agent_jobs SET status='stopping' WHERE parent_id=? AND status IN ('queued','running') RETURNING id").bind(id).all()).results;
       await Promise.all(run.map(x => stopDo(x.id))); return json({ ok: true });
     }

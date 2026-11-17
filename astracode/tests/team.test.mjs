@@ -37,7 +37,7 @@ test('parsePlan keeps at most 5 tasks with valid file paths and rejects broken J
 
 test('team: lead splits the work, cheap workers write only their own files, same-file tasks run in turn, reviewer sums up', async () => {
   const { t, fm, u, pid, lead, cheap, calls } = await setup();
-  const r = await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true } });
+  const r = await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true, confirm: false } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   const job = (await t.json('/api/agent?project=' + pid, { cookie: u.cookie })).data[0];
   assert.equal(job.status, 'done', JSON.stringify(job)); assert.match(job.summary, /ทีมเสร็จ/);
@@ -56,7 +56,7 @@ test('team: lead splits the work, cheap workers write only their own files, same
 
 test('team: the budget cap stops the workers and the reviewer; stop-all ends a running team', async () => {
   const { t, fm, u, pid, lead } = await setup({ team_budget_pct: '1e-13' });
-  await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true } });
+  await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true, confirm: false } });
   const job = (await t.json('/api/agent?project=' + pid, { cookie: u.cookie })).data[0];
   assert.equal(job.status, 'limit', JSON.stringify(job)); assert.ok(job.team.filter(k => k.role === 'worker').every(k => k.status === 'limit'));
   assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM project_files WHERE project_id=?').get(pid).n, 0, 'nothing written');
@@ -73,7 +73,7 @@ const fakeR2 = () => { const m = new Map(); return { m, async put(k, v) { m.set(
 
 test('admin sees agent cost per job (team incl. workers) and per user', async () => {
   const { t, fm, u, pid, lead } = await setup();
-  await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true } });
+  await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true, confirm: false } });
   const adm = await t.user({ role: 'admin' }), d = (await t.json('/api/admin/agents', { cookie: adm.cookie })).data;
   assert.equal(d.jobs.length, 1); assert.equal(d.jobs[0].workers, 3); assert.ok(d.jobs[0].cost > 0, 'cost recorded');
   const sum = t.DB.raw.prepare('SELECT SUM(cost) c FROM usage WHERE user_id=?').get(u.id).c; assert.ok(Math.abs(d.jobs[0].cost - sum) < 1e-9, 'job cost = all usage rows of the team');
@@ -94,4 +94,24 @@ test('backup: verify reads the latest file and compares row counts; a stale back
     for (let i = 0; i < 2; i++) { t.ctx.pending.length = 0; t.worker.default.scheduled({}, t.env, t.ctx); await Promise.all(t.ctx.pending); }
   } finally { globalThis.fetch = orig; }
   assert.equal(sent.filter(x => /ไม่มีไฟล์สำรองข้อมูลใหม่/.test(x)).length, 1, 'alert once per day');
+});
+
+test('team plan waits for the user: edit, drop a task, then start; or it expires after 24 hours', async () => {
+  const { t, fm, u, pid, lead } = await setup();
+  await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true } });
+  let job = (await t.json('/api/agent?project=' + pid, { cookie: u.cookie })).data[0];
+  assert.equal(job.status, 'plan'); assert.equal(job.team.length, 3); assert.equal(JSON.parse(job.team[0].plan).title, 'หน้าแรก');
+  assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM project_files WHERE project_id=?').get(pid).n, 0, 'nothing runs before confirm');
+  assert.equal((await t.json(`/api/agent/${job.id}/start`, { method: 'POST', cookie: u.cookie, body: { tasks: [{ id: job.team[0].id, title: 'หน้าแรก', prompt: '', files: 'a.html' }] } })).status, 400, 'empty prompt refused');
+  const r = await t.json(`/api/agent/${job.id}/start`, { method: 'POST', cookie: u.cookie, body: { tasks: [{ id: job.team[0].id, title: 'หน้าแรก', prompt: 'ทำหน้าแรก', files: 'a.html' }, { id: job.team[1].id, title: 'สไตล์', prompt: 'ทำ CSS', files: ['b.css'] }] } });
+  assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.tasks, 2);
+  job = (await t.json('/api/agent?project=' + pid, { cookie: u.cookie })).data[0];
+  assert.equal(job.status, 'done', JSON.stringify(job)); assert.equal(job.team.filter(k => k.role === 'worker').length, 2, 'dropped task removed');
+  assert.equal((await t.json(`/api/agent/${job.id}/start`, { method: 'POST', cookie: u.cookie, body: { tasks: [] } })).status, 404, 'cannot start twice');
+  await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'งานที่สองที่จะปล่อยให้หมดอายุ', team: true } });
+  const j2 = (await t.json('/api/agent?project=' + pid, { cookie: u.cookie })).data[0]; assert.equal(j2.status, 'plan');
+  t.DB.raw.prepare('UPDATE agent_jobs SET created_at=? WHERE id=?').run(Date.now() - 25 * 3600e3, j2.id);
+  const { reapAgentJobs } = await import('../src/agent.js'); await reapAgentJobs(t.env);
+  assert.deepEqual([...new Set(t.DB.raw.prepare('SELECT status FROM agent_jobs WHERE id=? OR parent_id=?').all(j2.id, j2.id).map(x => x.status))], ['stopped']);
+  fm.close();
 });
