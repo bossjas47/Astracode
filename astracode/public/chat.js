@@ -278,24 +278,54 @@ async function kbSheet() {
   });
 }
 // โหมดเสียง: ฟังผู้ใช้ → ส่ง → อ่านคำตอบ → ฟังต่อ จนกว่าจะปิด (ใช้เสียงและตัวรู้จำเสียงของเบราว์เซอร์)
+// โหมดเสียงแบบโทรคุย: ฟัง → ส่ง → พูดคำตอบทีละช่วงระหว่างที่ AI ยังเขียน → ฟังต่อ · แตะปุ่มกลางเพื่อพูดแทรก
+function vstate(s) {
+  const el = $('#vcall'); if (!el) return; chat.vst = s;
+  el.querySelector('.vc-s').textContent = { listen: 'กำลังฟัง… พูดได้เลย', think: 'กำลังคิด…', speak: 'กำลังพูด · แตะเพื่อพูดแทรก', idle: 'แตะเพื่อพูด' }[s] || '';
+  el.dataset.s = s;
+}
 function voiceListen() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!chat.voice || !SR || chat.busy) return;
+  try { chat.vrec?.abort(); } catch { /* ไม่ได้ฟังอยู่ */ }
   const rec = chat.vrec = new SR(); rec.lang = window.LANG === 'en' ? 'en-US' : 'th-TH'; rec.interimResults = true; let fin = '';
-  const t = $('#t'); rec.onresult = e => { fin = [...e.results].map(r => r[0].transcript).join(''); if (t) { t.value = fin; t.oninput(); } };
-  rec.onend = () => { if (!chat.voice) return; if (fin.trim()) send(); else setTimeout(voiceListen, 400); };
-  rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { chat.voice = false; toast('ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน', 'bad'); modelUI(); } };
-  try { rec.start(); } catch { /* กำลังฟังอยู่แล้ว */ }
+  const t = $('#t'); rec.onresult = e => { fin = [...e.results].map(r => r[0].transcript).join(''); if (t) { t.value = fin; t.oninput(); } const h = $('#vcall .vc-h'); if (h) h.textContent = fin; };
+  rec.onend = () => { if (!chat.voice || chat.vrec !== rec) return; if (fin.trim()) { vstate('think'); send(); } else if (document.visibilityState === 'visible') setTimeout(voiceListen, 400); else vstate('idle'); };
+  rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { toggleVoice(); toast('ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน', 'bad'); } };
+  try { rec.start(); vstate('listen'); } catch { /* กำลังฟังอยู่แล้ว */ }
 }
-function voiceSpeak(text) {
+// พูดคำตอบทีละช่วง: ระหว่างสตรีมพูดเมื่อได้ข้อความยาวพอและตัดที่ช่องว่าง/ขึ้นบรรทัด (โค้ดไม่อ่าน) · done = พูดที่เหลือแล้วกลับไปฟัง
+function voiceFeed(text, done) {
   if (!chat.voice) return;
-  const say = String(text || '').replace(/```[\s\S]*?```/g, ' (มีโค้ดในคำตอบ) ').replace(/[#*_`>\u2063]/g, '').slice(0, 1500);
-  if (!say.trim() || !('speechSynthesis' in window)) return voiceListen();
-  const ut = new SpeechSynthesisUtterance(say); ut.lang = /[\u0E00-\u0E7F]/.test(say) ? 'th-TH' : 'en-US'; ut.onend = ut.onerror = () => voiceListen(); speechSynthesis.cancel(); speechSynthesis.speak(ut);
+  if (!('speechSynthesis' in window)) { if (done) voiceListen(); return; }
+  let rest = text.slice(chat.vpos || 0);
+  if (!done) {
+    if (rest.includes('```') || rest.length < 80) return;
+    const cut = Math.max(rest.lastIndexOf('\n'), rest.lastIndexOf(' ')); if (cut < 40) return;
+    rest = rest.slice(0, cut);
+  }
+  chat.vpos = (chat.vpos || 0) + rest.length;
+  const say = rest.replace(/```[\s\S]*?(```|$)/g, ' (มีโค้ดในคำตอบ) ').replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/[#*_`>|⁣]/g, '').trim();
+  if (say) {
+    const ut = new SpeechSynthesisUtterance(say.slice(0, 1500)); ut.lang = /[฀-๿]/.test(say) ? 'th-TH' : 'en-US';
+    chat.vpend = (chat.vpend || 0) + 1; vstate('speak');
+    ut.onend = ut.onerror = () => { chat.vpend = Math.max(0, chat.vpend - 1); if (!chat.vpend && chat.vdone && chat.voice) voiceListen(); };
+    speechSynthesis.speak(ut);
+  }
+  if (done) { chat.vdone = true; if (!chat.vpend) voiceListen(); }
 }
+const voiceSpeak = text => { chat.vpos = 0; chat.vpend = 0; voiceFeed(text, true); };
+function voiceReset() { chat.vpos = 0; chat.vpend = 0; chat.vdone = false; try { speechSynthesis?.cancel(); } catch { /* ไม่มี */ } }
 function toggleVoice() {
   if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) return toast('เบราว์เซอร์นี้ไม่รองรับโหมดเสียง ลอง Chrome หรือ Safari', 'bad');
   chat.voice = !chat.voice;
-  if (chat.voice) { toast('โหมดเสียงเปิดแล้ว พูดได้เลย', 'ok'); voiceListen(); } else { try { chat.vrec?.abort(); } catch { /* ไม่ได้ฟังอยู่ */ } speechSynthesis?.cancel(); toast('ปิดโหมดเสียงแล้ว'); }
+  $('#vcall')?.remove();
+  if (chat.voice) {
+    document.body.insertAdjacentHTML('beforeend', `<div id="vcall" class="vcall" role="dialog" aria-label="โหมดเสียง"><div class="vc-s" aria-live="polite"></div><button type="button" class="vc-orb" aria-label="พูด / พูดแทรก">${ic('mic')}</button><div class="vc-h"></div><button type="button" class="btn red vc-x">${ic('x', 'sm')} วางสาย</button></div>`);
+    const el = $('#vcall');
+    el.querySelector('.vc-orb').onclick = () => { if (chat.busy) { stopRun(); } voiceReset(); voiceListen(); };
+    el.querySelector('.vc-x').onclick = () => toggleVoice();
+    voiceReset(); voiceListen();
+  } else { try { chat.vrec?.abort(); } catch { /* ไม่ได้ฟังอยู่ */ } chat.vrec = null; voiceReset(); toast('ปิดโหมดเสียงแล้ว'); }
   modelUI();
 }
 // เมนู + : เรียงตามความนิยมโดยรวม แล้วดันอันที่ผู้ใช้คนนี้กดบ่อย (ตั้งแต่ 3 ครั้ง) ขึ้นบนสุด 3 อัน · ที่เหลือหลัง 6 อันแรกอยู่ใต้หัวข้อ "เพิ่มเติม"
@@ -710,7 +740,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   const ai = { role: 'assistant', content: '', model: m.name, streaming: true };
   chat.msgs.push(ai);
   if (quiet) renderAll(); else appendMsg(ai);
-  setBusy(true); chat.ctrl = new AbortController();
+  setBusy(true); chat.ctrl = new AbortController(); if (chat.voice) { voiceReset(); vstate('think'); }
   let started = false, streamErr = null, aborted = false, raf = 0;
   try {
     await stream({ chat_id: chat.id, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps,
@@ -719,7 +749,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
       if (d.model) ai.model = d.model;
       noteOf(ai, d); if (d.fallback) ai.model = d.fallback;
-      if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateLast(); }); }
+      if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateLast(); }); if (d.t && chat.voice) voiceFeed(ai.content, false); }
       if (d.error) streamErr = d.error;
       if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; }
       if (d.ctx) { chat.ctx = { ...d.ctx, id: chat.id }; }
@@ -753,8 +783,8 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   if (empty && chat.msgs.at(-1) === ai) chat.msgs.pop();
   setBusy(false); renderAll();
   if (!streamErr && !aborted && !empty && !chat.compare) { const g = parseImg(ai.content); if (g.prompt) genImage(g.prompt, true); } // AI สั่งสร้างรูปเอง
-  if (streamErr) showErr(streamErr, true);
-  else if (chat.voice && !aborted) voiceSpeak(ai.content);
+  if (streamErr) { showErr(streamErr, true); if (chat.voice) voiceListen(); }
+  else if (chat.voice && !aborted) voiceFeed(ai.content, true);
   else if (aborted) showErr('หยุดแล้ว · ถ้าเซิร์ฟเวอร์ตอบจบแล้ว ระบบจะดึงคำตอบมาแสดงให้เอง');
   else if (empty) {
     // เดิม: ลบคำตอบทิ้งแล้วเงียบสนิท ไม่มีอะไรขึ้นเลย → ตอนนี้ลองต่อให้อัตโนมัติ 1 ครั้ง แล้วค่อยแจ้ง

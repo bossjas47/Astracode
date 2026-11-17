@@ -557,6 +557,16 @@ async function imagesForAI(msg, list) {
   IDE.applyNext = true;
   if (IDE.round <= 5) await codeSend({ text: text + '\n\nใส่รูปลงในโค้ดตามที่ต้องการ แล้วสรุปสั้นๆ ถ้าสร้างรูปไม่สำเร็จให้ใช้ CSS หรือ SVG แทน' });
 }
+// หลัง AI แก้ไฟล์: โปรเจกต์มี scripts.test → รัน npm test เอง ไม่ผ่านส่งผลให้ AI แก้ (สูงสุด 2 รอบต่อคำสั่ง) · true = รันแล้ว
+async function autoTest() {
+  let ts = ''; try { ts = JSON.parse(IDE.files.get('package.json') || '{}').scripts?.test || ''; } catch { /* package.json พัง */ }
+  if (!ts || /no test specified/.test(ts) || localStorage.getItem('autoTest') === '0' || (IDE.round ?? 0) >= 2) return false;
+  setStatus('กำลังรัน npm test...'); const d = await nodeRun('npm test').catch(x => ({ code: 1, stderr: x.message }));
+  if (d.code === 0) { setStatus('เทสต์ผ่าน ✓'); toast('npm test ผ่าน ✓', 'ok'); return true; }
+  const out = (d.stdout || '') + (d.stderr ? '\n[stderr]\n' + d.stderr : ''); IDE.round = (IDE.round ?? 0) + 1; setPane('ai');
+  await codeSend({ text: `[ผลการรันเทสต์อัตโนมัติ]\n$ npm test\n(exit ${d.code})\n${out.length > 6000 ? out.slice(0, 2000) + '\n…(ตัดกลาง)…\n' + out.slice(-4000) : out || '(ไม่มีผลลัพธ์)'}\n\nเทสต์ไม่ผ่าน แก้โค้ดให้ผ่าน (ห้ามแก้หรือลบเทสต์เพื่อให้ผ่าน เว้นแต่เทสต์ผิดจริง) แล้วสรุปสั้นๆ` });
+  return true;
+}
 async function runForAI(msg, cmds) {
   const bad = await applyChanges(changesOf(msg.content, undefined, activeRef()), msg);
   if (bad.length) { drawAI(); return feedBack(bad); } // ไฟล์พัง: ไม่รันคำสั่ง ส่งกลับให้ AI แก้ก่อน
@@ -686,10 +696,12 @@ function codeTools() {
     + optHTML('share', ic('share') + 'แชร์โปรเจกต์ (ลิงก์อ่านอย่างเดียว)', 'ให้คนอื่นเปิดดูหน้าเว็บที่รันแล้วได้ แก้ไฟล์ไม่ได้')
     + optHTML('hist', ic('undo') + 'ประวัติโปรเจกต์ / ย้อนทั้งโปรเจกต์', 'ย้อนไฟล์ทั้งหมดไปสถานะก่อนช่วงเวลาที่เลือก')
     + optHTML('exphtml', ic('download') + 'ส่งออก HTML ไฟล์เดียว', 'รวม HTML/CSS/JS เป็นไฟล์เดียวพร้อมเปิดใช้งาน')
+    + optHTML('autotest', ic('check') + 'รันเทสต์อัตโนมัติ: ' + (localStorage.getItem('autoTest') === '0' ? 'ปิด' : 'เปิด'), 'หลังใช้การแก้ไขของ AI รัน npm test ให้เอง ไม่ผ่านส่งผลกลับให้ AI แก้ (สูงสุด 2 รอบ) · เฉพาะโปรเจกต์ที่มี scripts.test ใน package.json')
     + optHTML('term', ic('terminal') + 'เปิดเทอร์มินัล', 'พิมพ์คำสั่ง npm / node เอง'),
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const v = b.dataset.v;
       if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
+      if (v === 'autotest') { const on = localStorage.getItem('autoTest') === '0'; localStorage.setItem('autoTest', on ? '1' : '0'); toast('รันเทสต์อัตโนมัติ: ' + (on ? 'เปิด' : 'ปิด')); }
       if (v === 'bgagent') { seen('team'); return bgAgentSheet(); }
       if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); IDE.agent = !IDE.agent; localStorage.setItem('agent', IDE.agent ? '1' : '0'); cUI(); toast(IDE.agent ? 'เปิดโหมด Agent: งานยาวได้ถึง 20 รอบ' : 'ปิดโหมด Agent', 'ok'); if (IDE.agent && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); }
       if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
@@ -1024,7 +1036,7 @@ async function codeSend(auto) {
       IDE.round = (IDE.round ?? 0) + 1;
       await codeSend({ auto: { text: 'ข้อความก่อนหน้ายังไม่ได้แก้ไฟล์ เพราะโค้ดไม่ได้อยู่ในรูปแบบที่ระบบใช้ได้ คุณแก้ไฟล์ในโปรเจกต์ได้จริง ให้ส่งใหม่: ไฟล์ที่มีอยู่แล้วใช้บล็อก ```<ภาษา> path=<ไฟล์> ที่ข้างในเป็น <<<<<<< SEARCH / ======= / >>>>>>> REPLACE (คัดลอก SEARCH จากเนื้อหาไฟล์จริง) หรือส่งทั้งไฟล์ใน path= เดียวกัน ห้ามตอบว่าแก้ไฟล์ไม่ได้ และห้ามส่งโค้ดที่ไม่มี path=' } });
     }
-    else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < (IDE.agent ? 8 : 3)) await check(); }
+    else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if (await autoTest()) { /* รันเทสต์แล้ว */ } else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < (IDE.agent ? 8 : 3)) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
 }
 

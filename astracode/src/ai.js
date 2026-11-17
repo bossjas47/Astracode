@@ -368,7 +368,9 @@ export function excerptFiles(content, question) {
     const q = grams(question), chunks = []; for (let i = 0; i < body.length; i += FILE_CHUNK) chunks.push({ i, text: body.slice(i, i + FILE_CHUNK) });
     chunks.forEach((c, k) => { let s = 0; for (const g of grams(c.text)) if (q.has(g)) s++; c.score = s + (k === 0 ? 1e6 : 0); }); // ท่อนแรกเก็บเสมอ (หัวไฟล์/สารบัญ)
     const keep = new Set([...chunks].sort((a, b) => b.score - a.score).slice(0, Math.floor(FILE_FULL / FILE_CHUNK)).map(c => c.i));
-    let outB = '', gap = false; for (const c of chunks) { if (keep.has(c.i)) { outB += (gap ? '\n[...ข้ามบางส่วน...]\n' : '') + c.text; gap = false; } else gap = true; }
+    // ท่อนที่ตัดมากลางหน้า: ใส่เลขหน้า/ชีตล่าสุดก่อนท่อนนั้นไว้ ให้ AI อ้างอิงหน้าได้ถูก
+    const markAt = i => { const m = [...body.slice(Math.max(0, i - 200000), i).matchAll(/--- (หน้า \d+|ชีต [^\n]+) ---/g)].at(-1); return m ? `--- ${m[1]} (ต่อ) ---\n` : ''; };
+    let outB = '', gap = false; for (const c of chunks) { if (keep.has(c.i)) { outB += (gap ? '\n[...ข้ามบางส่วน...]\n' + (/^\s*--- (หน้า|ชีต) /.test(c.text) ? '' : markAt(c.i)) : '') + c.text; gap = false; } else gap = true; }
     return `${open}[ไฟล์ยาว ${body.length.toLocaleString()} ตัวอักษร: แสดงเฉพาะส่วนที่เกี่ยวกับคำถาม ถ้าต้องการส่วนอื่นให้ผู้ใช้ถามเจาะจง]\n${outB}${close}`;
   });
 }

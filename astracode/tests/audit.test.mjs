@@ -213,3 +213,11 @@ test('remix copies a shared project to the caller; gallery lists only featured s
   assert.equal((await t.json('/api/admin/shared/' + p.id, { method: 'PUT', cookie: adm.cookie, body: { featured: true } })).status, 200);
   assert.equal((await t.json('/api/gallery', { cookie: b.cookie })).data[0].link, tok);
 });
+
+test('long PDF excerpts keep the page number in front of chunks cut from mid-page', async () => {
+  const { excerptFiles } = await import('../src/ai.js');
+  const pages = []; for (let i = 1; i <= 40; i++) pages.push(`--- หน้า ${i} ---\n` + (i === 33 ? 'ยอดขายไตรมาสสาม ' : 'ข้อความทั่วไป ').repeat(90));
+  const out = excerptFiles('[[file:a.pdf]]\n' + pages.join('\n') + '\n[[/file]]', 'ยอดขายไตรมาสสาม');
+  assert.match(out, /--- หน้า 3[23]( \(ต่อ\))? ---\n[^]*ยอดขายไตรมาสสาม/);
+  assert.ok(out.length < 34000);
+});

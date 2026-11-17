@@ -1302,3 +1302,15 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 @media (max-width: 440px) { .nav .nav-wal { display: inline-flex; padding: 0 9px; } .nav-wal .w-amt { display: none; } } /* จอแคบ: ไอคอนกระเป๋า + เครื่องหมายบวก (ข้อความไม่พอที่) */
 .nav-wal .w-add .ic { margin-right: 1px; }
 @media (max-width: 440px) { .nav-r { gap: 5px; } .nav .logo { letter-spacing: 0; } }
+
+/* โหมดเสียงแบบโทรคุย */
+.vcall { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px 16px calc(24px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg, #000) 92%, transparent); backdrop-filter: blur(12px); text-align: center; }
+.vcall .vc-s { font: 600 17px var(--display, inherit); }
+.vcall .vc-h { min-height: 3em; max-width: 520px; color: var(--muted, #999); font-size: 15px; }
+.vcall .vc-orb { width: 132px; height: 132px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--blue, #3b82f6); color: #fff; cursor: pointer; transition: transform .2s; }
+.vcall .vc-orb svg { width: 44px; height: 44px; }
+.vcall[data-s="listen"] .vc-orb { animation: vcpulse 1.4s ease-in-out infinite; }
+.vcall[data-s="think"] .vc-orb { opacity: .6; }
+.vcall[data-s="speak"] .vc-orb { background: var(--green, #22c55e); animation: vcpulse .9s ease-in-out infinite; }
+@keyframes vcpulse { 50% { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .vcall .vc-orb { animation: none !important; } }
