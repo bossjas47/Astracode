@@ -347,12 +347,12 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     return json({ ok: true });
   }
   if (path === '/api/skills') {
-    if (M === 'GET') return json((await DB.prepare('SELECT id,user_id,name,description,content,enabled,COALESCE(as_text,0) as_text FROM skills WHERE (user_id=0 AND enabled=1) OR user_id=? ORDER BY user_id, id DESC').bind(u.id).all()).results);
+    if (M === 'GET') return json((await DB.prepare('SELECT id,user_id,name,description,content,enabled,COALESCE(as_text,0) as_text,model_id FROM skills WHERE (user_id=0 AND enabled=1) OR user_id=? ORDER BY user_id, id DESC').bind(u.id).all()).results);
     if (M === 'POST') {
       const b = await req.json(), name = String(b.name || '').trim().slice(0, 60), desc = String(b.description || '').trim().slice(0, 200), content = String(b.content || '').trim().slice(0, 6000);
       if (!name || !content) return err('ใส่ชื่อและคำสั่งของ Skill');
       if ((await DB.prepare('SELECT COUNT(*) n FROM skills WHERE user_id=?').bind(u.id).first()).n >= 30) return err('สร้าง Skill ส่วนตัวได้สูงสุด 30 อัน');
-      return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at,as_text) VALUES (?,?,?,?,1,?,?) RETURNING id,user_id,name,description,content,enabled,COALESCE(as_text,0) as_text').bind(u.id, name, desc, content, Date.now(), b.as_text ? 1 : 0).first());
+      return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at,as_text,model_id) VALUES (?,?,?,?,1,?,?,?) RETURNING id,user_id,name,description,content,enabled,COALESCE(as_text,0) as_text,model_id').bind(u.id, name, desc, content, Date.now(), b.as_text ? 1 : 0, +b.model_id > 0 ? +b.model_id : null).first());
     }
   }
   if ((r = path.match(/^\/api\/skills\/(\d+)\/share$/)) && M === 'POST') { // ลิงก์แชร์ Skill (ผู้ช่วยเฉพาะทาง) ให้คนอื่นนำเข้าไปใช้
@@ -360,12 +360,12 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     return row ? json({ token: row.share_token }) : err('ไม่พบ Skill', 404);
   }
   if (path === '/api/skills/import' && M === 'POST') { // นำเข้า Skill จากลิงก์: คัดลอกมาเป็นของตัวเอง (ต้นฉบับแก้ทีหลังไม่กระทบ)
-    const s = await DB.prepare('SELECT name,description,content FROM skills WHERE share_token=? AND enabled=1').bind(String((await req.json()).token || '')).first();
+    const s = await DB.prepare('SELECT name,description,content,model_id FROM skills WHERE share_token=? AND enabled=1').bind(String((await req.json()).token || '')).first();
     if (!s) return err('ลิงก์ Skill ไม่ถูกต้องหรือถูกยกเลิกแล้ว', 404);
     const mine = await DB.prepare('SELECT id FROM skills WHERE user_id=? AND name=? AND content=?').bind(u.id, s.name, s.content).first();
-    if (mine) return json({ id: mine.id, name: s.name });
+    if (mine) return json({ id: mine.id, name: s.name, model_id: s.model_id });
     if ((await DB.prepare('SELECT COUNT(*) n FROM skills WHERE user_id=?').bind(u.id).first()).n >= 30) return err('สร้าง Skill ส่วนตัวได้สูงสุด 30 อัน');
-    return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (?,?,?,?,1,?) RETURNING id,name').bind(u.id, s.name, s.description, s.content, Date.now()).first());
+    return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at,model_id) VALUES (?,?,?,?,1,?,?) RETURNING id,name,model_id').bind(u.id, s.name, s.description, s.content, Date.now(), s.model_id ?? null).first());
   }
   if (path === '/api/docs') { // คลังความรู้: เอกสารข้อความที่เก็บถาวร ถามได้จากทุกแชต (สูงสุด 20 ไฟล์ ไฟล์ละ 400,000 ตัวอักษร)
     if (M === 'GET') return json((await DB.prepare('SELECT id,name,LENGTH(content) size,created_at FROM user_docs WHERE user_id=? ORDER BY id DESC').bind(u.id).all()).results);

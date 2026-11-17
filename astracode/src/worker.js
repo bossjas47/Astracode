@@ -56,7 +56,7 @@ export default {
       await ensureCols(env);
       const pr = await env.DB.prepare('SELECT id FROM projects WHERE share_token IS NOT NULL AND (share_token=?1 OR slug=?1)').bind(r[1]).first();
       const rows = pr ? (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pr.id).all()).results : [];
-      const html = rows.length ? bundleProject(new Map(rows.map(f => [f.path, f.content]))) + '<a href="/support" rel="noopener" style="position:fixed;right:8px;bottom:8px;z-index:2147483647;font:12px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:99px;text-decoration:none">รายงานหน้านี้ · Report</a>' : null; // ปุ่มรายงานคงที่ ให้ผู้พบหน้าผิดกฎแจ้งแอดมินได้
+      const html = rows.length ? bundleProject(new Map(rows.map(f => [f.path, f.content]))) + '<a href="/support" rel="noopener" style="position:fixed;right:8px;bottom:8px;z-index:2147483647;font:12px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:99px;text-decoration:none">รายงานหน้านี้ · Report</a><a href="/code?remix=' + r[1] + '" target="_blank" rel="noopener" style="position:fixed;right:8px;bottom:40px;z-index:2147483647;font:12px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:99px;text-decoration:none">Remix ใน AstraCode</a>' : null; // ปุ่มรายงานคงที่ ให้ผู้พบหน้าผิดกฎแจ้งแอดมินได้
       if (!html) return new Response('ไม่พบโปรเจกต์นี้ หรือเจ้าของยกเลิกการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
       return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60', 'x-robots-tag': 'noindex', 'content-security-policy': "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self'; sandbox allow-scripts allow-modals allow-forms allow-popups", 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } });
     }
@@ -249,7 +249,7 @@ export async function route(req, env, ctx, url, path, M) {
         const pj = url.searchParams.get('project');
         return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
       }
-      if (path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
+      if (path === '/api/gallery' || path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
       if (path === '/api/github') { // เชื่อม GitHub ด้วย Personal Access Token
         if (M === 'GET') return json({ connected: !!u.gh_token, login: u.gh_login, secret: !!env.SECRET_KEY });
         if (M === 'DELETE') { await env.DB.prepare('UPDATE users SET gh_token=NULL, gh_login=NULL WHERE id=?').bind(u.id).run(); return json({ ok: true }); }

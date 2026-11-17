@@ -199,3 +199,17 @@ test('web push: subscribe validates the endpoint host and stores one row per end
   for (let i = 0; i < 2; i++) assert.equal((await t.json('/api/push/sub', { method: 'POST', cookie: u.cookie, body: { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys } })).status, 200);
   assert.equal((await t.json('/api/push/sub', { cookie: u.cookie })).data.n, 1);
 });
+
+test('remix copies a shared project to the caller; gallery lists only featured shared projects', async () => {
+  const t = await makeEnv(), a = await t.user(), b = await t.user(), adm = await t.user({ role: 'admin' });
+  const p = (await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'เว็บเดโม' } })).data;
+  const tok = (await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: a.cookie })).data.token;
+  assert.equal((await t.json('/api/projects/remix', { method: 'POST', cookie: b.cookie, body: { token: 'nope-nope' } })).status, 404);
+  const r = (await t.json('/api/projects/remix', { method: 'POST', cookie: b.cookie, body: { token: tok } })).data;
+  const n = id => t.DB.raw.prepare('SELECT COUNT(*) n FROM project_files WHERE project_id=?').get(id).n;
+  assert.ok(n(r.id) > 0); assert.equal(n(r.id), n(p.id));
+  assert.equal(t.DB.raw.prepare('SELECT user_id FROM projects WHERE id=?').get(r.id).user_id, b.id);
+  assert.equal((await t.json('/api/gallery', { cookie: b.cookie })).data.length, 0);
+  assert.equal((await t.json('/api/admin/shared/' + p.id, { method: 'PUT', cookie: adm.cookie, body: { featured: true } })).status, 200);
+  assert.equal((await t.json('/api/gallery', { cookie: b.cookie })).data[0].link, tok);
+});

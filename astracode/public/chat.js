@@ -181,7 +181,7 @@ async function chatView(id) {
   const t = $('#t');
   t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
   const skTok = qs().get('skill'); // เปิดจากลิงก์แชร์ Skill: นำเข้าแล้วเปิดใช้ทันที
-  if (skTok) api('/skills/import', { method: 'POST', body: { token: skTok } }).then(async s => { await loadSkills(true); if (!chat.skills.includes(s.id) && chat.skills.length < 3) chat.skills.push(s.id); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); toast(`เพิ่ม Skill "${s.name}" แล้ว`, 'ok'); }).catch(x => toast(x.message, 'bad'));
+  if (skTok) api('/skills/import', { method: 'POST', body: { token: skTok } }).then(async s => { await loadSkills(true); if (!chat.skills.includes(s.id) && chat.skills.length < 3) chat.skills.push(s.id); localStorage.setItem('skills', JSON.stringify(chat.skills)); skillModel(s); modelUI(); toast(`เพิ่ม Skill "${s.name}" แล้ว`, 'ok'); }).catch(x => toast(x.message, 'bad'));
   const shared = [qs().get('title'), qs().get('text'), qs().get('url')].filter(Boolean).join('\n'); // ข้อความที่แชร์มาจากแอปอื่น (manifest share_target)
   if (shared && !qs().get('id')) { t.value = shared.slice(0, 20000); setTimeout(() => t.oninput(), 0); }
   slashSkills(t, () => chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); });

@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   , instructions TEXT NOT NULL DEFAULT ''
   , share_token TEXT                        -- ลิงก์แชร์แบบอ่านอย่างเดียว /p/<token>
   , slug TEXT                               -- ชื่อลิงก์ที่ตั้งเอง /p/<slug>
+  , featured INTEGER                        -- 1 = แอดมินเลือกขึ้นแกลเลอรีหน้า Code
   , env_sealed TEXT   -- ตัวแปรลับของโปรเจกต์ (เข้ารหัส)
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id);
@@ -400,6 +401,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   , instructions TEXT NOT NULL DEFAULT ''
   , share_token TEXT                        -- ลิงก์แชร์แบบอ่านอย่างเดียว /p/<token>
   , slug TEXT                               -- ชื่อลิงก์ที่ตั้งเอง /p/<slug>
+  , featured INTEGER                        -- 1 = แอดมินเลือกขึ้นแกลเลอรีหน้า Code
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id);
 CREATE TABLE IF NOT EXISTS project_files (
@@ -478,6 +480,7 @@ CREATE TABLE IF NOT EXISTS skills (
   created_at INTEGER NOT NULL,
   share_token TEXT
   , as_text INTEGER   -- 1 = พรอมต์สำเร็จรูป: พิมพ์ / แล้วเลือกเพื่อใส่ข้อความลงช่องพิมพ์ (ไม่ใช่คำสั่งระบบ)
+  , model_id INTEGER  -- โมเดลประจำของ Skill (เปิดแล้วสลับให้)
 );
 CREATE INDEX IF NOT EXISTS skills_user ON skills(user_id, id);
 INSERT OR IGNORE INTO skills (id,user_id,name,description,content,enabled,created_at) VALUES

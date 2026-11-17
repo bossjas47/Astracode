@@ -42,6 +42,18 @@ export async function snapshot(env, pid, files, source) {
 }
 export async function projects(req, env, u, path, url) {
   const DB = env.DB, M = req.method, now = Date.now();
+  if (path === '/api/gallery') { // โปรเจกต์เด่นที่แอดมินเลือก (ต้องแชร์อยู่)
+    return json((await DB.prepare('SELECT p.name, COALESCE(p.slug,p.share_token) link, p.updated_at, (SELECT COUNT(*) FROM project_files f WHERE f.project_id=p.id) files FROM projects p WHERE p.featured=1 AND p.share_token IS NOT NULL ORDER BY p.updated_at DESC LIMIT 24').all()).results);
+  }
+  if (path === '/api/projects/remix' && M === 'POST') { // คัดลอกโปรเจกต์ที่แชร์เป็นของตัวเอง (ต้นฉบับไม่เปลี่ยน)
+    const t = String((await req.json().catch(() => ({}))).token || '').toLowerCase();
+    const src = /^[a-z0-9][a-z0-9-]{2,47}$/.test(t) && await DB.prepare('SELECT id,name,user_id FROM projects WHERE share_token IS NOT NULL AND (share_token=?1 OR slug=?1)').bind(t).first();
+    if (!src) return err('ไม่พบโปรเจกต์นี้ หรือเจ้าของยกเลิกการแชร์แล้ว', 404);
+    if ((await DB.prepare('SELECT COUNT(*) n FROM projects WHERE user_id=?').bind(u.id).first()).n >= PROJECTS_PER_USER) return err(`สร้างได้สูงสุด ${PROJECTS_PER_USER} โปรเจกต์`);
+    const id = (await DB.prepare('INSERT INTO projects (user_id,name,created_at,updated_at) VALUES (?,?,?,?) RETURNING id').bind(u.id, (src.user_id === u.id ? 'สำเนา ' : 'Remix ') + src.name.slice(0, 50), now, now).first()).id;
+    await DB.prepare('INSERT INTO project_files (project_id,path,content,updated_at) SELECT ?,path,content,? FROM project_files WHERE project_id=?').bind(id, now, src.id).run(); // ไม่คัดลอก .env ที่ซีลไว้/GitHub/ลิงก์แชร์
+    return json({ id });
+  }
   if (path === '/api/projects') {
     if (M === 'GET') return json((await DB.prepare(`SELECT p.id,p.name,p.updated_at,COUNT(f.path) files,COALESCE(SUM(length(f.content)),0) size
       FROM projects p LEFT JOIN project_files f ON f.project_id=p.id WHERE p.user_id=? GROUP BY p.id ORDER BY p.updated_at DESC`).bind(u.id).all()).results);

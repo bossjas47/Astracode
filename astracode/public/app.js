@@ -795,6 +795,7 @@ async function skillsSheet(selectedIds, onChange) {
           <input name="name" placeholder="ชื่อ Skill (เช่น nextjs-expert)" maxlength="60" required>
           <input name="description" placeholder="คำอธิบายสั้นๆ" maxlength="200">
           <textarea name="content" rows="4" maxlength="6000" placeholder="คำสั่งหรือกติกาให้ AI ทำตามเมื่อเปิด Skill นี้..." required></textarea>
+          <select name="model_id" aria-label="โมเดลประจำ"><option value="">โมเดลประจำ: ใช้ตัวที่เลือกอยู่</option>${(me?.models || []).filter(m => !['image', 'embedding'].includes(m.provider)).map(m => `<option value="${m.id}">โมเดลประจำ: ${esc(m.name)}</option>`).join('')}</select>
           <button class="btn blue sm">Save Skill</button>
         </form>
       </details>
@@ -825,7 +826,7 @@ async function skillsSheet(selectedIds, onChange) {
         const id = +el.dataset.sk;
         if (sel.has(id)) sel.delete(id);
         else if (sel.size >= 3) return toast('เปิดพร้อมกันได้สูงสุด 3 Skills');
-        else sel.add(id);
+        else { sel.add(id); skillModel(list.find(x => x.id === id)); }
         onChange([...sel]); draw(false);
       });
     });
@@ -834,6 +835,12 @@ async function skillsSheet(selectedIds, onChange) {
 }
 
 
+// Skill ที่ผูกโมเดลประจำ: เปิดแล้วสลับไปโมเดลนั้นให้ (ถ้าแพลน/Wallet ใช้ได้)
+function skillModel(s) {
+  const el = document.querySelector('#model') || document.querySelector('#cmodel'); if (!s?.model_id || !el || +el.value === s.model_id) return;
+  if (![...el.options].some(o => +o.value === s.model_id)) return toast('โมเดลประจำของ Skill นี้ไม่อยู่ในแพลนของคุณ ใช้โมเดลที่เลือกอยู่แทน');
+  el.value = String(s.model_id); el.dispatchEvent(new Event('change')); toast(`สลับเป็น ${me.models.find(m => m.id === s.model_id)?.name || 'โมเดลประจำ'} ตาม Skill`, 'ok');
+}
 let _mcpCache = null;
 async function loadMcps(force) {
   if (!_mcpCache || force) _mcpCache = await api('/mcp').catch(() => []);

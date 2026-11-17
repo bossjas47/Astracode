@@ -1,5 +1,11 @@
 // AstraCode: โหมด Code ใช้ตัวแปรกลางจาก app.js
-PAGES.code = () => qs().get('p') ? codeView(qs().get('p')) : codeHome();
+PAGES.code = () => qs().get('remix') ? codeRemix(qs().get('remix')) : qs().get('p') ? codeView(qs().get('p')) : codeHome();
+// เปิดจากปุ่ม Remix ในหน้าที่แชร์ (/p/...) หรือแกลเลอรี: คัดลอกเป็นโปรเจกต์ของเรา แล้วเปิดเลย
+async function codeRemix(t) {
+  if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  try { const r = await api('/projects/remix', { method: 'POST', body: { token: t } }); toast('คัดลอกโปรเจกต์มาแล้ว แก้ได้เลย', 'ok'); go('/code?p=' + r.id); }
+  catch (x) { toast(x.message, 'bad'); go('/code'); }
+}
 const IDE = {
   pid: null, name: '', files: new Map(), states: new Map(), open: [], active: null, view: null,
   dirty: new Set(), saveT: null, status: '', closed: new Set(),
@@ -14,7 +20,7 @@ const kb = n => n > 1024 ? Math.round(n / 102.4) / 10 + ' KB' : n + ' B';
 // ---------- หน้ารวมโปรเจกต์ ----------
 async function codeHome() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
-  const list = await api('/projects');
+  const [list, gal] = await Promise.all([api('/projects'), api('/gallery').catch(() => [])]);
   page(nav() + `<div class="wrap"><section class="hero code-hero" style="padding:20px 0 8px"><h1>Code</h1>
     <p>เขียนโค้ดบนมือถือ มี AI ช่วยแก้ไฟล์ รัน HTML, JavaScript และ Python ได้ในเบราว์เซอร์</p></section>
     <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px">
@@ -29,7 +35,8 @@ async function codeHome() {
     <div class="grid" id="pgrid">${list.map(p => `<div class="tile proj" data-name="${esc(p.name.toLowerCase())}"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}</div>
       <div class="muted">${p.files} ไฟล์ · ${kb(p.size)} · แก้ล่าสุด ${when(p.updated_at)}</div></a>
       <div class="row" style="margin-top:8px"><a class="btn blue sm" href="/code?p=${p.id}">Open</a><button class="btn out sm" data-ren="${p.id}">Rename</button><button class="btn red sm" data-del="${p.id}">Delete</button></div></div>`).join('')
-      || '<p class="muted" style="text-align:center">ยังไม่มีโปรเจกต์ สร้างอันแรกได้เลย ระบบจะใส่ไฟล์ตัวอย่างให้</p>'}</div>${footer()}</div>`);
+      || '<p class="muted" style="text-align:center">ยังไม่มีโปรเจกต์ สร้างอันแรกได้เลย ระบบจะใส่ไฟล์ตัวอย่างให้</p>'}</div>
+    ${gal.length ? `<h2 style="margin:28px 0 10px">แกลเลอรี</h2><p class="muted" style="margin:-4px 0 12px">โปรเจกต์เด่นจากผู้ใช้ เปิดดูหรือกด Remix เพื่อคัดลอกไปแก้ต่อ</p><div class="grid">${gal.map(g => `<div class="tile proj"><div style="font:600 17px var(--display)">${esc(g.name)}</div><div class="muted">${g.files} ไฟล์ · ${when(g.updated_at)}</div><div class="row" style="margin-top:8px"><a class="btn out sm" href="/p/${esc(g.link)}" target="_blank" rel="noopener">เปิดดู</a><a class="btn blue sm" href="/code?remix=${esc(g.link)}">Remix</a></div></div>`).join('')}</div>` : ''}${footer()}</div>`);
   $('#psearch')?.addEventListener('input', e => { const q = e.target.value.trim().toLowerCase(); document.querySelectorAll('#pgrid .tile.proj').forEach(t => t.hidden = !!q && !t.dataset.name.includes(q)); });
   $('#nf').onsubmit = async e => {
     e.preventDefault(); e.submitter.disabled = true;
