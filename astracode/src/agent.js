@@ -1,7 +1,7 @@
 // Agent เบื้องหลัง: ทำงานแก้โค้ดบนเซิร์ฟเวอร์ทั้งชุดโดยผู้ใช้ไม่ต้องเปิดหน้าค้างไว้ (รันใน Durable Object ของ ChatRun)
 // วนรอบ: ให้โมเดลคิด → อ่านไฟล์ที่ขอ (READ/GREP/LIST) → เขียนไฟล์ที่แก้ลงโปรเจกต์ → ส่งผลกลับให้โมเดล จนไม่มีอะไรต้องทำ
 // ข้อจำกัด: เซิร์ฟเวอร์รันโค้ดและจับภาพหน้าจอไม่ได้ Agent จึงตรวจงานด้วยการอ่านไฟล์กลับ ผู้ใช้ควรเปิดดูผลเองตอนจบ
-import { DAY, SYSTEM_CODE, allowedModels, ctxMax, err, esc, fitContext, flat, json, limMult, limited, planOf, touchWindows, usageStatus } from './core.js';
+import { DAY, SYSTEM_CODE, allowedModels, projectFor, ctxMax, err, esc, fitContext, flat, json, limMult, limited, planOf, touchWindows, usageStatus } from './core.js';
 import { callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs, webSearch } from './ai.js';
 import { b64 } from './projects.js';
 import { sendPush } from './push.js';
@@ -215,7 +215,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
   const DB = env.DB, J = await DB.prepare('SELECT * FROM agent_jobs WHERE id=?').bind(jobId).first(); if (!J || J.status !== 'queued') return;
   await setJob(env, jobId, { status: 'running', started_at: Date.now() });
   const u = await DB.prepare('SELECT * FROM users WHERE id=?').bind(J.user_id).first(), plan = await planOf(env, u);
-  const proj = await DB.prepare('SELECT * FROM projects WHERE id=? AND user_id=?').bind(J.project_id, J.user_id).first();
+  const proj = await projectFor(env, J.project_id, J.user_id);
   const m = await DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(J.model_id).first();
   const log = [], changedAll = new Set(); let usageNote = '', final = '', status = 'done', cumIn = 0, round = 0; const t0 = Date.now(), transcript = [];
   const lead = J.parent_id ? await DB.prepare('SELECT * FROM agent_jobs WHERE id=?').bind(J.parent_id).first() : null, scope = J.role === 'worker' && J.scope ? JSON.parse(J.scope) : null;
@@ -359,7 +359,7 @@ export async function agentApi(req, env, u, path) {
     const b = await req.json(), prompt = String(b.prompt || '').trim().slice(0, 4000);
     if (prompt.length < 10) return err('อธิบายงานให้ละเอียดขึ้นอีกหน่อย (อย่างน้อย 10 ตัวอักษร)');
     if (b.research && !(env.TAVILY_KEY && (await getSetting(env, 'search_enabled')) !== '0')) return err('ระบบค้นเว็บยังไม่เปิดใช้', 503);
-    if (!b.research && !await DB.prepare('SELECT 1 FROM projects WHERE id=? AND user_id=?').bind(+b.project_id, u.id).first()) return err('ไม่พบโปรเจกต์', 404);
+    if (!b.research && !await projectFor(env, +b.project_id, u.id)) return err('ไม่พบโปรเจกต์', 404);
     const model = (await allowedModels(env, plan.id)).find(x => x.id === +b.model_id && !['image', 'embedding'].includes(x.provider)); if (!model) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
     const lim = await usageStatus(env, u, plan); if (lim.pct4h >= 100 || lim.pctWeek >= 100) return err('ลิมิตเต็มแล้ว', 429);
     if (await DB.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND ((status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)>?) OR status IN ('waiting','team','reviewing','plan'))").bind(u.id, Date.now() - 20 * 60e3).first()) return err('มีงาน Agent ที่กำลังทำอยู่ รอให้เสร็จหรือกดหยุดก่อน', 409);
@@ -373,7 +373,7 @@ export async function agentApi(req, env, u, path) {
     const plan = await planOf(env, u), b = await req.json().catch(() => ({})), ms = await allowedModels(env, plan.id);
     const lead = ms.find(x => x.id === +b.model_id), wm = b.team ? (await workerModel(env, plan, +b.worker_model_id || null)) || lead : null;
     if (!lead || !(plan.limit_week > 0)) return json({ ok: false });
-    const sz = (await DB.prepare('SELECT COALESCE(SUM(length(content)),0) n, COUNT(*) c FROM project_files WHERE project_id=? AND project_id IN (SELECT id FROM projects WHERE user_id=?)').bind(+b.project_id, u.id).first());
+    const sz = (await DB.prepare('SELECT COALESCE(SUM(length(content)),0) n, COUNT(*) c FROM project_files WHERE project_id=?').bind((await projectFor(env, +b.project_id, u.id))?.id || 0).first());
     return json({ ok: true, ...estimateAgent(lead, wm, sz.n, sz.c, plan.limit_week) });
   }
   const rs = path.match(/^\/api\/agent\/(\d+)\/resume$/);

@@ -1,6 +1,7 @@
-import { err, hex, json, rand, sha, userErr } from './core.js';
+import { err, esc, hex, json, projectFor, rand, sha, userErr } from './core.js';
+import { sendPush } from './push.js';
 import { status } from './jobs.js';
-import { notify } from './billing.js';
+import { mail, mailBox, notify, siteUrl } from './billing.js';
 // ---------- projects (โหมด Code) ----------
 export const PATH_RE = /^(?!.*\.\.)(?!.*\/\/)(?!.*\/$)[^\/\\\x00-\x1f<>:"|?*][^\\\x00-\x1f<>:"|?*]{0,199}$/;
 export const FILE_LIMIT = 500e3, PROJECT_LIMIT = 5e6, FILES_PER_PROJECT = 300, PROJECTS_PER_USER = 20;
@@ -57,7 +58,7 @@ export async function projects(req, env, u, path, url) {
   }
   if (path === '/api/projects') {
     if (M === 'GET') return json((await DB.prepare(`SELECT p.id,p.name,p.updated_at,COUNT(f.path) files,COALESCE(SUM(length(f.content)),0) size
-      FROM projects p LEFT JOIN project_files f ON f.project_id=p.id WHERE p.user_id=? GROUP BY p.id ORDER BY p.updated_at DESC`).bind(u.id).all()).results);
+      , p.user_id<>?1 shared FROM projects p LEFT JOIN project_files f ON f.project_id=p.id WHERE p.user_id=?1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id=?1) GROUP BY p.id ORDER BY p.updated_at DESC`).bind(u.id).all()).results);
     if (M === 'POST') {
       const b = await req.json(), name = String(b.name || '').trim().slice(0, 60);
       if (!name) return err('ตั้งชื่อโปรเจกต์ก่อน');
@@ -76,8 +77,23 @@ export async function projects(req, env, u, path, url) {
   const r = path.match(/^\/api\/projects\/(\d+)(\/[a-z]+(?:\/[a-z0-9]+)?)?$/);
   if (!r) return err('not found', 404);
   const pid = +r[1], sub = r[2] || '';
-  const p = await DB.prepare('SELECT * FROM projects WHERE id=? AND user_id=?').bind(pid, u.id).first();
+  const p = await projectFor(env, pid, u.id);
   if (!p) return err('ไม่พบโปรเจกต์', 404);
+  // สมาชิกที่ถูกเชิญแก้ไฟล์/ใช้ AI ได้ แต่ลบโปรเจกต์ แชร์ ตั้งค่า GitHub หรือดูตัวแปรลับไม่ได้
+  if (!p.owner && (sub.startsWith('/github') || ['/env', '/gallery', '/share'].includes(sub) || (!sub && M === 'DELETE') || (sub === '/members' && M === 'POST'))) return err('เฉพาะเจ้าของโปรเจกต์', 403);
+  if (sub === '/members') { // สมาชิกที่แก้โปรเจกต์ได้ (สูงสุด 5 คน) · DELETE ตัวเอง = ออกจากโปรเจกต์
+    if (M === 'GET') return json({ owner: (await DB.prepare('SELECT email FROM users WHERE id=?').bind(p.user_id).first())?.email, me_owner: p.owner, members: (await DB.prepare('SELECT u.id,u.email,m.created_at FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? ORDER BY m.created_at').bind(pid).all()).results });
+    const b = await req.json().catch(() => ({}));
+    if (M === 'DELETE') { const who = +b.user_id || u.id; if (!p.owner && who !== u.id) return err('เฉพาะเจ้าของโปรเจกต์', 403); await DB.prepare('DELETE FROM project_members WHERE project_id=? AND user_id=?').bind(pid, who).run(); return json({ ok: true }); }
+    const email = String(b.email || '').trim().toLowerCase(), v = email && await DB.prepare('SELECT id,email FROM users WHERE email=? AND banned=0').bind(email).first();
+    if (!v) return err('ไม่พบผู้ใช้อีเมลนี้ ให้เพื่อนสมัคร AstraCode ก่อน', 404);
+    if (v.id === u.id) return err('คุณเป็นเจ้าของโปรเจกต์นี้อยู่แล้ว');
+    if ((await DB.prepare('SELECT COUNT(*) n FROM project_members WHERE project_id=?').bind(pid).first()).n >= 5) return err('เชิญได้สูงสุด 5 คนต่อโปรเจกต์');
+    await DB.prepare('INSERT OR IGNORE INTO project_members (project_id,user_id,created_at) VALUES (?,?,?)').bind(pid, v.id, now).run();
+    await mail(env, v.email, `AstraCode: ${u.email} ชวนคุณแก้โปรเจกต์ ${p.name}`, mailBox('คุณได้รับเชิญเข้าโปรเจกต์', `${esc(u.email)} เชิญคุณร่วมแก้โปรเจกต์ <b>${esc(p.name)}</b> ในโหมด Code`, 'เปิดโปรเจกต์', `${siteUrl(env)}/code?p=${pid}`)).catch(() => {});
+    await sendPush(env, v.id, { title: 'ได้รับเชิญเข้าโปรเจกต์', body: `${u.email} ชวนแก้ ${p.name}`, url: '/code?p=' + pid });
+    return json({ ok: true });
+  }
   const touch = DB.prepare('UPDATE projects SET updated_at=? WHERE id=?').bind(now, pid);
   if (sub.startsWith('/github')) return github(req, env, u, p, sub, now);
   // ตรวจขนาดรวมและจำนวนไฟล์ หลังเขียนไฟล์ชุดนี้
@@ -92,7 +108,7 @@ export async function projects(req, env, u, path, url) {
   const valid = f => typeof f?.path === 'string' && PATH_RE.test(f.path) && typeof f.content === 'string' && f.content.length <= FILE_LIMIT;
 
   if (!sub) {
-    if (M === 'GET') return json({ id: p.id, name: p.name, instructions: p.instructions || '', gh: p.gh_repo ? { repo: p.gh_repo, branch: p.gh_branch, synced: p.gh_sha } : null, files: (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all()).results });
+    if (M === 'GET') return json({ id: p.id, owner: p.owner, name: p.name, instructions: p.instructions || '', gh: p.gh_repo ? { repo: p.gh_repo, branch: p.gh_branch, synced: p.gh_sha } : null, files: (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all()).results });
     if (M === 'PUT') {
       const b = await req.json();
       if ('instructions' in b) {
@@ -109,6 +125,7 @@ export async function projects(req, env, u, path, url) {
         DB.prepare('DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE project_id=? AND user_id=?)').bind(pid, u.id),
         DB.prepare('DELETE FROM chats WHERE project_id=? AND user_id=?').bind(pid, u.id),
         DB.prepare('DELETE FROM project_files WHERE project_id=?').bind(pid),
+        DB.prepare('DELETE FROM project_members WHERE project_id=?').bind(pid),
         DB.prepare('DELETE FROM projects WHERE id=?').bind(pid),
       ]);
       return json({ ok: true });

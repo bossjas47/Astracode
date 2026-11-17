@@ -1,5 +1,5 @@
 // รายงาน context แบบละเอียด: ในหน้าต่าง context ของโมเดลตอนนี้มีอะไรกินที่อยู่เท่าไร (ประมาณจากจำนวนตัวอักษร ไม่ใช่ tokenizer จริง)
-import { HISTORY, HISTORY_CODE, SYSTEM, SYSTEM_CODE, allowedModels, ctxMax, estTokens, histStart, json, err, planOf } from './core.js';
+import { HISTORY, HISTORY_CODE, SYSTEM, SYSTEM_CODE, allowedModels, ctxMax, estTokens, histStart, json, err, planOf, projectFor } from './core.js';
 import { familyHint, stripOpenFile } from './ai.js';
 
 export const COMPACT_DEFAULT_PCT = 75;
@@ -13,7 +13,7 @@ export async function contextReport(env, u, { cid, pid, model, skill_ids = [] })
   const sids = (Array.isArray(skill_ids) ? skill_ids : []).map(Number).filter(x => x > 0).slice(0, 3);
   if (sids.length) { const sks = (await DB.prepare(`SELECT name,content FROM skills WHERE id IN (${sids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...sids, u.id).all()).results; for (const s of sks) add('skill', 'Skill: ' + s.name, s.content.slice(0, 6000)); }
   if (pid) {
-    const pr = await DB.prepare('SELECT instructions FROM projects WHERE id=? AND user_id=?').bind(pid, u.id).first();
+    const pr = await projectFor(env, pid, u.id);
     const af = (await DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid).first())?.content || '';
     add('rules', 'กฎประจำโปรเจกต์', ((pr?.instructions || '') + (af.startsWith('data:') ? '' : af.slice(0, 3000))).slice(0, 6000));
     // ทุกข้อความในโหมด Code แนบรายชื่อไฟล์ และถ้าโปรเจกต์เล็ก (ข้อความรวม ≤ 14,000 ตัวอักษร) แนบเนื้อหาทุกไฟล์ด้วย (เหมือนหน้าเว็บ)

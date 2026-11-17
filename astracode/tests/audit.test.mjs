@@ -324,3 +324,17 @@ test('changelog lists only published posts marked changelog; public settings exp
   assert.deepEqual((await t.json('/api/changelog')).data.map(p => p.slug), ['b']);
   assert.equal((await t.json('/api/settings/public')).data.cl_latest, 5);
 });
+
+test('project members: owner invites by email, member edits files but cannot delete, share or read secrets; outsiders get 404', async () => {
+  const t = await makeEnv(), a = await t.user(), b = await t.user(), c = await t.user();
+  const p = (await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'ทีม' } })).data;
+  const bEmail = t.DB.raw.prepare('SELECT email FROM users WHERE id=?').get(b.id).email;
+  assert.equal((await t.json(`/api/projects/${p.id}`, { cookie: b.cookie })).status, 404);
+  assert.equal((await t.json(`/api/projects/${p.id}/members`, { method: 'POST', cookie: a.cookie, body: { email: bEmail } })).status, 200);
+  assert.ok((await t.json('/api/projects', { cookie: b.cookie })).data.some(x => x.id === p.id && x.shared));
+  assert.equal((await t.json(`/api/projects/${p.id}/file`, { method: 'PUT', cookie: b.cookie, body: { path: 'b.txt', content: 'hi' } })).status, 200);
+  for (const [path, method] of [[`/api/projects/${p.id}`, 'DELETE'], [`/api/projects/${p.id}/share`, 'POST'], [`/api/projects/${p.id}/env`, 'GET'], [`/api/projects/${p.id}/members`, 'POST']]) assert.equal((await t.json(path, { method, cookie: b.cookie, ...(method === 'GET' ? {} : { body: {} }) })).status, 403, path);
+  assert.equal((await t.json(`/api/projects/${p.id}`, { cookie: c.cookie })).status, 404);
+  assert.equal((await t.json(`/api/projects/${p.id}/members`, { method: 'DELETE', cookie: b.cookie, body: {} })).status, 200);
+  assert.equal((await t.json(`/api/projects/${p.id}`, { cookie: b.cookie })).status, 404);
+});

@@ -32,9 +32,9 @@ async function codeHome() {
       <p class="muted" id="cmsg">ต้องเชื่อม GitHub ก่อน (ปุ่ม Git ในโปรเจกต์ไหนก็ได้)</p></details>
     <div class="err" id="e"></div>
     ${list.length > 4 ? '<input id="psearch" type="search" placeholder="ค้นหาโปรเจกต์" aria-label="ค้นหาโปรเจกต์" autocomplete="off" style="margin-bottom:12px">' : ''}
-    <div class="grid" id="pgrid">${list.map(p => `<div class="tile proj" data-name="${esc(p.name.toLowerCase())}"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}</div>
+    <div class="grid" id="pgrid">${list.map(p => `<div class="tile proj" data-name="${esc(p.name.toLowerCase())}"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}${p.shared ? ' <span class="pill">แชร์กับฉัน</span>' : ''}</div>
       <div class="muted">${p.files} ไฟล์ · ${kb(p.size)} · แก้ล่าสุด ${when(p.updated_at)}</div></a>
-      <div class="row" style="margin-top:8px"><a class="btn blue sm" href="/code?p=${p.id}">Open</a><button class="btn out sm" data-ren="${p.id}">Rename</button><button class="btn red sm" data-del="${p.id}">Delete</button></div></div>`).join('')
+      <div class="row" style="margin-top:8px"><a class="btn blue sm" href="/code?p=${p.id}">Open</a>${p.shared ? '' : `<button class="btn out sm" data-ren="${p.id}">Rename</button><button class="btn red sm" data-del="${p.id}">Delete</button>`}</div></div>`).join('')
       || '<p class="muted" style="text-align:center">ยังไม่มีโปรเจกต์ สร้างอันแรกได้เลย ระบบจะใส่ไฟล์ตัวอย่างให้</p>'}</div>
     ${gal.length ? `<h2 style="margin:28px 0 10px">แกลเลอรี</h2><p class="muted" style="margin:-4px 0 12px">โปรเจกต์เด่นจากผู้ใช้ เปิดดูหรือกด Remix เพื่อคัดลอกไปแก้ต่อ</p><div class="grid">${gal.map(g => `<div class="tile proj"><div style="font:600 17px var(--display)">${esc(g.name)}</div>${g.blurb ? `<div style="margin:4px 0">${esc(g.blurb)}</div>` : ''}<div class="muted">${g.files} ไฟล์ · ${when(g.updated_at)}</div><div class="row" style="margin-top:8px"><a class="btn out sm" href="/p/${esc(g.link)}" target="_blank" rel="noopener">เปิดดู</a><a class="btn blue sm" href="/code?remix=${esc(g.link)}">Remix</a></div></div>`).join('')}</div>` : ''}${footer()}</div>`);
   $('#psearch')?.addEventListener('input', e => { const q = e.target.value.trim().toLowerCase(); document.querySelectorAll('#pgrid .tile.proj').forEach(t => t.hidden = !!q && !t.dataset.name.includes(q)); });
@@ -598,6 +598,16 @@ function cUI() {
     + (IDE.mcps.length && _mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
 }
 function setOpt(k, on) { localStorage.setItem(k, on ? '1' : '0'); if (k === 'auto') IDE.autoMode = on; else IDE.autoApply = on; }
+// สมาชิกโปรเจกต์: เจ้าของเชิญ/ลบได้ · สมาชิกกดออกจากโปรเจกต์ได้ · แก้ไฟล์เดียวกันพร้อมกัน = บันทึกหลังสุดชนะ
+async function membersSheet() {
+  const r = await api(`/projects/${IDE.pid}/members`);
+  sheet('สมาชิกโปรเจกต์', `<div class="sheet-form"><p class="muted" style="margin:0">เจ้าของ: ${esc(r.owner || '')} · สมาชิกแก้ไฟล์และใช้ AI ได้ แต่ลบโปรเจกต์ แชร์ หรือตั้งค่า GitHub ไม่ได้ · ถ้าแก้ไฟล์เดียวกันพร้อมกัน ไฟล์ที่บันทึกหลังสุดจะทับ</p>
+    ${r.members.map(m => `<div class="row" style="justify-content:space-between;padding:6px 0"><span>${esc(m.email)}</span>${r.me_owner || m.id === me.id ? `<button type="button" class="btn red sm" data-mrm="${m.id}">${m.id === me.id ? 'ออกจากโปรเจกต์' : 'ลบ'}</button>` : ''}</div>`).join('') || '<p class="muted">ยังไม่มีสมาชิก</p>'}
+    ${r.me_owner ? '<form id="mf" class="row" style="flex-wrap:nowrap"><input name="email" type="email" required placeholder="อีเมลของเพื่อน (ต้องสมัคร AstraCode แล้ว)"><button class="btn blue sm">เชิญ</button></form>' : ''}</div>`, (d, close) => {
+    d.querySelector('#mf')?.addEventListener('submit', async e => { e.preventDefault(); try { await api(`/projects/${IDE.pid}/members`, { method: 'POST', body: { email: new FormData(e.target).get('email') } }); toast('เชิญแล้ว เพื่อนจะได้รับอีเมล', 'ok'); close(); membersSheet(); } catch (x) { toast(x.message, 'bad'); } });
+    d.querySelectorAll('[data-mrm]').forEach(b => b.onclick = async () => { const self = +b.dataset.mrm === me.id; if (!await confirmSheet(self ? 'ออกจากโปรเจกต์นี้?' : 'ลบสมาชิกคนนี้?', { title: 'สมาชิกโปรเจกต์', ok: 'ยืนยัน', danger: true })) return; await api(`/projects/${IDE.pid}/members`, { method: 'DELETE', body: { user_id: +b.dataset.mrm } }); close(); if (self) go('/code'); else membersSheet(); });
+  });
+}
 async function shareProject() {
   const r = await api(`/projects/${IDE.pid}/share`, { method: 'POST' }), url = `${location.origin}/p/${r.slug || r.token}`;
   sheet('แชร์โปรเจกต์ (อ่านอย่างเดียว)', `<p class="muted" style="margin:0 0 12px">ใครมีลิงก์นี้เปิดดูหน้าเว็บของโปรเจกต์ได้ แต่แก้ไฟล์ไม่ได้ · หน้าจะอัปเดตตามไฟล์ล่าสุดเสมอ</p>
@@ -742,6 +752,7 @@ function codeTools() {
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
     + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
+    + optHTML('members', ic('users') + 'ชวนเพื่อนมาแก้ด้วยกัน', 'เชิญด้วยอีเมล (สูงสุด 5 คน) แก้ไฟล์และใช้ AI ในโปรเจกต์นี้ได้ ใช้ลิมิตของแต่ละคนเอง')
     + optHTML('share', ic('share') + 'แชร์โปรเจกต์ (ลิงก์อ่านอย่างเดียว)', 'ให้คนอื่นเปิดดูหน้าเว็บที่รันแล้วได้ แก้ไฟล์ไม่ได้')
     + optHTML('hist', ic('undo') + 'ประวัติโปรเจกต์ / ย้อนทั้งโปรเจกต์', 'ย้อนไฟล์ทั้งหมดไปสถานะก่อนช่วงเวลาที่เลือก')
     + optHTML('exphtml', ic('download') + 'ส่งออก HTML ไฟล์เดียว', 'รวม HTML/CSS/JS เป็นไฟล์เดียวพร้อมเปิดใช้งาน')
@@ -750,6 +761,7 @@ function codeTools() {
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const v = b.dataset.v;
       if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
+      if (v === 'members') return membersSheet();
       if (v === 'autotest') { const on = localStorage.getItem('autoTest') === '0'; localStorage.setItem('autoTest', on ? '1' : '0'); toast('รันเทสต์อัตโนมัติ: ' + (on ? 'เปิด' : 'ปิด')); }
       if (v === 'bgagent') { seen('team'); return bgAgentSheet(); }
       if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); IDE.agent = !IDE.agent; localStorage.setItem('agent', IDE.agent ? '1' : '0'); cUI(); toast(IDE.agent ? 'เปิดโหมด Agent: งานยาวได้ถึง 20 รอบ' : 'ปิดโหมด Agent', 'ok'); if (IDE.agent && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); }
