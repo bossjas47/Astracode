@@ -1,3 +1,4 @@
+const WHATS_NEW = 'whatsnew:2026-11'; // เปลี่ยนเลขเมื่อมีฟีเจอร์ใหม่ที่อยากบอกผู้ใช้เดิม
 // AstraCode: หน้าแชต
 let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], compare: false, cmp: [], skills: JSON.parse(localStorage.getItem('skills') || '[]'), mcps: JSON.parse(localStorage.getItem('mcps') || '[]') };
 // ── กัน deploy ไม่ครบคู่ (chat.js ใหม่ + app.js เก่า): ไม่ให้แชตพังเงียบ ──
@@ -116,7 +117,15 @@ async function chatView(id) {
         const want = { code: ['code-reviewer', 'refactor-clean', 'sql-helper'], work: ['email-writer', 'summarizer', 'thai-pro-writer'], study: ['study-tutor', 'explain-simple', 'translator'] }[b.dataset.goal], all = await loadSkills();
         chat.skills = want.map(n => all.find(s => s.name === n)?.id).filter(Boolean); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI();
         d.remove(); toast(chat.skills.length ? 'เปิด Skill ที่เหมาะให้แล้ว' : 'ตั้งค่าเรียบร้อย', 'ok');
-      })); }
+      })); localStorage.setItem(WHATS_NEW, '1'); } // คนใหม่ไม่ต้องเห็น "มีอะไรใหม่"
+    else if (!localStorage.getItem(WHATS_NEW)) { localStorage.setItem(WHATS_NEW, '1'); // ผู้ใช้เดิม: บอกฟีเจอร์ใหม่ครั้งเดียว
+      sheet('มีอะไรใหม่', `<div class="sheet-form">
+        <p class="sheet-msg"><b>${ic('search', 'sm')} Deep research</b><br>กด + แล้วเลือก Deep research ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิงให้ ปิดแอปได้</p>
+        <p class="sheet-msg"><b>${ic('server', 'sm')} ทีม Agent ในโหมด Code</b><br>หัวหน้าแบ่งงาน ลูกทีมหลายตัวเขียนไฟล์พร้อมกัน แล้วตรวจรวม คุณตรวจแผนก่อนเริ่มได้</p>
+        <p class="sheet-msg"><b>${ic('trash', 'sm')} ถังขยะ</b><br>ลบแชตแล้วกู้คืนได้ 30 วัน และเก็บแชตเข้าที่เก็บถาวรได้ (ไอคอนถังขยะในแถบข้าง)</p>
+        <p class="sheet-msg"><b>${ic('book', 'sm')} คลัง Prompt</b><br>พรอมต์ที่บันทึกไว้ใช้ได้ทุกเครื่อง พิมพ์ / ในช่องข้อความเพื่อเลือก</p>
+        <button type="button" class="btn blue" data-x>เข้าใจแล้ว</button></div>`, (d, close) => d.querySelector('[data-x]').onclick = close);
+    }
   } catch { /* ไม่มีที่เก็บ */ }
   $('#effort').onchange = e => { localStorage.setItem('effort', e.target.value); modelUI(); };
   $('#model2').onchange = e => { localStorage.setItem('model2', e.target.value); modelUI(); };
@@ -295,7 +304,7 @@ function toolSheet() {
     <div class="tlist">
       ${site.image ? toolRow('img', 'palette', 'Create image', 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้') : ''}
       ${site.search ? toolRow('web', 'globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web) : ''}
-      ${site.search ? toolRow('rsch', 'search', 'Deep research', 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)') : ''}
+      ${site.search ? toolRow('rsch', 'search', 'Deep research' + newPill('rsch'), 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)') : ''}
       ${toolRow('cmp', 'compare', 'Compare 2 models', 'ถามครั้งเดียว ได้คำตอบจาก 2 โมเดล', chat.compare)}
       ${toolRow('prm', 'book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย')}
       ${toolRow('kb', 'book', 'คลังความรู้', 'เก็บเอกสารไว้ถาวร แล้วถามได้จากทุกแชต', localStorage.getItem('kb') === '1')}
@@ -306,7 +315,7 @@ function toolSheet() {
     </div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), kb: kbSheet, rsch: researchSheet, voice: toggleVoice, img: genImage, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: genImage, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 // Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล

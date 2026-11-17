@@ -1283,3 +1283,4 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 .ic.ok { color: var(--green); }
 .pc-msg { margin: 10px 0 0; font-size: 14px; } .pc-msg small { display: block; font-size: 12px; }
 .tok-help { max-width: 720px; margin: 0 auto 18px; text-align: left; } .tok-help summary { cursor: pointer; } .tok-help p { margin: 10px 0 0; line-height: 1.6; font-size: 14px; }
+.pill.new { background: var(--blue); color: #fff; font-size: 10.5px; padding: 1px 7px; margin-left: 4px; vertical-align: 1px; }

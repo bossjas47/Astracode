@@ -12,6 +12,10 @@ const curSegHTML = () => `<div class="seg" role="group" aria-label="สกุล
 
 const LOC = window.LANG === 'en' ? 'en-GB' : 'th-TH'; // รูปแบบตัวเลขและวันที่ตามภาษา
 const baht = n => ((Math.round(Number(n || 0) * 100) / 100) || 0).toLocaleString(LOC, { maximumFractionDigits: 2 }); // || 0 กัน "-0"
+// ป้าย "ใหม่" ข้างฟีเจอร์ที่เพิ่งเพิ่ม: หายเมื่อกดใช้ครั้งแรก หรือหลังสิ้นปี 2026
+const NEW_UNTIL = Date.UTC(2027, 0, 1);
+const seen = k => { try { localStorage.setItem('seen:' + k, '1'); } catch { /* ไม่มีที่เก็บ */ } };
+const newPill = k => { try { return Date.now() < NEW_UNTIL && !localStorage.getItem('seen:' + k) ? ' <span class="pill new">ใหม่</span>' : ''; } catch { return ''; } };
 const num = n => Number(n || 0).toLocaleString(LOC);
 const when = t => t ? new Date(t).toLocaleString(LOC, { dateStyle: 'medium', timeStyle: 'short' }) : '-';
 // ระหว่างรอคำตอบที่ยังไม่มีข้อความ/ความคิด: ข้อความวนเปลี่ยนทุก 3 วินาที (โมเดลสร้างรูปใช้ชุดข้อความของการวาดภาพ)
