@@ -72,7 +72,7 @@ async function chatView(id) {
         <a href="/support">${ic('mail')}<span>Contact us</span></a>
         ${me.role === 'admin' ? `<a href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
       </nav>
-      <div class="side-sec"><span>Folders &amp; recent</span><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></div>
+      <div class="side-sec"><span>Folders &amp; recent</span><span><button type="button" class="icon-btn xs ghost" id="bin" aria-label="เก็บถาวรและถังขยะ" title="เก็บถาวร / ถังขยะ">${ic('trash')}</button><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></span></div>
       <div class="list" id="list"></div>
       <div class="side-foot">
         <a class="side-user" href="/account" title="${esc(me.email)}">
@@ -99,7 +99,7 @@ async function chatView(id) {
             
             <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div></div>
     <aside class="canvas" id="canvas" hidden>
-      <div class="cv-h"><b>Canvas</b><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">Preview</button><button type="button" data-cv="code">Code</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
+      <div class="cv-h"><b>Canvas</b><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">Preview</button><button type="button" data-cv="code">Code</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="btn out sm" id="cv-tc">ส่งไป Code</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
       <div class="cv-b"><iframe id="cv-f" sandbox="allow-scripts allow-modals allow-forms allow-popups" title="Canvas Preview"></iframe><pre id="cv-c" hidden><code></code></pre></div>
     </aside></div>`;
   const side = $('#side');
@@ -140,6 +140,7 @@ async function chatView(id) {
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'web') toggleWeb(); if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
+  $('#bin').onclick = binSheet;
   $('#newf').onclick = async () => { const name = await promptSheet('ตั้งชื่อโฟลเดอร์ใหม่', '', { title: 'สร้างโฟลเดอร์', ok: 'Create' }); if (name?.trim()) { await api('/folders', { method: 'POST', body: { name } }); Promise.all([loadSkills(), loadMcps()]).then(() => modelUI()); loadSide(); toast('สร้างโฟลเดอร์แล้ว', 'ok'); } };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
@@ -155,6 +156,11 @@ async function chatView(id) {
   };
   $('#cv-x').onclick = () => { $('#canvas').hidden = true; };
   $('#cv-cp').onclick = e => copy(chat.cvCode || '', e.target);
+  $('#cv-tc').onclick = async e => { // เก็บหน้าที่ AI เขียนเป็นโปรเจกต์ใหม่ใน Code
+    const code = chat.cvCode || '', svg = /^\s*<svg/i.test(code), b = e.target; b.disabled = true;
+    try { const r = await api('/projects', { method: 'POST', body: { name: 'จาก Canvas ' + new Date().toLocaleDateString(LOC), files: { 'index.html': svg ? `<!doctype html><meta charset="utf-8"><body style="margin:0;display:grid;place-items:center;min-height:100vh">${code}</body>` : code } } }); location.href = '/code?p=' + r.id; }
+    catch (x) { toast(x.message, 'bad'); b.disabled = false; }
+  };
   app.querySelectorAll('[data-cv]').forEach(b => b.onclick = () => {
     app.querySelectorAll('[data-cv]').forEach(x => x.classList.toggle('on', x === b));
     const isCode = b.dataset.cv === 'code';
@@ -308,6 +314,15 @@ function toggleCompare() {
   const m2 = $('#model2'); if (chat.compare && $('#model').value === 'auto') $('#model').value = me.models[0].id; if (chat.compare && m2.value === $('#model').value) m2.value = me.models.find(m => String(m.id) !== $('#model').value)?.id ?? m2.value; // ตั้งต้นให้ต่างจากตัวแรก
   modelUI(); renderAll();
 }
+// เก็บถาวร + ถังขยะ: กู้คืนได้ · ถังขยะลบถาวรเองหลัง 30 วัน
+async function binSheet() {
+  const [arc, tr] = await Promise.all([api('/chats/archived').catch(() => []), api('/chats/trash').catch(() => [])]);
+  const row = (c, trash) => `<div class="mem tm"><span>${esc(c.title)}${trash ? ` <small class="muted">เหลือ ${Math.max(1, 30 - Math.floor((Date.now() - c.deleted_at) / 864e5))} วัน</small>` : ''}</span><span><button type="button" class="btn out sm" data-rs="${c.id}">กู้คืน</button>${trash ? `<button type="button" class="icon-btn sm ghost" data-pd="${c.id}" aria-label="ลบถาวร">${ic('x')}</button>` : ''}</span></div>`;
+  sheet('เก็บถาวร / ถังขยะ', `<div class="sheet-form"><b>เก็บถาวร (${arc.length})</b>${arc.map(c => row(c, false)).join('') || '<p class="muted" style="margin:0">ว่าง</p>'}<b>ถังขยะ (${tr.length})</b>${tr.map(c => row(c, true)).join('') || '<p class="muted" style="margin:0">ว่าง · ลบแล้วเก็บไว้ 30 วัน</p>'}</div>`, (d, close) => {
+    d.querySelectorAll('[data-rs]').forEach(b => b.onclick = async () => { await api(`/chats/${b.dataset.rs}/restore`, { method: 'POST' }); close(); await loadSide(); toast('กู้คืนแล้ว', 'ok'); });
+    d.querySelectorAll('[data-pd]').forEach(b => b.onclick = async () => { if (!await confirmSheet('ลบแชตนี้ถาวร? กู้คืนไม่ได้', { title: 'ลบถาวร', ok: 'Delete forever', danger: true })) return; await api('/chats/' + b.dataset.pd, { method: 'DELETE' }); close(); binSheet(); });
+  });
+}
 async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api('/chats').catch(() => []), api('/folders').catch(() => [])]); drawSide(); head(); }
 // หัวแชต: ชื่อ + context ที่ใช้
 function head() {
@@ -342,7 +357,9 @@ function drawSide() {
         + optHTML('shr', ic('share') + 'แชร์ลิงก์แชต', c.share_token ? 'คัดลอกหรือยกเลิกลิงก์แชร์' : 'สร้างลิงก์อ่านอย่างเดียวให้เพื่อนดูได้')
         + optHTML('ren', ic('pen') + 'เปลี่ยนชื่อแชต', 'แก้ไขชื่อที่แสดงในแถบด้านข้าง')
         + optHTML('mv', ic('folder') + 'ย้ายไปโฟลเดอร์', c.folder_id ? 'เปลี่ยนหรือเอาออกจากโฟลเดอร์' : 'จัดเก็บเข้าโฟลเดอร์')
-        + optHTML('del', ic('trash') + 'ลบแชตนี้', 'ลบข้อความทั้งหมดในแชตนี้อย่างถาวร'), (sd, close) => {
+        + optHTML('cst', ic('dash') + 'ดูต้นทุนแชตนี้', 'โทเคนที่ใช้และค่าใช้จ่ายโดยประมาณถ้าจ่ายตามใช้')
+        + optHTML('arc', ic('inbox') + 'เก็บถาวร', 'ซ่อนจากรายการ ค้นหาและกู้คืนได้ที่ไอคอนถังขยะ')
+        + optHTML('del', ic('trash') + 'ลบแชตนี้', 'ย้ายเข้าถังขยะ กู้คืนได้ภายใน 30 วัน'), (sd, close) => {
         sd.querySelector('[data-v=pin]').onclick = async () => { close(); await api('/chats/' + c.id, { method: 'PUT', body: { pinned: c.pinned ? 0 : 1 } }); loadSide(); toast(c.pinned ? 'เลิกปักหมุดแล้ว' : 'ปักหมุดแล้ว', 'ok'); };
         sd.querySelector('[data-v=shr]').onclick = async () => {
           close();
@@ -362,7 +379,9 @@ function drawSide() {
             fd.querySelectorAll('[data-v]').forEach(x => x.onclick = async () => { fclose(); await api('/chats/' + c.id, { method: 'PUT', body: { folder_id: +x.dataset.v || null } }); loadSide(); toast('ย้ายแชตแล้ว', 'ok'); });
           });
         };
-        sd.querySelector('[data-v=del]').onclick = async () => { close(); if (!await confirmSheet(`ลบแชต "${c.title}" อย่างถาวร?`, { title: 'ลบแชต', ok: 'Delete', danger: true })) return; await api('/chats/' + c.id, { method: 'DELETE' }); if (chat.id === c.id) openChat(null); else loadSide(); toast('ลบแชตแล้ว'); };
+        sd.querySelector('[data-v=cst]').onclick = async () => { close(); const x = await api(`/chats/${c.id}/cost`).catch(() => null); if (!x) return toast('โหลดไม่สำเร็จ', 'bad'); sheet('ต้นทุนแชตนี้', `<div class="sheet-form"><p style="margin:0">ตอบแล้ว <b>${x.replies}</b> ครั้ง · โทเคนเข้า <b>${kTok(x.tin)}</b> · โทเคนออก <b>${kTok(x.tout)}</b></p><p style="margin:0">ค่าใช้จ่ายโดยประมาณที่ราคาจ่ายตามใช้ (Wallet/API): <b>฿${x.baht.toFixed(2)}</b></p><p class="muted" style="margin:0">ถ้าใช้ผ่านแพลน ค่านี้ไม่ถูกเรียกเก็บ แต่ใช้เทียบว่าแชตไหนกินลิมิตมาก ไม่นับ cache จึงสูงกว่าจริงเล็กน้อย</p></div>`); };
+        sd.querySelector('[data-v=arc]').onclick = async () => { close(); await api('/chats/' + c.id, { method: 'PUT', body: { archived: 1 } }); if (chat.id === c.id) openChat(null); else loadSide(); toast('เก็บถาวรแล้ว'); };
+        sd.querySelector('[data-v=del]').onclick = async () => { close(); if (!await confirmSheet(`ลบแชต "${c.title}"? ย้ายเข้าถังขยะ กู้คืนได้ภายใน 30 วัน`, { title: 'ลบแชต', ok: 'Delete', danger: true })) return; await api('/chats/' + c.id, { method: 'DELETE' }); if (chat.id === c.id) openChat(null); else loadSide(); toast('ย้ายเข้าถังขยะแล้ว'); };
       });
     }
     if (d.fren) { const f = chat.folders.find(x => x.id === +d.fren), name = await promptSheet('ชื่อโฟลเดอร์ใหม่', f.name, { title: 'เปลี่ยนชื่อโฟลเดอร์' }); if (name?.trim()) { await api('/folders/' + f.id, { method: 'PUT', body: { name } }); loadSide(); } }

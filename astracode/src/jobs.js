@@ -1,4 +1,4 @@
-import { BKK, DAY, SYSTEM, allowedModels, err, esc, json, planOf, unlimit, usageStatus } from './core.js';
+import { BKK, DAY, SYSTEM, allowedModels, ensureCols, err, esc, json, planOf, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
 import { event, getSetting, mail, mailBox, notify, origin, siteUrl } from './billing.js';
@@ -7,6 +7,7 @@ import { slug } from './api.js';
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
 export async function cron(env) {
   const DB = env.DB, now = Date.now(), log = [];
+  await ensureCols(env).catch(() => {}); // cron ไม่ผ่านเส้นทาง /api จึงต้องให้คอลัมน์ใหม่มีก่อนใช้
   const step = async (name, fn) => { try { await fn(); } catch (e) { console.log('cron ' + name, e.message); log.push('ERR ' + name); } }; // ขั้นหนึ่งพัง ขั้นอื่นต้องไปต่อ (โดยเฉพาะสำรองข้อมูลและล้างข้อมูลเก่า)
   // 1) ต่ออายุอัตโนมัติจาก Wallet เมื่อเหลือไม่ถึง 24 ชม.
   await step('renew', async () => { for (const u of (await DB.prepare('SELECT u.*,p.price,p.price_year,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.auto_renew=1 AND u.banned=0 AND u.plan_expires BETWEEN ? AND ?').bind(now, now + DAY).all()).results) {
@@ -49,7 +50,8 @@ export async function cron(env) {
   if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream
   if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)
   // 5) ล้างข้อมูลหมดอายุ
-  await DB.batch([DB.prepare('DELETE FROM rate WHERE reset<?').bind(now), DB.prepare('DELETE FROM tokens WHERE expires<?').bind(now), DB.prepare('DELETE FROM sessions WHERE expires<?').bind(now), DB.prepare('DELETE FROM events WHERE created_at<?').bind(now - 90 * DAY), DB.prepare('DELETE FROM api_log WHERE created_at<?').bind(now - 30 * DAY)]);
+  await DB.batch([DB.prepare('DELETE FROM rate WHERE reset<?').bind(now), DB.prepare('DELETE FROM tokens WHERE expires<?').bind(now), DB.prepare('DELETE FROM sessions WHERE expires<?').bind(now), DB.prepare('DELETE FROM events WHERE created_at<?').bind(now - 90 * DAY), DB.prepare('DELETE FROM api_log WHERE created_at<?').bind(now - 30 * DAY),
+    DB.prepare('DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE deleted_at<?)').bind(now - 30 * DAY), DB.prepare('DELETE FROM chats WHERE deleted_at<?').bind(now - 30 * DAY)]); // ถังขยะเก็บ 30 วัน
   return log;
 }
 // ยิงข้อความสั้นๆ ไปโมเดลที่ไม่มีทั้งการใช้งานและ error ในชั่วโมงที่ผ่านมา · ล้มเหลว = บันทึก error (เข้าตัวตัดวงจร/หน้าสถานะ/แจ้งเตือนแอดมิน)

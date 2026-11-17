@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS chats (
   , folder_id INTEGER
   , summary TEXT, summary_upto INTEGER
   , pinned INTEGER NOT NULL DEFAULT 0, share_token TEXT       -- สรุปข้อความเก่า (ย่อแชตยาว) ถึงข้อความ id นี้
+  , deleted_at INTEGER, archived INTEGER   -- ถังขยะ (ลบจริงหลัง 30 วัน) และเก็บถาวร
 );
 CREATE INDEX IF NOT EXISTS chats_user ON chats(user_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS chats_share ON chats(share_token);
@@ -475,6 +476,7 @@ CREATE TABLE IF NOT EXISTS skills (
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   share_token TEXT
+  , as_text INTEGER   -- 1 = พรอมต์สำเร็จรูป: พิมพ์ / แล้วเลือกเพื่อใส่ข้อความลงช่องพิมพ์ (ไม่ใช่คำสั่งระบบ)
 );
 CREATE INDEX IF NOT EXISTS skills_user ON skills(user_id, id);
 INSERT OR IGNORE INTO skills (id,user_id,name,description,content,enabled,created_at) VALUES

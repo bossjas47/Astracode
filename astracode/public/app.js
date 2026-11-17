@@ -448,7 +448,7 @@ const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonc|xml|ya?ml|toml|ini|env|l
 const loading = {};
 LIBS.katexCss = CDN + 'katex@0.16.11/dist/katex.min.css';
 LIBS.katex = [CDN + 'katex@0.16.11/dist/katex.min.js', 'sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg'];
-LIBS.mermaid = [CDN + 'mermaid@10.9.3/dist/mermaid.min.js', 'sha384-R633Lo26b7d4n15d7Q0yM3E7m9e17f1B38mB37b63aC0s28N2G8K7E6M1fQ0f38M'];
+LIBS.mermaid = [CDN + 'mermaid@10.9.3/dist/mermaid.min.js', 'sha384-R63zfMfSwJF4xCR11wXii+QUsbiBIdiDzDbtxia72oGWfkT7WHJfmD/I/eeHPJyT'];
 let katexCssLoaded = false;
 async function renderRich(root = app) {
   const maths = root.querySelectorAll('.math-b:not([data-done]), .math-i:not([data-done])');
@@ -738,13 +738,14 @@ function slashSkills(t, get, set) {
   let items = [], idx = 0, seq = 0;
   const hide = () => { pop.hidden = true; items = []; };
   const pick = s => {
+    if (s.as_text) { t.value = s.content; hide(); t.oninput?.(); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return; } // พรอมต์สำเร็จรูป: ใส่ข้อความลงช่องพิมพ์
     const cur = new Set(get().map(Number));
     if (cur.has(s.id)) cur.delete(s.id); else if (cur.size >= 3) return toast('เปิด Skill ได้สูงสุด 3 อัน', 'bad'); else cur.add(s.id);
     set([...cur]); t.value = ''; t.oninput?.(); hide(); t.focus();
   };
   const draw = () => {
     const on = new Set(get().map(Number));
-    pop.innerHTML = items.length ? items.map((s, i) => `<button type="button" role="option" class="${i === idx ? 'on' : ''}" data-i="${i}"><b>/${esc(s.name)}</b>${on.has(s.id) ? '<i>✓</i>' : ''}<small>${esc(s.description || s.content.slice(0, 70))}</small></button>`).join('') : '<p class="muted">ไม่พบ Skill ที่ตรงกัน</p>';
+    pop.innerHTML = items.length ? items.map((s, i) => `<button type="button" role="option" class="${i === idx ? 'on' : ''}" data-i="${i}"><b>/${esc(s.name)}</b>${s.as_text ? '<i>พรอมต์</i>' : on.has(s.id) ? '<i>✓</i>' : ''}<small>${esc(s.description || s.content.slice(0, 70))}</small></button>`).join('') : '<p class="muted">ไม่พบ Skill ที่ตรงกัน</p>';
     pop.hidden = false;
     pop.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
   };
@@ -776,6 +777,7 @@ async function skillsSheet(selectedIds, onChange) {
           <input name="name" placeholder="ชื่อ Skill (เช่น nextjs-expert)" maxlength="60" required>
           <input name="description" placeholder="คำอธิบายสั้นๆ" maxlength="200">
           <textarea name="content" rows="4" maxlength="6000" placeholder="คำสั่งหรือกติกาให้ AI ทำตามเมื่อเปิด Skill นี้..." required></textarea>
+          <label class="sw-row"><span class="sw"><input type="checkbox" name="as_text"><span></span></span> เป็นพรอมต์สำเร็จรูป (พิมพ์ / แล้วเลือก ข้อความจะถูกใส่ในช่องพิมพ์ ไม่ใช่คำสั่งระบบ)</label>
           <button class="btn blue sm">Save Skill</button>
         </form>
       </details>
@@ -789,7 +791,7 @@ async function skillsSheet(selectedIds, onChange) {
         e.preventDefault();
         try {
           const created = await api('/skills', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
-          if (sel.size < 3) sel.add(created.id);
+          if (sel.size < 3 && !created.as_text) sel.add(created.id);
           onChange([...sel]); toast('สร้าง Skill แล้ว', 'ok'); draw(true);
         } catch (x) { toast(x.message, 'bad'); }
       };
@@ -803,7 +805,8 @@ async function skillsSheet(selectedIds, onChange) {
         sel.delete(+b.dataset.delsk); onChange([...sel]); toast('ลบ Skill แล้ว'); draw(true);
       });
       d.querySelectorAll('[data-sk]').forEach(el => el.onclick = () => {
-        const id = +el.dataset.sk;
+        const id = +el.dataset.sk, sk = list.find(x => x.id === id);
+        if (sk?.as_text) { const ta = document.querySelector('.compose textarea'); if (ta) { ta.value = sk.content; ta.oninput?.(); ta.focus(); } document.querySelector('.sheet-bg')?.remove(); return toast('ใส่พรอมต์ในช่องพิมพ์แล้ว', 'ok'); }
         if (sel.has(id)) sel.delete(id);
         else if (sel.size >= 3) return toast('เปิดพร้อมกันได้สูงสุด 3 Skills');
         else sel.add(id);

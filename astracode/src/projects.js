@@ -45,7 +45,12 @@ export async function projects(req, env, u, path, url) {
       if (!name) return err('ตั้งชื่อโปรเจกต์ก่อน');
       if ((await DB.prepare('SELECT COUNT(*) n FROM projects WHERE user_id=?').bind(u.id).first()).n >= PROJECTS_PER_USER) return err(`สร้างได้สูงสุด ${PROJECTS_PER_USER} โปรเจกต์`);
       const id = (await DB.prepare('INSERT INTO projects (user_id,name,created_at,updated_at) VALUES (?,?,?,?) RETURNING id').bind(u.id, name, now, now).first()).id;
-      const tpl = b.empty || b.template === 'empty' ? null : (TEMPLATES[b.template] || STARTER);
+      let tpl = b.empty || b.template === 'empty' ? null : (TEMPLATES[b.template] || STARTER);
+      if (b.files && typeof b.files === 'object') { // สร้างจากไฟล์ที่ส่งมา (ปุ่ม "ส่งไป Code" ของ Canvas ในแชต)
+        const ents = Object.entries(b.files);
+        if (!ents.length || ents.length > 20 || ents.some(([p, c]) => !PATH_RE.test(p) || typeof c !== 'string' || c.length > FILE_LIMIT)) { await DB.prepare('DELETE FROM projects WHERE id=?').bind(id).run(); return err('ไฟล์ที่ส่งมาไม่ถูกต้องหรือใหญ่เกินไป'); }
+        tpl = Object.fromEntries(ents);
+      }
       if (tpl) await DB.batch(Object.entries(tpl).map(([p, c]) => DB.prepare('INSERT INTO project_files VALUES (?,?,?,?)').bind(id, p, c, now)));
       return json({ ok: true, id });
     }

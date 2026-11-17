@@ -433,7 +433,7 @@ export async function chat(req, env, u, ctx) {
   const pid = b.project_id || null; // โหมด Code
   if (pid && !await env.DB.prepare('SELECT 1 FROM projects WHERE id=? AND user_id=?').bind(pid, u.id).first()) return fail('ไม่พบโปรเจกต์', 404);
   let cid = ephemeral ? null : b.chat_id;
-  if (cid && !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, u.id).first()) return fail('ไม่พบแชต', 404);
+  if (cid && !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(cid, u.id).first()) return fail('ไม่พบแชต', 404);
   // ไฟล์เก็บในข้อความ โมเดลจึงจำได้ในข้อความถัดไป (รูปแบบเดียวกับฝั่งเว็บ)
   // shortcut: ไม่เก็บรูปไว้ในประวัติ (โมเดลเห็นรูปแค่ข้อความนี้) ถ้าต้องการให้จำรูป ให้เก็บใน R2
   const saved = text + files.map(f => `\n\n[[file:${f.name.replace(/[[\]\r\n]/g, '')}]]\n${f.text}\n[[/file]]`).join('') + (images.length ? `\n\n[แนบรูป ${images.length} รูป]` : '');

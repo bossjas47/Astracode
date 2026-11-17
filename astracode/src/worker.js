@@ -142,7 +142,7 @@ export async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/status') return json(await status(env));
       if ((r = path.match(/^\/api\/share\/([a-f0-9]{12,48})$/))) {
-        const c = await env.DB.prepare('SELECT id,title,created_at FROM chats WHERE share_token=?').bind(r[1]).first();
+        const c = await env.DB.prepare('SELECT id,title,created_at FROM chats WHERE share_token=? AND deleted_at IS NULL').bind(r[1]).first();
         if (!c) return err('ไม่พบแชตที่แชร์ หรือถูกยกเลิกแล้ว', 404);
         const ms = (await env.DB.prepare('SELECT m.role,m.content,m.sources,md.name model FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=? ORDER BY m.id').bind(c.id).all()).results;
         return json({ ...c, messages: ms });
@@ -224,12 +224,16 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/chat' && M === 'POST') return await chat(req, env, u, ctx);
       if (path === '/api/context' && M === 'GET') return await contextApi(req, env, u);
       if (path === '/api/agent' || path.startsWith('/api/agent/')) return await agentApi(req, env, u, path);
+      if ((path === '/api/chats/trash' || path === '/api/chats/archived') && M === 'GET') { // ถังขยะ (เก็บ 30 วัน แล้วลบถาวร) และแชตที่เก็บถาวร
+        const trash = path.endsWith('trash');
+        return json((await env.DB.prepare(`SELECT id,title,deleted_at FROM chats WHERE user_id=? AND project_id IS NULL AND ${trash ? 'deleted_at>?' : 'deleted_at IS NULL AND archived=1 AND ?>=0'} ORDER BY id DESC LIMIT 100`).bind(u.id, trash ? Date.now() - 30 * DAY : 0).all()).results);
+      }
       if (path === '/api/chats/search') {
         const q = String(url.searchParams.get('q') || '').trim();
         if (q.length < 2) return json([]);
         const rows = (await env.DB.prepare(`SELECT m.chat_id, c.title, m.role, m.content, m.created_at
           FROM messages m JOIN chats c ON c.id=m.chat_id
-          WHERE c.user_id=? AND c.project_id IS NULL AND m.content LIKE ?
+          WHERE c.user_id=? AND c.project_id IS NULL AND c.deleted_at IS NULL AND COALESCE(c.archived,0)=0 AND m.content LIKE ?
           ORDER BY m.id DESC LIMIT 30`).bind(u.id, '%' + q.replace(/[%_]/g, '') + '%').all()).results;
         const ql = q.toLowerCase();
         return json(rows.map(r => {
@@ -241,7 +245,7 @@ export async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/chats') {
         const pj = url.searchParams.get('project');
-        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
+        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
       }
       if (path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
       if (path === '/api/github') { // เชื่อม GitHub ด้วย Personal Access Token
@@ -253,8 +257,23 @@ export async function route(req, env, ctx, url, path, M) {
         await env.DB.prepare('UPDATE users SET gh_token=?, gh_login=? WHERE id=?').bind(await seal(env, token), who.login, u.id).run();
         return json({ ok: true, login: who.login });
       }
+      if ((r = path.match(/^\/api\/chats\/(\d+)\/cost$/)) && M === 'GET') { // ต้นทุนโดยประมาณของแชตนี้ที่ราคาจ่ายตามใช้ (Wallet/API) จากโทเคนที่บันทึกในแต่ละข้อความ
+        if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
+        const rows = (await env.DB.prepare("SELECT model_id, COUNT(*) n, COALESCE(SUM(tin),0) tin, COALESCE(SUM(tout),0) tout FROM messages WHERE chat_id=? AND role='assistant' GROUP BY model_id").bind(r[1]).all()).results;
+        let baht = 0, tin = 0, tout = 0, replies = 0;
+        for (const x of rows) {
+          tin += x.tin; tout += x.tout; replies += x.n;
+          const m = x.model_id && await env.DB.prepare('SELECT * FROM models WHERE id=?').bind(x.model_id).first(); if (!m) continue;
+          const pr = await priceOf(env, m); baht += pr.req > 0 ? pr.req * x.n : (x.tin * pr.in + x.tout * pr.out) / 1e6; // shortcut: ไม่นับ cache hit/write จึงเป็นค่าประมาณสูงกว่าจริงเล็กน้อย
+        }
+        return json({ replies, tin, tout, baht: Math.round(baht * 10000) / 10000 });
+      }
+      if ((r = path.match(/^\/api\/chats\/(\d+)\/restore$/)) && M === 'POST') {
+        const ch = await env.DB.prepare('UPDATE chats SET deleted_at=NULL, archived=0 WHERE id=? AND user_id=? RETURNING id').bind(r[1], u.id).first();
+        return ch ? json({ ok: true }) : err('ไม่พบแชต', 404);
+      }
       if ((r = path.match(/^\/api\/chats\/(\d+)\/branch$/)) && M === 'POST') { // แตกกิ่ง: แชตใหม่ที่มีข้อความถึงจุดที่เลือก (ของเดิมไม่ถูกแตะ)
-        const c = await env.DB.prepare('SELECT title,project_id,folder_id FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first();
+        const c = await env.DB.prepare('SELECT title,project_id,folder_id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(r[1], u.id).first();
         if (!c) return err('ไม่พบแชต', 404);
         const upto = +(await req.json().catch(() => ({}))).message_id || 1e15;
         const n = await env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,?) RETURNING id').bind(u.id, ('↳ ' + c.title).slice(0, 60), Date.now(), c.project_id, c.folder_id).first();
@@ -262,12 +281,12 @@ export async function route(req, env, ctx, url, path, M) {
         return json({ id: n.id });
       }
       if ((r = path.match(/^\/api\/chats\/(\d+)\/compact$/)) && M === 'POST') { // ผู้ใช้กดย่อแชต: สรุปข้อความเก่าเหลือ 2 ข้อความล่าสุด (ลด context)
-        if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
+        if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
         if (await limited(env, 'compact:' + u.id, 10, 3600e3)) return err('ย่อแชตบ่อยเกินไป ลองใหม่ภายหลัง', 429);
         return json({ ok: await compact(env, u, +r[1], true) });
       }
       if ((r = path.match(/^\/api\/chats\/(\d+)\/share$/))) {
-        if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
+        if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
         if (M === 'DELETE') { await env.DB.prepare('UPDATE chats SET share_token=NULL WHERE id=?').bind(r[1]).run(); return json({ ok: true }); }
         if (M === 'POST') {
           const row = await env.DB.prepare('UPDATE chats SET share_token=COALESCE(share_token,?) WHERE id=? RETURNING share_token').bind(rand(12), r[1]).first();
@@ -275,12 +294,18 @@ export async function route(req, env, ctx, url, path, M) {
         }
       }
       if ((r = path.match(/^\/api\/chats\/(\d+)$/))) {
-        if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
-        if (M === 'DELETE') { await env.DB.batch([env.DB.prepare('DELETE FROM messages WHERE chat_id=?').bind(r[1]), env.DB.prepare('DELETE FROM chats WHERE id=?').bind(r[1])]); return json({ ok: true }); }
+        const own = await env.DB.prepare('SELECT deleted_at FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first();
+        if (!own || (own.deleted_at && M !== 'DELETE')) return err('ไม่พบแชต', 404);
+        if (M === 'DELETE') { // ลบครั้งแรก = ย้ายเข้าถังขยะ (กู้คืนได้ 30 วัน) · ลบซ้ำหรือสั่ง permanent=1 = ลบถาวร
+          if (own.deleted_at || url.searchParams.get('permanent') === '1') await env.DB.batch([env.DB.prepare('DELETE FROM messages WHERE chat_id=?').bind(r[1]), env.DB.prepare('DELETE FROM chats WHERE id=?').bind(r[1])]);
+          else await env.DB.prepare('UPDATE chats SET deleted_at=?, share_token=NULL WHERE id=?').bind(Date.now(), r[1]).run();
+          return json({ ok: true });
+        }
         if (M === 'PUT') { // เปลี่ยนชื่อ / ย้ายโฟลเดอร์
           const b = await req.json();
           if ('title' in b) { const title = String(b.title || '').trim().slice(0, 80); if (!title) return err('ชื่อว่าง'); await env.DB.prepare('UPDATE chats SET title=? WHERE id=?').bind(title, r[1]).run(); }
           if ('pinned' in b) await env.DB.prepare('UPDATE chats SET pinned=? WHERE id=?').bind(b.pinned ? 1 : 0, r[1]).run();
+          if ('archived' in b) await env.DB.prepare('UPDATE chats SET archived=? WHERE id=?').bind(b.archived ? 1 : 0, r[1]).run();
           if ('folder_id' in b) {
             if (b.folder_id && !await env.DB.prepare('SELECT 1 FROM folders WHERE id=? AND user_id=?').bind(b.folder_id, u.id).first()) return err('ไม่พบโฟลเดอร์', 404);
             await env.DB.prepare('UPDATE chats SET folder_id=? WHERE id=?').bind(b.folder_id || null, r[1]).run();

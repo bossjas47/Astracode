@@ -320,12 +320,12 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     return json({ ok: true });
   }
   if (path === '/api/skills') {
-    if (M === 'GET') return json((await DB.prepare('SELECT id,user_id,name,description,content,enabled FROM skills WHERE (user_id=0 AND enabled=1) OR user_id=? ORDER BY user_id, id DESC').bind(u.id).all()).results);
+    if (M === 'GET') return json((await DB.prepare('SELECT id,user_id,name,description,content,enabled,COALESCE(as_text,0) as_text FROM skills WHERE (user_id=0 AND enabled=1) OR user_id=? ORDER BY user_id, id DESC').bind(u.id).all()).results);
     if (M === 'POST') {
       const b = await req.json(), name = String(b.name || '').trim().slice(0, 60), desc = String(b.description || '').trim().slice(0, 200), content = String(b.content || '').trim().slice(0, 6000);
       if (!name || !content) return err('ใส่ชื่อและคำสั่งของ Skill');
       if ((await DB.prepare('SELECT COUNT(*) n FROM skills WHERE user_id=?').bind(u.id).first()).n >= 30) return err('สร้าง Skill ส่วนตัวได้สูงสุด 30 อัน');
-      return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (?,?,?,?,1,?) RETURNING id,user_id,name,description,content,enabled').bind(u.id, name, desc, content, Date.now()).first());
+      return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at,as_text) VALUES (?,?,?,?,1,?,?) RETURNING id,user_id,name,description,content,enabled,COALESCE(as_text,0) as_text').bind(u.id, name, desc, content, Date.now(), b.as_text ? 1 : 0).first());
     }
   }
   if ((r = path.match(/^\/api\/skills\/(\d+)\/share$/)) && M === 'POST') { // ลิงก์แชร์ Skill (ผู้ช่วยเฉพาะทาง) ให้คนอื่นนำเข้าไปใช้
@@ -368,7 +368,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (M === 'PUT') {
       const b = await req.json(), name = String(b.name || '').trim().slice(0, 60), desc = String(b.description || '').trim().slice(0, 200), content = String(b.content || '').trim().slice(0, 6000);
       if (!name || !content) return err('ใส่ชื่อและคำสั่งของ Skill');
-      await DB.prepare('UPDATE skills SET name=?, description=?, content=?, enabled=? WHERE id=? AND user_id=?').bind(name, desc, content, b.enabled === 0 ? 0 : 1, sid, u.id).run();
+      await DB.prepare('UPDATE skills SET name=?, description=?, content=?, enabled=?, as_text=? WHERE id=? AND user_id=?').bind(name, desc, content, b.enabled === 0 ? 0 : 1, b.as_text ? 1 : 0, sid, u.id).run();
       return json({ ok: true });
     }
   }
