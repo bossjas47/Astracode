@@ -343,7 +343,7 @@ async function enhancePrompt(auto) { // ให้ AI ช่วยเขียน
     const r = await api('/image/prompt', { method: 'POST', body: { text, images }, signal: ac.signal });
     t.value = r.prompt; chat.enhanced = r.prompt; t.oninput?.(); chat.images = []; drawThumbs();
     if (!auto) toast(`${r.model} ปรับ prompt แล้ว แก้ได้ก่อนกดส่ง`, 'ok'); return true;
-  } catch (x) { if (x.name === 'AbortError') toast('ยกเลิกการปรับ prompt แล้ว · ข้อความเดิมยังอยู่'); else showErr(x.message); return false; }
+  } catch (x) { if (x.name === 'AbortError') toast('ยกเลิกการปรับ prompt แล้ว · ข้อความเดิมยังอยู่'); else if (x instanceof TypeError) return 'net'; else showErr(x.message); return false; }
   finally { clearInterval(iv); chat.enhancing = null; modelUI(); }
 }
 function toolSheet() {
@@ -674,10 +674,21 @@ async function editMsg(idx) {
   m.content = next.trim();
   send({ edit_id: m.id, edit_text: next.trim() });
 }
+// โหมดสร้างภาพ: ถ้าการเชื่อมต่อหลุดตอนปิดจอ กลับมาที่หน้าแล้วทำต่อให้ (ภาพเสร็จแล้ว = ดึงจากแชต, ยังไม่เสร็จ = ต่อสตรีม)
+async function imgWake() {
+  const w = chat.imgWake; if (!w || chat.busy) return; chat.imgWake = null;
+  if (w === 'send') return send();
+  const list = await api('/chats/' + chat.id).catch(() => null);
+  if (list && list.length > chat.msgs.length) { chat.msgs = list; renderAll(); loadSide(); return; }
+  if (chat.msgs.at(-1)?.role === 'user') send({ resume: true });
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') imgWake(); });
 async function send({ regenerate = false, resume = false, edit_id = null, edit_text = '' } = {}) {
   if (chat.busy) return;
   if (!regenerate && !resume && !edit_id && isImgMode() && $('#t').value.trim() !== chat.enhanced && (chat.images.length || localStorage.getItem('imgAuto') !== '0')) { // โหมดสร้างภาพ: ปรับ prompt ก่อนส่ง (แนบรูป = ต้องปรับ เพราะใช้รูปเป็นแรงบันดาลใจ)
-    setBusy(true); const ok = await enhancePrompt(true); setBusy(false); if (!ok) return;
+    setBusy(true); const ok = await enhancePrompt(true); setBusy(false);
+    if (ok === 'net') { chat.imgWake = 'send'; if (document.visibilityState === 'visible') imgWake(); return; } // เน็ตหลุดตอนปิดจอ: กลับมาแล้วส่งต่อให้เอง
+    if (!ok) return;
   }
   if (chat.compare && !regenerate && !resume) return compareSend();
   const quiet = regenerate || resume || !!edit_id, t = $('#t'), text = edit_id ? edit_text : quiet ? '' : t.value.trim(), imgs = quiet ? [] : chat.images, m = curModel();
@@ -726,6 +737,9 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
         for (const r of list) if (typeof r.sources === 'string') try { r.sources = JSON.parse(r.sources); } catch { r.sources = null; }
         chat.msgs = list; $('#e').textContent = ''; renderAll(); loadSide();
       }, 6000);
+    }
+    else if (started && x instanceof TypeError && m.provider === 'image' && chat.id) { // ปิดจอระหว่างสร้างภาพ: เซิร์ฟเวอร์สร้างต่อเบื้องหลัง กลับมาแล้วดึงภาพมาให้
+      chat.msgs.pop(); chat.imgWake = 'resume'; setBusy(false); renderAll(); if (document.visibilityState === 'visible') imgWake(); return;
     }
     else if (!started && !quiet) { // เซิร์ฟเวอร์ยังไม่บันทึก: คืนข้อความให้แก้แล้วส่งใหม่
       chat.msgs.splice(-2, 2); t.value = text; chat.images = imgs; chat.files = files; drawThumbs(); setBusy(false); renderAll(); showErr(x.message); return;
