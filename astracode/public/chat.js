@@ -295,6 +295,7 @@ function toolSheet() {
     <div class="tlist">
       ${site.image ? toolRow('img', 'palette', 'Create image', 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้') : ''}
       ${site.search ? toolRow('web', 'globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web) : ''}
+      ${site.search ? toolRow('rsch', 'search', 'Deep research', 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)') : ''}
       ${toolRow('cmp', 'compare', 'Compare 2 models', 'ถามครั้งเดียว ได้คำตอบจาก 2 โมเดล', chat.compare)}
       ${toolRow('prm', 'book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย')}
       ${toolRow('kb', 'book', 'คลังความรู้', 'เก็บเอกสารไว้ถาวร แล้วถามได้จากทุกแชต', localStorage.getItem('kb') === '1')}
@@ -305,8 +306,25 @@ function toolSheet() {
     </div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), kb: kbSheet, voice: toggleVoice, img: genImage, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), kb: kbSheet, rsch: researchSheet, voice: toggleVoice, img: genImage, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
+}
+// Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล
+async function researchSheet() {
+  if (!me.plan.paid) return toast('Deep research ใช้ได้กับแพลนที่ชำระเงิน', 'bad');
+  const L = { queued: 'รอคิว', running: 'กำลังค้นและเขียน', stopping: 'กำลังหยุด', done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิต', failed: 'ไม่สำเร็จ' };
+  const jobs = await api('/agent?research=1').catch(() => []), busy = jobs.find(j => ['queued', 'running', 'stopping'].includes(j.status)), m = curModel();
+  sheet('Deep research', `<div class="sheet-form">${busy ? `<p class="sheet-msg"><b>${L[busy.status]}</b><br><small class="muted">${esc(busy.prompt.slice(0, 140))}</small></p><button type="button" class="btn red sm" id="rsx">หยุด</button>`
+    : `<textarea id="rsp" rows="4" maxlength="4000" placeholder="อยากรู้เรื่องอะไร เช่น เปรียบเทียบรถยนต์ไฟฟ้าราคาไม่เกิน 1 ล้านในไทยปีนี้">${esc($('#t')?.value || '')}</textarea><button type="button" class="btn blue" id="rsgo">เริ่มค้นคว้า</button><p class="muted" style="margin:0;font-size:12.5px">หัวหน้า: ${esc(m?.name || 'โมเดลที่เลือก')} แบ่งหัวข้อและเขียนรายงาน · ลูกทีม DeepSeek 4.1 Flash สรุปแต่ละหัวข้อพร้อมกัน · ใช้ลิมิตตามจริง</p>`}
+    ${jobs.filter(j => j !== busy).slice(0, 5).map(j => `<div class="mem tm" style="display:block"><b>${L[j.status] || j.status}</b> · ${when(j.created_at)}<br><small class="muted">${esc(j.prompt.slice(0, 100))}</small>${j.chat_id ? ` <a href="/chat?id=${j.chat_id}" data-chat="${j.chat_id}">เปิดรายงาน</a>` : ''}</div>`).join('')}</div>`, (d, close) => {
+    d.querySelector('#rsgo')?.addEventListener('click', async e => {
+      const prompt = d.querySelector('#rsp').value.trim(); if (prompt.length < 10) return toast('อธิบายสิ่งที่อยากรู้ให้ละเอียดขึ้นอีกหน่อย', 'bad');
+      const model_id = +(m?.id || me.models[0]?.id); e.target.disabled = true;
+      try { await api('/agent', { method: 'POST', body: { model_id, prompt, research: true } }); close(); toast('เริ่มค้นคว้าแล้ว ปิดแอปได้ รายงานจะขึ้นเป็นแชตใหม่และส่งอีเมล', 'ok'); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
+    });
+    d.querySelector('#rsx')?.addEventListener('click', async () => { await api(`/agent/${busy.id}/stop`, { method: 'POST' }).catch(() => {}); close(); toast('สั่งหยุดแล้ว'); });
+    d.querySelectorAll('a[data-chat]').forEach(a => a.onclick = e => { e.preventDefault(); close(); openChat(+a.dataset.chat); });
+  });
 }
 function toggleWeb() { localStorage.setItem('web', localStorage.getItem('web') === '1' ? '0' : '1'); modelUI(); }
 function toggleCompare() {

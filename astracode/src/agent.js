@@ -2,7 +2,7 @@
 // วนรอบ: ให้โมเดลคิด → อ่านไฟล์ที่ขอ (READ/GREP/LIST) → เขียนไฟล์ที่แก้ลงโปรเจกต์ → ส่งผลกลับให้โมเดล จนไม่มีอะไรต้องทำ
 // ข้อจำกัด: เซิร์ฟเวอร์รันโค้ดและจับภาพหน้าจอไม่ได้ Agent จึงตรวจงานด้วยการอ่านไฟล์กลับ ผู้ใช้ควรเปิดดูผลเองตอนจบ
 import { DAY, SYSTEM_CODE, allowedModels, ctxMax, err, esc, fitContext, json, limited, planOf, touchWindows, usageStatus } from './core.js';
-import { callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs } from './ai.js';
+import { callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs, webSearch } from './ai.js';
 import { b64 } from './projects.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, siteUrl } from './billing.js';
 import { FILE_LIMIT, FILES_PER_PROJECT, PATH_RE, PROJECT_LIMIT, snapshot } from './projects.js';
@@ -157,6 +157,51 @@ async function runLead(env, J, u, plan, m) {
   await teamAdvance(env, J.id);
   return null;
 }
+// ---------- Deep research: หัวหน้าแบ่งหัวข้อ → ค้นเว็บทุกหัวข้อพร้อมกัน → ลูกทีมสรุปแต่ละหัวข้อ (พร้อมกัน) → หัวหน้าเขียนรายงานพร้อมอ้างอิง → แชตใหม่ + อีเมล ----------
+const RESEARCH_PLAN = 'Split the user\'s research question into 2-5 sub-topics that together answer it. For each, write 1-2 web search queries (in the language most likely to find good sources). Reply with ONLY one JSON object: {"topics":[{"title":"short title","queries":["query 1","query 2"]}]}';
+const RESEARCH_NOTES = 'You are a research assistant. From the numbered web results only, write concise factual notes for the sub-topic: key facts, numbers, dates, disagreements between sources. Cite every fact with the source number like [3]. If the results do not cover something, say so. No introduction.';
+const RESEARCH_REPORT = 'Write a well-structured research report in the user\'s language from the team\'s notes: a short summary first, then sections with headings, then a short conclusion. Keep every citation number [n] exactly as in the notes; never invent sources or numbers. Point out where sources disagree or information is missing.';
+async function ask(env, u, plan, m, jobId, system, content, maxTokens) { // เรียกโมเดลครั้งเดียว (ไม่สตรีมให้ใคร) + บันทึกการใช้
+  let out = '', usage = null;
+  for await (const e of callModel(env, m, [{ role: 'user', content }], { effort: null, system, maxTokens, userId: u.id, signal: AbortSignal.timeout(150e3) })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; }
+  if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: jobId }); }
+  return out.trim();
+}
+async function runResearch(env, J, u, plan, m) {
+  const DB = env.DB, log = []; let status = 'done', report = '', sources = [];
+  const stop = async () => (await DB.prepare('SELECT status FROM agent_jobs WHERE id=?').bind(J.id).first())?.status === 'stopping';
+  const full = async () => { const l = await usageStatus(env, u, plan); return l.pct4h >= 100 || l.pctWeek >= 100 || await teamOver(env, u, plan, J); };
+  try {
+    if (!m || !(plan?.price > 0)) throw new Error('ไม่พบโมเดล หรือแพลนไม่รองรับ');
+    let topics = null;
+    try { const d = JSON.parse((s => { const f = /```(?:json)?\s*([\s\S]*?)```/i.exec(s); return f ? f[1] : s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1); })(await ask(env, u, plan, m, J.id, RESEARCH_PLAN, J.prompt, 600))); topics = (d.topics || []).slice(0, TEAM_MAX).map(t => ({ title: String(t.title || '').slice(0, 100), queries: (Array.isArray(t.queries) ? t.queries : []).map(q => String(q).slice(0, 200)).filter(Boolean).slice(0, 2) })).filter(t => t.title && t.queries.length); } catch { /* ใช้คำถามเดิมเป็นหัวข้อเดียว */ }
+    if (!topics?.length) topics = [{ title: J.prompt.slice(0, 100), queries: [J.prompt.slice(0, 200)] }];
+    log.push(`แบ่ง ${topics.length} หัวข้อ: ${topics.map(t => t.title).join(' · ')}`); await setJob(env, J.id, { rounds: 1, log: log.join('\n') });
+    const seen = new Map(); // url → เลขอ้างอิงรวม (หัวข้อต่างกันเจอเว็บเดียวกันใช้เลขเดียวกัน)
+    const found = await Promise.all(topics.map(async t => (await Promise.all(t.queries.map(q => webSearch(env, q)))).flat()));
+    const per = found.map(list => { const mine = []; for (const r of list) { if (!seen.has(r.url)) { seen.set(r.url, sources.length + 1); sources.push({ title: r.title, url: r.url, content: r.content }); } const n = seen.get(r.url); if (!mine.includes(n) && mine.length < 6) mine.push(n); } return mine; });
+    if (!sources.length) throw new Error('ค้นเว็บไม่เจอข้อมูล (หรือระบบค้นเว็บใช้ไม่ได้ตอนนี้)');
+    if (await stop()) { status = 'stopped'; throw new Error('หยุดแล้ว'); }
+    if (await full()) { status = 'limit'; throw new Error('ลิมิตเต็ม หยุดก่อนสรุป'); }
+    const wm = (await workerModel(env, plan)) || m;
+    const notes = await Promise.all(topics.map(async (t, i) => { // ลูกทีมสรุปทุกหัวข้อพร้อมกัน
+      const src = per[i].map(n => `[${n}] ${sources[n - 1].title} (${sources[n - 1].url})\n${String(sources[n - 1].content || '').slice(0, 2500)}`).join('\n\n');
+      try { return src ? await ask(env, u, plan, wm, J.id, RESEARCH_NOTES, `คำถามหลัก: ${J.prompt}\nหัวข้อย่อย: ${t.title}\n\n[ผลค้นเว็บ]\n${src}`, 1200) : '(ไม่พบผลค้นหา)'; }
+      catch (x) { await new Promise(r => setTimeout(r, 4000)); try { return await ask(env, u, plan, wm, J.id, RESEARCH_NOTES, `หัวข้อย่อย: ${t.title}\n\n[ผลค้นเว็บ]\n${src}`, 1200); } catch { return `(สรุปหัวข้อนี้ไม่สำเร็จ: ${String(x.message).slice(0, 80)})`; } }
+    }));
+    log.push(`ค้นได้ ${sources.length} แหล่ง · ${wm.name} สรุป ${topics.length} หัวข้อ`); await setJob(env, J.id, { rounds: 2, log: log.join('\n') });
+    if (await stop()) { status = 'stopped'; throw new Error('หยุดแล้ว'); }
+    if (await full()) { status = 'limit'; report = topics.map((t, i) => `## ${t.title}\n\n${notes[i]}`).join('\n\n'); throw new Error('ลิมิตเต็ม ส่งบันทึกของแต่ละหัวข้อแทนรายงาน'); }
+    report = await ask(env, u, plan, m, J.id, RESEARCH_REPORT, `[คำถาม]\n${J.prompt}\n\n${topics.map((t, i) => `[บันทึกหัวข้อ: ${t.title}]\n${notes[i]}`).join('\n\n')}`, 4000);
+    log.push('เขียนรายงานแล้ว');
+  } catch (x) { if (status === 'done') status = 'failed'; log.push(String(x.message).slice(0, 200)); }
+  const body = (report || `ทำรายงานไม่สำเร็จ: ${log.at(-1)}`) + (sources.length ? `\n\n**แหล่งที่มา**\n${sources.map((x, i) => `[${i + 1}] [${x.title.replace(/[[\]]/g, '')}](${x.url})`).join('\n')}` : '');
+  const chat = await DB.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').bind(J.user_id, ('🔎 ' + J.prompt).slice(0, 40), Date.now()).first();
+  await DB.batch([DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(chat.id, 'user', J.prompt, J.model_id, Date.now()),
+    DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,sources) VALUES (?,?,?,?,?,?)').bind(chat.id, 'assistant', body, J.model_id, Date.now() + 1, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null)]);
+  await setJob(env, J.id, { status, rounds: 3, log: log.join('\n').slice(0, 8000), summary: (report || log.at(-1) || '').slice(0, 600), chat_id: chat.id, finished_at: Date.now() });
+  await mail(env, u.email, `AstraCode Deep research ${status === 'done' ? 'เสร็จแล้ว' : 'ไม่ครบ'}: ${J.prompt.slice(0, 50)}`, mailBox('รายงานพร้อมแล้ว', esc((report || log.at(-1) || '').slice(0, 1500)).replace(/\n/g, '<br>'), 'เปิดรายงาน', `${siteUrl(env)}/chat?id=${chat.id}`)).catch(() => {});
+}
 // โมเดลลูกทีม: ตั้งใน team_worker_model (id) ไม่งั้นใช้ DeepSeek 4.1 Flash ถ้าแพลนมี สุดท้ายใช้ตัวที่ตัวคูณต่ำสุด
 export async function workerModel(env, plan) {
   const ms = (await allowedModels(env, plan.id)).filter(x => !['image', 'embedding'].includes(x.provider)), set = +(await getSetting(env, 'team_worker_model'));
@@ -193,6 +238,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     await mail(env, u.email, `AstraCode Agent ${label}: ${J.prompt.slice(0, 50)}`, mailBox(`Agent ${label}`, esc((final || usageNote || '').slice(0, 2500)).replace(/\n/g, '<br>') + (changedAll.size ? `<br><br>ไฟล์ที่เปลี่ยน: ${esc([...changedAll].join(', '))}` : ''), 'เปิดโปรเจกต์', `${siteUrl(env)}/code?p=${J.project_id}`)).catch(() => {});
   };
   try {
+    if (J.role === 'research') return await runResearch(env, J, u, plan, m);
     if (!proj || !m || !(plan?.price > 0)) { status = 'failed'; usageNote = 'ไม่พบโปรเจกต์/โมเดล หรือแพลนไม่รองรับ'; return await finish(); }
     if (J.role === 'lead') { const r = await runLead(env, J, u, plan, m); if (!r) return; status = r.status; usageNote = r.note; return await finish(); } // แบ่งงานสำเร็จ: ทีมทำต่อ (ผู้ตรวจสรุปตอนจบ)
     const files = () => DB.prepare('SELECT path,length(content) n FROM project_files WHERE project_id=? ORDER BY path').bind(J.project_id).all().then(r => r.results);
@@ -237,7 +283,7 @@ export async function agentApi(req, env, u, path) {
   await ensureAgentTable(env); const DB = env.DB, M = req.method;
   if (path === '/api/agent' && M === 'GET') {
     const pj = new URL(req.url).searchParams.get('project');
-    const list = (await DB.prepare(`SELECT id,project_id,prompt,status,rounds,summary,changed,chat_id,created_at,finished_at,role FROM agent_jobs WHERE user_id=? AND parent_id IS NULL${pj ? ' AND project_id=?' : ''} ORDER BY id DESC LIMIT 10`).bind(...(pj ? [u.id, +pj] : [u.id])).all()).results;
+    const list = (await DB.prepare(`SELECT id,project_id,prompt,status,rounds,summary,changed,chat_id,created_at,finished_at,role FROM agent_jobs WHERE user_id=? AND parent_id IS NULL${pj ? ' AND project_id=?' : ''}${new URL(req.url).searchParams.get('research') ? " AND role='research'" : ''} ORDER BY id DESC LIMIT 10`).bind(...(pj ? [u.id, +pj] : [u.id])).all()).results;
     const leads = list.filter(j => j.role === 'lead').map(j => j.id);
     if (leads.length) { const kids = (await DB.prepare(`SELECT id,parent_id,role,prompt,status,rounds,changed,scope,CASE WHEN status='planned' THEN summary END plan FROM agent_jobs WHERE parent_id IN (${leads.map(() => '?')}) ORDER BY id`).bind(...leads).all()).results; list.forEach(j => { if (j.role === 'lead') j.team = kids.filter(k => k.parent_id === j.id).map(({ prompt, ...k }) => ({ ...k, title: prompt.split('\n')[0].slice(0, 80) })); }); }
     return json(list);
@@ -246,12 +292,13 @@ export async function agentApi(req, env, u, path) {
     const plan = await planOf(env, u); if (!(plan?.price > 0)) return err('Agent เบื้องหลังใช้ได้กับแพลนที่ชำระเงิน', 403);
     const b = await req.json(), prompt = String(b.prompt || '').trim().slice(0, 4000);
     if (prompt.length < 10) return err('อธิบายงานให้ละเอียดขึ้นอีกหน่อย (อย่างน้อย 10 ตัวอักษร)');
-    if (!await DB.prepare('SELECT 1 FROM projects WHERE id=? AND user_id=?').bind(+b.project_id, u.id).first()) return err('ไม่พบโปรเจกต์', 404);
+    if (b.research && !(env.TAVILY_KEY && (await getSetting(env, 'search_enabled')) !== '0')) return err('ระบบค้นเว็บยังไม่เปิดใช้', 503);
+    if (!b.research && !await DB.prepare('SELECT 1 FROM projects WHERE id=? AND user_id=?').bind(+b.project_id, u.id).first()) return err('ไม่พบโปรเจกต์', 404);
     const model = (await allowedModels(env, plan.id)).find(x => x.id === +b.model_id && !['image', 'embedding'].includes(x.provider)); if (!model) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
     const lim = await usageStatus(env, u, plan); if (lim.pct4h >= 100 || lim.pctWeek >= 100) return err('ลิมิตเต็มแล้ว', 429);
     if (await DB.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND ((status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)>?) OR status IN ('waiting','team','reviewing','plan'))").bind(u.id, Date.now() - 20 * 60e3).first()) return err('มีงาน Agent ที่กำลังทำอยู่ รอให้เสร็จหรือกดหยุดก่อน', 409);
     if (await limited(env, 'agent:' + u.id, 12, DAY)) return err('สั่ง Agent วันนี้ครบแล้ว (12 งานต่อวัน)', 429);
-    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role,scope) VALUES (?,?,?,?,'queued',?,?,?) RETURNING id").bind(u.id, +b.project_id, model.id, prompt, Date.now(), b.team ? 'lead' : null, b.team && b.confirm !== false ? 'confirm' : null).first();
+    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role,scope) VALUES (?,?,?,?,'queued',?,?,?) RETURNING id").bind(u.id, b.research ? 0 : +b.project_id, model.id, prompt, Date.now(), b.research ? 'research' : b.team ? 'lead' : null, b.team && !b.research && b.confirm !== false ? 'confirm' : null).first();
     await launch(env, job.id); // ทำต่อใน Durable Object แม้ผู้ใช้ปิดแอป
     return json({ id: job.id });
   }

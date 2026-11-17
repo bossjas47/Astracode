@@ -115,3 +115,25 @@ test('team plan waits for the user: edit, drop a task, then start; or it expires
   assert.deepEqual([...new Set(t.DB.raw.prepare('SELECT status FROM agent_jobs WHERE id=? OR parent_id=?').all(j2.id, j2.id).map(x => x.status))], ['stopped']);
   fm.close();
 });
+
+test('deep research: topics are searched in parallel, cheap model writes notes, lead writes a cited report into a new chat', async () => {
+  const seen = []; const fm = await fakeModel((q, res, body) => {
+    const sys = JSON.stringify(body.messages[0] || '') + JSON.stringify(body.system || ''); seen.push(body.model + ':' + (/sub-topics/.test(sys) ? 'plan' : /research assistant/.test(sys) ? 'notes' : 'report'));
+    if (/sub-topics/.test(sys)) return fm.sse(res, '{"topics":[{"title":"ราคา","queries":["ev price thailand"]},{"title":"สถานีชาร์จ","queries":["ev charger thailand"]}]}');
+    if (/research assistant/.test(sys)) return fm.sse(res, 'ข้อเท็จจริง [1]');
+    return fm.sse(res, '## สรุป\nรถไฟฟ้าในไทยถูกลง [1] และสถานีเพิ่มขึ้น [2]');
+  });
+  const t = await makeEnv({ K: 'k', TAVILY_KEY: 'tv' }); const lead = addModel(t.DB, { name: 'Lead Pro', api_model: 'lead', base_url: fm.url }), cheap = addModel(t.DB, { name: 'DeepSeek 4.1 Flash', api_model: 'flash', base_url: fm.url });
+  const plan = addPlan(t.DB, { models: [lead.id, cheap.id], limit_4h: 1e6, limit_week: 1e6, price: 100 }), u = await t.user(); give(t.DB, u, plan);
+  const orig = globalThis.fetch; globalThis.fetch = async (url, o) => String(url).includes('tavily') ? new Response(JSON.stringify({ results: [{ title: 'Price ' + JSON.parse(o.body).query, url: 'https://news.test/' + encodeURIComponent(JSON.parse(o.body).query), content: 'ข้อมูล' }, { title: 'Shared', url: 'https://shared.test/', content: 'ร่วม' }] })) : orig(url, o);
+  try {
+    const r = await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { model_id: lead.id, prompt: 'สรุปตลาดรถยนต์ไฟฟ้าในไทยปีนี้', research: true } }); assert.equal(r.status, 200, JSON.stringify(r.data));
+  } finally { globalThis.fetch = orig; }
+  const job = (await t.json('/api/agent?research=1', { cookie: u.cookie })).data[0];
+  assert.equal(job.status, 'done', JSON.stringify(job));
+  assert.deepEqual(seen.sort(), ['flash:notes', 'flash:notes', 'lead:plan', 'lead:report'], 'cheap model writes the notes');
+  const msg = t.DB.raw.prepare("SELECT m.content, m.sources, c.project_id FROM messages m JOIN chats c ON c.id=m.chat_id WHERE c.id=? AND m.role='assistant'").get(job.chat_id);
+  assert.equal(msg.project_id, null, 'report chat shows in the normal chat list'); assert.match(msg.content, /\*\*แหล่งที่มา\*\*/);
+  assert.equal(JSON.parse(msg.sources).length, 3, 'the same URL found by two topics is listed once');
+  fm.close();
+});
