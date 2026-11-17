@@ -105,3 +105,17 @@ test('monthly digest: paid users with usage last month get one email, opted-out 
   finally { globalThis.fetch = orig; }
   assert.deepEqual(sent.map(x => x.to).sort(), [a.email, c.email].sort()); assert.match(sent[0].html, /฿10\.00/); assert.match(sent[0].subject, /2026-10/);
 });
+
+test('image prompt helper: uses ChatGPT 6.1 Sol when the plan has it, sends attached pictures, returns only the prompt', async () => {
+  const { fakeModel } = await import('./helpers.mjs'); const seen = [];
+  const fm = await fakeModel((q, res, body) => { seen.push(body); fm.sse(res, '"A cat wearing round glasses, soft studio light, 50mm"'); });
+  const t = await makeEnv({ K: 'k' }), sol = addModel(t.DB, { name: 'ChatGPT 6.1 Sol', base_url: fm.url, api_model: 'sol' }), flash = addModel(t.DB, { name: 'DeepSeek 4.1 Flash 1017', base_url: fm.url, api_model: 'flash' });
+  t.DB.raw.prepare('UPDATE models SET vision=1 WHERE id=?').run(sol.id);
+  const plan = addPlan(t.DB, { price: 100, models: [sol.id, flash.id], limit_4h: 1e6, limit_week: 1e6 }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const img = 'data:image/png;base64,iVBORw0KGgo=';
+  const r = await t.json('/api/image/prompt', { method: 'POST', cookie: u.cookie, body: { text: 'แมวใส่แว่น', images: [img, 'javascript:alert(1)'] } });
+  assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.prompt, 'A cat wearing round glasses, soft studio light, 50mm'); assert.equal(r.data.model, 'ChatGPT 6.1 Sol');
+  assert.equal(seen[0].model, 'sol'); const parts = seen[0].messages.at(-1).content; assert.ok(Array.isArray(parts) && parts.filter(p => p.type === 'image_url').length === 1, 'only the valid picture is sent');
+  assert.equal((await t.json('/api/image/prompt', { method: 'POST', cookie: u.cookie, body: {} })).status, 400);
+  fm.close();
+});

@@ -1,4 +1,4 @@
-import { BKK, DAY, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus } from './core.js';
+import { BKK, DAY, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus } from './core.js';
 import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
@@ -227,6 +227,25 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       return json({ ok: true });
     }
     return json({ ...t, msgs: (await DB.prepare('SELECT admin,body,created_at FROM ticket_msgs WHERE ticket_id=? ORDER BY id').bind(t.id).all()).results });
+  }
+  if (path === '/api/image/prompt' && M === 'POST') { // ให้ AI ช่วยเขียน prompt สร้างภาพให้ดีขึ้น (ดูรูปที่แนบเป็นแรงบันดาลใจได้)
+    const b = await req.json().catch(() => ({})), text = String(b.text || '').trim().slice(0, 2000);
+    let imgs = (Array.isArray(b.images) ? b.images : []).filter(x => typeof x === 'string' && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(x) && x.length < 4e6).slice(0, 2);
+    if (!text && !imgs.length) return err('พิมพ์ว่าอยากได้ภาพแบบไหน หรือแนบรูปตัวอย่าง');
+    const plan = await planOf(env, u), st = await usageStatus(env, u, plan);
+    if (st.pct4h >= 100 || st.pctWeek >= 100) return json({ error: 'ลิมิตเต็มแล้ว', ...st }, 429);
+    if (await limited(env, 'imgp:' + u.id, 30, 3600e3)) return err('ปรับ prompt ได้ชั่วโมงละ 30 ครั้ง', 429);
+    const ms = (await allowedModels(env, plan.id)).filter(x => !['image', 'embedding'].includes(x.provider)), set = +(await getSetting(env, 'image_prompt_model'));
+    let pick = ms.find(x => x.id === set) || ms.find(x => /6\.1\s*sol/i.test(x.name)) || ms.find(x => /deepseek.*4\.1.*flash/i.test(x.name)) || [...ms].sort((a, b) => a.multiplier - b.multiplier)[0]; // ค่าเริ่มต้น ChatGPT 6.1 Sol ถ้าแพลนมี
+    if (!pick) return err('แพลนของคุณยังไม่มีโมเดลที่ช่วยเขียน prompt ได้', 403);
+    if (imgs.length && !pick.vision) pick = ms.find(x => x.vision) || pick; if (!pick.vision) imgs = []; // ต้องอ่านรูปได้ถึงจะใช้รูปตัวอย่าง
+    const m = await DB.prepare('SELECT * FROM models WHERE id=?').bind(pick.id).first();
+    let out = '', usage = null;
+    try { for await (const e of callModel(env, m, [{ role: 'user', content: (text || 'Create an image inspired by the attached picture.') + (imgs.length ? '\n\n(Attached picture(s) are inspiration only.)' : '') }], { effort: null, images: imgs, maxTokens: 500, userId: u.id, signal: AbortSignal.timeout(60e3), system: IMG_PROMPT_SYS })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; } }
+    catch (x) { return err('ช่วยเขียน prompt ไม่สำเร็จ: ' + String(x.message).slice(0, 120), 502); }
+    if (usage) await logUsage(env, u.id, m, usage, { plan });
+    const prompt = out.replace(/<think>[\s\S]*?<\/think>/g, '').trim().replace(/^```\w*\n?|```$/g, '').replace(/^["'“”]+|["'“”]+$/g, '').trim().slice(0, 2000);
+    return prompt ? json({ prompt, model: m.name }) : err('AI ไม่ได้ส่ง prompt กลับมา ลองใหม่อีกครั้ง', 502);
   }
   if (path === '/api/image' && M === 'POST') return await imageGen(req, env, u);
   if ((r = path.match(/^\/api\/img\/(\d+)\/([\w-]+)\.(png|jpg)$/))) {
@@ -464,6 +483,7 @@ export async function oauth(req, env, url, path) {
 }
 
 // ---------- สร้างรูป (API แบบ OpenAI images) ----------
+const IMG_PROMPT_SYS = 'You write prompts for an image generation model. Turn the user\'s idea into ONE excellent prompt: keep their subject and intent exactly, then add concrete details: style or medium, composition and framing, camera or lens when photographic, lighting, color palette, mood, background, and fine details. If pictures are attached they are inspiration only: describe their style, character look, colors and atmosphere so the new image feels similar, but do not copy text, logos or watermarks. If the user wants text inside the image, keep that text exactly in quotes. Write the prompt in English (keep requested on-image text in its original language), at most 120 words, one paragraph, no lists, no explanations. Output only the prompt.';
 export async function imageGen(req, env, u) {
   const s = await getSettings(env, ['image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_cost']);
   if (s.image_enabled !== '1' || !env[s.image_key_name]) return err('ระบบสร้างรูปยังไม่เปิดใช้');

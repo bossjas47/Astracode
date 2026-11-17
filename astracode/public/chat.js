@@ -146,7 +146,7 @@ async function chatView(id) {
     try { rec.start(); } catch { chat.rec = null; btn.classList.remove('rec'); toast('เริ่มพิมพ์ด้วยเสียงไม่ได้ ลองใหม่อีกครั้ง', 'err'); }
   });
   $('#lim').onclick = limitSheet;
-  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'web') toggleWeb(); if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
+  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
   $('#bin').onclick = binSheet;
@@ -246,7 +246,9 @@ function modelUI() {
   $('#eff').hidden = !efs.length;
   if (efs.length && !efs.includes($('#effort').value)) $('#effort').value = efs[0];
   $('#eff').innerHTML = `${ic('sparkles', 'sm')}${(EFFORT_INFO[$('#effort').value] || EFFORT_INFO[''])[0]}${ic('down', 'sm')}`;
-  $('#flags').innerHTML = (localStorage.getItem('web') === '1' && site.search ? `<button type="button" class="flag" data-flag="web" aria-label="ปิดค้นเว็บ">${ic('globe', 'sm')}ค้นเว็บ${ic('x', 'sm')}</button>` : '')
+  const img = isImgMode(); $('#t').placeholder = img ? 'บรรยายภาพที่อยากได้ · แนบรูปเป็นตัวอย่างได้' : 'ถามอะไรก็ได้ · พิมพ์ / เลือก Skill';
+  $('#flags').innerHTML = (img ? `<button type="button" class="flag on" data-flag="img" aria-label="ออกจากโหมดสร้างภาพ">${ic('palette', 'sm')}สร้างภาพ${ic('x', 'sm')}</button><button type="button" class="flag" data-flag="enh">${ic('sparkles', 'sm')}ปรับ prompt</button><button type="button" class="flag ${localStorage.getItem('imgAuto') !== '0' ? 'on' : ''}" data-flag="enhauto" aria-pressed="${localStorage.getItem('imgAuto') !== '0'}">ปรับอัตโนมัติ: ${localStorage.getItem('imgAuto') !== '0' ? 'เปิด' : 'ปิด'}</button>` : '')
+    + (localStorage.getItem('web') === '1' && site.search ? `<button type="button" class="flag" data-flag="web" aria-label="ปิดค้นเว็บ">${ic('globe', 'sm')}ค้นเว็บ${ic('x', 'sm')}</button>` : '')
     + (chat.compare ? `<button type="button" class="flag" data-flag="cmp" aria-label="ปิดโหมดเทียบ">${ic('compare', 'sm')}เทียบ${ic('x', 'sm')}</button>` : '')
     + (localStorage.getItem('kb') === '1' ? `<button type="button" class="flag" data-flag="kb">${ic('book', 'sm')}คลังความรู้</button>` : '') + (chat.voice ? `<button type="button" class="flag" data-flag="voice">${ic('mic', 'sm')}โหมดเสียง</button>` : '')
     + (chat.skills.length && _skillsCache ? chat.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
@@ -293,6 +295,53 @@ function toggleVoice() {
   if (chat.voice) { toast('โหมดเสียงเปิดแล้ว พูดได้เลย', 'ok'); voiceListen(); } else { try { chat.vrec?.abort(); } catch { /* ไม่ได้ฟังอยู่ */ } speechSynthesis?.cancel(); toast('ปิดโหมดเสียงแล้ว'); }
   modelUI();
 }
+// เมนู + : เรียงตามความนิยมโดยรวม แล้วดันอันที่ผู้ใช้คนนี้กดบ่อย (ตั้งแต่ 3 ครั้ง) ขึ้นบนสุด 3 อัน · ที่เหลือหลัง 6 อันแรกอยู่ใต้หัวข้อ "เพิ่มเติม"
+const TOOL_ORDER = ['img', 'web', 'rsch', 'prm', 'voice', 'cmp', 'kb', 'skl', 'mcp', 'exp'];
+const toolUse = () => { try { return JSON.parse(localStorage.getItem('toolUse') || '{}'); } catch { return {}; } };
+const toolUsed = v => { try { const u = toolUse(); u[v] = (u[v] || 0) + 1; localStorage.setItem('toolUse', JSON.stringify(u)); } catch { /* ไม่มีที่เก็บ */ } };
+function toolRows(web) {
+  const defs = {
+    img: (imgModel() || site.image) && ['palette', 'สร้างภาพ', imgModel() ? 'สลับเป็นโมเดลสร้างภาพ พิมพ์สิ่งที่อยากได้ AI ช่วยปรับ prompt ให้' : 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้', isImgMode()],
+    web: site.search && ['globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web],
+    rsch: site.search && ['search', 'Deep research' + newPill('rsch'), 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)'],
+    prm: ['book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย'],
+    voice: ['mic', 'โหมดเสียง', 'พูดคุยกับ AI ต่อเนื่อง: พูด แล้วฟังคำตอบ', chat.voice],
+    cmp: ['compare', 'Compare 2 models', 'ถามครั้งเดียว ได้คำตอบจาก 2 โมเดล', chat.compare],
+    kb: ['book', 'คลังความรู้', 'เก็บเอกสารไว้ถาวร แล้วถามได้จากทุกแชต', localStorage.getItem('kb') === '1'],
+    skl: ['sparkles', 'Skills', 'สอนวิธีทำงานให้ AI · เปิดปิดหรือสร้างเอง'],
+    mcp: ['server', 'Connect apps', 'ต่อ GitHub, Notion, n8n ผ่าน Remote MCP'],
+    exp: ['download', 'Export chat', 'บันทึกเป็น Markdown หรือ PDF'],
+  }, use = toolUse();
+  const avail = TOOL_ORDER.filter(v => defs[v]), mine = avail.filter(v => use[v] >= 3).sort((a, b) => use[b] - use[a]).slice(0, 3);
+  const list = [...mine, ...avail.filter(v => !mine.includes(v))], row = v => toolRow(v, ...defs[v]);
+  return list.slice(0, 6).map(row).join('') + (list.length > 6 ? `<div class="tsub">เพิ่มเติม</div>${list.slice(6).map(row).join('')}` : '');
+}
+// โหมดสร้างภาพ = เลือกโมเดลสร้างภาพในช่องพิมพ์ (จำโมเดลเดิมไว้ กด × แล้วกลับ) · ✨ ให้ AI ช่วยปรับ prompt · ปรับอัตโนมัติก่อนส่ง (ปิดได้)
+const imgModel = () => me.models.find(m => m.provider === 'image');
+const isImgMode = () => curModel()?.provider === 'image';
+function enterImageMode() {
+  const im = imgModel(); if (!im) return genImage();
+  if (chat.compare) toggleCompare();
+  if (!isImgMode()) localStorage.setItem('modelBeforeImg', $('#model').value);
+  $('#model').value = im.id; localStorage.setItem('model', im.id); modelUI(); $('#t').focus();
+  toast('โหมดสร้างภาพ: พิมพ์สิ่งที่อยากได้แล้วกดส่ง', 'ok');
+}
+function exitImageMode() {
+  const prev = localStorage.getItem('modelBeforeImg'), sel = $('#model'), ok = [...sel.options].some(o => o.value === prev && !me.models.find(m => String(m.id) === prev && m.provider === 'image'));
+  sel.value = ok ? prev : [...sel.options].find(o => !me.models.find(m => String(m.id) === o.value && m.provider === 'image'))?.value || sel.value;
+  localStorage.setItem('model', sel.value); modelUI();
+}
+async function enhancePrompt(auto) { // ให้ AI ช่วยเขียน prompt (รูปที่แนบใช้เป็นแรงบันดาลใจ แล้วเอาออก เพราะโมเดลสร้างภาพไม่ได้ใช้รูป)
+  const t = $('#t'), text = t.value.trim(), images = chat.images;
+  if (!text && !images.length) { if (!auto) toast('พิมพ์ว่าอยากได้ภาพแบบไหนก่อน', 'bad'); return false; }
+  const btn = $('[data-flag="enh"]'); if (btn) { btn.disabled = true; btn.innerHTML = ic('sparkles', 'sm') + 'กำลังปรับ...'; }
+  try {
+    const r = await api('/image/prompt', { method: 'POST', body: { text, images } });
+    t.value = r.prompt; chat.enhanced = r.prompt; t.oninput?.(); chat.images = []; drawThumbs();
+    if (!auto) toast(`${r.model} ปรับ prompt แล้ว แก้ได้ก่อนกดส่ง`, 'ok'); return true;
+  } catch (x) { showErr(x.message); return false; }
+  finally { modelUI(); }
+}
 function toolSheet() {
   const web = localStorage.getItem('web') === '1', vision = curModel()?.vision;
   sheet('Add', `<div class="tquick">
@@ -301,21 +350,10 @@ function toolSheet() {
       <button type="button" class="tq" data-v="file">${ic('clip')}<span>Files</span></button>
     </div>
     ${vision ? '' : '<p class="tnote">โมเดลที่เลือกอ่านรูปไม่ได้ · เลือกโมเดลที่มีไอคอนตา (เช่น Claude) ถ้าจะส่งรูป</p>'}
-    <div class="tlist">
-      ${site.image ? toolRow('img', 'palette', 'Create image', 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้') : ''}
-      ${site.search ? toolRow('web', 'globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web) : ''}
-      ${site.search ? toolRow('rsch', 'search', 'Deep research' + newPill('rsch'), 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)') : ''}
-      ${toolRow('cmp', 'compare', 'Compare 2 models', 'ถามครั้งเดียว ได้คำตอบจาก 2 โมเดล', chat.compare)}
-      ${toolRow('prm', 'book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย')}
-      ${toolRow('kb', 'book', 'คลังความรู้', 'เก็บเอกสารไว้ถาวร แล้วถามได้จากทุกแชต', localStorage.getItem('kb') === '1')}
-      ${toolRow('voice', 'mic', 'โหมดเสียง', 'พูดคุยกับ AI ต่อเนื่อง: พูด แล้วฟังคำตอบ', chat.voice)}
-      ${toolRow('skl', 'sparkles', 'Skills', 'สอนวิธีทำงานให้ AI · เปิดปิดหรือสร้างเอง')}
-      ${toolRow('mcp', 'server', 'Connect apps', 'ต่อ GitHub, Notion, n8n ผ่าน Remote MCP')}
-      ${toolRow('exp', 'download', 'Export chat', 'บันทึกเป็น Markdown หรือ PDF')}
-    </div>`,
+    <div class="tlist">${toolRows(web)}</div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
-      close(); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: genImage, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      close(); toolUsed(b.dataset.v); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: enterImageMode, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 // Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล
@@ -634,6 +672,9 @@ async function editMsg(idx) {
 }
 async function send({ regenerate = false, resume = false, edit_id = null, edit_text = '' } = {}) {
   if (chat.busy) return;
+  if (!regenerate && !resume && !edit_id && isImgMode() && $('#t').value.trim() !== chat.enhanced && (chat.images.length || localStorage.getItem('imgAuto') !== '0')) { // โหมดสร้างภาพ: ปรับ prompt ก่อนส่ง (แนบรูป = ต้องปรับ เพราะใช้รูปเป็นแรงบันดาลใจ)
+    setBusy(true); const ok = await enhancePrompt(true); setBusy(false); if (!ok) return;
+  }
   if (chat.compare && !regenerate && !resume) return compareSend();
   const quiet = regenerate || resume || !!edit_id, t = $('#t'), text = edit_id ? edit_text : quiet ? '' : t.value.trim(), imgs = quiet ? [] : chat.images, m = curModel();
   const files = quiet ? [] : chat.files;
