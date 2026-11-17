@@ -625,6 +625,12 @@ async function bgAgentSheet() {
 // ดูสถานะงาน Agent ตลอดที่เปิดหน้า Code: ขึ้นป้าย + พอเสร็จโหลดไฟล์ใหม่ให้อัตโนมัติ
 let agPoll = 0;
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && IDE.pid) agWatch().catch(() => {}); }); // กลับมาที่แอป: เช็กงาน Agent ใหม่ทันที
+// เตือนครั้งเดียวต่อระดับ: ลิมิตเกิน 80% หรือเงินใน Wallet (ผู้ใช้ไม่มีแพลน) ต่ำกว่า ฿10
+function lowWarn(u) {
+  const p = Math.max(u.pct4h || 0, u.pctWeek || 0), k = p >= 100 ? 'full' : p >= 80 ? 'hi' : !me.plan?.paid && me.balance > 0 && me.balance < 10 ? 'wal' : '';
+  if (!k || IDE.warned === k) return; IDE.warned = k;
+  toast(k === 'wal' ? `เงินใน Wallet เหลือ ฿${(+me.balance).toFixed(2)} · เติมได้ที่เมนู เติมเงิน` : k === 'full' ? 'ลิมิตเต็มแล้ว · เติม Wallet เพื่อใช้ต่อ หรืออัปเกรดแพลน' : `ใช้ลิมิตไปแล้ว ${Math.round(p)}%`, k === 'hi' ? '' : 'bad');
+}
 async function agWatch() {
   clearInterval(agPoll);
   const tick = async () => {
@@ -979,7 +985,7 @@ async function codeSend(auto) {
         if (d.compacted) toast(`ย่อแชตอัตโนมัติแล้ว (${d.why})`, 'ok');
         if (d.trimmed) toast('context เต็ม: ตัดข้อความเก่าบางส่วนออกจากที่ส่งให้ AI', 'bad');
         if (d.done && IDE.agent && document.hidden && 'Notification' in window && Notification.permission === 'granted') try { new Notification('AstraCode', { body: 'AI ทำงานเสร็จแล้ว แตะเพื่อดูผล' }); } catch { /* บางเบราว์เซอร์ต้องใช้ service worker */ }
-        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; ctxMeter(); if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
+        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); lowWarn(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; ctxMeter(); if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }
     }
   } catch (x) {
@@ -1219,7 +1225,7 @@ async function codeView(id) {
   $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools; $('#cup').onclick = () => $('#uplf').click();
   $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'bgagent') { bgAgentSheet(); return; } if (f === 'agent') { IDE.agent = false; localStorage.setItem('agent', '0'); toast('ปิดโหมด Agent', 'ok'); cUI(); return; } if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
     else if (f === 'mc') { IDE.mcps = IDE.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('cmcps', JSON.stringify(IDE.mcps)); cUI(); } else if (f) { setOpt(f, false); cUI(); } };
-  $('#clim').innerHTML = limHTML(me.usage); agWatch().catch(() => {}); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();
+  $('#clim').innerHTML = limHTML(me.usage); lowWarn(me.usage); agWatch().catch(() => {}); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();
   document.querySelectorAll('[data-pane-btn]').forEach(b => b.onclick = () => { if (b.dataset.paneBtn === 'files') return drawer(true); if (b.dataset.paneBtn === 'run') showRun(true); if (b.dataset.paneBtn === 'ai') return openAI(!(aiMode() !== 'page' && isPhone() && $('.ide').dataset.ai)); setPane(b.dataset.paneBtn); });
   $('#burger').onclick = () => drawer(!$('.ide').dataset.drawer); $('#idescrim').onclick = () => drawer(false);
   document.querySelectorAll('[data-dr]').forEach(b => b.onclick = () => { const k = b.dataset.dr; if (k === 'files') return; drawer(false); if (k === 'ai') openAI(true); else if (k === 'find') $('#gfind').click(); else if (k === 'git') $('#git').click(); });

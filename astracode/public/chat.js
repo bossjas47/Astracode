@@ -42,8 +42,10 @@ addEventListener('popstate', () => { if (pageName() === 'chat') chatView(qs().ge
 PAGES.chat = () => chatView(qs().get('id'));
 function notice(u) {
   if (u.pct4h >= 100 || u.pctWeek >= 100)
-    return `<div class="notice full">ลิมิตเต็ม · รีเซ็ต ${when(u.pct4h >= 100 ? u.reset4h : u.resetWeek)} <a class="btn blue sm" href="/plans">Upgrade</a></div>`;
+    return `<div class="notice full">ลิมิตเต็ม · รีเซ็ต ${when(u.pct4h >= 100 ? u.reset4h : u.resetWeek)}${me.balance > 0 ? ' · โมเดลนอกแพลนยังใช้ได้ด้วย Wallet' : ''} <a class="btn blue sm" href="/plans?topup=1">เติมเงิน</a> <a class="btn out sm" href="/plans">Upgrade</a></div>`;
   const p = Math.max(u.pct4h, u.pctWeek);
+  // ใช้ Wallet อย่างเดียว (ไม่มีแพลน) แล้วเงินใกล้หมด: เตือนก่อนส่งไม่ได้
+  if (!me.plan?.paid && me.balance > 0 && me.balance < 10) return `<div class="notice hi">เงินใน Wallet เหลือ ฿${(+me.balance).toFixed(2)} · <a href="/plans?topup=1">เติมเงิน (ขั้นต่ำ ฿10)</a></div>`;
   return p >= 80 ? `<div class="notice hi">ใช้ลิมิตไปแล้ว ${p}% · <a href="/plans">อัปเกรดเพื่อใช้ได้มากขึ้น</a></div>` : '';
 }
 function setUsage(u) { me.usage = u; $('#lim').innerHTML = limHTML(u); $('#notice').innerHTML = notice(u); }

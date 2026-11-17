@@ -255,7 +255,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       msgs = fitContext(system, msgs, ctxMax(m)).msgs;
       let part = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 150e3);
       try { for await (const e of callModel(env, m, msgs, { effort: J.effort || null, system, userId: u.id, signal: ac.signal })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
-      catch (x) { clearTimeout(timer); log.push(`รอบ ${round}: โมเดลตอบไม่ได้ (${String(x.message).slice(0, 80)})`); if (lead && !part) await new Promise(r => setTimeout(r, 4000 * round)); /* ทีมยิงพร้อมกันหลายตัว: รอแล้วลองใหม่ (มักโดน rate limit) */ if (round >= 2 && !part) { status = 'failed'; usageNote = 'โมเดลตอบไม่ได้ตอนนี้'; break; } if (!part) continue; }
+      catch (x) { clearTimeout(timer); log.push(`รอบ ${round}: โมเดลตอบไม่ได้ (${String(x.message).slice(0, 80)})`); await event(env, 'error', m.id, 'agent: ' + String(x.message).slice(0, 280)).catch(() => {}); if (lead && !part) await new Promise(r => setTimeout(r, 4000 * round)); /* ทีมยิงพร้อมกันหลายตัว: รอแล้วลองใหม่ (มักโดน rate limit) */ if (round >= 2 && !part) { status = 'failed'; usageNote = 'โมเดลตอบไม่ได้ตอนนี้'; break; } if (!part) continue; }
       clearTimeout(timer);
       if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: jobId }); cumIn += usage.fresh + usage.read + usage.write; }
       const reqs = toolReqs(part.replace(/```[\s\S]*?```/g, '')), imgs = imagesOf(part);
@@ -267,6 +267,13 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       log.push(`รอบ ${round}: ${[reqs.length ? doingOf(reqs) : '', imgs.length ? 'สร้างรูป ' + imgs.map(i => i.path).join(', ') : '', res.applied.length ? 'แก้ ' + res.applied.join(', ') : '', res.problems.length ? `มีปัญหา ${res.problems.length} จุด` : '', res.warnings?.length ? `เตือน syntax ${res.warnings.length} ไฟล์` : ''].filter(Boolean).join(' · ') || 'สรุปผล'}`);
       transcript.push(part);
       // รอบที่ไม่ได้ขออ่านและไม่ได้เขียนอะไร = สรุปผลแล้ว (รอบที่เพิ่งเขียนไฟล์ ให้อีกรอบเพื่อตรวจทาน/สรุป)
+      if (!reqs.length && !imgs.length && !res.problems.length && !res.applied.length && scope && scope.some(f => !changedAll.has(f))) {
+        // ลูกทีม (โมเดลถูก) ชอบส่งโค้ดเป็นบล็อกธรรมดาไม่มี path= → ไฟล์ไม่ถูกบันทึก: เตือนให้เขียนใหม่ 1 ครั้ง ครั้งที่ 2 เดาไฟล์จากนามสกุลแล้วบันทึกให้
+        const miss = scope.filter(f => !changedAll.has(f));
+        if (!J._nudged) { J._nudged = true; log.push(`รอบ ${round}: ยังไม่ได้บันทึก ${miss.join(', ')} ขอให้เขียนใหม่`); msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: `You have NOT saved these files yet: ${miss.join(', ')}. Code blocks without path= are NOT saved. Output each file now as one complete fenced block whose opening line is \`\`\`<lang> path=<file>, then a one-line summary.` }]; continue; }
+        const g = guessFiles(part, miss);
+        if (g.length) { const r2 = await applyChanges(env, J.project_id, g); r2.applied.forEach(p2 => changedAll.add(p2)); if (r2.applied.length) log.push(`รอบ ${round}: บันทึกโค้ดที่ไม่มี path= ลง ${r2.applied.join(', ')}`); }
+      }
       if (!reqs.length && !imgs.length && !res.problems.length && !res.applied.length) { final = part.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim() || part.trim(); break; }
       const imgRes = imgs.length ? await makeImages(env, u, plan, J.project_id, imgs) : '';
       imgs.forEach(i => { if (imgRes.includes('สร้างแล้ว: ' + i.path)) changedAll.add(i.path); });
@@ -276,6 +283,18 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     if (status === 'done' && !final) { final = 'ครบ ' + AGENT_MAX_ROUNDS + ' รอบแล้ว Agent หยุดไว้ก่อน (งานอาจยังไม่ครบ ตรวจไฟล์และสั่งต่อได้)'; }
   } catch (x) { console.log('agent', x.stack); status = 'failed'; usageNote = 'เกิดข้อผิดพลาด: ' + String(x.message).slice(0, 120); }
   await finish();
+}
+
+// บล็อกโค้ดที่ไม่มี path=: จับคู่กับไฟล์ที่ยังขาดตามนามสกุล (ไม่ชัด = ข้าม) · ไฟล์ละบล็อกที่ยาวที่สุด
+const EXT = { js: 'js', javascript: 'js', mjs: 'mjs', ts: 'ts', css: 'css', html: 'html', json: 'json', md: 'md', markdown: 'md', py: 'py', python: 'py', svg: 'svg', txt: 'txt' };
+export function guessFiles(text, miss) {
+  const out = new Map();
+  for (const b of String(text).matchAll(/```([\w+-]*)[^\n]*\n([\s\S]*?)```/g)) {
+    if (/path=/.test(b[0].split('\n')[0]) || b[2].trim().length < 20) continue;
+    const e = EXT[b[1].toLowerCase()], c = miss.filter(f => e ? f.endsWith('.' + e) : miss.length === 1);
+    if (c.length === 1 && (out.get(c[0])?.length || 0) < b[2].length) out.set(c[0], b[2]);
+  }
+  return [...out].map(([path, content]) => ({ path, content }));
 }
 
 // ---------- API ----------

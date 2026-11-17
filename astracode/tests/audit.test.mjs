@@ -168,3 +168,10 @@ test('wallet-only users (free plan with balance): API key and every public model
   assert.equal(t.DB.raw.prepare('SELECT COALESCE(SUM(units),0) u FROM usage WHERE user_id=?').get(rich.id).u, 0, 'plan limits untouched');
   fm.close();
 });
+
+test('team worker: code blocks without path= are matched to missing scope files by extension', async () => {
+  const { guessFiles } = await import('../src/agent.js');
+  const r = guessFiles('x\n```css\nbody { color: red; margin: 0 }\n```\n```js\nconsole.log("hello world 123")\n```\n```js path=a.js\nx\n```\n```\nambiguous block text here!!\n```', ['style.css', 'add.js', 'add.html']);
+  assert.deepEqual(r.map(f => f.path).sort(), ['add.js', 'style.css']);
+  assert.equal(guessFiles('```\nonly one file here, no lang\n```', ['a.txt'])[0].path, 'a.txt');
+});
