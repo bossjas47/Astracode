@@ -158,6 +158,8 @@ test('wallet-only users (free plan with balance): API key and every public model
   const poor = await t.user(), rich = await t.user({ balance: 10 });
   assert.equal((await t.json('/api/keys', { method: 'POST', cookie: poor.cookie, body: { name: 'x' } })).status, 403);
   const me = (await t.json('/api/me', { cookie: rich.cookie })).data; assert.ok(me.models.find(m => m.id === pro.id)?.wallet, 'off-plan model offered as wallet');
+  const pm = (await t.json('/api/me', { cookie: poor.cookie })).data.models.find(m => m.id === pro.id); assert.ok(pm?.wallet && pm.locked, 'no balance: off-plan model shown locked'); assert.ok(!me.models.find(m => m.id === pro.id).locked);
+  assert.equal((await t.json('/api/chat', { method: 'POST', cookie: poor.cookie, body: { model_id: pro.id, text: 'hi' } })).status, 403, 'locked model cannot be used');
   const k = await t.json('/api/keys', { method: 'POST', cookie: rich.cookie, body: { name: 'x' } }); assert.equal(k.status, 200, JSON.stringify(k.data));
   const r = await t.worker.default.fetch(new Request('https://t.test/v1/chat/completions', { method: 'POST', headers: { authorization: 'Bearer ' + k.data.key, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'chatgpt-6-luna', messages: [{ role: 'user', content: 'hi' }] }) }), t.env, t.ctx);
   const body = await r.text(); assert.equal(r.status, 200, body);

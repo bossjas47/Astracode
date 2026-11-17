@@ -60,7 +60,7 @@ async function chatView(id) {
   chat = { ...chat, id: id ? +id : null, msgs: id ? await api('/chats/' + id).catch(() => []) : [], busy: false, images: [], files: [], compare: false, cmp: [] };
   autoRetry = 0;
   for (const m of chat.msgs) if (typeof m.sources === 'string') try { m.sources = JSON.parse(m.sources); } catch { m.sources = null; }
-  const saved = localStorage.getItem('model'), opt = sel => me.models.map(m => `<option value="${m.id}" ${String(m.id) === sel ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
+  const saved = localStorage.getItem('model'), opt = sel => me.models.filter(m => !m.locked).map(m => `<option value="${m.id}" ${String(m.id) === sel ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
   app.innerHTML = `<div class="chat view"><aside class="side" id="side">
       <div class="side-top">
         <a class="logo" href="/">AstraCode</a>
@@ -350,7 +350,7 @@ function toolRows(web) {
   return list.slice(0, 6).map(row).join('') + (list.length > 6 ? `<div class="tsub">เพิ่มเติม</div>${list.slice(6).map(row).join('')}` : '');
 }
 // โหมดสร้างภาพ = เลือกโมเดลสร้างภาพในช่องพิมพ์ (จำโมเดลเดิมไว้ กด × แล้วกลับ) · ✨ ให้ AI ช่วยปรับ prompt · ปรับอัตโนมัติก่อนส่ง (ปิดได้)
-const imgModel = () => me.models.find(m => m.provider === 'image');
+const imgModel = () => me.models.find(m => m.provider === 'image' && !m.locked);
 const isImgMode = () => curModel()?.provider === 'image';
 function enterImageMode() {
   const im = imgModel(); if (!im) return genImage();

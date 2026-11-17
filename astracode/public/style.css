@@ -1338,3 +1338,11 @@ small.ag-doing { display: block; margin: 2px 0 0; color: #d9a400; }
 .btn.pend { border-color: #d9a400; color: #d9a400; }
 
 .nav .l.dot span::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 5px; border-radius: 50%; background: #ef4444; vertical-align: super; }
+
+/* หน้าเลือกโมเดล: เล็กลง ~30% ให้เห็นหลายตัวในจอเดียว · โมเดลที่ต้องเติมเครดิตจางลง */
+.vopt { min-height: 38px; padding: 5px 9px; gap: 8px; margin-bottom: 4px; border-radius: 11px; }
+.vopt .vlogo { width: 26px; height: 26px; border-radius: 8px; } .vopt .vlogo svg { width: 14px; height: 14px; } .vopt .vlogo img { width: 16px; height: 16px; } .vopt .vlogo .ic { width: 14px; height: 14px; }
+.vopt .vtxt b { font-size: 13.5px; } .vopt .vtxt small { font-size: 11px; line-height: 1.3; }
+.vopt .vmult { padding: 1px 6px; font-size: 11px; } .vopt .vck { width: 16px; height: 16px; }
+.vchips button { min-height: 30px; padding: 0 10px; font-size: 12px; }
+.vopt.lock { opacity: .55; } .vopt.lock:hover { opacity: .8; }
