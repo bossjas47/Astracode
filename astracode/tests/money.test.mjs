@@ -66,3 +66,19 @@ test('notifications list approved payments, an expiring plan and a key near its 
   assert.equal(s.status, 200); assert.equal(s.data.models[0].n, 2); assert.equal(s.data.models[0].errors, 1); assert.equal(s.data.errors[0].err, 'boom'); assert.equal(s.data.keys[0].name, 'bot');
   assert.ok((await t.json('/api/admin/apistats', { cookie: u.cookie })).status >= 400);
 });
+
+test('plan paid from the wallet: if saving the payment fails, the money and the coupon come back', async () => {
+  const t = await makeEnv(), plan = addPlan(t.DB, { price: 100 }), u = await t.user({ balance: 150 });
+  t.DB.raw.exec("CREATE TRIGGER boom BEFORE INSERT ON payments BEGIN SELECT RAISE(ABORT, 'boom'); END");
+  const r = await form(t, u, { plan_id: plan.id, wallet: 1 });
+  assert.equal(r.status, 500);
+  const after = row(t, u.id); assert.equal(after.balance, 150, 'charged amount refunded'); assert.ok(!after.plan_id, 'no plan given');
+  assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM wallet_tx WHERE kind='refund'").get().n, 1);
+});
+
+test('auto-renew: two cron runs at the same moment charge once', async () => {
+  const t = await makeEnv(), plan = addPlan(t.DB, { price: 100 }), soon = Date.now() + 3600e3, u = await t.user({ balance: 250 });
+  t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=?, auto_renew=1 WHERE id=?').run(plan.id, soon, u.id);
+  t.worker.default.scheduled({}, t.env, t.ctx); t.worker.default.scheduled({}, t.env, t.ctx); await Promise.all(t.ctx.pending);
+  assert.equal(row(t, u.id).balance, 150); assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM wallet_tx WHERE kind='renew'").get().n, 1);
+});

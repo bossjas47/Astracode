@@ -1,7 +1,7 @@
 import { BKK, DAY, SYSTEM, allowedModels, err, esc, json, planOf, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
-import { event, getSetting, mail, mailBox, notify, origin, walletAdd } from './billing.js';
+import { event, getSetting, mail, mailBox, notify, origin } from './billing.js';
 import { admin } from './admin.js';
 import { slug } from './api.js';
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
@@ -11,9 +11,10 @@ export async function cron(env) {
   // 1) ต่ออายุอัตโนมัติจาก Wallet เมื่อเหลือไม่ถึง 24 ชม.
   await step('renew', async () => { for (const u of (await DB.prepare('SELECT u.*,p.price,p.price_year,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.auto_renew=1 AND u.banned=0 AND u.plan_expires BETWEEN ? AND ?').bind(now, now + DAY).all()).results) {
     const year = u.plan_period === 'year' && u.price_year, price = year ? u.price_year : u.price;
-    if (u.balance >= price) {
-      await walletAdd(env, u.id, -price, 'renew', u.pname);
-      await DB.prepare('UPDATE users SET plan_expires=plan_expires+? WHERE id=?').bind((year ? 365 : 30) * DAY, u.id).run();
+    // หักเงินกับขยายวันใน statement เดียว (atomic) · เงื่อนไขช่วง plan_expires ทำให้รันซ้ำ/cron ซ้อนกันก็หักได้ครั้งเดียว เพราะหลังขยายแล้วหลุดช่วง
+    const took = u.balance >= price && await DB.prepare('UPDATE users SET balance=ROUND(balance-?1,4), plan_expires=plan_expires+?2 WHERE id=?3 AND balance>=?1 AND plan_expires BETWEEN ?4 AND ?5 RETURNING balance').bind(price, (year ? 365 : 30) * DAY, u.id, now, now + DAY).first();
+    if (took) {
+      await DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -price, took.balance, 'renew', u.pname, now).run();
       await DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at) VALUES (?,?,?,'wallet','approved','plan',?,?,?)").bind(u.id, u.plan_id, price, year ? 'year' : 'month', now, now).run();
       await mail(env, u.email, 'AstraCode: ต่ออายุแพลนแล้ว', mailBox('ต่ออายุแพลนแล้ว', `ตัดเงินจาก Wallet ฿${price} ต่ออายุ ${u.pname} เรียบร้อย`)); log.push('renew ' + u.id);
     }

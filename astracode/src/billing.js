@@ -241,10 +241,19 @@ export async function pay(req, env, u) {
     if (!await claimCoupon(env, coupon?.code, u.id)) return err('คูปองใช้ไม่ได้หรือหมดอายุ');
     const left = await env.DB.prepare('UPDATE users SET balance=ROUND(balance-?,4) WHERE id=? AND balance>=? RETURNING balance').bind(amount, u.id, amount).first(); // ตัดเงินแบบ atomic กันกดซ้ำพร้อมกัน
     if (!left) { await releaseCoupon(env, coupon?.code, u.id); return err('ยอดเงินใน Wallet ไม่พอ'); }
-    await env.DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, left.balance, 'plan', plan.name, Date.now()).run();
-    const p = await env.DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,coupon,discount,created_at,approved_at) VALUES (?,?,?,'wallet','approved','plan',?,?,?,?,?) RETURNING *")
-      .bind(u.id, plan.id, amount, period, coupon?.code || null, discount, Date.now(), Date.now()).first();
-    await applyPayment(env, p);
+    let p = null;
+    try { // เงินถูกหักแล้ว: ขั้นใดล้ม ต้องคืนเงินและคืนสิทธิ์คูปอง ไม่ให้ผู้ใช้เสียเงินโดยไม่ได้แพลน
+      await env.DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, left.balance, 'plan', plan.name, Date.now()).run();
+      p = await env.DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,coupon,discount,created_at,approved_at) VALUES (?,?,?,'wallet','approved','plan',?,?,?,?,?) RETURNING *")
+        .bind(u.id, plan.id, amount, period, coupon?.code || null, discount, Date.now(), Date.now()).first();
+      await applyPayment(env, p);
+    } catch (e) { // shortcut: ถ้า applyPayment ทำแพลนเสร็จแล้วค่อยล้มตอนท้าย (คูปอง/โบนัสแนะนำ) ผู้ใช้จะได้แพลนและเงินคืนด้วย ยอมรับได้เพราะเกิดยากและเข้าข้างลูกค้า
+      await walletAdd(env, u.id, amount, 'refund', plan.name).catch(() => {});
+      await releaseCoupon(env, coupon?.code, u.id).catch(() => {});
+      if (p) await env.DB.prepare("UPDATE payments SET status='rejected' WHERE id=?").bind(p.id).run().catch(() => {});
+      await notify(env, `⚠️ จ่ายแพลนด้วย Wallet ล้มเหลว คืนเงิน ฿${amount} ให้ ${u.email} แล้ว: ${String(e.message).slice(0, 200)}`).catch(() => {});
+      return err('ทำรายการไม่สำเร็จ คืนเงินเข้า Wallet แล้ว ลองใหม่อีกครั้ง', 500);
+    }
     return json({ ok: true, approved: true, id: p.id });
   }
   if (await env.DB.prepare("SELECT 1 FROM payments WHERE user_id=? AND status='pending'").bind(u.id).first()) return err('มีคำขอที่รออนุมัติอยู่แล้ว');
