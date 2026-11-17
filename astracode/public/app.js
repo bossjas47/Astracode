@@ -331,6 +331,15 @@ async function landing() {
       <div class="tile"><div class="stat">${ic('globe')}</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
       <a class="tile link" href="/developers"><div class="stat">${ic('braces')}</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
     </div></div>
+    <div class="band"><h2>ทีม AI ทำงานแทนคุณ</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">สั่งครั้งเดียวแล้วปิดแอปได้ ทำงานต่อบนเซิร์ฟเวอร์ เสร็จแล้วแจ้งทางอีเมล</p><div class="grid demos" aria-hidden="true">
+      <div class="tile demo"><div class="dm-h">${ic('code', 'sm')} ทีม Agent · โหมด Code</div><div class="dm-q">ทำเว็บร้านกาแฟ หน้าแรก เมนู และฟอร์มติดต่อ</div>
+        <div class="dm-row lead"><b>หัวหน้า</b><span>แบ่งงาน 3 ชิ้น</span></div>
+        ${[['หน้าแรก', 'index.html', 1], ['หน้าเมนู', 'menu.html', 2], ['ฟอร์มติดต่อ', 'contact.html', 3]].map(([t, f, i]) => `<div class="dm-row w" style="--i:${i}"><b>ลูกทีม</b><span>${t} <small>${f}</small></span><i class="dm-bar"><i></i></i><em>✓</em></div>`).join('')}
+        <div class="dm-row rv"><b>ผู้ตรวจ</b><span>ตรวจรวม แก้ลิงก์เมนู 1 จุด · เสร็จ</span></div></div>
+      <div class="tile demo"><div class="dm-h">${ic('search', 'sm')} Deep research · แชต</div><div class="dm-q">เปรียบเทียบรถยนต์ไฟฟ้าราคาไม่เกิน 1 ล้านในไทย</div>
+        ${[['ราคาและรุ่น', 6], ['สถานีชาร์จ', 4], ['ต้นทุนต่อเดือน', 5]].map(([t, n], i) => `<div class="dm-row w" style="--i:${i + 1}"><b>ค้น</b><span>${t} <small>${n} แหล่ง</small></span><i class="dm-bar"><i></i></i><em>✓</em></div>`).join('')}
+        <div class="dm-rep"><i></i><i></i><i></i><small>รายงานพร้อมอ้างอิง [1]–[15]</small></div></div>
+    </div></div>
     <div class="band" id="cmp"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>
     <div class="band"><h2>คำถามที่พบบ่อย</h2>${faqHTML()}</div>

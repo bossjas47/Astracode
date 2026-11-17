@@ -1260,3 +1260,22 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
   .ide[data-aimode="split"] .ide-ai { overflow-y: auto; }
   .ide-ai .ai-h { min-height: 0; padding-top: 2px; padding-bottom: 2px; } .ide-ai .ai-h .icon-btn, .ide-ai .ai-h .lim { width: 32px; height: 32px; min-height: 0; }
 }
+
+/* หน้าแรก: แอนิเมชันจำลองทีม Agent / Deep research (วนทุก 9 วินาที · ลดการเคลื่อนไหว = แสดงสถานะเสร็จ) */
+.demos { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.demo { display: flex; flex-direction: column; gap: 8px; text-align: left; --t: 9s; }
+.dm-h { display: flex; align-items: center; gap: 6px; font: 600 15px var(--display); }
+.dm-q { padding: 8px 12px; border-radius: 14px; background: rgba(var(--ov), .06); font-size: 13.5px; }
+.dm-row { display: grid; grid-template-columns: 58px 1fr auto auto; align-items: center; gap: 8px; font-size: 13px; opacity: 0; animation: dmIn var(--t) infinite; }
+.dm-row b { font-weight: 600; color: var(--ash); font-size: 12px; } .dm-row small { color: var(--ash); }
+.dm-row.lead { animation-delay: 0s; } .dm-row.w { animation-delay: calc(var(--i) * .25s + .6s); } .dm-row.rv, .dm-rep { animation: dmIn var(--t) infinite; animation-delay: 5.2s; opacity: 0; }
+.dm-bar { display: block; width: 56px; height: 5px; border-radius: 9px; background: rgba(var(--ov), .1); overflow: hidden; }
+.dm-bar i { display: block; height: 100%; width: 0; background: var(--blue); border-radius: 9px; animation: dmFill var(--t) infinite; animation-delay: calc(var(--i) * .25s + .6s); }
+.dm-row em { font-style: normal; color: var(--green); opacity: 0; animation: dmDone var(--t) infinite; animation-delay: calc(var(--i) * .25s + .6s); }
+.dm-rep { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--hair); }
+.dm-rep i { display: block; height: 6px; border-radius: 9px; background: rgba(var(--ov), .12); } .dm-rep i:nth-child(2) { width: 85%; } .dm-rep i:nth-child(3) { width: 60%; }
+.dm-rep small { color: var(--ash); font-size: 12px; }
+@keyframes dmIn { 0% { opacity: 0; transform: translateY(4px); } 4%, 92% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@keyframes dmFill { 0%, 8% { width: 0; } 40%, 100% { width: 100%; } }
+@keyframes dmDone { 0%, 38% { opacity: 0; } 42%, 92% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .dm-row, .dm-rep, .dm-row em { animation: none; opacity: 1; } .dm-bar i { animation: none; width: 100%; } }
