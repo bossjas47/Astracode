@@ -367,7 +367,7 @@ async function researchSheet() {
     d.querySelector('#rsgo')?.addEventListener('click', async e => {
       const prompt = d.querySelector('#rsp').value.trim(); if (prompt.length < 10) return toast('อธิบายสิ่งที่อยากรู้ให้ละเอียดขึ้นอีกหน่อย', 'bad');
       const model_id = +(m?.id || me.models[0]?.id); e.target.disabled = true;
-      try { await api('/agent', { method: 'POST', body: { model_id, prompt, research: true } }); close(); toast('เริ่มค้นคว้าแล้ว ปิดแอปได้ รายงานจะขึ้นเป็นแชตใหม่และส่งอีเมล', 'ok'); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
+      try { await api('/agent', { method: 'POST', body: { model_id, prompt, research: true, effort: $('#effort')?.value || '' } }); close(); toast('เริ่มค้นคว้าแล้ว ปิดแอปได้ รายงานจะขึ้นเป็นแชตใหม่และส่งอีเมล', 'ok'); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
     });
     d.querySelector('#rsx')?.addEventListener('click', async () => { await api(`/agent/${busy.id}/stop`, { method: 'POST' }).catch(() => {}); close(); toast('สั่งหยุดแล้ว'); });
     d.querySelectorAll('a[data-chat]').forEach(a => a.onclick = e => { e.preventDefault(); close(); openChat(+a.dataset.chat); });

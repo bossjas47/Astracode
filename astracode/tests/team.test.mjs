@@ -149,3 +149,15 @@ test('admin agent test button runs a real team job on a sample project with the 
   assert.equal((await t.json('/api/admin/agent-test', { method: 'POST', cookie: (await t.user()).cookie, body: { kind: 'team' } })).status, 403);
   fm.close();
 });
+
+test('background agent and team lead/reviewer use the effort picked on the page; workers use the model default', async () => {
+  const { t, fm, u, pid, lead, calls } = await setup(); void calls;
+  t.DB.raw.prepare("UPDATE models SET effort='openai' WHERE id=?").run(lead.id);
+  await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, effort: 'medium', prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true, confirm: false } });
+  const rows = t.DB.raw.prepare('SELECT role,effort FROM agent_jobs ORDER BY id').all();
+  assert.equal(rows.find(r => r.role === 'lead').effort, 'medium'); assert.equal(rows.find(r => r.role === 'review').effort, 'medium');
+  assert.ok(rows.filter(r => r.role === 'worker').every(r => r.effort == null));
+  assert.equal((await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, effort: 'bogus', prompt: 'งานที่สองหลังทีมเสร็จแล้วนะ' } })).status, 200);
+  assert.equal(t.DB.raw.prepare('SELECT effort FROM agent_jobs ORDER BY id DESC').get().effort, null, 'unknown effort ignored');
+  fm.close();
+});

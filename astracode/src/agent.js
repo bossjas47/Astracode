@@ -49,7 +49,7 @@ export async function ensureAgentTable(env) {
   if (agentReady) return;
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, model_id INTEGER NOT NULL, prompt TEXT NOT NULL, status TEXT NOT NULL, rounds INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT \'\', summary TEXT, changed TEXT, chat_id INTEGER, created_at INTEGER NOT NULL, finished_at INTEGER)').run();
   // ทีม Agent: role = lead (หัวหน้าวางแผน) / worker (ลูกทีม) / review (ผู้ตรวจรวม) · scope = ไฟล์ที่ลูกทีมแก้ได้ (JSON) · started_at = เริ่มรันจริง (ใช้กับตัวเก็บงานค้าง)
-  for (const c of ['parent_id INTEGER', 'role TEXT', 'scope TEXT', 'started_at INTEGER', 'cost REAL']) try { await env.DB.prepare('ALTER TABLE agent_jobs ADD COLUMN ' + c).run(); } catch { /* มีแล้ว */ }
+  for (const c of ['parent_id INTEGER', 'role TEXT', 'scope TEXT', 'started_at INTEGER', 'cost REAL', 'effort TEXT']) try { await env.DB.prepare('ALTER TABLE agent_jobs ADD COLUMN ' + c).run(); } catch { /* มีแล้ว */ }
   agentReady = true;
 }
 let agentReady = false;
@@ -120,7 +120,7 @@ export async function teamAdvance(env, leadId) {
     const res = kids.filter(k => k.role === 'worker'), rows = (await DB.prepare(`SELECT prompt,status,summary,changed FROM agent_jobs WHERE parent_id=? AND role='worker' ORDER BY id`).bind(leadId).all()).results;
     const changed = [...new Set(rows.flatMap(r => { try { return JSON.parse(r.changed || '[]'); } catch { return []; } }))];
     const prompt = `[งานของผู้ใช้]\n${lead.prompt}\n\n[ผลของลูกทีม ${res.length} ตัว]\n${rows.map((r, i) => `${i + 1}. ${r.prompt.split('\n')[0]} → ${r.status}: ${(r.summary || '').slice(0, 600)}`).join('\n')}\n\n[ไฟล์ที่ถูกแก้]\n${changed.join('\n') || '(ไม่มี)'}\n\nตรวจว่าทุกส่วนทำงานร่วมกันได้และครบตามงานของผู้ใช้ แก้เฉพาะที่ผิดจริง แล้วสรุปให้ผู้ใช้`;
-    const rv = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,parent_id,role,started_at) VALUES (?,?,?,?,'queued',?,?,'review',?) RETURNING id").bind(lead.user_id, lead.project_id, lead.model_id, prompt, Date.now(), leadId, Date.now()).first();
+    const rv = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,parent_id,role,started_at,effort) VALUES (?,?,?,?,'queued',?,?,'review',?,?) RETURNING id").bind(lead.user_id, lead.project_id, lead.model_id, prompt, Date.now(), leadId, Date.now(), lead.effort || null).first();
     go.push(rv.id);
   }
   await Promise.all(go.map(id => launch(env, id)));
@@ -139,7 +139,7 @@ async function runLead(env, J, u, plan, m) {
   for (let round = 1; round <= 4 && !tasks; round++) {
     if ((await DB.prepare('SELECT status FROM agent_jobs WHERE id=?').bind(J.id).first())?.status === 'stopping') return { status: 'stopped', note: 'หยุดก่อนแบ่งงาน' };
     let part = '', usage = null;
-    try { for await (const e of callModel(env, m, fitContext(LEAD_NOTE, msgs, ctxMax(m)).msgs, { effort: null, system: SYSTEM_CODE + '\n\n' + LEAD_NOTE, userId: u.id, signal: AbortSignal.timeout(150e3) })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
+    try { for await (const e of callModel(env, m, fitContext(LEAD_NOTE, msgs, ctxMax(m)).msgs, { effort: J.effort || null, system: SYSTEM_CODE + '\n\n' + LEAD_NOTE, userId: u.id, signal: AbortSignal.timeout(150e3) })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
     catch (x) { note = 'หัวหน้าตอบไม่ได้: ' + String(x.message).slice(0, 80); await new Promise(r => setTimeout(r, 3000)); continue; }
     if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: J.id }); }
     await setJob(env, J.id, { rounds: round });
@@ -161,9 +161,9 @@ async function runLead(env, J, u, plan, m) {
 const RESEARCH_PLAN = 'Split the user\'s research question into 2-5 sub-topics that together answer it. For each, write 1-2 web search queries (in the language most likely to find good sources). Reply with ONLY one JSON object: {"topics":[{"title":"short title","queries":["query 1","query 2"]}]}';
 const RESEARCH_NOTES = 'You are a research assistant. From the numbered web results only, write concise factual notes for the sub-topic: key facts, numbers, dates, disagreements between sources. Cite every fact with the source number like [3]. If the results do not cover something, say so. No introduction.';
 const RESEARCH_REPORT = 'Write a well-structured research report in the user\'s language from the team\'s notes: a short summary first, then sections with headings, then a short conclusion. Keep every citation number [n] exactly as in the notes; never invent sources or numbers. Point out where sources disagree or information is missing.';
-async function ask(env, u, plan, m, jobId, system, content, maxTokens) { // เรียกโมเดลครั้งเดียว (ไม่สตรีมให้ใคร) + บันทึกการใช้
+async function ask(env, u, plan, m, jobId, system, content, maxTokens, effort = null) { // เรียกโมเดลครั้งเดียว (ไม่สตรีมให้ใคร) + บันทึกการใช้
   let out = '', usage = null;
-  for await (const e of callModel(env, m, [{ role: 'user', content }], { effort: null, system, maxTokens, userId: u.id, signal: AbortSignal.timeout(150e3) })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; }
+  for await (const e of callModel(env, m, [{ role: 'user', content }], { effort, system, maxTokens, userId: u.id, signal: AbortSignal.timeout(150e3) })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; }
   if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: jobId }); }
   return out.trim();
 }
@@ -174,7 +174,7 @@ async function runResearch(env, J, u, plan, m) {
   try {
     if (!m || !(plan?.price > 0)) throw new Error('ไม่พบโมเดล หรือแพลนไม่รองรับ');
     let topics = null;
-    try { const d = JSON.parse((s => { const f = /```(?:json)?\s*([\s\S]*?)```/i.exec(s); return f ? f[1] : s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1); })(await ask(env, u, plan, m, J.id, RESEARCH_PLAN, J.prompt, 600))); topics = (d.topics || []).slice(0, TEAM_MAX).map(t => ({ title: String(t.title || '').slice(0, 100), queries: (Array.isArray(t.queries) ? t.queries : []).map(q => String(q).slice(0, 200)).filter(Boolean).slice(0, 2) })).filter(t => t.title && t.queries.length); } catch { /* ใช้คำถามเดิมเป็นหัวข้อเดียว */ }
+    try { const d = JSON.parse((s => { const f = /```(?:json)?\s*([\s\S]*?)```/i.exec(s); return f ? f[1] : s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1); })(await ask(env, u, plan, m, J.id, RESEARCH_PLAN, J.prompt, 600, J.effort))); topics = (d.topics || []).slice(0, TEAM_MAX).map(t => ({ title: String(t.title || '').slice(0, 100), queries: (Array.isArray(t.queries) ? t.queries : []).map(q => String(q).slice(0, 200)).filter(Boolean).slice(0, 2) })).filter(t => t.title && t.queries.length); } catch { /* ใช้คำถามเดิมเป็นหัวข้อเดียว */ }
     if (!topics?.length) topics = [{ title: J.prompt.slice(0, 100), queries: [J.prompt.slice(0, 200)] }];
     log.push(`แบ่ง ${topics.length} หัวข้อ: ${topics.map(t => t.title).join(' · ')}`); await setJob(env, J.id, { rounds: 1, log: log.join('\n') });
     const seen = new Map(); // url → เลขอ้างอิงรวม (หัวข้อต่างกันเจอเว็บเดียวกันใช้เลขเดียวกัน)
@@ -192,7 +192,7 @@ async function runResearch(env, J, u, plan, m) {
     log.push(`ค้นได้ ${sources.length} แหล่ง · ${wm.name} สรุป ${topics.length} หัวข้อ`); await setJob(env, J.id, { rounds: 2, log: log.join('\n') });
     if (await stop()) { status = 'stopped'; throw new Error('หยุดแล้ว'); }
     if (await full()) { status = 'limit'; report = topics.map((t, i) => `## ${t.title}\n\n${notes[i]}`).join('\n\n'); throw new Error('ลิมิตเต็ม ส่งบันทึกของแต่ละหัวข้อแทนรายงาน'); }
-    report = await ask(env, u, plan, m, J.id, RESEARCH_REPORT, `[คำถาม]\n${J.prompt}\n\n${topics.map((t, i) => `[บันทึกหัวข้อ: ${t.title}]\n${notes[i]}`).join('\n\n')}`, 4000);
+    report = await ask(env, u, plan, m, J.id, RESEARCH_REPORT, `[คำถาม]\n${J.prompt}\n\n${topics.map((t, i) => `[บันทึกหัวข้อ: ${t.title}]\n${notes[i]}`).join('\n\n')}`, 4000, J.effort);
     log.push('เขียนรายงานแล้ว');
   } catch (x) { if (status === 'done') status = 'failed'; log.push(String(x.message).slice(0, 200)); }
   const body = (report || `ทำรายงานไม่สำเร็จ: ${log.at(-1)}`) + (sources.length ? `\n\n**แหล่งที่มา**\n${sources.map((x, i) => `[${i + 1}] [${x.title.replace(/[[\]]/g, '')}](${x.url})`).join('\n')}` : '');
@@ -254,7 +254,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       round++; await setJob(env, jobId, { rounds: round });
       msgs = fitContext(system, msgs, ctxMax(m)).msgs;
       let part = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 150e3);
-      try { for await (const e of callModel(env, m, msgs, { effort: null, system, userId: u.id, signal: ac.signal })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
+      try { for await (const e of callModel(env, m, msgs, { effort: J.effort || null, system, userId: u.id, signal: ac.signal })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
       catch (x) { clearTimeout(timer); log.push(`รอบ ${round}: โมเดลตอบไม่ได้ (${String(x.message).slice(0, 80)})`); if (lead && !part) await new Promise(r => setTimeout(r, 4000 * round)); /* ทีมยิงพร้อมกันหลายตัว: รอแล้วลองใหม่ (มักโดน rate limit) */ if (round >= 2 && !part) { status = 'failed'; usageNote = 'โมเดลตอบไม่ได้ตอนนี้'; break; } if (!part) continue; }
       clearTimeout(timer);
       if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: jobId }); cumIn += usage.fresh + usage.read + usage.write; }
@@ -298,7 +298,8 @@ export async function agentApi(req, env, u, path) {
     const lim = await usageStatus(env, u, plan); if (lim.pct4h >= 100 || lim.pctWeek >= 100) return err('ลิมิตเต็มแล้ว', 429);
     if (await DB.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND ((status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)>?) OR status IN ('waiting','team','reviewing','plan'))").bind(u.id, Date.now() - 20 * 60e3).first()) return err('มีงาน Agent ที่กำลังทำอยู่ รอให้เสร็จหรือกดหยุดก่อน', 409);
     if (await limited(env, 'agent:' + u.id, 12, DAY)) return err('สั่ง Agent วันนี้ครบแล้ว (12 งานต่อวัน)', 429);
-    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role,scope) VALUES (?,?,?,?,'queued',?,?,?) RETURNING id").bind(u.id, b.research ? 0 : +b.project_id, model.id, prompt, Date.now(), b.research ? 'research' : b.team ? 'lead' : null, b.team && !b.research && b.confirm !== false ? 'confirm' : null).first();
+    const effort = model.effort && model.effort !== 'none' && ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.effort) ? b.effort : null; // ระดับการคิดที่เลือกในหน้าเว็บ (ลูกทีมใช้ค่าเริ่มต้นของโมเดล)
+    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role,scope,effort) VALUES (?,?,?,?,'queued',?,?,?,?) RETURNING id").bind(u.id, b.research ? 0 : +b.project_id, model.id, prompt, Date.now(), b.research ? 'research' : b.team ? 'lead' : null, b.team && !b.research && b.confirm !== false ? 'confirm' : null, effort).first();
     await launch(env, job.id); // ทำต่อใน Durable Object แม้ผู้ใช้ปิดแอป
     return json({ id: job.id });
   }
