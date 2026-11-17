@@ -527,6 +527,7 @@ function cUI() {
   $('#ceff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
   $('#bmdl').innerHTML = $('#cmdl').innerHTML; $('#beff').innerHTML = $('#ceff').innerHTML; $('#beff').hidden = !efs.length; // แถบสั่งเร็วใช้ค่าเดียวกับกล่อง AI
   $('#cflags').innerHTML = ''
+    + (IDE.bgJob ? `<button type="button" class="flag agent-on" data-flag="bgagent" title="Agent กำลังทำงานบนเซิร์ฟเวอร์ · แตะเพื่อดู">${ic('server', 'sm')}Agent ทำงานอยู่ · รอบ ${IDE.bgJob.rounds}/20</button>` : '')
     + (IDE.agent ? `<button type="button" class="flag agent-on" data-flag="agent" title="โหมด Agent เปิดอยู่: ทำงานต่อเนื่องได้ถึง 20 รอบ · แตะเพื่อปิด">${ic('sparkles', 'sm')}Agent ON</button>` : '')
     + (IDE.skills.length && _skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
     + (IDE.mcps.length && _mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
@@ -540,6 +541,42 @@ async function shareProject() {
     d.querySelector('#shc').onclick = e => copy(url, e.target);
     d.querySelector('#shx').onclick = async () => { await api(`/projects/${IDE.pid}/share`, { method: 'DELETE' }); close(); toast('ยกเลิกการแชร์แล้ว', 'ok'); };
   });
+}
+// Agent เบื้องหลัง: ส่งงานให้เซิร์ฟเวอร์ทำเองทั้งชุด (ปิดแอปได้) · ดูสถานะ/หยุด/โหลดไฟล์ใหม่
+const AG_LABEL = { queued: 'รอคิว', running: 'กำลังทำงาน', stopping: 'กำลังหยุด', done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิต', failed: 'ไม่สำเร็จ', timeout: 'หมดเวลา' };
+const agBusy = j => ['queued', 'running', 'stopping'].includes(j?.status);
+async function bgAgentSheet() {
+  if (!me.plan.paid) return toast('Agent เบื้องหลังใช้ได้กับแพลนที่ชำระเงิน', 'bad');
+  let timer = 0;
+  const draw = async d => {
+    const jobs = await api('/agent?project=' + IDE.pid).catch(() => []), busy = jobs.find(agBusy), box = d.querySelector('.sheet-b'); if (!box) return clearInterval(timer);
+    const m = $('#cmodel')?.value;
+    box.innerHTML = `<div class="sheet-form">
+      ${busy ? `<p class="sheet-msg"><b>${AG_LABEL[busy.status]}</b> · รอบที่ ${busy.rounds}/20<br><small class="muted">${esc(busy.prompt.slice(0, 120))}</small></p><button type="button" class="btn red sm" id="agx">หยุดงานนี้</button>`
+        : `<textarea id="agp" rows="4" maxlength="4000" placeholder="อธิบายงานให้ละเอียด เช่น ทำหน้า Contact พร้อมฟอร์ม ใส่ลิงก์ในเมนู และปรับสไตล์ให้เข้ากับหน้าแรก"></textarea>
+           <button type="button" class="btn blue" id="agg">เริ่มให้ Agent ทำ</button><p class="muted" style="margin:0;font-size:12.5px">ใช้โมเดลที่เลือกอยู่ · ใช้ลิมิตแพลนตามจริง · แก้ไขย้อนกลับได้จาก "ประวัติโปรเจกต์"</p>`}
+      ${jobs.filter(j => !agBusy(j)).slice(0, 4).map(j => `<div class="mem tm" style="display:block"><b>${AG_LABEL[j.status] || j.status}</b> · ${j.rounds} รอบ · ${when(j.created_at)}<br><small class="muted">${esc(j.prompt.slice(0, 100))}</small>${j.summary ? `<br><small>${esc(j.summary.slice(0, 220))}</small>` : ''}${j.chat_id ? ` <a href="/chat?id=${j.chat_id}">ดูรายละเอียด</a>` : ''}</div>`).join('')}
+    </div>`;
+    box.querySelector('#agg')?.addEventListener('click', async e => {
+      const prompt = box.querySelector('#agp').value.trim(); if (prompt.length < 10) return toast('อธิบายงานให้ละเอียดขึ้นอีกหน่อย', 'bad');
+      e.target.disabled = true; await saveNow();
+      try { await api('/agent', { method: 'POST', body: { project_id: IDE.pid, model_id: +m, prompt } }); toast('ส่งงานให้ Agent แล้ว ปิดแอปได้เลย จะอีเมลเมื่อเสร็จ', 'ok'); agWatch(); draw(d); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
+    });
+    box.querySelector('#agx')?.addEventListener('click', async () => { await api(`/agent/${busy.id}/stop`, { method: 'POST' }).catch(() => {}); draw(d); });
+  };
+  sheet('Agent บนเซิร์ฟเวอร์', '<p class="muted">กำลังโหลด...</p>', d => { draw(d); timer = setInterval(() => draw(d), 5000); new MutationObserver((_, o) => { if (!document.contains(d)) { clearInterval(timer); o.disconnect(); } }).observe(document.body, { childList: true }); });
+}
+// ดูสถานะงาน Agent ตลอดที่เปิดหน้า Code: ขึ้นป้าย + พอเสร็จโหลดไฟล์ใหม่ให้อัตโนมัติ
+let agPoll = 0;
+async function agWatch() {
+  clearInterval(agPoll);
+  const tick = async () => {
+    const jobs = await api('/agent?project=' + IDE.pid).catch(() => []), busy = jobs.find(agBusy), prev = IDE.bgJob;
+    IDE.bgJob = busy || null; if (!!busy !== !!prev || busy?.rounds !== prev?.rounds) cUI();
+    if (prev && !busy) { const j = jobs.find(x => x.id === prev.id); clearInterval(agPoll); if (j) { toast(`Agent ${AG_LABEL[j.status] || j.status}: ${(JSON.parse(j.changed || '[]')).length} ไฟล์ที่เปลี่ยน`, j.status === 'done' ? 'ok' : ''); if (!IDE.busy) reloadFiles().catch(() => {}); } }
+    else if (!busy) clearInterval(agPoll);
+  };
+  await tick(); if (IDE.bgJob) agPoll = setInterval(tick, 8000);
 }
 // โหลดไฟล์ทั้งหมดจากเซิร์ฟเวอร์ใหม่ (หลังย้อนทั้งโปรเจกต์)
 async function reloadFiles() {
@@ -559,6 +596,7 @@ async function projectHistory() {
 function codeTools() {
   sheet('เครื่องมือ AI', optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
     + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
+    + optHTML('bgagent', ic('server') + 'ส่งงานให้ Agent ทำบนเซิร์ฟเวอร์', me.plan.paid ? 'สั่งแล้วปิดแอปได้ Agent แก้ไฟล์ให้เองสูงสุด 20 รอบ เสร็จแล้วส่งอีเมล · ไม่รันโค้ด ตรวจผลเองตอนจบ' : 'ใช้ได้กับแพลนที่ชำระเงิน')
     + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว)', me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง ปิดจอได้ กลับมาดูผล · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
@@ -570,6 +608,7 @@ function codeTools() {
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const v = b.dataset.v;
       if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
+      if (v === 'bgagent') return bgAgentSheet();
       if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); IDE.agent = !IDE.agent; localStorage.setItem('agent', IDE.agent ? '1' : '0'); cUI(); toast(IDE.agent ? 'เปิดโหมด Agent: งานยาวได้ถึง 20 รอบ' : 'ปิดโหมด Agent', 'ok'); if (IDE.agent && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); }
       if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
       if (v === 'mcp') mcpSheet(IDE.mcps, ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); cUI(); });
@@ -1086,9 +1125,9 @@ async function codeView(id) {
   $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); };
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
   $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools; $('#cup').onclick = () => $('#uplf').click();
-  $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'agent') { IDE.agent = false; localStorage.setItem('agent', '0'); toast('ปิดโหมด Agent', 'ok'); cUI(); return; } if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
+  $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'bgagent') { bgAgentSheet(); return; } if (f === 'agent') { IDE.agent = false; localStorage.setItem('agent', '0'); toast('ปิดโหมด Agent', 'ok'); cUI(); return; } if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
     else if (f === 'mc') { IDE.mcps = IDE.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('cmcps', JSON.stringify(IDE.mcps)); cUI(); } else if (f) { setOpt(f, false); cUI(); } };
-  $('#clim').innerHTML = limHTML(me.usage); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();
+  $('#clim').innerHTML = limHTML(me.usage); agWatch().catch(() => {}); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();
   document.querySelectorAll('[data-pane-btn]').forEach(b => b.onclick = () => { if (b.dataset.paneBtn === 'files') return drawer(true); if (b.dataset.paneBtn === 'run') showRun(true); if (b.dataset.paneBtn === 'ai') return openAI(!(aiMode() !== 'page' && isPhone() && $('.ide').dataset.ai)); setPane(b.dataset.paneBtn); });
   $('#burger').onclick = () => drawer(!$('.ide').dataset.drawer); $('#idescrim').onclick = () => drawer(false);
   document.querySelectorAll('[data-dr]').forEach(b => b.onclick = () => { const k = b.dataset.dr; if (k === 'files') return; drawer(false); if (k === 'ai') openAI(true); else if (k === 'find') $('#gfind').click(); else if (k === 'git') $('#git').click(); });

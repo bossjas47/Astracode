@@ -1,5 +1,6 @@
 import { BKK, DAY, SYSTEM, allowedModels, err, esc, json, planOf, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
+import { reapAgentJobs, runAgent } from './agent.js';
 import { event, getSetting, mail, mailBox, notify, origin, walletAdd } from './billing.js';
 import { admin } from './admin.js';
 import { slug } from './api.js';
@@ -31,6 +32,7 @@ export async function cron(env) {
   const spike = (await DB.prepare("SELECT e.model_id, md.name, COUNT(*) n FROM events e LEFT JOIN models md ON md.id=e.model_id WHERE e.kind='error' AND e.created_at>? GROUP BY e.model_id HAVING n>=10 ORDER BY n DESC").bind(now - 3600e3).all()).results;
   if (spike.length) await notify(env, '🔥 error พุ่งในชั่วโมงที่ผ่านมา: ' + spike.map(s => `${s.name || 'ระบบ'} ${s.n} ครั้ง`).join(' · ') + ' (เช็คคีย์/เครดิต upstream)');
   await runTasks(env, now).catch(e => console.log('tasks', e.message));
+  await reapAgentJobs(env).catch(e => console.log('agent reap', e.message));
   // 4) สำรองข้อมูลวันละครั้ง (ตี 3 เวลาไทย) เก็บ 14 ชุด
   if (env.SLIPS && new Date(now + BKK).getUTCHours() === 3) await backup(env);
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
@@ -174,6 +176,10 @@ export class ChatRun {
     const J = await this.s.storage.get('job'); if (!J) return;
     await this.s.storage.delete('job'); // alarm ที่ถูกลองซ้ำจะไม่ตอบซ้ำ
     this.done = false;
+    if (J.agent_id) { // งาน Agent เบื้องหลัง (ไม่มีสตรีมให้หน้าเว็บ)
+      try { await runAgent(this.env, J.agent_id, this.st); } catch (e) { console.log('agent run', e.message); }
+      this.done = true; this.wake.splice(0).forEach(r => r()); return;
+    }
     const send = async o => { this.ev.push(o); this.wake.splice(0).forEach(r => r()); };
     try { await runChat(this.env, J, send, this.st); }
     catch (e) { console.log('run', e.message); await unlimit(this.env, J.lock).catch(() => {}); await send({ error: 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' }); await send({ done: true }); }

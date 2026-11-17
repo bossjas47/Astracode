@@ -405,3 +405,39 @@ test('knowledge base, shared skills, project slug, scheduled task and agent roun
   assert.equal(await runTasks(t.env), 0, 'runs once a day');
   fm.close();
 });
+
+test('background agent: reads, writes the project on the server, reports a summary; blocks free plans and double runs', async () => {
+  let call = 0; const seen = [];
+  const fm = await fakeModel((q, res, body) => {
+    seen.push(body); call++;
+    fm.sse(res, call === 1 ? 'READ path=index.html' : call === 2 ? '```html path=index.html\n<h1>New title</h1>\n```\n```js path=app.js\nconsole.log("hi")\n```' : 'เสร็จแล้ว: เปลี่ยนหัวข้อและเพิ่ม app.js');
+  });
+  const t = await makeEnv({ K: 'k' }); const m = addModel(t.DB, { name: 'Ag', base_url: fm.url });
+  const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 100 }), free = addPlan(t.DB, { name: 'F', models: [m.id], price: 0 });
+  const a = await t.user(), b = await t.user(); give(t.DB, a, plan); give(t.DB, b, free);
+  const pr = await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'Site' } }), pid = pr.data.id;
+  assert.equal((await t.json('/api/agent', { method: 'POST', cookie: b.cookie, body: { project_id: pid, model_id: m.id, prompt: 'เปลี่ยนหัวข้อหน้าแรก' } })).status, 403, 'free plan');
+  assert.equal((await t.json('/api/agent', { method: 'POST', cookie: a.cookie, body: { project_id: pid, model_id: m.id, prompt: 'สั้น' } })).status, 400);
+  const r = await t.json('/api/agent', { method: 'POST', cookie: a.cookie, body: { project_id: pid, model_id: m.id, prompt: 'เปลี่ยนหัวข้อหน้าแรกเป็น New title และเพิ่ม app.js' } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const job = (await t.json('/api/agent?project=' + pid, { cookie: a.cookie })).data[0];
+  assert.equal(job.status, 'done', JSON.stringify(job)); assert.equal(job.rounds, 3); assert.match(job.summary, /เสร็จแล้ว/);
+  const files = Object.fromEntries(t.DB.raw.prepare('SELECT path,content FROM project_files WHERE project_id=?').all(pid).map(f => [f.path, f.content]));
+  assert.match(files['index.html'], /New title/); assert.ok(files['app.js']); assert.deepEqual(JSON.parse(job.changed).sort(), ['app.js', 'index.html']);
+  assert.ok(t.DB.raw.prepare("SELECT 1 FROM file_versions WHERE project_id=? AND path='index.html' AND source='agent'").get(pid), 'old version kept');
+  assert.ok(t.DB.raw.prepare('SELECT 1 FROM chats WHERE id=?').get(job.chat_id), 'result saved as a chat');
+  assert.ok(t.DB.raw.prepare('SELECT COUNT(*) n FROM usage WHERE user_id=?').get(a.id).n >= 3, 'usage logged per round');
+  assert.match(JSON.stringify(seen[1].messages), /\[READ index\.html\]/, 'tool result fed back');
+  t.DB.raw.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at) VALUES (?,?,?,?,'running',?)").run(a.id, pid, m.id, 'x'.repeat(20), Date.now());
+  assert.equal((await t.json('/api/agent', { method: 'POST', cookie: a.cookie, body: { project_id: pid, model_id: m.id, prompt: 'งานที่สองระหว่างที่ยังมีงานค้างอยู่' } })).status, 409);
+  fm.close();
+});
+
+test('server and browser edit parsers agree on the same model replies', async () => {
+  const { readFileSync } = await import('node:fs'); const { changesOf } = await import('../src/edits.js');
+  const src = readFileSync(new URL('../public/code.js', import.meta.url), 'utf8'), pick = (a, b) => src.slice(src.indexOf(a), src.indexOf(b));
+  const client = new Function(`const has = () => false, content = () => ''; ${pick('const NOT_FILE_LANG', 'function lineDiff')}\nreturn { changesOf };`)().changesOf;
+  const files = { 'a.js': 'let x = 1;\nlet y = 2;\n' };
+  const replies = ['```js path=a.js\nlet z = 3;\n```', '```js path=a.js\n<<<<<<< SEARCH\nlet y = 2;\n=======\nlet y = 5;\n>>>>>>> REPLACE\n```', '# `b.html`\n```html\n<p>x</p>\n```', 'DELETE path=old.txt', '```bash\nnpm i\n```'];
+  for (const r of replies) assert.deepEqual(changesOf(r, p => files[p] ?? null), client(r, p => files[p] ?? null), r);
+});

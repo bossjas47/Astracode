@@ -3,6 +3,7 @@ import { bundleProject, chat, compact, ensureFb } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
 import { admin, adminGate, gateBlock } from './admin.js';
+import { agentApi } from './agent.js';
 import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
@@ -220,6 +221,7 @@ export async function route(req, env, ctx, url, path, M) {
         });
       }
       if (path === '/api/chat' && M === 'POST') return await chat(req, env, u, ctx);
+      if (path === '/api/agent' || path.startsWith('/api/agent/')) return await agentApi(req, env, u, path);
       if (path === '/api/chats/search') {
         const q = String(url.searchParams.get('q') || '').trim();
         if (q.length < 2) return json([]);
