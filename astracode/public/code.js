@@ -600,6 +600,7 @@ async function bgAgentSheet() {
   const draw = async d => {
     const jobs = await api('/agent?project=' + IDE.pid).catch(() => []), busy = jobs.find(agBusy), box = d.querySelector('.sheet-b'); if (!box) return clearInterval(timer);
     if (busy?.status === 'plan' && box.querySelector(`#agplan[data-id="${busy.id}"]`)) return; // กำลังแก้แผน: ไม่วาดทับ
+    if (!busy && box.querySelector('#agp')) return; // ฟอร์มสั่งงานเปิดอยู่: ไม่วาดทับทุก 5 วิ (ข้อความ/สวิตช์ที่เลือกจะหาย)
     const m = $('#cmodel')?.value;
     box.innerHTML = `<div class="sheet-form">
       ${busy?.status === 'plan' ? planForm(busy) : busy ? `<p class="sheet-msg"><b>${AG_LABEL[busy.status]}</b>${busy.role === 'lead' ? (busy.team?.length ? ` · ทีม ${busy.team.filter(k => k.role === 'worker').length} ตัว` : ' · หัวหน้ากำลังแบ่งงาน') : ` · รอบที่ ${busy.rounds}/20`}<br><small class="muted">${esc(busy.prompt.slice(0, 120))}</small></p>${teamRows(busy)}<button type="button" class="btn red sm" id="agx">${busy.role === 'lead' ? 'หยุดทั้งทีม' : 'หยุดงานนี้'}</button>`
