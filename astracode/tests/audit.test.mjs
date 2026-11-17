@@ -338,3 +338,14 @@ test('project members: owner invites by email, member edits files but cannot del
   assert.equal((await t.json(`/api/projects/${p.id}/members`, { method: 'DELETE', cookie: b.cookie, body: {} })).status, 200);
   assert.equal((await t.json(`/api/projects/${p.id}`, { cookie: b.cookie })).status, 404);
 });
+
+test('agent page screenshot: off without Cloudflare settings, sends the bundled page when set', async () => {
+  const { pageShot } = await import('../src/agent.js');
+  const t = await makeEnv(), u = await t.user();
+  const p = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'shot' } })).data;
+  assert.equal(await pageShot(t.env, p.id), null);
+  const f0 = globalThis.fetch; let sent;
+  globalThis.fetch = async (url, o) => { sent = { url, body: JSON.parse(o.body) }; return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/jpeg' } }); };
+  try { const s = await pageShot({ ...t.env, CF_ACCOUNT_ID: 'acc', CF_BR_TOKEN: 'tok' }, p.id); assert.equal(s, 'data:image/jpeg;base64,AQID'); assert.match(sent.url, /accounts\/acc\/browser-rendering\/screenshot/); assert.match(sent.body.html, /<html/i); }
+  finally { globalThis.fetch = f0; }
+});

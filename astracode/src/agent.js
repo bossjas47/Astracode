@@ -2,7 +2,7 @@
 // วนรอบ: ให้โมเดลคิด → อ่านไฟล์ที่ขอ (READ/GREP/LIST) → เขียนไฟล์ที่แก้ลงโปรเจกต์ → ส่งผลกลับให้โมเดล จนไม่มีอะไรต้องทำ
 // ข้อจำกัด: เซิร์ฟเวอร์รันโค้ดและจับภาพหน้าจอไม่ได้ Agent จึงตรวจงานด้วยการอ่านไฟล์กลับ ผู้ใช้ควรเปิดดูผลเองตอนจบ
 import { DAY, SYSTEM_CODE, allowedModels, projectFor, ctxMax, err, esc, fitContext, flat, json, limMult, limited, planOf, touchWindows, usageStatus } from './core.js';
-import { callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs, webSearch } from './ai.js';
+import { bundleProject, callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs, webSearch } from './ai.js';
 import { b64 } from './projects.js';
 import { sendPush } from './push.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, siteUrl } from './billing.js';
@@ -249,6 +249,9 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     const astra = (await DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(J.project_id).first())?.content?.slice(0, 3000) || '';
     const system = SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (proj.instructions ? '\n\nProject-specific instructions (follow them):\n' + proj.instructions.slice(0, 3000) : '') + (astra ? '\n\nFrom the project file ASTRA.md:\n' + astra : '') + (await imagePrompt(env, true)) + '\n\n' + AGENT_NOTE;
     let msgs = [{ role: 'user', content: `${J.prompt}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${(await files()).map(f => `${f.path} (${f.n})`).join('\n').slice(0, 15000)}` }];
+    // ผู้ตรวจทีม: ถ่ายภาพหน้าเว็บจริงแนบไปรอบแรก (ต้องตั้ง CF_ACCOUNT_ID + CF_BR_TOKEN และโมเดลอ่านรูปได้)
+    let shot = J.role === 'review' && m.vision ? await pageShot(env, J.project_id) : null;
+    if (shot) msgs[0].content += '\n\n[แนบภาพหน้าจอหน้าแรกบนมือถือ (390px) ที่ถ่ายจากไฟล์ปัจจุบัน: ตรวจว่าหน้าตาและการจัดวางถูกต้องด้วย]';
     for (; round < AGENT_MAX_ROUNDS; ) {
       if ((await DB.prepare('SELECT status FROM agent_jobs WHERE id=?').bind(jobId).first())?.status === 'stopping' || st.gone) { status = 'stopped'; break; }
       if (Date.now() - t0 > AGENT_MAX_MS) { status = 'timeout'; usageNote = 'ใช้เวลานานเกินกำหนด (12 นาที) หยุดไว้ก่อน'; break; }
@@ -259,7 +262,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       msgs = fitContext(system, msgs, ctxMax(m)).msgs;
       let part = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 150e3);
       let lastDo = 0; const fileOf = async f => (fcache[f] ??= (await DB.prepare('SELECT content FROM project_files WHERE project_id=? AND path=?').bind(J.project_id, f).first())?.content || '');
-      try { for await (const e of callModel(env, m, msgs, { effort: J.effort || null, system, userId: u.id, signal: ac.signal })) { if (e.t) { part += e.t; if (Date.now() - lastDo > 2500) { lastDo = Date.now(); const d = doingNow(part); setJob(env, jobId, { doing: d.file && d.search ? doingLine(d, await fileOf(d.file)) : d.text }).catch(() => {}); } } if (e.usage) usage = e.usage; } }
+      try { for await (const e of callModel(env, m, msgs, { effort: J.effort || null, system, userId: u.id, signal: ac.signal, images: shot && round === 1 ? [shot] : [] })) { if (e.t) { part += e.t; if (Date.now() - lastDo > 2500) { lastDo = Date.now(); const d = doingNow(part); setJob(env, jobId, { doing: d.file && d.search ? doingLine(d, await fileOf(d.file)) : d.text }).catch(() => {}); } } if (e.usage) usage = e.usage; } }
       catch (x) { clearTimeout(timer); log.push(`รอบ ${round}: โมเดลตอบไม่ได้ (${String(x.message).slice(0, 80)})`); await event(env, 'error', m.id, 'agent: ' + String(x.message).slice(0, 280)).catch(() => {}); if (lead && !part) await new Promise(r => setTimeout(r, 4000 * round)); /* ทีมยิงพร้อมกันหลายตัว: รอแล้วลองใหม่ (มักโดน rate limit) */ if (round >= 2 && !part) { status = 'failed'; usageNote = 'โมเดลตอบไม่ได้ตอนนี้'; break; } if (!part) continue; }
       clearTimeout(timer);
       if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: jobId }); cumIn += usage.fresh + usage.read + usage.write; }
@@ -300,6 +303,17 @@ async function diffStats(env, pid, paths, since) {
     if (cur == null) return `${p} (ลบ)`; if (cur.startsWith('data:')) return `${p} (รูป)`;
     const [a, d] = lineDiff(old?.content || '', cur); return `${p} (+${a} −${d})${old ? '' : ' ใหม่'}`;
   }));
+}
+// ภาพหน้าจอผ่าน Cloudflare Browser Rendering (REST) · ไม่ได้ตั้งค่า/ถ่ายไม่สำเร็จ = null (งานเดินต่อแบบไม่มีภาพ)
+export async function pageShot(env, pid) {
+  if (!env.CF_ACCOUNT_ID || !env.CF_BR_TOKEN) return null;
+  try {
+    const rows = (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pid).all()).results;
+    const html = bundleProject(new Map(rows.map(f => [f.path, f.content]))); if (!html) return null;
+    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/screenshot`, { method: 'POST', headers: { authorization: 'Bearer ' + env.CF_BR_TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ html, viewport: { width: 390, height: 844 }, screenshotOptions: { type: 'jpeg', quality: 60 } }), signal: AbortSignal.timeout(45e3) });
+    if (!r.ok || !(r.headers.get('content-type') || '').startsWith('image/')) { console.log('shot', r.status, (await r.text().catch(() => '')).slice(0, 200)); return null; }
+    return 'data:image/jpeg;base64,' + b64(new Uint8Array(await r.arrayBuffer()));
+  } catch (e) { console.log('shot', e.message); return null; }
 }
 // ประเมินต้นทุนงาน Agent เป็น % ของลิมิตสัปดาห์: token ≈ ตัวอักษร/3 · ช่วงต่ำ = รอบน้อย+แคชเยอะ · ช่วงสูง = รอบมาก ไม่มีแคช
 // shortcut: สูตรหยาบจากพฤติกรรมเฉลี่ย ไม่ได้ดูความยากของงาน ถ้าจะแม่นขึ้นให้เก็บสถิติงานจริง (tin/tout ต่องาน) มาเทียบ
