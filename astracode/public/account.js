@@ -87,6 +87,7 @@ PAGES.account = async function account() {
       <p class="muted" style="margin:8px 0 0">ชวนแล้ว ${w.referred} คน · จ่ายแล้ว ${w.referred_paid} คน</p></div>` : ''}
 
     <div class="card acc-c" id="sec-look">${h3('การแสดงผล')}
+      <label>แจ้งเตือนเข้ามือถือ</label><p class="muted" style="margin:0 0 6px">Agent, Deep research และงานตั้งเวลาเสร็จแล้วแจ้งทันทีแม้ปิดแอป (แยกต่ออุปกรณ์)</p><div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn out sm" id="pushbtn">กำลังตรวจ…</button><button type="button" class="btn out sm" id="pushtest" hidden>ทดสอบ</button></div>
       <label>ธีม</label><div class="seg" id="seg-theme" role="group" aria-label="ธีม">${[['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button type="button" data-t="${k}" class="${(localStorage.getItem('theme') || 'dark') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <label>ภาษา</label>${langSeg()}
       <label>เอฟเฟกต์กระจก (เบลอ) · Auto ปิดเองบนเครื่องสเปกต่ำ</label><div class="seg" id="seg-fx" role="group" aria-label="เอฟเฟกต์กระจก">${[['auto', 'Auto'], ['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button type="button" data-x="${k}" class="${(localStorage.getItem('fx') || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -115,6 +116,10 @@ PAGES.account = async function account() {
   const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
   $('#outTop').onclick = doOut;
   const pickSeg = (sel, attr, key) => document.querySelectorAll(sel + ' button').forEach(b => b.onclick = () => { localStorage.setItem(key, b.dataset[attr]); window.applyTheme?.(); document.querySelectorAll(sel + ' button').forEach(x => x.classList.toggle('on', x === b)); });
+  const pb = $('#pushbtn'), pt = $('#pushtest'), pdraw = on => { pb.textContent = on ? 'ปิดแจ้งเตือนในเครื่องนี้' : 'เปิดแจ้งเตือน'; pt.hidden = !on; };
+  pushState().then(pdraw).catch(() => pdraw(false));
+  pb.onclick = async () => { pb.disabled = true; try { if (await pushState()) { await disablePush(); pdraw(false); toast('ปิดแจ้งเตือนแล้ว'); } else { await enablePush(); pdraw(true); toast('เปิดแจ้งเตือนแล้ว', 'ok'); } } catch (x) { toast(x.message, 'bad'); } pb.disabled = false; };
+  pt.onclick = () => api('/push/test', { method: 'POST' }).then(() => toast('ส่งแล้ว ดูที่แถบแจ้งเตือน', 'ok')).catch(x => toast(x.message, 'bad'));
   pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize'); pickSeg('#seg-fx', 'x', 'fx');
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew'); toggle('#digest', 'digest');

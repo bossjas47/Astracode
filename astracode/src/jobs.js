@@ -1,6 +1,7 @@
 import { BKK, DAY, SYSTEM, allowedModels, ensureCols, err, esc, json, planOf, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
+import { sendPush } from './push.js';
 import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl } from './billing.js';
 import { admin } from './admin.js';
 import { slug } from './api.js';
@@ -82,6 +83,7 @@ export async function runTasks(env, now = Date.now()) {
       const c = await env.DB.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').bind(u.id, ('⏰ ' + t.prompt).slice(0, 40), now).first();
       await env.DB.batch([env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(c.id, 'user', t.prompt, m.id, now),
         env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,sources) VALUES (?,?,?,?,?,?)').bind(c.id, 'assistant', out, m.id, now + 1, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null)]);
+      await sendPush(env, u.id, { title: 'งานตั้งเวลา: ' + t.prompt.slice(0, 40), body: out.replace(/[#*`>_]/g, '').slice(0, 160), url: '/chat?id=' + c.id });
       await mail(env, t.email, 'AstraCode: ' + t.prompt.slice(0, 60), mailBox('งานตั้งเวลาของคุณ', esc(out.slice(0, 6000)).replace(/\n/g, '<br>'), 'เปิดในแชต', siteUrl(env) + '/chat?id=' + c.id));
     } catch (e) { console.log('task', t.id, e.message); }
   };

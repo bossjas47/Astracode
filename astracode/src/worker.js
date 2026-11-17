@@ -7,6 +7,7 @@ import { agentApi } from './agent.js';
 import { contextApi } from './context.js';
 import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
+import { pushApi } from './push.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
 // ข้อมูลหน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
@@ -224,6 +225,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/chat' && M === 'POST') return await chat(req, env, u, ctx);
       if (path === '/api/context' && M === 'GET') return await contextApi(req, env, u);
       if (path === '/api/agent' || path.startsWith('/api/agent/')) return await agentApi(req, env, u, path);
+      if (path.startsWith('/api/push/')) return await pushApi(req, env, u, path);
       if ((path === '/api/chats/trash' || path === '/api/chats/archived') && M === 'GET') { // ถังขยะ (เก็บ 30 วัน แล้วลบถาวร) และแชตที่เก็บถาวร
         const trash = path.endsWith('trash');
         return json((await env.DB.prepare(`SELECT id,title,deleted_at FROM chats WHERE user_id=? AND project_id IS NULL AND ${trash ? 'deleted_at>?' : 'deleted_at IS NULL AND archived=1 AND ?>=0'} ORDER BY id DESC LIMIT 100`).bind(u.id, trash ? Date.now() - 30 * DAY : 0).all()).results);

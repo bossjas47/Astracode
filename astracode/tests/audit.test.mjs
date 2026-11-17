@@ -175,3 +175,27 @@ test('team worker: code blocks without path= are matched to missing scope files 
   assert.deepEqual(r.map(f => f.path).sort(), ['add.js', 'style.css']);
   assert.equal(guessFiles('```\nonly one file here, no lang\n```', ['a.txt'])[0].path, 'a.txt');
 });
+
+test('web push: aes128gcm payload decrypts on the receiver side (RFC 8291)', async () => {
+  const { encrypt, b64u, unb64u } = await import('../src/push.js'), S = crypto.subtle, te = new TextEncoder();
+  const ua = await S.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']), uaPub = new Uint8Array(await S.exportKey('raw', ua.publicKey)), auth = crypto.getRandomValues(new Uint8Array(16));
+  const body = await encrypt('{"title":"สวัสดี"}', b64u(uaPub), b64u(auth));
+  const salt = body.slice(0, 16), asPub = body.slice(21, 86), ct = body.slice(86);
+  assert.equal(body[20], 65);
+  const hk = async (s, ikm, info, bits) => new Uint8Array(await S.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: s, info }, await S.importKey('raw', ikm, 'HKDF', false, ['deriveBits']), bits));
+  const shared = new Uint8Array(await S.deriveBits({ name: 'ECDH', public: await S.importKey('raw', asPub, { name: 'ECDH', namedCurve: 'P-256' }, false, []) }, ua.privateKey, 256));
+  const ikm = await hk(auth, shared, new Uint8Array([...te.encode('WebPush: info\0'), ...uaPub, ...asPub]), 256);
+  const cek = await hk(salt, ikm, te.encode('Content-Encoding: aes128gcm\0'), 128), nonce = await hk(salt, ikm, te.encode('Content-Encoding: nonce\0'), 96);
+  const pt = new Uint8Array(await S.decrypt({ name: 'AES-GCM', iv: nonce }, await S.importKey('raw', cek, 'AES-GCM', false, ['decrypt']), ct));
+  assert.equal(pt.at(-1), 2); assert.equal(new TextDecoder().decode(pt.slice(0, -1)), '{"title":"สวัสดี"}');
+  assert.deepEqual([...unb64u(b64u(auth))], [...auth]);
+});
+
+test('web push: subscribe validates the endpoint host and stores one row per endpoint', async () => {
+  const t = await makeEnv(), u = await t.user();
+  assert.equal((await t.json('/api/push/key', { cookie: u.cookie })).data.key.length, 87);
+  const keys = { p256dh: 'B' + 'a'.repeat(86), auth: 'a'.repeat(22) };
+  assert.equal((await t.json('/api/push/sub', { method: 'POST', cookie: u.cookie, body: { endpoint: 'https://127.0.0.1/x', keys } })).status, 400);
+  for (let i = 0; i < 2; i++) assert.equal((await t.json('/api/push/sub', { method: 'POST', cookie: u.cookie, body: { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys } })).status, 200);
+  assert.equal((await t.json('/api/push/sub', { cookie: u.cookie })).data.n, 1);
+});

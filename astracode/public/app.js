@@ -999,4 +999,20 @@ const domReady = new Promise(r => document.readyState === 'loading' ? addEventLi
 const loadSite = async () => { site = await api('/settings/public').catch(() => ({})); };
 Promise.all([loadMe(), loadSite(), domReady]).then(boot);
 // service worker retired: remove any copy a visitor still has (sw.js also clears its caches)
-if ('serviceWorker' in navigator && !window.DEMO) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+if ('serviceWorker' in navigator && !window.DEMO) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => { if (!/push-sw\.js$/.test(r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || '')) r.unregister(); })).catch(() => {});
+// แจ้งเตือนเข้ามือถือ (Web Push): ใช้ service worker แยกที่รับแค่ push · iPhone ต้องเพิ่มเว็บลงหน้าจอโฮมก่อน
+const pushOK = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+async function pushReg() { return navigator.serviceWorker.register('/push-sw.js', { scope: '/push/' }); }
+async function pushState() { if (!pushOK() || Notification.permission !== 'granted') return false; const r = await navigator.serviceWorker.getRegistration('/push/'); return !!(await r?.pushManager.getSubscription()); }
+async function enablePush() {
+  if (!pushOK()) throw new Error(/iP(hone|ad)/.test(navigator.userAgent) ? 'iPhone/iPad: กดแชร์ → เพิ่มไปยังหน้าจอโฮม แล้วเปิดจากไอคอนนั้นก่อน' : 'เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน');
+  if (await Notification.requestPermission() !== 'granted') throw new Error('ไม่ได้รับอนุญาตให้แจ้งเตือน เปิดได้ที่การตั้งค่าเว็บไซต์ของเบราว์เซอร์');
+  const reg = await pushReg(), { key } = await api('/push/key');
+  await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)) });
+  await api('/push/sub', { method: 'POST', body: sub.toJSON() });
+}
+async function disablePush() {
+  const r = await navigator.serviceWorker.getRegistration('/push/'), sub = await r?.pushManager.getSubscription();
+  if (sub) { await api('/push/sub', { method: 'DELETE', body: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
+}
