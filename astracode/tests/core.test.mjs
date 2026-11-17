@@ -466,3 +466,22 @@ test('webhook url: https public only; budget crossing posts to it; admin profit 
   assert.equal(p.status, 200); assert.ok(Array.isArray(p.data.models) && Array.isArray(p.data.daily)); assert.ok(p.data.daily.some(d => d.cost >= 0.3));
   wh.close();
 });
+
+test('background agent creates a requested image on the server and saves it in the project', async () => {
+  let call = 0; const JPG = Buffer.from('/9j/4AAQSkZJRgABAQ' + 'A'.repeat(400), 'base64').toString('base64');
+  const fm = await fakeModel((q, res) => {
+    if (q.url.endsWith('/images/generations')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ b64_json: JPG }] })); }
+    call++; fm.sse(res, call === 1 ? 'IMAGE a warm coffee shop interior -> images/hero.jpg' : call === 2 ? '```html path=index.html\n<img src="images/hero.jpg" alt="">\n```' : 'ใส่รูปเรียบร้อย');
+  });
+  const t = await makeEnv({ K: 'k', IMGK: 'k' }); const m = addModel(t.DB, { name: 'Ag2', base_url: fm.url });
+  for (const [k, v] of Object.entries({ image_enabled: '1', image_base_url: fm.url, image_model: 'img-x', image_key_name: 'IMGK', image_cost: '0.5' })) t.DB.raw.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').run(k, v);
+  const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 100 }); const a = await t.user(); give(t.DB, a, plan);
+  const pid = (await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'Cafe' } })).data.id;
+  const r = await t.json('/api/agent', { method: 'POST', cookie: a.cookie, body: { project_id: pid, model_id: m.id, prompt: 'ทำหน้าเว็บร้านกาแฟพร้อมรูปปก' } }); assert.equal(r.status, 200, JSON.stringify(r.data));
+  const job = (await t.json('/api/agent?project=' + pid, { cookie: a.cookie })).data[0]; assert.equal(job.status, 'done', JSON.stringify(job));
+  const img = t.DB.raw.prepare("SELECT content FROM project_files WHERE project_id=? AND path='images/hero.jpg'").get(pid); assert.match(img.content, /^data:image\/jpeg;base64,/);
+  assert.match(t.DB.raw.prepare("SELECT content FROM project_files WHERE project_id=? AND path='index.html'").get(pid).content, /images\/hero\.jpg/);
+  assert.ok(JSON.parse(job.changed).includes('images/hero.jpg'));
+  assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM usage WHERE model_id=0 AND user_id=?').get(a.id).n, 1, 'image cost is logged');
+  fm.close();
+});

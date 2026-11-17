@@ -2,8 +2,9 @@
 // วนรอบ: ให้โมเดลคิด → อ่านไฟล์ที่ขอ (READ/GREP/LIST) → เขียนไฟล์ที่แก้ลงโปรเจกต์ → ส่งผลกลับให้โมเดล จนไม่มีอะไรต้องทำ
 // ข้อจำกัด: เซิร์ฟเวอร์รันโค้ดและจับภาพหน้าจอไม่ได้ Agent จึงตรวจงานด้วยการอ่านไฟล์กลับ ผู้ใช้ควรเปิดดูผลเองตอนจบ
 import { DAY, SYSTEM_CODE, allowedModels, ctxMax, err, esc, fitContext, json, limited, planOf, touchWindows, usageStatus } from './core.js';
-import { callModel, doingOf, familyHint, logUsage, runTools, toolReqs } from './ai.js';
-import { mail, mailBox, notify } from './billing.js';
+import { callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs } from './ai.js';
+import { b64 } from './projects.js';
+import { event, getSettings, mail, mailBox, notify } from './billing.js';
 import { FILE_LIMIT, FILES_PER_PROJECT, PATH_RE, PROJECT_LIMIT, snapshot } from './projects.js';
 import { changesOf, problemOf, syntaxWarning } from './edits.js';
 
@@ -12,13 +13,45 @@ const AGENT_NOTE = `You are running as an unattended background agent on the ser
 You cannot run code, open a browser or see the page, so RUN lines are ignored. Verify your work by re-reading the files you changed.
 Work in as few rounds as you can: READ everything you need in one reply, then write all the file changes together. When the task is complete, reply with a short summary (what you changed, what the user should test, any assumption) and NO READ/GREP/LIST lines and no file blocks.`;
 
+// สร้างรูปด้วยตัวสร้างรูปของเว็บ (ตั้งค่าในหลังบ้าน) แล้วเก็บเป็นไฟล์รูป (data URL) ในโปรเจกต์เลย ไม่ต้องมีเบราว์เซอร์
+// ขอขนาด 512 + JPEG ให้ไฟล์เล็กพอ (ฝั่งเซิร์ฟเวอร์ย่อรูปเองไม่ได้) · ถ้ายังใหญ่เกินไฟล์โปรเจกต์ → แจ้งโมเดลให้ใช้ CSS/SVG แทน
+const IMG_LINE = /^[ \t]*IMAGE[ \t]+(.+?)[ \t]*(?:->|→)[ \t]*(\S+)[ \t]*$/gm;
+export const imagesOf = text => [...String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(IMG_LINE)].map(m => {
+  let path = m[2].replace(/^[`'"]|[`'",.]+$/g, '').replace(/^\/+/, '').replace(/[^\w./-]/g, '_').replace(/\.\./g, '_');
+  if (!path.includes('/')) path = 'images/' + path;
+  return { prompt: m[1].trim().slice(0, 1500), path: path.replace(/\.\w+$/, '') + '.jpg' };
+}).slice(0, 2);
+async function makeImages(env, u, plan, pid, list) {
+  const s = await getSettings(env, ['image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_cost']); let text = '[ผลการสร้างรูป]';
+  for (const it of list) {
+    if (s.image_enabled !== '1' || !env[s.image_key_name]) { text += `\n\nสร้าง ${it.path} ไม่ได้: ระบบสร้างรูปยังไม่เปิดใช้ ให้ใช้ CSS หรือ SVG แทน`; continue; }
+    const lim = await usageStatus(env, u, plan); if (lim.pct4h >= 100 || lim.pctWeek >= 100) { text += `\n\nสร้าง ${it.path} ไม่ได้: ลิมิตเต็ม`; continue; }
+    if (await limited(env, 'img:' + u.id, 10, 3600e3)) { text += `\n\nสร้าง ${it.path} ไม่ได้: สร้างรูปได้ชั่วโมงละ 10 รูป ใช้ CSS หรือ SVG แทน`; continue; }
+    try {
+      const go = extra => fetch(s.image_base_url.replace(/\/$/, '') + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env[s.image_key_name] }, body: JSON.stringify({ model: s.image_model, prompt: it.prompt, n: 1, size: '512x512', ...extra }), signal: AbortSignal.timeout(90000) });
+      let r = await go({ output_format: 'jpeg', output_compression: 70 }); if (r.status === 400) r = await go({}); // ผู้ให้บริการบางรายไม่รับพารามิเตอร์ข้างบน
+      const d = await r.json().catch(() => ({})); if (!r.ok) { await event(env, 'error', null, 'agent image: ' + (d.error?.message || r.status)); throw new Error('ผู้ให้บริการสร้างรูปตอบ ' + r.status); }
+      const item = d.data?.[0]; let data;
+      if (item?.b64_json) data = `data:${item.b64_json.startsWith('iVBOR') ? 'image/png' : 'image/jpeg'};base64,` + item.b64_json;
+      else if (item?.url) { const bytes = new Uint8Array(await (await fetch(item.url, { signal: AbortSignal.timeout(30000) })).arrayBuffer()); data = 'data:image/jpeg;base64,' + b64(bytes); }
+      else throw new Error('ไม่ได้รูปกลับมา');
+      if (data.length > FILE_LIMIT) throw new Error(`รูปใหญ่เกิน ${Math.round(FILE_LIMIT / 1000)}KB (ได้ ${Math.round(data.length / 1000)}KB)`);
+      const wr = await applyChanges(env, pid, [{ path: it.path, content: data }], true); if (wr.problems.length) throw new Error(wr.problems[0]);
+      const now = Date.now(); await touchWindows(env, u.id, now, plan);
+      await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,0,0,0,0,?,?,?)').bind(u.id, Math.max(+s.image_cost || 0, 1e-9), +s.image_cost || 0, now).run();
+      text += `\n\nสร้างแล้ว: ${it.path} (~${Math.round(data.length / 1365)}KB) ใช้ใน HTML ด้วย <img src="${it.path}"> หรือใน CSS ด้วย url(${it.path})`;
+    } catch (x) { text += `\n\nสร้าง ${it.path} ไม่สำเร็จ: ${String(x.message).slice(0, 120)} (ใช้ CSS หรือ SVG แทนได้)`; }
+  }
+  return text + '\n\nใส่รูปลงในโค้ดตามที่ต้องการ';
+}
+
 export async function ensureAgentTable(env) {
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, model_id INTEGER NOT NULL, prompt TEXT NOT NULL, status TEXT NOT NULL, rounds INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT \'\', summary TEXT, changed TEXT, chat_id INTEGER, created_at INTEGER NOT NULL, finished_at INTEGER)').run();
 }
 const setJob = (env, id, f) => { const ks = Object.keys(f); return env.DB.prepare(`UPDATE agent_jobs SET ${ks.map(k => k + '=?').join(',')} WHERE id=?`).bind(...ks.map(k => f[k]), id).run(); };
 
 // เขียนผลลง project_files (เก็บเวอร์ชันเก่าไว้ย้อนได้) · คืน { applied: [path], problems: [ข้อความ] }
-async function applyChanges(env, pid, changes) {
+async function applyChanges(env, pid, changes, raw = false) {
   const DB = env.DB, files = (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pid).all()).results, cur = new Map(files.map(f => [f.path, f.content]));
   const applied = [], problems = [], warnings = [], writes = [], dels = [];
   for (const c of changes) {
@@ -26,10 +59,10 @@ async function applyChanges(env, pid, changes) {
     if (c.error) { problems.push(`${c.path}: ${c.error}`); continue; }
     if (c.del) { if (cur.has(c.path)) { dels.push(c.path); applied.push(c.path + ' (ลบ)'); } continue; }
     if (c.content.length > FILE_LIMIT) { problems.push(`${c.path}: ไฟล์ใหญ่เกิน ${FILE_LIMIT / 1000}KB`); continue; }
-    const p = problemOf(c.path, c.content, cur.get(c.path)); if (p) { problems.push(`${c.path}: ${p}`); continue; }
+    const p = raw ? '' : problemOf(c.path, c.content, cur.get(c.path)); if (p) { problems.push(`${c.path}: ${p}`); continue; }
     if (cur.get(c.path) === c.content) continue;
     writes.push({ path: c.path, content: c.content }); applied.push(c.path);
-    const w = syntaxWarning(c.path, c.content); if (w) warnings.push(`${c.path}: ${w}`);
+    const w = raw ? '' : syntaxWarning(c.path, c.content); if (w) warnings.push(`${c.path}: ${w}`);
   }
   const sizes = new Map(cur); for (const d of dels) sizes.delete(d); for (const w of writes) sizes.set(w.path, w.content);
   if (sizes.size > FILES_PER_PROJECT || [...sizes.values()].reduce((a, b) => a + b.length, 0) > PROJECT_LIMIT) return { applied: [], problems: ['โปรเจกต์ใหญ่เกินขีดจำกัด (ไฟล์เยอะหรือเกิน 5MB) ไม่ได้เขียนไฟล์รอบนี้'] };
@@ -69,7 +102,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     if (!proj || !m || !(plan?.price > 0)) { status = 'failed'; usageNote = 'ไม่พบโปรเจกต์/โมเดล หรือแพลนไม่รองรับ'; return await finish(); }
     const files = () => DB.prepare('SELECT path,length(content) n FROM project_files WHERE project_id=? ORDER BY path').bind(J.project_id).all().then(r => r.results);
     const astra = (await DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(J.project_id).first())?.content?.slice(0, 3000) || '';
-    const system = SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (proj.instructions ? '\n\nProject-specific instructions (follow them):\n' + proj.instructions.slice(0, 3000) : '') + (astra ? '\n\nFrom the project file ASTRA.md:\n' + astra : '') + '\n\n' + AGENT_NOTE;
+    const system = SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (proj.instructions ? '\n\nProject-specific instructions (follow them):\n' + proj.instructions.slice(0, 3000) : '') + (astra ? '\n\nFrom the project file ASTRA.md:\n' + astra : '') + (await imagePrompt(env, true)) + '\n\n' + AGENT_NOTE;
     let msgs = [{ role: 'user', content: `${J.prompt}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${(await files()).map(f => `${f.path} (${f.n})`).join('\n').slice(0, 15000)}` }];
     for (; round < AGENT_MAX_ROUNDS; ) {
       if ((await DB.prepare('SELECT status FROM agent_jobs WHERE id=?').bind(jobId).first())?.status === 'stopping' || st.gone) { status = 'stopped'; break; }
@@ -83,16 +116,18 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       catch (x) { clearTimeout(timer); log.push(`รอบ ${round}: โมเดลตอบไม่ได้ (${String(x.message).slice(0, 80)})`); if (round >= 2 && !part) { status = 'failed'; usageNote = 'โมเดลตอบไม่ได้ตอนนี้'; break; } if (!part) continue; }
       clearTimeout(timer);
       if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan }); cumIn += usage.fresh + usage.read + usage.write; }
-      const reqs = toolReqs(part.replace(/```[\s\S]*?```/g, ''));
+      const reqs = toolReqs(part.replace(/```[\s\S]*?```/g, '')), imgs = imagesOf(part);
       const cur = new Map((await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(J.project_id).all()).results.map(f => [f.path, f.content]));
       const ch = changesOf(part, p => cur.has(p) ? cur.get(p) : null), res = ch.length ? await applyChanges(env, J.project_id, ch) : { applied: [], problems: [], warnings: [] };
       res.applied.forEach(p => changedAll.add(p.replace(/ \(ลบ\)$/, '')));
-      log.push(`รอบ ${round}: ${[reqs.length ? doingOf(reqs) : '', res.applied.length ? 'แก้ ' + res.applied.join(', ') : '', res.problems.length ? `มีปัญหา ${res.problems.length} จุด` : '', res.warnings?.length ? `เตือน syntax ${res.warnings.length} ไฟล์` : ''].filter(Boolean).join(' · ') || 'สรุปผล'}`);
+      log.push(`รอบ ${round}: ${[reqs.length ? doingOf(reqs) : '', imgs.length ? 'สร้างรูป ' + imgs.map(i => i.path).join(', ') : '', res.applied.length ? 'แก้ ' + res.applied.join(', ') : '', res.problems.length ? `มีปัญหา ${res.problems.length} จุด` : '', res.warnings?.length ? `เตือน syntax ${res.warnings.length} ไฟล์` : ''].filter(Boolean).join(' · ') || 'สรุปผล'}`);
       transcript.push(part);
       // รอบที่ไม่ได้ขออ่านและไม่ได้เขียนอะไร = สรุปผลแล้ว (รอบที่เพิ่งเขียนไฟล์ ให้อีกรอบเพื่อตรวจทาน/สรุป)
-      if (!reqs.length && !res.problems.length && !res.applied.length) { final = part.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim() || part.trim(); break; }
+      if (!reqs.length && !imgs.length && !res.problems.length && !res.applied.length) { final = part.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim() || part.trim(); break; }
+      const imgRes = imgs.length ? await makeImages(env, u, plan, J.project_id, imgs) : '';
+      imgs.forEach(i => { if (imgRes.includes('สร้างแล้ว: ' + i.path)) changedAll.add(i.path); });
       const tool = reqs.length ? await runTools(env, J.project_id, reqs) : '';
-      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: [tool, res.problems.length ? `[ผลการเขียนไฟล์]\nมีบางไฟล์เขียนไม่ได้ แก้แล้วส่งใหม่ (ส่วนที่เหลือถูกเขียนแล้ว):\n- ${res.problems.join('\n- ')}` : '', res.warnings?.length ? `[ตัวตรวจวงเล็บอัตโนมัติ] ไฟล์ที่เขียนไปน่าจะมี syntax ผิด (ตรวจแบบเดา อาจเตือนผิดได้ ให้ READ ไฟล์ตรวจแล้วแก้ถ้าผิดจริง):\n- ${res.warnings.join('\n- ')}` : '', res.applied.length ? `[เขียนแล้ว] ${res.applied.join(', ')}\nตรวจทานงานด้วย READ ถ้าจำเป็น แล้วสรุปผล (ไม่ต้องส่งไฟล์ซ้ำ)` : ''].filter(Boolean).join('\n\n') }];
+      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: [tool, imgRes, res.problems.length ? `[ผลการเขียนไฟล์]\nมีบางไฟล์เขียนไม่ได้ แก้แล้วส่งใหม่ (ส่วนที่เหลือถูกเขียนแล้ว):\n- ${res.problems.join('\n- ')}` : '', res.warnings?.length ? `[ตัวตรวจวงเล็บอัตโนมัติ] ไฟล์ที่เขียนไปน่าจะมี syntax ผิด (ตรวจแบบเดา อาจเตือนผิดได้ ให้ READ ไฟล์ตรวจแล้วแก้ถ้าผิดจริง):\n- ${res.warnings.join('\n- ')}` : '', res.applied.length ? `[เขียนแล้ว] ${res.applied.join(', ')}\nตรวจทานงานด้วย READ ถ้าจำเป็น แล้วสรุปผล (ไม่ต้องส่งไฟล์ซ้ำ)` : ''].filter(Boolean).join('\n\n') }];
     }
     if (status === 'done' && !final) { final = 'ครบ ' + AGENT_MAX_ROUNDS + ' รอบแล้ว Agent หยุดไว้ก่อน (งานอาจยังไม่ครบ ตรวจไฟล์และสั่งต่อได้)'; }
   } catch (x) { console.log('agent', x.stack); status = 'failed'; usageNote = 'เกิดข้อผิดพลาด: ' + String(x.message).slice(0, 120); }
