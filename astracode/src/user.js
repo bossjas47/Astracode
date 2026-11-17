@@ -1,6 +1,6 @@
 import { BKK, DAY, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus } from './core.js';
 import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
-import { audit, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, walletAdd } from './billing.js';
+import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { monthKey } from './api.js';
@@ -126,8 +126,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path === '/api/coupon/redeem' && M === 'POST') {
     const c = await couponFor(env, u, (await req.json()).code, 'credit');
     if (!c) return err('ใส่โค้ดคูปอง');
-    if (!await env.DB.prepare('INSERT OR IGNORE INTO coupon_uses VALUES (?,?,?) RETURNING code').bind(c.code, u.id, Date.now()).first()) return err('คุณใช้คูปองนี้ไปแล้ว'); // กันกดซ้ำพร้อมกัน
-    await env.DB.prepare('UPDATE coupons SET used=used+1 WHERE code=?').bind(c.code).run();
+    if (!await claimCoupon(env, c.code, u.id)) return err('คุณใช้คูปองนี้ไปแล้ว หรือคูปองเต็มสิทธิ์แล้ว'); // atomic: กันกดซ้ำพร้อมกัน และกันเกิน max_uses เมื่อหลายคนกดพร้อมกัน
     return json({ ok: true, amount: c.value, balance: await walletAdd(env, u.id, c.value, 'coupon', c.code) });
   }
   if (path === '/api/keys/stats') {

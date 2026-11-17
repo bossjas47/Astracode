@@ -223,6 +223,7 @@ export let colsDone;
 // เดิมสั่ง ALTER ทีละคำสั่งทุกครั้งที่ isolate เริ่ม (13 รอบไป-กลับ D1 ก่อนตอบคำขอแรก) ตอนนี้ถามโครงสร้างครั้งเดียวแล้วเพิ่มเฉพาะที่ขาด
 const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['users', 'webhook_url', 'TEXT'], ['users', 'auto_compact', 'INTEGER'], ['projects', 'slug', 'TEXT'], ['skills', 'share_token', 'TEXT'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
 const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
+const PAY_UQ = ["CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_key_uq ON payments(slip_key) WHERE slip_key LIKE 'slip/%'", "CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_ref_uq ON payments(slip_ref) WHERE slip_ref IS NOT NULL AND status<>'rejected'"];
 export const ensureCols = env => colsDone ||= (async () => {
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
   try {
@@ -232,6 +233,7 @@ export const ensureCols = env => colsDone ||= (async () => {
     apiLog = !rows.some(r => r.t === 'api_log');
   } catch { /* ถามโครงสร้างไม่ได้: ใช้วิธีเดิม ลองเพิ่มทุกคอลัมน์ */ }
   if (apiLog) todo.push(API_LOG, 'CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id)');
+  todo.push(...PAY_UQ); // ถ้ามีข้อมูลซ้ำอยู่แล้วคำสั่งจะล้ม (ถูก catch ด้านล่าง) · ตรวจซ้ำที่หลังบ้านแล้วค่อยสร้างเอง
   for (const q of todo) try { await env.DB.prepare(q).run(); } catch { /* มีคอลัมน์แล้ว */ }
 })();
 // ตัวคูณหน่วยลิมิตของโมเดล: ช่วงโปรใช้ promo_mult (ถ้าตั้ง) ไม่งั้นใช้ use_mult · ว่าง = 1

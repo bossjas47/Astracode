@@ -7,8 +7,9 @@ import { slug } from './api.js';
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
 export async function cron(env) {
   const DB = env.DB, now = Date.now(), log = [];
+  const step = async (name, fn) => { try { await fn(); } catch (e) { console.log('cron ' + name, e.message); log.push('ERR ' + name); } }; // ขั้นหนึ่งพัง ขั้นอื่นต้องไปต่อ (โดยเฉพาะสำรองข้อมูลและล้างข้อมูลเก่า)
   // 1) ต่ออายุอัตโนมัติจาก Wallet เมื่อเหลือไม่ถึง 24 ชม.
-  for (const u of (await DB.prepare('SELECT u.*,p.price,p.price_year,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.auto_renew=1 AND u.banned=0 AND u.plan_expires BETWEEN ? AND ?').bind(now, now + DAY).all()).results) {
+  await step('renew', async () => { for (const u of (await DB.prepare('SELECT u.*,p.price,p.price_year,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.auto_renew=1 AND u.banned=0 AND u.plan_expires BETWEEN ? AND ?').bind(now, now + DAY).all()).results) {
     const year = u.plan_period === 'year' && u.price_year, price = year ? u.price_year : u.price;
     if (u.balance >= price) {
       await walletAdd(env, u.id, -price, 'renew', u.pname);
@@ -16,13 +17,14 @@ export async function cron(env) {
       await DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at) VALUES (?,?,?,'wallet','approved','plan',?,?,?)").bind(u.id, u.plan_id, price, year ? 'year' : 'month', now, now).run();
       await mail(env, u.email, 'AstraCode: ต่ออายุแพลนแล้ว', mailBox('ต่ออายุแพลนแล้ว', `ตัดเงินจาก Wallet ฿${price} ต่ออายุ ${u.pname} เรียบร้อย`)); log.push('renew ' + u.id);
     }
-  }
+  } });
   // 2) เตือนแพลนใกล้หมด (3 วัน) ครั้งเดียวต่อรอบ
-  for (const u of (await DB.prepare('SELECT u.id,u.email,u.plan_expires,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.banned=0 AND u.plan_expires BETWEEN ? AND ? AND (u.reminded_at IS NULL OR u.reminded_at<>u.plan_expires)').bind(now, now + 3 * DAY).all()).results) {
+  await step('remind', async () => { for (const u of (await DB.prepare('SELECT u.id,u.email,u.plan_expires,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.banned=0 AND u.plan_expires BETWEEN ? AND ? AND (u.reminded_at IS NULL OR u.reminded_at<>u.plan_expires)').bind(now, now + 3 * DAY).all()).results) {
     await mail(env, u.email, 'AstraCode: แพลนใกล้หมดอายุ', mailBox('แพลนใกล้หมดอายุ', `${u.pname} จะหมดอายุ ${new Date(u.plan_expires + BKK).toISOString().slice(0, 16).replace('T', ' ')} (เวลาไทย) ต่ออายุได้ที่หน้าแพลน หรือเปิด "ต่ออายุอัตโนมัติจาก Wallet" ในหน้าบัญชี`));
     await DB.prepare('UPDATE users SET reminded_at=plan_expires WHERE id=?').bind(u.id).run();
-  }
+  } });
   // 3) แจ้งเตือนต้นทุนวันนี้เกินกำหนด (วันละครั้ง)
+  await step('alerts', async () => {
   const lim = +(await getSetting(env, 'cost_alert_daily')), dayStart = Math.floor((now + BKK) / DAY) * DAY - BKK;
   if (lim > 0 && (await getSetting(env, 'cost_alert_day')) !== String(dayStart)) {
     const c = (await DB.prepare('SELECT COALESCE(SUM(cost),0) c FROM usage WHERE created_at>=?').bind(dayStart).first()).c;
@@ -31,6 +33,7 @@ export async function cron(env) {
   // 3.5) โมเดลที่ error ตั้งแต่ 10 ครั้งในชั่วโมงที่ผ่านมา: สรุปแจ้งแอดมิน (cron รายชั่วโมง = แจ้งไม่เกินชั่วโมงละครั้ง)
   const spike = (await DB.prepare("SELECT e.model_id, md.name, COUNT(*) n FROM events e LEFT JOIN models md ON md.id=e.model_id WHERE e.kind='error' AND e.created_at>? GROUP BY e.model_id HAVING n>=10 ORDER BY n DESC").bind(now - 3600e3).all()).results;
   if (spike.length) await notify(env, '🔥 error พุ่งในชั่วโมงที่ผ่านมา: ' + spike.map(s => `${s.name || 'ระบบ'} ${s.n} ครั้ง`).join(' · ') + ' (เช็คคีย์/เครดิต upstream)');
+  });
   await runTasks(env, now).catch(e => console.log('tasks', e.message));
   await reapAgentJobs(env).catch(e => console.log('agent reap', e.message));
   // สลิปค้างรออนุมัติเกิน 2 ชม.: เตือนแอดมินไม่เกินทุก 6 ชม. (ลูกค้าจ่ายแล้วรออยู่)
@@ -40,7 +43,7 @@ export async function cron(env) {
     await DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('pend_alert_at',?)").bind(String(now)).run();
   }
   // 4) สำรองข้อมูลวันละครั้ง (ตี 3 เวลาไทย) เก็บ 14 ชุด
-  if (env.SLIPS && new Date(now + BKK).getUTCHours() === 3) await backup(env);
+  if (env.SLIPS && new Date(now + BKK).getUTCHours() === 3) await step('backup', async () => { try { await backup(env); } catch (e) { await notify(env, '⚠️ สำรองข้อมูลรายวันล้มเหลว: ' + String(e.message).slice(0, 200)); throw e; } });
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
   if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream
   if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)
@@ -105,7 +108,8 @@ export async function cleanImages(env) { // รูปในแชตเก็บ
   }
 }
 export async function backup(env) {
-  const tables = (await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('sessions','rate','tokens','_cf_KV','chat_images','slip_blobs','file_versions')").all()).results.map(x => x.name), data = {};
+  // shortcut: ทั้งชุดเป็นไฟล์ JSON ก้อนเดียวในหน่วยความจำ (Worker ~128MB) ถ้าตารางใหญ่ถึงหลายสิบ MB ให้แยกไฟล์ต่อตาราง/แบ่งหน้า · api_log/events ข้าม (ล้างเองทุก 30/90 วัน)
+  const tables = (await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('sessions','rate','tokens','_cf_KV','chat_images','slip_blobs','file_versions','api_log','events')").all()).results.map(x => x.name), data = {};
   for (const t of tables) data[t] = (await env.DB.prepare(`SELECT * FROM "${t}"`).all()).results;
   const key = `backup/${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
   await env.SLIPS.put(key, JSON.stringify(data), { httpMetadata: { contentType: 'application/json' } });

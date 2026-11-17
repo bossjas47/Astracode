@@ -278,8 +278,10 @@ export async function pay(req, env, u) {
   // ผ่านทุกเงื่อนไข (หรือพบสลิปและยอดตรง) และเปิดอนุมัติอัตโนมัติ: เปิดแพลน/เติมเงินทันที
   const pass = !fail && (c.code === '200200' || (c.code === '200000' && c.amount === amount)) && (await getSetting(env, 'slip_auto_approve')) !== '0';
   const now = Date.now(), what = kind === 'topup' ? 'เติม Wallet' : plan.name + (period === 'year' ? ' รายปี' : '');
+  // ดัชนี unique (slip_key, slip_ref) กันสลิปเดียวส่งพร้อมกันสองครั้งแล้วอนุมัติซ้ำ: ตัวที่สองชนดัชนีและถูกปฏิเสธก่อนถึง applyPayment
   const p = await env.DB.prepare('INSERT INTO payments (user_id,plan_id,amount,slip_key,slip_check,slip_amount,slip_ref,status,approved_at,created_at,kind,period,coupon,discount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *')
-    .bind(u.id, plan?.id || 0, amount, key, c.result, c.amount, c.ref || null, fail ? 'rejected' : pass ? 'approved' : 'pending', pass ? now : null, now, kind, period, fail ? null : coupon?.code || null, discount).first();
+    .bind(u.id, plan?.id || 0, amount, key, c.result, c.amount, c.ref || null, fail ? 'rejected' : pass ? 'approved' : 'pending', pass ? now : null, now, kind, period, fail ? null : coupon?.code || null, discount).first().catch(e => { if (/UNIQUE/i.test(e.message)) return null; throw e; });
+  if (!p) return err('สลิปนี้ถูกใช้แล้ว');
   if (fail) { await notify(env, `⛔ สลิปไม่ผ่าน ฿${amount} จาก ${u.email} (${what}): ${fail}`); return err(fail + ' ถ้าคิดว่าผิดพลาด ติดต่อเราที่หน้า "ติดต่อเรา"'); }
   if (pass) { await applyPayment(env, p); await notify(env, `✅ อนุมัติอัตโนมัติ ฿${amount} จาก ${u.email} (${what})`); return json({ ok: true, approved: true, id: p.id }); }
   await notify(env, `💳 สลิปใหม่ ฿${amount} จาก ${u.email} (${what})${c.amount != null ? ` · API อ่านยอดได้ ฿${c.amount}` : ''}${c.code ? ` · code ${c.code}` : ''}`);

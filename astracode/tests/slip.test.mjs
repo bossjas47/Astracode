@@ -119,3 +119,10 @@ test('three automatic slip checks in a row that the provider could not process r
   good = true; t.DB.raw.exec('DELETE FROM rate; DELETE FROM payments'); await topup(200); assert.equal(streak(), '0');
   fm.close();
 });
+
+test('the same slip (same bank reference) sent twice at the same moment is credited only once', async () => {
+  const same = slipData({ transRef: 'SAMEREF1' }); same.data.transRef = 'SAMEREF1';
+  const { fm, topup, bal } = await setup(() => same);
+  const rs = await Promise.all([topup(200), topup(200), topup(200)]);
+  assert.equal(bal(), 200, JSON.stringify(rs.map(r => r.d))); assert.equal(rs.filter(r => r.d.approved).length, 1); fm.close();
+});

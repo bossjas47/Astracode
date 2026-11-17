@@ -54,6 +54,14 @@ test('credit coupon can be redeemed only once even in parallel', async () => {
   assert.equal(t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance, 50);
 });
 
+test('a credit coupon with max_uses=1 pays only one of several users redeeming at the same moment', async () => {
+  const t = await makeEnv(); const us = await Promise.all(Array.from({ length: 12 }, () => t.user()));
+  t.DB.raw.prepare("INSERT INTO coupons (code,kind,value,max_uses,created_at) VALUES ('ONCE','credit',50,1,?)").run(Date.now());
+  const rs = await Promise.all(us.map(u => t.json('/api/coupon/redeem', { method: 'POST', cookie: u.cookie, body: { code: 'ONCE' } })));
+  assert.equal(rs.filter(r => r.status === 200).length, 1);
+  assert.equal(t.DB.raw.prepare('SELECT SUM(balance) b FROM users').get().b, 50);
+});
+
 test('circuit breaker: a model with 3 recent errors is skipped for its fallback', async () => {
   const a = await fakeModel((q, res) => a.sse(res, 'from A')), b = await fakeModel((q, res) => b.sse(res, 'from B'));
   const t = await makeEnv({ K: 'k' });
