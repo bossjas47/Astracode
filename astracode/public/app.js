@@ -750,7 +750,7 @@ async function skillsSheet(selectedIds, onChange) {
         </form>
       </details>
       ${list.map(s => `<div class="opt ${sel.has(s.id) ? 'on' : ''}" data-sk="${s.id}" style="cursor:pointer">
-        <span class="opt-t">${ic('sparkles', 'sm')} ${esc(s.name)} ${s.user_id === 0 ? '<small class="pill" style="margin-left:6px">ระบบ</small>' : `<button type="button" class="linkb" data-delsk="${s.id}" style="margin-left:8px;color:var(--red);font-size:12px">Delete</button>`}</span>
+        <span class="opt-t">${ic('sparkles', 'sm')} ${esc(s.name)} ${s.user_id === 0 ? '<small class="pill" style="margin-left:6px">ระบบ</small>' : `<button type="button" class="linkb" data-shsk="${s.id}" style="margin-left:8px;font-size:12px">Share</button><button type="button" class="linkb" data-delsk="${s.id}" style="margin-left:8px;color:var(--red);font-size:12px">Delete</button>`}</span>
         <span class="opt-d">${esc(s.description || s.content.slice(0, 80))}</span>
         <i>${sel.has(s.id) ? ic('check') : ''}</i>
       </div>`).join('') || '<p class="muted">ยังไม่มี Skill</p>'}
@@ -763,6 +763,10 @@ async function skillsSheet(selectedIds, onChange) {
           onChange([...sel]); toast('สร้าง Skill แล้ว', 'ok'); draw(true);
         } catch (x) { toast(x.message, 'bad'); }
       };
+      d.querySelectorAll('[data-shsk]').forEach(b => b.onclick = async e => { // ลิงก์แชร์ Skill: คนเปิดลิงก์จะได้ Skill นี้ไปใช้ในบัญชีตัวเอง
+        e.stopPropagation();
+        try { const r = await api(`/skills/${b.dataset.shsk}/share`, { method: 'POST' }); await copy(`${location.origin}/chat?skill=${r.token}`, b); toast('คัดลอกลิงก์แชร์ Skill แล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); }
+      });
       d.querySelectorAll('[data-delsk]').forEach(b => b.onclick = async e => {
         e.stopPropagation();
         await api('/skills/' + b.dataset.delsk, { method: 'DELETE' });

@@ -17,7 +17,7 @@ const API = (admin, loggedIn) => ({
   '/api/pricing/calc': { per1: 0.01, month: 3, plans: [{ id: 2, pct: 12 }] },
   '/api/status': { updated: Date.now(), models: [{ name: 'Flash', uptime: 99.9, state: 'ok', down: false, days: Array.from({ length: 30 }, () => ({ ok: 5, err: 0 })) }] },
   '/api/wallet': { balance: 120, ref_code: 'AB12', referred: 0, referred_paid: 0, bonus: 20, tx: [{ amount: 100, balance_after: 120, kind: 'topup', ref: null, created_at: Date.now() }] },
-  '/api/team': { team: null }, '/api/admin-gate': { set: true, ok: true },
+  '/api/team': { team: null }, '/api/usage/daily': { days: [{ d: Date.now() - 864e5, n: 3, units: 0.4, pct: 1.2 }], models: [{ name: 'Flash', n: 3, units: 0.4 }] }, '/api/memories': [], '/api/tasks': [{ id: 1, prompt: 'สรุปข่าว', hour: 8 }], '/api/gift': [], '/api/docs': [], '/api/sessions': [], '/api/keys': [], '/api/keys/stats': [], '/api/admin-gate': { set: true, ok: true },
   '/api/admin/quality': { votes: [], reports: [], cache: [{ model_id: 1, name: 'Flash', n: 3, fresh: 100, cached: 300 }] },
   '/api/admin/settings': { env: {}, health_check: '0' }, '/api/pay': [], '/api/skills': [{ id: 1, user_id: 0, name: 'translator', description: 'แปล', content: 'x', enabled: 1 }],
 });
@@ -35,8 +35,9 @@ for (const [url, admin, loggedIn] of PAGES) {
   });
   await page.goto('http://t.test' + url); await page.waitForTimeout(900);
   const text = (await page.locator('#app').innerText().catch(() => '')).trim();
-  const ok = !errs.length && text.length > 20; if (!ok) failed++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${url}${loggedIn ? admin ? ' (admin)' : ' (user)' : ' (guest)'}${errs.length ? '  ' + errs.join(' | ').slice(0, 300) : ''}${text.length <= 20 ? '  (empty page)' : ''}`);
+  const broke = /Cannot read properties|is not defined|is not a function|โหลดนานผิดปกติ/.test(text); // หน้าที่จับ error แล้วโชว์ข้อความแทนเนื้อหา ก็นับว่าพัง
+  const ok = !errs.length && text.length > 20 && !broke; if (!ok) failed++;
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${url}${loggedIn ? admin ? ' (admin)' : ' (user)' : ' (guest)'}${errs.length ? '  ' + errs.join(' | ').slice(0, 300) : ''}${text.length <= 20 ? '  (empty page)' : ''}${broke ? '  ' + text.match(/[^.\n]*(Cannot read properties|is not defined|is not a function|โหลดนานผิดปกติ)[^\n]*/)?.[0].slice(0, 160) : ''}`);
   await page.close();
 }
 await browser.close(); console.log(failed ? `${failed} page(s) failed` : 'all pages ok'); process.exit(failed ? 1 : 0);

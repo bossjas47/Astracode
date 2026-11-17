@@ -4,7 +4,7 @@ const IDE = {
   pid: null, name: '', files: new Map(), states: new Map(), open: [], active: null, view: null,
   dirty: new Set(), saveT: null, status: '', closed: new Set(),
   chatId: null, msgs: [], busy: false, ctrl: null, 
-  worker: null, frame: null, logs: [], runTab: 'out', pane: 'code', skills: JSON.parse(localStorage.getItem('cskills') || '[]'), mcps: JSON.parse(localStorage.getItem('cmcps') || '[]'),
+  worker: null, frame: null, logs: [], runTab: 'out', pane: 'code', agent: localStorage.getItem('agent') === '1', skills: JSON.parse(localStorage.getItem('cskills') || '[]'), mcps: JSON.parse(localStorage.getItem('cmcps') || '[]'),
 };
 const TREE_RE = /\n\n\[ไฟล์ทั้งหมดในโปรเจกต์\]\n[\s\S]*?(?=\n\n\[\[file:|$)/;
 const CHECK_RE = /\n\n\[คำสั่งตรวจ\]\n[\s\S]*?(?=\n\n\[ไฟล์ทั้งหมดในโปรเจกต์\]|\n\n\[\[file:|$)/;
@@ -514,7 +514,7 @@ async function runForAI(msg, cmds) {
   let text = '[ผลการรันคำสั่ง]';
   for (const cmd of cmds) { const d = await nodeRun(cmd); text += `\n\n$ ${cmd}\n(exit ${d.code})\n${cut((d.stdout || '') + (d.stderr ? '\n[stderr]\n' + d.stderr : '')) || '(ไม่มีผลลัพธ์)'}`; }
   IDE.round = (IDE.round ?? 0) + 1; setPane('ai');
-  if (IDE.round <= 5) await codeSend({ text: text + '\n\nดูผลแล้วแก้ต่อถ้ายังมีปัญหา ถ้าผ่านแล้วให้สรุปสั้นๆ' });
+  if (IDE.round <= (IDE.agent ? 12 : 5)) await codeSend({ text: text + '\n\nดูผลแล้วแก้ต่อถ้ายังมีปัญหา ถ้าผ่านแล้วให้สรุปสั้นๆ' });
 }
 
 // ---------- AI: ปุ่มด้านล่างแบบเดียวกับหน้าแชต ----------
@@ -532,9 +532,10 @@ function cUI() {
 }
 function setOpt(k, on) { localStorage.setItem(k, on ? '1' : '0'); if (k === 'auto') IDE.autoMode = on; else IDE.autoApply = on; }
 async function shareProject() {
-  const r = await api(`/projects/${IDE.pid}/share`, { method: 'POST' }), url = `${location.origin}/p/${r.token}`;
+  const r = await api(`/projects/${IDE.pid}/share`, { method: 'POST' }), url = `${location.origin}/p/${r.slug || r.token}`;
   sheet('แชร์โปรเจกต์ (อ่านอย่างเดียว)', `<p class="muted" style="margin:0 0 12px">ใครมีลิงก์นี้เปิดดูหน้าเว็บของโปรเจกต์ได้ แต่แก้ไฟล์ไม่ได้ · หน้าจะอัปเดตตามไฟล์ล่าสุดเสมอ</p>
-    <div class="row" style="flex-wrap:nowrap"><input readonly id="shu" value="${esc(url)}"><button class="btn out sm" id="shc">Copy</button></div><button class="btn red sm" id="shx" style="margin-top:12px">Stop sharing</button>`, (d, close) => {
+    <div class="row" style="flex-wrap:nowrap"><input readonly id="shu" value="${esc(url)}"><button class="btn out sm" id="shc">Copy</button></div><form id="shs" class="row" style="flex-wrap:nowrap;margin-top:10px"><input name="slug" value="${esc(r.slug || '')}" placeholder="ตั้งชื่อลิงก์เอง เช่น my-shop" pattern="[a-z0-9][a-z0-9-]{2,39}" autocapitalize="none"><button class="btn blue sm">Save name</button></form><p class="muted" style="margin:6px 0 0;font-size:12.5px">ลิงก์แสดงไฟล์ล่าสุดของโปรเจกต์เสมอ แก้แล้วคนเปิดลิงก์เห็นของใหม่ภายใน 1 นาที</p><button class="btn red sm" id="shx" style="margin-top:12px">Stop sharing</button>`, (d, close) => {
+    d.querySelector('#shs').onsubmit = async e => { e.preventDefault(); try { await api(`/projects/${IDE.pid}/share`, { method: 'POST', body: { slug: new FormData(e.target).get('slug') } }); toast('บันทึกชื่อลิงก์แล้ว', 'ok'); shareProject(); } catch (x) { toast(x.message, 'bad'); } };
     d.querySelector('#shc').onclick = e => copy(url, e.target);
     d.querySelector('#shx').onclick = async () => { await api(`/projects/${IDE.pid}/share`, { method: 'DELETE' }); close(); toast('ยกเลิกการแชร์แล้ว', 'ok'); };
   });
@@ -557,6 +558,7 @@ async function projectHistory() {
 function codeTools() {
   sheet('เครื่องมือ AI', optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
     + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
+    + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว)', me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง ปิดจอได้ กลับมาดูผล · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
     + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
@@ -567,6 +569,7 @@ function codeTools() {
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const v = b.dataset.v;
       if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
+      if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); IDE.agent = !IDE.agent; localStorage.setItem('agent', IDE.agent ? '1' : '0'); toast(IDE.agent ? 'เปิดโหมด Agent: งานยาวได้ถึง 20 รอบ' : 'ปิดโหมด Agent', 'ok'); if (IDE.agent && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); }
       if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
       if (v === 'mcp') mcpSheet(IDE.mcps, ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); cUI(); });
       if (v === 'skl') skillsSheet(IDE.skills, ids => { IDE.skills = ids; localStorage.setItem('cskills', JSON.stringify(ids)); cUI(); });
@@ -822,7 +825,7 @@ async function codeSend(auto) {
   IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop');
   let raf = 0, started = false, netLost = false;
   try {
-    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps };
+    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps, agent: !!IDE.agent };
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal, body: JSON.stringify(reqBody) });
     if (!r.ok) { const d = await r.json(); throw new Error(r.status === 429 && d.pct4h != null ? 'ลิมิตเต็มแล้ว' : d.error); }
     started = true;
@@ -844,6 +847,7 @@ async function codeSend(auto) {
             ai.doing = `${ai.doingBase} · ${Math.round((Date.now() - ai.doingAt) / 1000)} วินาที`; const el = $('#cmsgs')?.lastElementChild?.querySelector('.doing'); if (el) el.textContent = ai.doing;
           }, 1000); }
         if (d.t?.trim() && ai.doing) ai.doing = '';
+        if (d.done && IDE.agent && document.hidden && 'Notification' in window && Notification.permission === 'granted') try { new Notification('AstraCode', { body: 'AI ทำงานเสร็จแล้ว แตะเพื่อดูผล' }); } catch { /* บางเบราว์เซอร์ต้องใช้ service worker */ }
         if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }
     }
@@ -876,7 +880,7 @@ async function codeSend(auto) {
       IDE.round = (IDE.round ?? 0) + 1;
       await codeSend({ auto: { text: 'ข้อความก่อนหน้ายังไม่ได้แก้ไฟล์ เพราะโค้ดไม่ได้อยู่ในรูปแบบที่ระบบใช้ได้ คุณแก้ไฟล์ในโปรเจกต์ได้จริง ให้ส่งใหม่: ไฟล์ที่มีอยู่แล้วใช้บล็อก ```<ภาษา> path=<ไฟล์> ที่ข้างในเป็น <<<<<<< SEARCH / ======= / >>>>>>> REPLACE (คัดลอก SEARCH จากเนื้อหาไฟล์จริง) หรือส่งทั้งไฟล์ใน path= เดียวกัน ห้ามตอบว่าแก้ไฟล์ไม่ได้ และห้ามส่งโค้ดที่ไม่มี path=' } });
     }
-    else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < 3) await check(); }
+    else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < (IDE.agent ? 8 : 3)) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
 }
 
