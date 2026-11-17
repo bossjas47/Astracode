@@ -956,7 +956,7 @@ async function boot() {
   catch (x) {
     clearTimeout(skT);
     if (!me) return go('/login?next=' + encodeURIComponent(here()));
-    page(nav() + `<div style="text-align:center;margin:48px 16px"><p class="err">${esc(x.message)}</p><button class="btn out" onclick="location.reload()">Try again</button></div>`);
+    page(nav() + `<div style="text-align:center;margin:48px 16px"><p class="err" style="max-width:420px;margin:0 auto 16px">${esc(x.message)}</p><button class="btn out" onclick="location.reload()">Try again</button></div>`);
   }
 }
 if (window.DEMO) addEventListener('click', e => { // เดโม: ลิงก์ภายในเว็บสลับหน้าโดยไม่โหลดใหม่
