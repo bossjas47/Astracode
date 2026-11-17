@@ -345,6 +345,8 @@ const ADMIN = {
       <h2 style="margin-top:24px">ประกาศ</h2><label>ข้อความ (เว้นว่าง = ไม่แสดง) ใส่ลิงก์แบบ [ข้อความ](https://...) ได้</label><textarea name="announcement" rows="2">${esc(s.announcement)}</textarea>
       <label>ระดับ</label><select name="announcement_level">${[['info', 'ทั่วไป'], ['warn', 'เตือน'], ['critical', 'สำคัญมาก']].map(([k, l]) => `<option value="${k}" ${s.announcement_level === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <h2 style="margin-top:24px">ย่อแชตอัตโนมัติ</h2><label>ย่อแชตเมื่อ context ใช้ถึงกี่ % ของหน้าต่างโมเดล (เว้นว่าง = 75 · 0 = ปิดทั้งระบบ · ผู้ใช้ปิดของตัวเองได้)</label><input name="compact_pct" type="number" min="0" max="95" value="${esc(s.compact_pct || '')}" placeholder="75">
+      <h2 style="margin-top:24px">ทีม Agent</h2><label>เพดานลิมิตต่อหนึ่งงานทีม (% ของลิมิตสัปดาห์ · เว้นว่าง = 30)</label><input name="team_budget_pct" type="number" min="1" max="100" step="any" value="${esc(s.team_budget_pct || '')}">
+      <label>โมเดลลูกทีม (id ของโมเดล · เว้นว่าง = DeepSeek 4.1 Flash ถ้าแพลนมี ไม่งั้นตัวที่ถูกสุด)</label><input name="team_worker_model" type="number" min="1" value="${esc(s.team_worker_model || '')}">
       <h2 style="margin-top:24px">คำต้องห้าม</h2><label>ข้อความที่มีคำเหล่านี้จะถูกปฏิเสธก่อนส่งให้โมเดล (คั่นด้วย , หรือขึ้นบรรทัดใหม่ · เว้นว่าง = ไม่กรอง) ใช้กันเนื้อหาที่ทำให้คีย์ upstream โดนแบน</label><textarea name="block_words" rows="2">${esc(s.block_words || '')}</textarea>
       <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><span class="ok" id="ms"></span></div></form>
 

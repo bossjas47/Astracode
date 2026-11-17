@@ -571,7 +571,7 @@ function cUI() {
   $('#ceff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
   $('#bmdl').innerHTML = $('#cmdl').innerHTML; $('#beff').innerHTML = $('#ceff').innerHTML; $('#beff').hidden = !efs.length; // แถบสั่งเร็วใช้ค่าเดียวกับกล่อง AI
   $('#cflags').innerHTML = ''
-    + (IDE.bgJob ? `<button type="button" class="flag agent-on" data-flag="bgagent" title="Agent กำลังทำงานบนเซิร์ฟเวอร์ · แตะเพื่อดู">${ic('server', 'sm')}Agent ทำงานอยู่ · รอบ ${IDE.bgJob.rounds}/20</button>` : '')
+    + (IDE.bgJob ? `<button type="button" class="flag agent-on" data-flag="bgagent" title="Agent กำลังทำงานบนเซิร์ฟเวอร์ · แตะเพื่อดู">${ic('server', 'sm')}${IDE.bgJob.role === 'lead' ? `ทีม Agent · ${AG_LABEL[IDE.bgJob.status]} · เสร็จ ${(IDE.bgJob.team || []).filter(k => k.role === 'worker' && !['waiting', 'queued', 'running', 'stopping'].includes(k.status)).length}/${(IDE.bgJob.team || []).filter(k => k.role === 'worker').length}` : `Agent ทำงานอยู่ · รอบ ${IDE.bgJob.rounds}/20`}</button>` : '')
     + (IDE.agent ? `<button type="button" class="flag agent-on" data-flag="agent" title="โหมด Agent เปิดอยู่: ทำงานต่อเนื่องได้ถึง 20 รอบ · แตะเพื่อปิด">${ic('sparkles', 'sm')}Agent ON</button>` : '')
     + (IDE.skills.length && _skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
     + (IDE.mcps.length && _mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
@@ -587,8 +587,11 @@ async function shareProject() {
   });
 }
 // Agent เบื้องหลัง: ส่งงานให้เซิร์ฟเวอร์ทำเองทั้งชุด (ปิดแอปได้) · ดูสถานะ/หยุด/โหลดไฟล์ใหม่
-const AG_LABEL = { queued: 'รอคิว', running: 'กำลังทำงาน', stopping: 'กำลังหยุด', done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิต', failed: 'ไม่สำเร็จ', timeout: 'หมดเวลา' };
-const agBusy = j => ['queued', 'running', 'stopping'].includes(j?.status);
+const AG_LABEL = { queued: 'รอคิว', running: 'กำลังทำงาน', stopping: 'กำลังหยุด', done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิต', failed: 'ไม่สำเร็จ', timeout: 'หมดเวลา', waiting: 'รอคิว (ไฟล์ชนกัน)', team: 'ทีมกำลังทำงาน', reviewing: 'กำลังตรวจรวม' };
+const agBusy = j => ['queued', 'running', 'stopping', 'team', 'reviewing'].includes(j?.status);
+const AG_ROLE = { worker: 'ลูกทีม', review: 'ผู้ตรวจ' };
+// แผงทีม: ลูกทีมแต่ละตัว (สถานะ, ไฟล์, รอบ) + หยุดรายตัว
+const teamRows = j => (j.team || []).map(k => `<div class="mem tm"><span><b>${AG_ROLE[k.role] || k.role}</b> ${esc(k.role === 'review' ? 'ตรวจรวมผลงาน' : k.title)}<br><small class="muted">${AG_LABEL[k.status] || k.status}${k.rounds ? ' · ' + k.rounds + ' รอบ' : ''}${k.scope ? ' · ' + esc(JSON.parse(k.scope).join(', ')) : ''}</small></span>${['queued', 'running'].includes(k.status) ? `<button type="button" class="btn out sm" data-agstop="${k.id}">หยุด</button>` : ''}</div>`).join('');
 async function bgAgentSheet() {
   if (!me.plan.paid) return toast('Agent เบื้องหลังใช้ได้กับแพลนที่ชำระเงิน', 'bad');
   let timer = 0;
@@ -596,17 +599,18 @@ async function bgAgentSheet() {
     const jobs = await api('/agent?project=' + IDE.pid).catch(() => []), busy = jobs.find(agBusy), box = d.querySelector('.sheet-b'); if (!box) return clearInterval(timer);
     const m = $('#cmodel')?.value;
     box.innerHTML = `<div class="sheet-form">
-      ${busy ? `<p class="sheet-msg"><b>${AG_LABEL[busy.status]}</b> · รอบที่ ${busy.rounds}/20<br><small class="muted">${esc(busy.prompt.slice(0, 120))}</small></p><button type="button" class="btn red sm" id="agx">หยุดงานนี้</button>`
+      ${busy ? `<p class="sheet-msg"><b>${AG_LABEL[busy.status]}</b>${busy.role === 'lead' ? (busy.team?.length ? ` · ทีม ${busy.team.filter(k => k.role === 'worker').length} ตัว` : ' · หัวหน้ากำลังแบ่งงาน') : ` · รอบที่ ${busy.rounds}/20`}<br><small class="muted">${esc(busy.prompt.slice(0, 120))}</small></p>${teamRows(busy)}<button type="button" class="btn red sm" id="agx">${busy.role === 'lead' ? 'หยุดทั้งทีม' : 'หยุดงานนี้'}</button>`
         : `<textarea id="agp" rows="4" maxlength="4000" placeholder="อธิบายงานให้ละเอียด เช่น ทำหน้า Contact พร้อมฟอร์ม ใส่ลิงก์ในเมนู และปรับสไตล์ให้เข้ากับหน้าแรก"></textarea>
-           <button type="button" class="btn blue" id="agg">เริ่มให้ Agent ทำ</button><p class="muted" style="margin:0;font-size:12.5px">ใช้โมเดลที่เลือกอยู่ · ใช้ลิมิตแพลนตามจริง · แก้ไขย้อนกลับได้จาก "ประวัติโปรเจกต์"</p>`}
+           <label class="sw-row"><span class="sw"><input type="checkbox" id="agteam"><span></span></span> ทีม Agent: หัวหน้า (โมเดลที่เลือก) แบ่งงาน ลูกทีม DeepSeek 4.1 Flash ทำพร้อมกันสูงสุด 5 ตัว แล้วตรวจรวม เหมาะกับงานใหญ่หลายไฟล์</label><button type="button" class="btn blue" id="agg">เริ่มให้ Agent ทำ</button><p class="muted" style="margin:0;font-size:12.5px">ใช้โมเดลที่เลือกอยู่ · ใช้ลิมิตแพลนตามจริง · แก้ไขย้อนกลับได้จาก "ประวัติโปรเจกต์"</p>`}
       ${jobs.filter(j => !agBusy(j)).slice(0, 4).map(j => `<div class="mem tm" style="display:block"><b>${AG_LABEL[j.status] || j.status}</b> · ${j.rounds} รอบ · ${when(j.created_at)}<br><small class="muted">${esc(j.prompt.slice(0, 100))}</small>${j.summary ? `<br><small>${esc(j.summary.slice(0, 220))}</small>` : ''}${j.chat_id ? ` <a href="/chat?id=${j.chat_id}">ดูรายละเอียด</a>` : ''}</div>`).join('')}
     </div>`;
     box.querySelector('#agg')?.addEventListener('click', async e => {
       const prompt = box.querySelector('#agp').value.trim(); if (prompt.length < 10) return toast('อธิบายงานให้ละเอียดขึ้นอีกหน่อย', 'bad');
       e.target.disabled = true; await saveNow();
-      try { await api('/agent', { method: 'POST', body: { project_id: IDE.pid, model_id: +m, prompt } }); toast('ส่งงานให้ Agent แล้ว ปิดแอปได้เลย จะอีเมลเมื่อเสร็จ', 'ok'); agWatch(); draw(d); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
+      try { await api('/agent', { method: 'POST', body: { project_id: IDE.pid, model_id: +m, prompt, team: box.querySelector('#agteam')?.checked } }); toast('ส่งงานให้ Agent แล้ว ปิดแอปได้เลย จะอีเมลเมื่อเสร็จ', 'ok'); agWatch(); draw(d); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; }
     });
     box.querySelector('#agx')?.addEventListener('click', async () => { await api(`/agent/${busy.id}/stop`, { method: 'POST' }).catch(() => {}); draw(d); });
+    box.querySelectorAll('[data-agstop]').forEach(b => b.onclick = async () => { await api(`/agent/${b.dataset.agstop}/stop`, { method: 'POST' }).catch(() => {}); draw(d); });
   };
   sheet('Agent บนเซิร์ฟเวอร์', '<p class="muted">กำลังโหลด...</p>', d => { draw(d); timer = setInterval(() => draw(d), 5000); new MutationObserver((_, o) => { if (!document.contains(d)) { clearInterval(timer); o.disconnect(); } }).observe(document.body, { childList: true }); });
 }
@@ -616,7 +620,7 @@ async function agWatch() {
   clearInterval(agPoll);
   const tick = async () => {
     const jobs = await api('/agent?project=' + IDE.pid).catch(() => []), busy = jobs.find(agBusy), prev = IDE.bgJob;
-    IDE.bgJob = busy || null; if (!!busy !== !!prev || busy?.rounds !== prev?.rounds) cUI();
+    IDE.bgJob = busy || null; if (!!busy !== !!prev || busy?.rounds !== prev?.rounds || JSON.stringify(busy?.team?.map(k => k.status)) !== JSON.stringify(prev?.team?.map(k => k.status))) cUI();
     if (prev && !busy) { const j = jobs.find(x => x.id === prev.id); clearInterval(agPoll); if (j) { toast(`Agent ${AG_LABEL[j.status] || j.status}: ${(JSON.parse(j.changed || '[]')).length} ไฟล์ที่เปลี่ยน`, j.status === 'done' ? 'ok' : ''); if (!IDE.busy) reloadFiles().catch(() => {}); } }
     else if (!busy) clearInterval(agPoll);
   };
