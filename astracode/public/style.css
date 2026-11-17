@@ -694,10 +694,10 @@ a.tk { color: var(--porcelain); padding: 12px 4px; border-top: 1px solid var(--s
 .sheet-acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 .sheet-acts .btn { flex: 1; }
 
-.tk-c { color: #7f848e; font-style: italic; }
-.tk-s { color: #98c379; }
-.tk-k { color: #c678dd; }
-.tk-n { color: #d19a66; }
+.tk-c { color: #565f89; font-style: italic; }
+.tk-s { color: #9ece6a; }
+.tk-k { color: #bb9af7; }
+.tk-n { color: #2ac3de; }
 
 .acts button { display: inline-flex; align-items: center; gap: 4px; }
 .side .item button { flex: none; opacity: .7; }

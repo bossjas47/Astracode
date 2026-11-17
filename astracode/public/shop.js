@@ -1,6 +1,11 @@
 // AstraCode: หน้าแพลน + ชำระเงิน + เติม Wallet และหน้าราคาต่อ token (แยกจาก app.js · โหลดเฉพาะ plans.html / pricing.html)
 // ---------- แพลน + ชำระเงิน + เติม Wallet ----------
 const PAY_STATUS = { pending: '<span class="warn">รออนุมัติ</span>', approved: '<span class="ok">สำเร็จ</span>', rejected: '<span class="bad">ไม่อนุมัติ</span>' };
+// ตารางเทียบแพลน: ราคา, จำนวนโมเดล, ข้อความโดยประมาณ, API, ที่นั่ง
+const cmpTable = ps => ps.length < 2 ? '' : `<details class="faq" style="max-width:920px;margin:14px auto"><summary>เปรียบเทียบแพลนแบบตาราง</summary><div class="tw"><table class="tbl cmp"><tr><th></th>${ps.map(p => `<th>${esc(p.name)}</th>`).join('')}</tr>
+  ${[['ราคา/เดือน', p => p.price ? '฿' + baht(p.price) : 'ฟรี'], ['รายปี', p => p.price_year ? '฿' + baht(p.price_year) : '-'], ['จำนวนโมเดล', p => p.models?.length || 0],
+    ['ข้อความ/สัปดาห์ (โมเดลประหยัดสุด)', p => p.models?.length ? '~' + Math.max(...p.models.map(m => m.week)).toLocaleString(LOC) : '-'], ['API key', p => p.price > 0 ? '✓' : '-'], ['API หักจากลิมิตแพลน', p => p.api_limit ? '✓' : '-'],
+    ['ที่นั่ง', p => p.seats || 1], ['งบรวมทั้งทีม', p => p.shared_pool ? '✓' : '-']].map(([l, f]) => `<tr><td>${l}</td>${ps.map(p => `<td>${f(p)}</td>`).join('')}</tr>`).join('')}</table></div></details>`;
 async function plansPage() {
   const plans = await api('/plans');
   const hasYear = plans.some(p => p.price_year > 0);
@@ -29,6 +34,7 @@ async function plansPage() {
         ${hasTeam ? `<div style="text-align:center;margin-bottom:16px"><div class="seg"><button data-aud="solo" class="${aud === 'solo' ? 'on' : ''}">Personal</button><button data-aud="team" class="${aud === 'team' ? 'on' : ''}">Team</button></div></div>` : ''}
         ${aud === 'team' ? '<p class="muted" style="text-align:center;margin:-4px 0 16px">แพ็กเกจเดียว ใช้ร่วมกันหลายคน ซื้อแล้วคุณเป็นหัวหน้าทีม เชิญสมาชิกได้ที่หน้าบัญชี</p>' : ''}
         ${planTiles(plans.filter(x => x.price > 0 && (aud === 'team' ? x.seats > 1 : x.seats <= 1) && (period === 'month' || x.price_year > 0)), sel, period)}
+        ${cmpTable(plans.filter(x => aud === 'team' ? x.seats > 1 : x.seats <= 1))}
         ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : '30 วัน'}</div>
           <div class="price" style="margin:8px 0">${coupon?.discount ? `<s class="muted" style="font-size:20px">${fmtPlanPrice(priceOf(p))}</s> ` : ''}${fmtPlanPrice(total)}${getCur() === 'USD' && total > 0 ? `<div class="muted" style="font-size:13px;margin-top:4px">ยอดโอน PromptPay: ฿${baht(total)}</div>` : ''}</div>
           <form id="cf" class="row" style="max-width:400px;margin:0 auto;flex-wrap:nowrap"><input name="code" placeholder="โค้ดคูปอง" value="${esc(coupon?.code || '')}" autocapitalize="characters"><button class="btn out sm">Apply</button></form>

@@ -148,6 +148,8 @@ async function chatView(id) {
   });
   const t = $('#t');
   t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
+  const shared = [qs().get('title'), qs().get('text'), qs().get('url')].filter(Boolean).join('\n'); // ข้อความที่แชร์มาจากแอปอื่น (manifest share_target)
+  if (shared && !qs().get('id')) { t.value = shared.slice(0, 20000); setTimeout(() => t.oninput(), 0); }
   slashSkills(t, () => chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); });
   t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#f').requestSubmit(); } };
   $('#f').onsubmit = e => { e.preventDefault(); chat.busy ? stopRun() : send(); };
@@ -167,6 +169,12 @@ async function chatView(id) {
     if (b.classList.contains('cp-code')) copy(b.closest('.code').querySelector('code').textContent, b);
     if (b.classList.contains('run-code')) openCanvas(b.closest('.code').querySelector('code').textContent);
     if (b.dataset.edit != null) editMsg(+b.dataset.edit);
+    if (b.dataset.branch != null && chat.id) api(`/chats/${chat.id}/branch`, { method: 'POST', body: { message_id: chat.msgs[+b.dataset.branch]?.id } }).then(r => { toast('แตกกิ่งเป็นแชตใหม่แล้ว', 'ok'); go('/chat?id=' + r.id); }).catch(x => toast(x.message, 'bad'));
+    if (b.dataset.say != null) { // อ่านออกเสียงด้วยเสียงของเครื่อง (กดซ้ำ = หยุด)
+      const sy = speechSynthesis; if (sy.speaking) return sy.cancel();
+      const txt = String(chat.msgs[+b.dataset.say]?.content || '').replace(/```[\s\S]*?```/g, ' ').replace(/[#*_`>\u2063]/g, '').slice(0, 4000), ut = new SpeechSynthesisUtterance(txt);
+      ut.lang = /[\u0E00-\u0E7F]/.test(txt) ? 'th-TH' : 'en-US'; sy.speak(ut);
+    }
     if (b.dataset.mem != null) remember(chat.msgs[+b.dataset.mem], b);
     if (b.dataset.rem != null) remember({ content: parseMem(chat.msgs[+b.dataset.rem].content).mem }, b);
     if (b.dataset.copy) copy(chat.msgs[+b.dataset.copy].content, b);
@@ -425,7 +433,7 @@ function msgHTML(m, i, isNew) {
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : waitHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
-    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">Copy</button>${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">👍</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">👎</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button>` : ''}${last && !chat.busy ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
+    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">Copy</button>${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">👍</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">👎</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง">แตกกิ่ง</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">🔊</button>` : ''}${last && !chat.busy ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
 // token ที่ใช้ตอบ + ลิมิตที่ใช้ไป (เฉพาะข้อความที่เพิ่งตอบ)
 const tokHTML = m => m.tin || m.tout ? `<span class="tok" title="Input ${num(m.tin)} · Output ${num(m.tout)} token">↑${kTok(m.tin || 0)} ↓${kTok(m.tout || 0)}${m.pct != null ? ` · ลิมิต +${m.pct < 0.1 ? '<0.1' : m.pct.toFixed(1)}%` : ''}</span>` : '';

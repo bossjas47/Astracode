@@ -54,7 +54,7 @@ PAGES.account = async function account() {
           <div class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input readonly value="${esc(tm.team.invite_code)}" id="tcode" aria-label="โค้ดเชิญเข้าทีม"><button type="button" class="btn out sm" id="cptc">Copy</button><button type="button" class="btn out sm" id="regtc">Shuffle</button></div>
           <form id="taddf" class="row" style="flex-wrap:nowrap;margin-bottom:10px"><input name="email" type="email" placeholder="เพิ่มสมาชิกที่มีบัญชีอยู่แล้ว (อีเมล)" required><button class="btn out sm">Add member</button></form>
           <form id="tinvf" class="row" style="flex-wrap:nowrap;margin-bottom:12px"><input name="email" type="email" placeholder="ส่งคำเชิญทางอีเมล (ยังไม่มีบัญชีก็ได้)" required><button class="btn blue sm">Send invite</button></form>
-          <div class="row" style="margin-bottom:14px"><a class="btn blue sm" href="/plans?team=1&plan=${tm.team.plan_id}">Renew team plan</a><a class="btn out sm" href="/plans?team=1">Upgrade package</a></div>
+          <div class="row" style="margin-bottom:14px"><a class="btn blue sm" href="/plans?team=1&plan=${tm.team.plan_id}">Renew team plan</a><a class="btn out sm" href="/plans?team=1">Upgrade package</a><a class="btn out sm" href="/api/team/usage.csv" download>รายงานการใช้ (CSV)</a></div>
         ` : ''}
         ${tm.team.role === 'owner' ? '<p class="muted" style="margin:0 0 8px;font-size:12.5px">แถบด้านล่างคือการใช้ 7 วันล่าสุดของแต่ละคน (% ของงบสัปดาห์ของแพลน)</p>' : ''}
         <div id="tmemlist">${tm.members.map(m => `<div class="mem tm"><span>${esc(m.email)} <small class="muted">${m.role === 'owner' ? '(หัวหน้าทีม)' : ''}</small></span>
@@ -70,6 +70,10 @@ PAGES.account = async function account() {
       ${sw('overflow', me.wallet_overflow, 'ใช้ Wallet เมื่อลิมิตเต็ม', 'แชตต่อได้ คิดตามราคาต่อ token จริง')}
       ${me.plan.expires ? sw('renew', me.auto_renew, 'ต่ออายุแพลนอัตโนมัติ', 'ตัดเงินจาก Wallet ก่อนหมดอายุ 1 วัน ถ้ายอดพอ') : ''}
       <form id="cp" class="row" style="flex-wrap:nowrap;margin-top:12px"><input name="code" placeholder="โค้ดคูปองเครดิต" autocapitalize="characters" required><button class="btn out sm">Apply coupon</button></form><div class="err" id="cpe"></div>
+      <details class="faq" style="margin-top:8px"><summary>ของขวัญ (โอนเงิน Wallet ให้เพื่อนเป็นโค้ด)</summary>
+        <form id="gmk" class="row" style="flex-wrap:nowrap;margin-top:10px"><input name="amount" type="number" min="20" step="1" placeholder="ยอด (฿20 ขึ้นไป)" required><button class="btn blue sm">สร้างโค้ดของขวัญ</button></form>
+        <form id="grd" class="row" style="flex-wrap:nowrap;margin-top:8px"><input name="code" placeholder="มีโค้ดของขวัญ? ใส่ที่นี่ (GIFT-...)" autocapitalize="characters" required><button class="btn out sm">รับของขวัญ</button></form>
+        <div id="glist" class="muted" style="margin-top:8px;font-size:13px"></div></details>
       ${w.tx.length ? `<details class="faq" style="margin-top:8px"><summary>ประวัติ Wallet</summary><div class="tw"><table class="tbl"><tr><th>วันที่</th><th>รายการ</th><th>จำนวน</th><th>คงเหลือ</th></tr>
         ${w.tx.map(t => `<tr><td>${when(t.created_at)}</td><td>${TX_KIND[t.kind] || esc(t.kind)}${t.ref ? ` <span class="muted">${esc(t.ref)}</span>` : ''}</td><td class="${t.amount < 0 ? 'bad' : 'ok'}">${t.amount < 0 ? '-' : '+'}฿${money(Math.abs(t.amount))}</td><td>฿${baht(t.balance_after)}</td></tr>`).join('')}</table></div></details>` : ''}</div>
 
@@ -109,6 +113,21 @@ PAGES.account = async function account() {
   pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize'); pickSeg('#seg-fx', 'x', 'fx');
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew');
+  const gifts = async () => { const g = await api('/gift').catch(() => []); const el = $('#glist'); if (el) el.innerHTML = g.map(x => `<div><b data-notr>${esc(x.code)}</b> · ฿${baht(x.amount)} · ${x.used_at ? 'ใช้แล้ว' : 'ยังไม่ถูกใช้'}</div>`).join(''); };
+  gifts();
+  $('#gmk').onsubmit = async e => {
+    e.preventDefault(); const amount = +new FormData(e.target).get('amount');
+    if (!await confirmSheet(`ตัดเงิน ฿${amount} จาก Wallet เพื่อสร้างโค้ดของขวัญ? (ยกเลิกภายหลังไม่ได้)`, { title: 'ยืนยัน', ok: 'Confirm' })) return;
+    try { const r = await api('/gift', { method: 'POST', body: { amount } }); navigator.clipboard?.writeText(r.code).catch(() => {}); toast('สร้างโค้ดแล้ว (คัดลอกให้แล้ว): ' + r.code, 'ok'); await loadMe(); boot(); } catch (x) { toast(x.message, 'bad'); }
+  };
+  $('#grd').onsubmit = async e => {
+    e.preventDefault();
+    try { const r = await api('/gift/redeem', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast(`ได้รับ ฿${r.amount} เข้า Wallet แล้ว`, 'ok'); await loadMe(); boot(); } catch (x) { toast(x.message, 'bad'); }
+  };
+  $('#renew')?.addEventListener('change', async e => { // ปิดต่ออายุ: ถามเหตุผลสั้นๆ (ไม่บังคับ) ให้ทีมงานปรับปรุง
+    if (e.target.checked) return; const reason = await promptSheet('บอกเราหน่อยว่าทำไมถึงปิดต่ออายุ (ข้ามได้)', '', { title: 'ปิดต่ออายุอัตโนมัติ', ok: 'Send', cancel: 'Skip' });
+    if (reason) api('/me', { method: 'PUT', body: { auto_renew: false, reason } }).catch(() => {});
+  });
   $('#cp').onsubmit = async e => {
     e.preventDefault();
     try { const r = await api('/coupon/redeem', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast(`เติมเครดิต ฿${baht(r.amount)} แล้ว`, 'ok'); boot(); }

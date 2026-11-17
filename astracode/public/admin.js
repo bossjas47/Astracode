@@ -338,6 +338,7 @@ const ADMIN = {
       <label class="sw-row"><span class="sw"><input type="checkbox" name="maintenance" ${s.maintenance === '1' ? 'checked' : ''}><span></span></span> ปิดเว็บชั่วคราว (แอดมินยังใช้ได้ หน้าแรก/สถานะ/บล็อกยังเปิด)</label>
       <h2 style="margin-top:24px">ประกาศ</h2><label>ข้อความ (เว้นว่าง = ไม่แสดง) ใส่ลิงก์แบบ [ข้อความ](https://...) ได้</label><textarea name="announcement" rows="2">${esc(s.announcement)}</textarea>
       <label>ระดับ</label><select name="announcement_level">${[['info', 'ทั่วไป'], ['warn', 'เตือน'], ['critical', 'สำคัญมาก']].map(([k, l]) => `<option value="${k}" ${s.announcement_level === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <h2 style="margin-top:24px">คำต้องห้าม</h2><label>ข้อความที่มีคำเหล่านี้จะถูกปฏิเสธก่อนส่งให้โมเดล (คั่นด้วย , หรือขึ้นบรรทัดใหม่ · เว้นว่าง = ไม่กรอง) ใช้กันเนื้อหาที่ทำให้คีย์ upstream โดนแบน</label><textarea name="block_words" rows="2">${esc(s.block_words || '')}</textarea>
       <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><span class="ok" id="ms"></span></div></form>
 
       <form class="panel form-p" id="af"><h2>แจ้งเตือนแอดมิน</h2><p class="muted">แจ้งเมื่อมีสลิปใหม่ เรื่องติดต่อใหม่ โมเดลล่ม และต้นทุนเกินกำหนด</p>

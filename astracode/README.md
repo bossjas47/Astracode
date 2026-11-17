@@ -162,3 +162,15 @@ wrangler d1 execute astracode --local --file=schema.sql
 printf 'DEEPSEEK_KEY=...\nSECRET_KEY=dev\n' > .dev.vars
 wrangler dev
 ```
+
+## Moving the domain from Vercel to Cloudflare
+
+The Worker already serves every page and the API, so Vercel is only a pass-through. To remove it:
+
+1. Cloudflare dashboard → Add a site → `panderx.xyz` (Free plan). Cloudflare lists the DNS records it found; check they match the current ones.
+2. At the domain registrar, replace the nameservers with the two Cloudflare gives you. Wait until the site shows "Active" (minutes to a few hours).
+3. Workers & Pages → `astracode` → Settings → Domains & Routes → Add → Custom domain → `astracode.panderx.xyz`. Cloudflare replaces the old CNAME to Vercel.
+4. Open `https://astracode.panderx.xyz/api/version` and a few pages. The response header `server` should say `cloudflare`, not `Vercel`.
+5. Update the redirect URIs that name the domain if it changes (Google and LINE login), then delete the Vercel project. `vercel.json`, `api/proxy.js` and `vercel-static/` can be removed from the repo afterwards, and the `PROXY_SECRET` secret is no longer needed.
+
+Rollback before step 5: put the CNAME back to Vercel.

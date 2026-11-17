@@ -86,3 +86,13 @@ test('safeNext only accepts in-site paths (no open redirect)', () => {
   for (const ok of ['/chat', '/code?p=3', '/plans?topup=1']) assert.equal(safeNext(ok), ok);
   for (const bad of ['https://evil.com', '//evil.com', '/\\evil.com', 'javascript:alert(1)', '', null, undefined, 'evil.com']) assert.equal(safeNext(bad), '/chat', String(bad));
 });
+
+test('every page loads only scripts that exist, every script parses, the manifest is valid JSON', async () => {
+  const { readdirSync, existsSync } = await import('node:fs'); const { execFileSync } = await import('node:child_process');
+  const pub = join(dirname(fileURLToPath(import.meta.url)), '../public');
+  for (const h of readdirSync(pub).filter(f => f.endsWith('.html'))) for (const m of readFileSync(join(pub, h), 'utf8').matchAll(/<script[^>]*\ssrc="\/([^"]+)"/g)) assert.ok(existsSync(join(pub, m[1])), `${h} loads missing /${m[1]}`);
+  for (const f of readdirSync(pub).filter(f => f.endsWith('.js') && !['node-runner.js', 'cm.js', 'fb.js'].includes(f))) execFileSync(process.execPath, ['--check', join(pub, f)]);
+  const man = JSON.parse(readFileSync(join(pub, 'manifest.json'), 'utf8')); assert.equal(man.share_target.action, '/chat');
+  const app = readFileSync(join(pub, 'app.js'), 'utf8'), shop = readFileSync(join(pub, 'shop.js'), 'utf8');
+  assert.ok(shop.includes('PAGES.plans = plansPage') && shop.includes('PAGES.pricing = pricing') && !/^async function plansPage/m.test(app), 'plans and pricing pages live in shop.js');
+});
