@@ -1,5 +1,5 @@
 import { HISTORY, HISTORY_CODE, LOCK_MS, reqCapHit, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr } from './core.js';
-import { blockedText, event, getSetting, getSettings, mail, mailBox, priceOf, walletAdd } from './billing.js';
+import { blockedText, event, getSetting, getSettings, mail, mailBox, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { v1 } from './api.js';
@@ -605,7 +605,7 @@ export async function runChat(env, J, send, st) {
   const fin = await usageStatus(env, u, plan);
   await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: ctxUsed, max: ctxMax(model) }, ...fin });
   for (const lv of [100, 80]) if (J.pw0 < lv && fin.pctWeek >= lv) { // ข้ามเส้น 80% / 100% ของลิมิตสัปดาห์: อีเมลครั้งเดียวตอนข้าม
-    await mail(env, u.email, `AstraCode: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', (env.PUBLIC_URL || 'https://astracode.panderx.xyz') + '/plans')).catch(() => {});
+    await mail(env, u.email, `AstraCode: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', siteUrl(env) + '/plans')).catch(() => {});
     break;
   }
   if (cid && (out || think) && u.auto_compact !== 0) { // ย่อแชตอัตโนมัติหลังตอบเสร็จ: context ใช้ถึง compact_pct % ของหน้าต่างโมเดล (ค่าเริ่มต้น 75 · 0 = ปิดทั้งระบบ) หรือแชตยาวเกินเกณฑ์ตัวอักษร

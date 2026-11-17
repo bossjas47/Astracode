@@ -1,7 +1,7 @@
 import { BKK, DAY, SYSTEM, allowedModels, err, esc, json, planOf, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
-import { event, getSetting, mail, mailBox, notify, origin } from './billing.js';
+import { event, getSetting, mail, mailBox, notify, origin, siteUrl } from './billing.js';
 import { admin } from './admin.js';
 import { slug } from './api.js';
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
@@ -56,26 +56,28 @@ export async function cron(env) {
 // งานตั้งเวลาของผู้ใช้: ถึงชั่วโมงที่ตั้ง (เวลาไทย) และวันนี้ยังไม่รัน → ให้โมเดลประหยัดสุดในแพลนทำ (หักลิมิตตามจริง) ส่งอีเมล + เก็บเป็นแชตใหม่
 export async function runTasks(env, now = Date.now()) {
   const hour = new Date(now + BKK).getUTCHours(), day = Math.floor((now + BKK) / DAY);
-  const due = (await env.DB.prepare('SELECT t.*, u.email FROM tasks t JOIN users u ON u.id=t.user_id WHERE t.hour=? AND (t.last_day IS NULL OR t.last_day<?) AND u.banned=0 LIMIT 20').bind(hour, day).all()).results;
-  for (const t of due) {
+  const due = (await env.DB.prepare('SELECT t.*, u.email FROM tasks t JOIN users u ON u.id=t.user_id WHERE t.hour<=? AND (t.last_day IS NULL OR t.last_day<?) AND u.banned=0 ORDER BY t.hour LIMIT 20').bind(hour, day).all()).results;
+  const started = Date.now(), runOne = async t => {
     await env.DB.prepare('UPDATE tasks SET last_day=? WHERE id=?').bind(day, t.id).run(); // จองก่อนรัน กันรันซ้ำถ้างานล้มกลางทาง
     try {
       const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(t.user_id).first(), plan = await planOf(env, u);
-      if (!(plan?.price > 0)) continue;
-      const st = await usageStatus(env, u, plan); if (st.pct4h >= 100 || st.pctWeek >= 100) continue; // ลิมิตเต็ม ข้ามวันนี้
-      const pick = (await allowedModels(env, plan.id)).filter(m => m.provider !== 'image').sort((a, b) => a.multiplier - b.multiplier)[0]; if (!pick) continue;
+      if (!(plan?.price > 0)) return;
+      const st = await usageStatus(env, u, plan); if (st.pct4h >= 100 || st.pctWeek >= 100) return; // ลิมิตเต็ม ข้ามวันนี้
+      const pick = (await allowedModels(env, plan.id)).filter(m => m.provider !== 'image').sort((a, b) => a.multiplier - b.multiplier)[0]; if (!pick) return;
       const m = await env.DB.prepare('SELECT * FROM models WHERE id=?').bind(pick.id).first(), hist = [{ role: 'user', content: t.prompt }];
       const sources = t.search ? await smartSearch(env, u, hist) : [];
       let out = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 120e3);
       try { for await (const e of callModel(env, m, [{ role: 'user', content: withSources(t.prompt, sources) }], { effort: null, system: SYSTEM, maxTokens: 2000, userId: u.id, signal: ac.signal })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; } } finally { clearTimeout(timer); }
       if (usage) await logUsage(env, u.id, m, usage, { plan });
-      if (!out.trim()) continue;
+      if (!out.trim()) return;
       const c = await env.DB.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').bind(u.id, ('⏰ ' + t.prompt).slice(0, 40), now).first();
       await env.DB.batch([env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(c.id, 'user', t.prompt, m.id, now),
         env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,sources) VALUES (?,?,?,?,?,?)').bind(c.id, 'assistant', out, m.id, now + 1, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null)]);
-      await mail(env, t.email, 'AstraCode: ' + t.prompt.slice(0, 60), mailBox('งานตั้งเวลาของคุณ', esc(out.slice(0, 6000)).replace(/\n/g, '<br>'), 'เปิดในแชต', (env.PUBLIC_URL || 'https://astracode.panderx.xyz') + '/chat?id=' + c.id));
+      await mail(env, t.email, 'AstraCode: ' + t.prompt.slice(0, 60), mailBox('งานตั้งเวลาของคุณ', esc(out.slice(0, 6000)).replace(/\n/g, '<br>'), 'เปิดในแชต', siteUrl(env) + '/chat?id=' + c.id));
     } catch (e) { console.log('task', t.id, e.message); }
-  }
+  };
+  // ทีละ 3 งานพร้อมกัน และไม่เริ่มงานใหม่หลัง 8 นาที (cron มีเพดาน 15 นาที) · งานที่ยังไม่ได้เริ่มไม่ถูกจองวัน จึงไปต่อรอบชั่วโมงถัดไป (hour<=ตอนนี้ = ตามให้ทัน)
+  for (let i = 0; i < due.length && Date.now() - started < 480e3; i += 3) await Promise.all(due.slice(i, i + 3).map(runOne));
   return due.length;
 }
 export async function healthCheck(env) {

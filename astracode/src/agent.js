@@ -4,7 +4,7 @@
 import { DAY, SYSTEM_CODE, allowedModels, ctxMax, err, esc, fitContext, json, limited, planOf, touchWindows, usageStatus } from './core.js';
 import { callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs } from './ai.js';
 import { b64 } from './projects.js';
-import { event, getSettings, mail, mailBox, notify } from './billing.js';
+import { event, getSettings, mail, mailBox, notify, siteUrl } from './billing.js';
 import { FILE_LIMIT, FILES_PER_PROJECT, PATH_RE, PROJECT_LIMIT, snapshot } from './projects.js';
 import { changesOf, problemOf, syntaxWarning } from './edits.js';
 
@@ -96,7 +96,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       if (recent.length === 3 && recent.every(x => x.status === 'failed')) await notify(env, `🤖 Agent ล้มติดกัน 3 งาน (ผู้ใช้ ${u.email}): ${(usageNote || final || '').slice(0, 150)}`).catch(() => {});
     }
     const label = { done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิตเต็ม', failed: 'ไม่สำเร็จ', timeout: 'หยุดเพราะใช้เวลานานเกินกำหนด' }[status] || status;
-    await mail(env, u.email, `AstraCode Agent ${label}: ${J.prompt.slice(0, 50)}`, mailBox(`Agent ${label}`, esc((final || usageNote || '').slice(0, 2500)).replace(/\n/g, '<br>') + (changedAll.size ? `<br><br>ไฟล์ที่เปลี่ยน: ${esc([...changedAll].join(', '))}` : ''), 'เปิดโปรเจกต์', `${env.PUBLIC_URL || 'https://astracode.panderx.xyz'}/code?p=${J.project_id}`)).catch(() => {});
+    await mail(env, u.email, `AstraCode Agent ${label}: ${J.prompt.slice(0, 50)}`, mailBox(`Agent ${label}`, esc((final || usageNote || '').slice(0, 2500)).replace(/\n/g, '<br>') + (changedAll.size ? `<br><br>ไฟล์ที่เปลี่ยน: ${esc([...changedAll].join(', '))}` : ''), 'เปิดโปรเจกต์', `${siteUrl(env)}/code?p=${J.project_id}`)).catch(() => {});
   };
   try {
     if (!proj || !m || !(plan?.price > 0)) { status = 'failed'; usageNote = 'ไม่พบโปรเจกต์/โมเดล หรือแพลนไม่รองรับ'; return await finish(); }

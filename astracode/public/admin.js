@@ -43,7 +43,7 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>' };
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -587,6 +587,12 @@ async function userDrawer(id, after) {
   d.querySelector('#db').onclick = async () => { if (await confirmSheet(u.banned ? 'ปลดแบนผู้ใช้นี้?' : 'แบนผู้ใช้นี้? จะถูกออกจากระบบทันที', { title: 'จัดการบัญชี', ok: 'Confirm', danger: !u.banned })) { await put({ banned: u.banned ? 0 : 1 }, u.banned ? 'ปลดแบนแล้ว' : 'แบนแล้ว'); setTimeout(() => userDrawer(id, after), 600); } };
 }
 
+ADMIN.shared = async (box, reload) => {
+  const rows = await api('/admin/shared');
+  box.innerHTML = `<p class="muted hint">หน้าโปรเจกต์ที่ผู้ใช้แชร์เป็นลิงก์สาธารณะ (/p/...) ปิดลิงก์ที่ผิดกฎ เช่น หน้าฟิชชิง</p>
+    <div class="ed-list">${rows.map(r => `<div class="row" style="justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--hair)"><span style="min-width:0"><b>${esc(r.name)}</b><br><a href="/p/${esc(r.slug || r.share_token)}" target="_blank" rel="noopener">/p/${esc(r.slug || r.share_token)}</a><br><span class="muted">${esc(r.email)}</span></span><button class="btn red sm" data-unshare="${r.id}">ปิดลิงก์</button></div>`).join('') || '<p class="empty-s">ยังไม่มีลิงก์แชร์</p>'}</div>`;
+  box.querySelectorAll('[data-unshare]').forEach(b => b.onclick = async () => { if (await confirmSheet('ปิดลิงก์แชร์นี้? คนที่มีลิงก์จะเปิดไม่ได้อีก', { title: 'ปิดลิงก์', ok: 'ปิดลิงก์', danger: true })) { await api('/admin/shared/' + b.dataset.unshare, { method: 'DELETE' }); reload(); } });
+};
 ADMIN.teams = async (box, reload) => {
   const rows = await api('/admin/teams');
   box.innerHTML = `<p class="muted hint">จัดการทีมทั้งหมด แก้ไขจำนวนที่นั่ง โหมดงบรวม ต่ออายุ หรือยุบทีม</p>

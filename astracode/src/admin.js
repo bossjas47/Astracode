@@ -313,6 +313,13 @@ export async function admin(req, env, path, url, me) {
     const uid = +url.searchParams.get('user_id') || 0;
     return json((await DB.prepare(`SELECT l.id,l.kind,l.scope,l.n,l.expires_at,l.by_email,l.created_at,u.email FROM reset_log l LEFT JOIN users u ON u.id=l.user_id ${uid ? 'WHERE l.user_id=?1' : 'WHERE ?1=0'} ORDER BY l.id DESC LIMIT 100`).bind(uid).all()).results);
   }
+  if (path === '/api/admin/shared') { // หน้าโปรเจกต์ที่ผู้ใช้แชร์เป็นลิงก์สาธารณะ: แอดมินปิดลิงก์ที่ผิดกฎ (ฟิชชิง ฯลฯ) ได้
+    return json((await DB.prepare('SELECT p.id,p.name,p.share_token,p.slug,p.updated_at,u.email FROM projects p JOIN users u ON u.id=p.user_id WHERE p.share_token IS NOT NULL ORDER BY p.updated_at DESC LIMIT 300').all()).results);
+  }
+  if ((r = path.match(/^\/api\/admin\/shared\/(\d+)$/)) && M === 'DELETE') {
+    await DB.prepare('UPDATE projects SET share_token=NULL, slug=NULL WHERE id=?').bind(+r[1]).run(); await ctxAudit('unshare project', { id: +r[1] });
+    return json({ ok: true });
+  }
   if (path === '/api/admin/teams') {
     return json((await DB.prepare(`SELECT t.*, u.email owner_email, p.name plan_name,
       (SELECT COUNT(*) FROM team_members WHERE team_id=t.id) members_count

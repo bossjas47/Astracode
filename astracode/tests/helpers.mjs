@@ -23,7 +23,8 @@ export function makeDB() {
   return {
     raw: db,
     prepare: sql => new Stmt(db, sql),
-    async batch(stmts) { db.exec('BEGIN'); try { const out = []; for (const s of stmts) out.push(await s.run().then(r => s.sql.match(/\b(RETURNING|SELECT)\b/i) ? s.all() : r)); db.exec('COMMIT'); return out; } catch (e) { db.exec('ROLLBACK'); throw e; } },
+    // batch: statement ที่มี RETURNING/SELECT รันครั้งเดียวด้วย all() (เดิมรันซ้ำสองรอบ ต่างจาก D1 จริง)
+    async batch(stmts) { db.exec('BEGIN'); try { const out = []; for (const s of stmts) out.push(await (/\bRETURNING\b|^\s*SELECT\b/i.test(s.sql) ? s.all() : s.run())); db.exec('COMMIT'); return out; } catch (e) { db.exec('ROLLBACK'); throw e; } },
     async exec(sql) { db.exec(sql); },
   };
 }

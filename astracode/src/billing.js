@@ -53,6 +53,7 @@ export async function event(env, kind, model_id, detail) {
 export async function audit(env, u, action, detail) {
   await env.DB.prepare('INSERT INTO audit (admin_id,admin_email,action,detail,created_at) VALUES (?,?,?,?,?)').bind(u.id, u.email, action, JSON.stringify(detail ?? null).slice(0, 2000), Date.now()).run();
 }
+export const siteUrl = env => (env.PUBLIC_URL || '').replace(/\/$/, '') || 'https://astracode.panderx.xyz'; // ลิงก์ในอีเมล/งานเบื้องหลังที่ไม่มีคำขอให้อ่านโดเมน
 export const origin = (req, env) => (env.PUBLIC_URL || '').replace(/\/$/, '') || (viaProxy(req, env) && req.headers.get('x-forwarded-host') ? 'https://' + req.headers.get('x-forwarded-host') : new URL(req.url).origin);
 export async function newToken(env, uid, kind, ms) { const t = rand(24); await env.DB.prepare('INSERT INTO tokens VALUES (?,?,?,?)').bind(await sha(t), uid, kind, Date.now() + ms).run(); return t; }
 export async function useToken(env, t, kind) {

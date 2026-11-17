@@ -92,16 +92,23 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const took = await DB.prepare('UPDATE users SET balance=ROUND(balance-?1,4) WHERE id=?2 AND balance>=?1 RETURNING balance').bind(amount, u.id).first(); // ตัดแบบ atomic กันยอดติดลบ
     if (!took) return err('ยอดเงินใน Wallet ไม่พอ', 402);
     const code = 'GIFT-' + rand(6).toUpperCase();
-    await DB.batch([DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, took.balance, 'gift', code, Date.now()),
-      DB.prepare('INSERT INTO gift_codes (code,amount,from_user,created_at) VALUES (?,?,?,?)').bind(code, amount, u.id, Date.now())]);
+    try {
+      await DB.batch([DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, took.balance, 'gift', code, Date.now()),
+        DB.prepare('INSERT INTO gift_codes (code,amount,from_user,created_at) VALUES (?,?,?,?)').bind(code, amount, u.id, Date.now())]);
+    } catch (e) { await walletAdd(env, u.id, amount, 'refund', 'gift failed').catch(() => {}); throw e; } // หักเงินแล้วแต่สร้างโค้ดไม่สำเร็จ: คืนเงิน
     return json({ code, amount });
   }
   if (path === '/api/gift/redeem' && M === 'POST') {
     if (await limited(env, 'gift:' + u.id, 10, 3600e3)) return err('ลองหลายครั้งเกินไป รอสักครู่', 429);
     const code = String((await req.json()).code || '').trim().toUpperCase();
-    const g = code && await DB.prepare('UPDATE gift_codes SET used_by=?, used_at=? WHERE code=? AND used_by IS NULL RETURNING amount').bind(u.id, Date.now(), code).first();
+    const at = Date.now(); // ทำใน batch เดียว (ทรานแซกชัน): ทำเครื่องหมายว่าใช้แล้ว + เติมเงิน + บันทึกบัญชี สำเร็จพร้อมกันหรือไม่สำเร็จเลย ไม่ทำให้โค้ดถูกใช้แล้วแต่เงินไม่เข้า
+    const who = [code, u.id, at], got = 'FROM gift_codes WHERE code=?1 AND used_by=?2 AND used_at=?3';
+    const rs = code ? await DB.batch([DB.prepare('UPDATE gift_codes SET used_by=?2, used_at=?3 WHERE code=?1 AND used_by IS NULL RETURNING amount').bind(...who),
+      DB.prepare(`UPDATE users SET balance=ROUND(balance+(SELECT amount ${got}),4) WHERE id=?2 AND EXISTS (SELECT 1 ${got})`).bind(...who),
+      DB.prepare(`INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) SELECT ?2, g.amount, (SELECT balance FROM users WHERE id=?2), 'gift', ?1, ?3 FROM gift_codes g WHERE g.code=?1 AND g.used_by=?2 AND g.used_at=?3`).bind(...who)]) : [];
+    const g = rs[0]?.results?.[0];
     if (!g) return err('โค้ดของขวัญไม่ถูกต้องหรือถูกใช้ไปแล้ว', 404);
-    return json({ ok: true, amount: g.amount, balance: await walletAdd(env, u.id, g.amount, 'gift', code) });
+    return json({ ok: true, amount: g.amount, balance: (await DB.prepare('SELECT balance FROM users WHERE id=?').bind(u.id).first()).balance });
   }
   if (path === '/api/team/usage.csv') { // หัวหน้าทีม: การใช้ของสมาชิก 7 และ 30 วัน (หน่วย = บาทต้นทุนที่หักลิมิต)
     const own = await DB.prepare("SELECT team_id FROM team_members WHERE user_id=? AND role='owner'").bind(u.id).first();
@@ -247,13 +254,14 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     }
   }
   if (path === '/api/team/join' && M === 'POST') {
+    if (await limited(env, 'tj:' + u.id, 10, 3600e3)) return err('ลองหลายครั้งเกินไป รอสักครู่', 429); // กันเดารหัสเชิญทีม
     const code = String((await req.json()).code || '').trim().toUpperCase();
     const t = code && await DB.prepare('SELECT * FROM teams WHERE invite_code=? AND expires>?').bind(code, Date.now()).first();
     if (!t) return err('รหัสเชิญทีมไม่ถูกต้องหรือทีมหมดอายุแล้ว', 404);
     if (await DB.prepare('SELECT 1 FROM team_members WHERE user_id=?').bind(u.id).first()) return err('คุณอยู่ในทีมอื่นแล้ว ออกทีมเดิมก่อน');
     const cnt = (await DB.prepare('SELECT COUNT(*) n FROM team_members WHERE team_id=?').bind(t.id).first()).n;
     if (cnt >= t.max_seats) return err('ทีมนี้สมาชิกเต็มแล้ว');
-    await DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'member',?)").bind(t.id, u.id, Date.now()).run();
+    if (!(await DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) SELECT ?1,?2,'member',?3 WHERE (SELECT COUNT(*) FROM team_members WHERE team_id=?1) < ?4").bind(t.id, u.id, Date.now(), t.max_seats).run()).meta.changes) return err('ทีมนี้สมาชิกเต็มแล้ว'); // นับที่นั่งกับเพิ่มสมาชิกใน statement เดียว กันคนเข้าพร้อมกันจนเกินที่นั่ง
     return json({ ok: true, team_id: t.id });
   }
   if (path === '/api/team/add' && M === 'POST') {
@@ -350,7 +358,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       const b = await req.json(), prompt = String(b.prompt || '').trim().slice(0, 1000), hour = Math.floor(+b.hour);
       if (prompt.length < 5 || !(hour >= 0 && hour <= 23)) return err('ใส่คำสั่งและเลือกเวลา 0–23 น.');
       if ((await DB.prepare('SELECT COUNT(*) n FROM tasks WHERE user_id=?').bind(u.id).first()).n >= 3) return err('ตั้งงานได้สูงสุด 3 งาน');
-      return json(await DB.prepare('INSERT INTO tasks (user_id,prompt,hour,search,created_at) VALUES (?,?,?,?,?) RETURNING id').bind(u.id, prompt, hour, b.search === false ? 0 : 1, Date.now()).first());
+      return json(await DB.prepare('INSERT INTO tasks (user_id,prompt,hour,search,created_at,last_day) VALUES (?,?,?,?,?,?) RETURNING id').bind(u.id, prompt, hour, b.search === false ? 0 : 1, Date.now(), hour < new Date(Date.now() + BKK).getUTCHours() ? Math.floor((Date.now() + BKK) / DAY) : null).first()); // ชั่วโมงที่ตั้งผ่านไปแล้ววันนี้ = เริ่มพรุ่งนี้ (cron ตามงานที่ค้างทัน จึงต้องกันไม่ให้รันทันที)
     }
   }
   if ((r = path.match(/^\/api\/tasks\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('DELETE FROM tasks WHERE id=? AND user_id=?').bind(+r[1], u.id).run(); return json({ ok: true }); }
@@ -411,7 +419,9 @@ export async function totpOk(env, u, code) {
   code = String(code || '').replace(/\s/g, ''); if (!/^\d{6}$/.test(code) || !u.totp_secret) return false;
   const secret = await unseal(env, u.totp_secret).catch(() => null); if (!secret) return false;
   const step = Math.floor(Date.now() / 30000);
-  for (const d of [-1, 0, 1]) if (same(await totp(secret, step + d), code)) return true; // ยอมให้นาฬิกาคลาดได้ 30 วินาที
+  for (const d of [-1, 0, 1]) if (same(await totp(secret, step + d), code)) { // ยอมให้นาฬิกาคลาดได้ 30 วินาที · รหัสแต่ละช่วงเวลาใช้ได้ครั้งเดียว (กันคนแอบดูรหัสแล้วเอาไปใช้ซ้ำ)
+    return !!(await env.DB.prepare('UPDATE users SET totp_last=?1 WHERE id=?2 AND COALESCE(totp_last,0)<?1').bind(step + d, u.id).run()).meta.changes;
+  }
   return false;
 }
 

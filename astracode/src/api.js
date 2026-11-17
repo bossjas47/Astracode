@@ -1,6 +1,6 @@
 import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, chat, logUsage } from './ai.js';
-import { blockedText, event, mail, mailBox, origin, priceOf } from './billing.js';
+import { blockedText, event, mail, mailBox, origin, priceOf, siteUrl } from './billing.js';
 import { status } from './jobs.js';
 // ---------- API สำหรับนักพัฒนา: /v1/models, /v1/chat/completions (แบบ OpenAI) คิดเงินจาก wallet ----------
 export const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 7); // เดือนตามเวลาไทย เช่น 2026-11
@@ -140,7 +140,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (k.budget > 0) for (const [pct, label] of [[1, 'ใช้ครบงบแล้ว'], [0.8, 'ใช้ไป 80% ของงบแล้ว']]) { // เตือนครั้งเดียวตอนข้ามเส้น (งบรีเซ็ตทุกเดือน)
         if (spent < k.budget * pct && spent + charge >= k.budget * pct) {
           if (k.webhook_url) await fetch(k.webhook_url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'api_key_budget', threshold: pct, key: k.kname || 'key', spent: +(spent + charge).toFixed(4), budget: k.budget, month }), signal: AbortSignal.timeout(4000), redirect: 'manual' }).catch(() => {}); // ปลายทางที่ผู้ใช้ตั้งเอง: https เท่านั้น ไม่ตามรีไดเรกต์
-          await mail(env, k.email, `AstraCode: API key "${k.kname || 'key'}" ${label}`, mailBox('งบ API key ' + label, `ใช้ไปแล้ว ฿${(spent + charge).toFixed(2)} จากงบ ฿${k.budget} ของเดือนนี้`, 'จัดการ key', 'https://astracode.panderx.xyz/developers')).catch(() => {}); break; }
+          await mail(env, k.email, `AstraCode: API key "${k.kname || 'key'}" ${label}`, mailBox('งบ API key ' + label, `ใช้ไปแล้ว ฿${(spent + charge).toFixed(2)} จากงบ ฿${k.budget} ของเดือนนี้`, 'จัดการ key', siteUrl(env) + '/developers')).catch(() => {}); break; }
       }
       return finalU;
     };
