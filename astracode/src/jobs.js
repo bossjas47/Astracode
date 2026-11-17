@@ -33,6 +33,12 @@ export async function cron(env) {
   if (spike.length) await notify(env, '🔥 error พุ่งในชั่วโมงที่ผ่านมา: ' + spike.map(s => `${s.name || 'ระบบ'} ${s.n} ครั้ง`).join(' · ') + ' (เช็คคีย์/เครดิต upstream)');
   await runTasks(env, now).catch(e => console.log('tasks', e.message));
   await reapAgentJobs(env).catch(e => console.log('agent reap', e.message));
+  // สลิปค้างรออนุมัติเกิน 2 ชม.: เตือนแอดมินไม่เกินทุก 6 ชม. (ลูกค้าจ่ายแล้วรออยู่)
+  const pend = await DB.prepare("SELECT COUNT(*) n, MIN(created_at) first FROM payments WHERE status='pending' AND created_at<?").bind(now - 2 * 3600e3).first();
+  if (pend.n > 0 && now - (+(await getSetting(env, 'pend_alert_at')) || 0) > 6 * 3600e3) {
+    await notify(env, `🧾 มีสลิปค้างรออนุมัติ ${pend.n} รายการ (เก่าสุด ${Math.round((now - pend.first) / 3600e3)} ชม.) · หน้าแอดมิน → ชำระเงิน`);
+    await DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('pend_alert_at',?)").bind(String(now)).run();
+  }
   // 4) สำรองข้อมูลวันละครั้ง (ตี 3 เวลาไทย) เก็บ 14 ชุด
   if (env.SLIPS && new Date(now + BKK).getUTCHours() === 3) await backup(env);
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check

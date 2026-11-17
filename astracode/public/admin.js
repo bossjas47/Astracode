@@ -255,6 +255,12 @@ const ADMIN = {
         <div class="tw"><table class="tbl"><tr><th>แพลน</th><th>สมาชิกตอนนี้</th><th>รายได้</th><th>ต้นทุน</th><th>กำไร</th><th>ต้นทุน/คน</th></tr>
         ${d.plans.map(p => `<tr><td>${esc(p.name)} <span class="muted">${p.price ? '฿' + baht(p.price) : 'ฟรี'}</span></td><td>${num(p.subs)}</td><td>฿${baht(p.rev)}</td><td>฿${baht(p.cost)}</td><td class="${cls(p.rev - p.cost)}">฿${baht(p.rev - p.cost)}</td><td>${p.subs ? '฿' + baht(p.cost / p.subs) : '-'}${p.price && p.subs && p.cost / p.subs > p.price * days / 30 ? ' <span class="bad">เกินค่าแพลน</span>' : ''}</td></tr>`).join('')}</table></div>
         <p class="muted">ต้นทุนนับตามแพลนปัจจุบันของผู้ใช้ · แพลนฟรีไม่มีรายได้ ต้นทุนคือค่าโปรโมต</p></section>
+      <section class="panel"><div class="ph"><h2>ต้นทุนจริงต่อโมเดล</h2><span class="muted">${days} วัน</span></div>
+        <div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>คำขอ</th><th>ต้นทุน</th><th>% ของต้นทุนรวม</th><th>token เข้า</th><th>cache</th><th>ออก</th></tr>
+        ${(d.models || []).map(m => `<tr><td>${esc(m.name || '#' + m.id)}</td><td>${num(m.n)}</td><td>฿${baht(m.cost)}</td><td>${pct(m.cost, t.cost)}</td><td>${num(m.tin)}</td><td>${num(m.tcache)}</td><td>${num(m.tout)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">ยังไม่มีการใช้งาน</td></tr>'}</table></div></section>
+      <section class="panel"><div class="ph"><h2>รายวัน</h2><span class="muted">เวลาไทย · รายได้ = แพลนที่อนุมัติ + ค่าใช้ Wallet</span></div>
+        <div class="tw"><table class="tbl"><tr><th>วัน</th><th>รายได้</th><th>ต้นทุน</th><th>กำไร</th></tr>
+        ${(d.daily || []).slice(0, 31).map(x => `<tr><td>${x.date}</td><td>฿${baht(x.rev)}</td><td>฿${baht(x.cost)}</td><td class="${cls(x.profit)}">฿${baht(x.profit)}</td></tr>`).join('')}</table></div></section>
       <section class="panel"><div class="ph"><h2>Wallet และ API</h2></div><div class="kpis sm">
         <div class="kpi"><div class="muted">ค่าใช้ API/เกินลิมิต</div><div class="stat">฿${baht(w.charges)}</div></div>
         <div class="kpi"><div class="muted">ต้นทุน API นักพัฒนา</div><div class="stat">฿${baht(w.api_cost)}</div></div>

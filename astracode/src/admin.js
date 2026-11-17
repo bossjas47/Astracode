@@ -231,7 +231,16 @@ export async function admin(req, env, path, url, me) {
     ]);
     const us = users.results.map(x => ({ ...x, rev: x.rev_plan + x.rev_wallet, profit: x.rev_plan + x.rev_wallet - x.cost })).sort((a, b) => a.profit - b.profit);
     const rev = plans.results.reduce((a, x) => a + x.rev, 0) + w.charges, cost = us.reduce((a, x) => a + x.cost, 0);
-    return json({ days, total: { rev, cost, profit: rev - cost }, plans: plans.results, wallet: w, users: us.slice(0, 100), losers: us.filter(x => x.profit < 0).length });
+    const dayOf = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`;
+    const [pm, pd, pr, pw] = await Promise.all([ // ต้นทุนจริงต่อโมเดล · ต้นทุน/รายได้รายวัน (เวลาไทย)
+      DB.prepare('SELECT g.model_id id, md.name, COUNT(*) n, COALESCE(SUM(g.cost),0) cost, COALESCE(SUM(g.tokens_in),0) tin, COALESCE(SUM(g.tokens_out),0) tout, COALESCE(SUM(g.tokens_cache),0) tcache FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? AND g.model_id>0 GROUP BY g.model_id ORDER BY cost DESC').bind(from).all(),
+      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(SUM(cost),0) cost FROM usage WHERE created_at>=? GROUP BY d`).bind(from).all(),
+      DB.prepare(`SELECT ${dayOf('COALESCE(approved_at,created_at)')} d, COALESCE(SUM(amount),0) rev FROM payments WHERE kind='plan' AND status='approved' AND COALESCE(approved_at,created_at)>=? GROUP BY d`).bind(from).all(),
+      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(-SUM(amount),0) rev FROM wallet_tx WHERE kind IN ('api','overflow') AND created_at>=? GROUP BY d`).bind(from).all(),
+    ]);
+    const dayMap = new Map(); const put = (rows, k) => rows.results.forEach(r => { const o = dayMap.get(r.d) || { d: r.d, cost: 0, rev: 0 }; o[k] += r[k]; dayMap.set(r.d, o); }); put(pd, 'cost'); put(pr, 'rev'); put(pw, 'rev');
+    const daily = [...dayMap.values()].sort((a, b) => b.d - a.d).slice(0, 60).map(x => ({ ...x, date: new Date(x.d * DAY).toISOString().slice(0, 10), profit: x.rev - x.cost }));
+    return json({ days, total: { rev, cost, profit: rev - cost }, plans: plans.results, wallet: w, users: us.slice(0, 100), losers: us.filter(x => x.profit < 0).length, models: pm.results, daily });
   }
   if (path === '/api/admin/export') { // CSV สำหรับทำบัญชี (เปิดใน Excel ภาษาไทยได้)
     const type = url.searchParams.get('type'), days = Math.min(3650, Math.max(1, +url.searchParams.get('days') || 31)), from = Date.now() - days * DAY;

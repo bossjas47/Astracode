@@ -441,3 +441,28 @@ test('server and browser edit parsers agree on the same model replies', async ()
   const replies = ['```js path=a.js\nlet z = 3;\n```', '```js path=a.js\n<<<<<<< SEARCH\nlet y = 2;\n=======\nlet y = 5;\n>>>>>>> REPLACE\n```', '# `b.html`\n```html\n<p>x</p>\n```', 'DELETE path=old.txt', '```bash\nnpm i\n```'];
   for (const r of replies) assert.deepEqual(changesOf(r, p => files[p] ?? null), client(r, p => files[p] ?? null), r);
 });
+
+test('syntaxWarning finds unbalanced brackets and unclosed strings, but not brackets inside strings, comments, regex or template text', async () => {
+  const { syntaxWarning } = await import('../src/edits.js');
+  assert.equal(syntaxWarning('a.js', 'function f() {\n  return [1, 2].map(x => (x + 1));\n}\n'), '');
+  assert.equal(syntaxWarning('a.js', 'const s = "a { (";\nconst t = `x ${1} [`;\n// } ) ]\n/* { */\nconst r = /[)}"]+/g;\nconst d = a / b;\n'), '');
+  assert.match(syntaxWarning('a.js', 'function f() {\n  if (x) {\n    y();\n}\n'), /ไม่ถูกปิด/);
+  assert.match(syntaxWarning('a.js', 'const a = [1, 2);\n'), /ไม่มีตัวเปิดที่ตรงกัน/);
+  assert.match(syntaxWarning('a.js', 'const a = "abc;\nlet b = 1;\n'), /ไม่ปิด/);
+  assert.match(syntaxWarning('style.css', '.a { color: red;\n.b { margin: 0; }\n'), /ไม่ถูกปิด/);
+  assert.equal(syntaxWarning('index.html', '<div>{</div>'), '', 'only js/css are checked');
+});
+
+test('webhook url: https public only; budget crossing posts to it; admin profit report has per-model and per-day rows', async () => {
+  const hooks = []; const wh = await fakeModel((q, res, body) => { hooks.push(body); res.writeHead(200); res.end('ok'); });
+  const t = await makeEnv({ K: 'k' }); const u = await t.user(), adm = await t.user({ role: 'admin' });
+  for (const bad of ['http://example.com/x', 'https://localhost/x', 'https://10.1.2.3/x', 'ftp://a.b/c']) assert.equal((await t.json('/api/me', { method: 'PUT', cookie: u.cookie, body: { webhook_url: bad } })).status, 400, bad);
+  assert.equal((await t.json('/api/me', { method: 'PUT', cookie: u.cookie, body: { webhook_url: 'https://hooks.example.com/abc' } })).status, 200);
+  assert.equal((await t.json('/api/me', { cookie: u.cookie })).data.webhook_url, 'https://hooks.example.com/abc');
+  assert.equal((await t.json('/api/me', { method: 'PUT', cookie: u.cookie, body: { webhook_url: '' } })).status, 200);
+  assert.equal((await t.json('/api/me', { cookie: u.cookie })).data.webhook_url, '');
+  t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)').run(u.id, 1, 10, 5, 0, 0.3, 0.3, Date.now());
+  const p = await t.json('/api/admin/profit?days=7', { cookie: adm.cookie });
+  assert.equal(p.status, 200); assert.ok(Array.isArray(p.data.models) && Array.isArray(p.data.daily)); assert.ok(p.data.daily.some(d => d.cost >= 0.3));
+  wh.close();
+});

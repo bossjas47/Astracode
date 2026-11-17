@@ -64,3 +64,29 @@ export function changesOf(text, getFile) {
   for (const m of text.matchAll(/^DELETE path=(\S+)/gm)) map.set(m[1], { path: m[1], del: true });
   return [...map.values()];
 }
+
+// ตรวจวงเล็บ/ปีกกา/วงเล็บเหลี่ยมและเครื่องหมายคำพูดของ JS/CSS ว่าปิดครบและจับคู่ถูก (ไม่ใช้ eval จึงไม่ใช่ตัว parse จริง · เป็น "คำเตือน" ไม่บล็อกการเขียนไฟล์)
+// shortcut: ข้าม comment/string/template/regex แบบเดาจากบริบท ไฟล์ที่เขียนแปลกมากอาจเตือนผิด · ถ้าต้องการแม่นกว่านี้ให้ใช้ parser จริง
+export function syntaxWarning(path, text) {
+  const css = /\.css$/i.test(path); if (!css && !/\.(?:js|mjs|cjs|jsx|ts|tsx)$/i.test(path)) return '';
+  const pairs = { ')': '(', ']': '[', '}': '{' }, stack = []; let i = 0, line = 1, prev = '';
+  const regexOk = () => prev === '' || /[(,=:[!&|?{};+\-*%<>~^]/.test(prev) || /(?:return|typeof|case|in|of|delete|void|throw|else)$/.test(prev);
+  while (i < text.length) {
+    const c = text[i], n = text[i + 1];
+    if (c === '\n') { line++; i++; continue; }
+    if (c === '/' && n === '*') { const e = text.indexOf('*/', i + 2); if (e < 0) return `คอมเมนต์ /* ที่บรรทัด ${line} ไม่ปิด`; line += (text.slice(i, e).match(/\n/g) || []).length; i = e + 2; continue; }
+    if (!css && c === '/' && n === '/') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      const q = c, start = line; i++;
+      while (i < text.length && text[i] !== q) { if (text[i] === '\\') i++; if (text[i] === '\n') { if (q !== '`') return `เครื่องหมายคำพูด ${q} ที่บรรทัด ${start} ไม่ปิดในบรรทัดเดียวกัน`; line++; } i++; }
+      if (i >= text.length) return `เครื่องหมายคำพูด ${q} ที่บรรทัด ${start} ไม่ปิด`;
+      i++; prev = 'a'; continue;
+    }
+    if (!css && c === '/' && regexOk()) { let j = i + 1, cls = false; while (j < text.length && text[j] !== '\n' && (text[j] !== '/' || cls)) { if (text[j] === '\\') j++; else if (text[j] === '[') cls = true; else if (text[j] === ']') cls = false; j++; } if (text[j] === '/') { i = j + 1; prev = 'a'; continue; } }
+    if (c === '(' || c === '[' || c === '{') stack.push({ c, line });
+    else if (c in pairs) { const t = stack.pop(); if (!t || t.c !== pairs[c]) return `'${c}' ที่บรรทัด ${line} ไม่มีตัวเปิดที่ตรงกัน${t ? ` (ตัวเปิดล่าสุดคือ '${t.c}' ที่บรรทัด ${t.line})` : ''}`; }
+    if (!/\s/.test(c)) prev = /[\w$]/.test(c) ? (text.slice(Math.max(0, i - 8), i + 1).match(/[A-Za-z]+$/)?.[0] || 'a') : c;
+    i++;
+  }
+  const t = stack.at(-1); return t ? `'${t.c}' ที่บรรทัด ${t.line} ไม่ถูกปิด` : '';
+}

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
   instructions TEXT NOT NULL DEFAULT '', wallet_overflow INTEGER NOT NULL DEFAULT 0, auto_renew INTEGER NOT NULL DEFAULT 0,
   plan_period TEXT NOT NULL DEFAULT 'month', reminded_at INTEGER, has_password INTEGER NOT NULL DEFAULT 1, fb_uid TEXT UNIQUE,
   created_at INTEGER NOT NULL
+  , webhook_url TEXT                       -- แจ้งเตือนงบ API key ถึงปลายทางนี้ (https)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

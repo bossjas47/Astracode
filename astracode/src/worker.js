@@ -215,7 +215,7 @@ export async function route(req, env, ctx, url, path, M) {
         return json({
           email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, paid: plan.price > 0, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
-          instructions: u.instructions, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
+          instructions: u.instructions, webhook_url: u.webhook_url || '', wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
           usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, models: models.map(({ cost_in, cost_out, cost_cache, ...m }) => m),
           promptpay_id: pay.promptpay_id, pay_info: { bank_name: pay.bank_name, bank_account: pay.bank_account, bank_holder: pay.bank_holder },
         });

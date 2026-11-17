@@ -44,7 +44,10 @@ export async function event(env, kind, model_id, detail) {
   await env.DB.prepare('INSERT INTO events (kind,model_id,detail,created_at) VALUES (?,?,?,?)').bind(kind, model_id ?? null, detail ?? null, Date.now()).run();
   if (kind === 'error') { // แจ้งแอดมินครั้งแรกของแต่ละโมเดลในรอบ 30 นาที
     const n = await env.DB.prepare("SELECT COUNT(*) n FROM events WHERE kind='error' AND model_id IS ? AND created_at>?").bind(model_id ?? null, Date.now() - 1800e3).first();
-    if (n.n === 1) await notify(env, `⚠️ AstraCode: โมเดล #${model_id} ตอบไม่ได้\n${String(detail).slice(0, 300)}`);
+    if (n.n === 1) {
+      const d = String(detail), hint = /insufficient_credit|402|quota|balance|เครดิต/i.test(d) ? '💳 เครดิตของผู้ขายน่าจะหมด: เติมเครดิต' : /not bound|403|invalid.?api.?key|401|unauthor/i.test(d) ? '🔑 คีย์ใช้ไม่ได้/ไม่ผูกช่องทาง: ตรวจ Worker secret ของโมเดลนี้' : /timeout|timed out|หมดเวลา|stall/i.test(d) ? '⏱️ ผู้ขายตอบช้า/ไม่ตอบ' : '';
+      await notify(env, `⚠️ AstraCode: โมเดล #${model_id} ตอบไม่ได้${hint ? '\n' + hint : ''}\n${d.slice(0, 300)}`);
+    }
   }
 }
 export async function audit(env, u, action, detail) {

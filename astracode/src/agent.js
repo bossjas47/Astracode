@@ -3,9 +3,9 @@
 // ข้อจำกัด: เซิร์ฟเวอร์รันโค้ดและจับภาพหน้าจอไม่ได้ Agent จึงตรวจงานด้วยการอ่านไฟล์กลับ ผู้ใช้ควรเปิดดูผลเองตอนจบ
 import { DAY, SYSTEM_CODE, allowedModels, ctxMax, err, esc, fitContext, json, limited, planOf, touchWindows, usageStatus } from './core.js';
 import { callModel, doingOf, familyHint, logUsage, runTools, toolReqs } from './ai.js';
-import { mail, mailBox } from './billing.js';
+import { mail, mailBox, notify } from './billing.js';
 import { FILE_LIMIT, FILES_PER_PROJECT, PATH_RE, PROJECT_LIMIT, snapshot } from './projects.js';
-import { changesOf, problemOf } from './edits.js';
+import { changesOf, problemOf, syntaxWarning } from './edits.js';
 
 export const AGENT_MAX_ROUNDS = 20, AGENT_MAX_IN = 1.5e6, AGENT_MAX_MS = 12 * 60e3;
 const AGENT_NOTE = `You are running as an unattended background agent on the server. The user is not watching and cannot answer questions, so never ask: choose sensible defaults and state them in your summary.
@@ -20,7 +20,7 @@ const setJob = (env, id, f) => { const ks = Object.keys(f); return env.DB.prepar
 // เขียนผลลง project_files (เก็บเวอร์ชันเก่าไว้ย้อนได้) · คืน { applied: [path], problems: [ข้อความ] }
 async function applyChanges(env, pid, changes) {
   const DB = env.DB, files = (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pid).all()).results, cur = new Map(files.map(f => [f.path, f.content]));
-  const applied = [], problems = [], writes = [], dels = [];
+  const applied = [], problems = [], warnings = [], writes = [], dels = [];
   for (const c of changes) {
     if (!PATH_RE.test(c.path)) { problems.push(`${c.path}: ชื่อไฟล์ไม่ถูกต้อง`); continue; }
     if (c.error) { problems.push(`${c.path}: ${c.error}`); continue; }
@@ -29,6 +29,7 @@ async function applyChanges(env, pid, changes) {
     const p = problemOf(c.path, c.content, cur.get(c.path)); if (p) { problems.push(`${c.path}: ${p}`); continue; }
     if (cur.get(c.path) === c.content) continue;
     writes.push({ path: c.path, content: c.content }); applied.push(c.path);
+    const w = syntaxWarning(c.path, c.content); if (w) warnings.push(`${c.path}: ${w}`);
   }
   const sizes = new Map(cur); for (const d of dels) sizes.delete(d); for (const w of writes) sizes.set(w.path, w.content);
   if (sizes.size > FILES_PER_PROJECT || [...sizes.values()].reduce((a, b) => a + b.length, 0) > PROJECT_LIMIT) return { applied: [], problems: ['โปรเจกต์ใหญ่เกินขีดจำกัด (ไฟล์เยอะหรือเกิน 5MB) ไม่ได้เขียนไฟล์รอบนี้'] };
@@ -37,7 +38,7 @@ async function applyChanges(env, pid, changes) {
   const ops = [...writes.map(w => DB.prepare('INSERT OR REPLACE INTO project_files (project_id,path,content,updated_at) VALUES (?,?,?,?)').bind(pid, w.path, w.content, now)), ...dels.map(p => DB.prepare('DELETE FROM project_files WHERE project_id=? AND path=?').bind(pid, p))];
   for (let i = 0; i < ops.length; i += 50) await DB.batch(ops.slice(i, i + 50));
   if (ops.length) await DB.prepare('UPDATE projects SET updated_at=? WHERE id=?').bind(now, pid).run();
-  return { applied, problems };
+  return { applied, problems, warnings };
 }
 
 // งานที่ค้าง 'running' เกิน 20 นาที (Durable Object ถูกตัดกลางทาง) ให้ปิดเป็น failed ไม่ให้ผู้ใช้ติดคิว
@@ -57,6 +58,10 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     const body = (final || '(Agent ไม่ได้ส่งสรุป)') + (changedAll.size ? `\n\n**ไฟล์ที่เปลี่ยน:** ${[...changedAll].join(', ')}` : '') + (usageNote ? `\n\n_${usageNote}_` : '') + `\n\n<details><summary>ขั้นตอน</summary>\n\n${log.join('\n')}\n\n</details>`;
     await DB.batch([DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(chat.id, 'user', J.prompt, J.model_id, Date.now()), DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(chat.id, 'assistant', body, J.model_id, Date.now() + 1)]);
     await setJob(env, jobId, { status, rounds: round, log: log.join('\n').slice(0, 8000), summary: (final || usageNote).slice(0, 4000), changed: JSON.stringify([...changedAll]), chat_id: chat.id, finished_at: Date.now() });
+    if (status === 'failed') { // Agent ล้มติดกัน 3 งานของผู้ใช้เดียวกัน: เตือนแอดมิน (น่าจะมีปัญหาคีย์/โมเดล)
+      const recent = (await DB.prepare("SELECT status FROM agent_jobs WHERE user_id=? AND id<=? ORDER BY id DESC LIMIT 3").bind(J.user_id, jobId).all()).results;
+      if (recent.length === 3 && recent.every(x => x.status === 'failed')) await notify(env, `🤖 Agent ล้มติดกัน 3 งาน (ผู้ใช้ ${u.email}): ${(usageNote || final || '').slice(0, 150)}`).catch(() => {});
+    }
     const label = { done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิตเต็ม', failed: 'ไม่สำเร็จ', timeout: 'หยุดเพราะใช้เวลานานเกินกำหนด' }[status] || status;
     await mail(env, u.email, `AstraCode Agent ${label}: ${J.prompt.slice(0, 50)}`, mailBox(`Agent ${label}`, esc((final || usageNote || '').slice(0, 2500)).replace(/\n/g, '<br>') + (changedAll.size ? `<br><br>ไฟล์ที่เปลี่ยน: ${esc([...changedAll].join(', '))}` : ''), 'เปิดโปรเจกต์', `${env.PUBLIC_URL || 'https://astracode.panderx.xyz'}/code?p=${J.project_id}`)).catch(() => {});
   };
@@ -80,14 +85,14 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan }); cumIn += usage.fresh + usage.read + usage.write; }
       const reqs = toolReqs(part.replace(/```[\s\S]*?```/g, ''));
       const cur = new Map((await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(J.project_id).all()).results.map(f => [f.path, f.content]));
-      const ch = changesOf(part, p => cur.has(p) ? cur.get(p) : null), res = ch.length ? await applyChanges(env, J.project_id, ch) : { applied: [], problems: [] };
+      const ch = changesOf(part, p => cur.has(p) ? cur.get(p) : null), res = ch.length ? await applyChanges(env, J.project_id, ch) : { applied: [], problems: [], warnings: [] };
       res.applied.forEach(p => changedAll.add(p.replace(/ \(ลบ\)$/, '')));
-      log.push(`รอบ ${round}: ${[reqs.length ? doingOf(reqs) : '', res.applied.length ? 'แก้ ' + res.applied.join(', ') : '', res.problems.length ? `มีปัญหา ${res.problems.length} จุด` : ''].filter(Boolean).join(' · ') || 'สรุปผล'}`);
+      log.push(`รอบ ${round}: ${[reqs.length ? doingOf(reqs) : '', res.applied.length ? 'แก้ ' + res.applied.join(', ') : '', res.problems.length ? `มีปัญหา ${res.problems.length} จุด` : '', res.warnings?.length ? `เตือน syntax ${res.warnings.length} ไฟล์` : ''].filter(Boolean).join(' · ') || 'สรุปผล'}`);
       transcript.push(part);
       // รอบที่ไม่ได้ขออ่านและไม่ได้เขียนอะไร = สรุปผลแล้ว (รอบที่เพิ่งเขียนไฟล์ ให้อีกรอบเพื่อตรวจทาน/สรุป)
       if (!reqs.length && !res.problems.length && !res.applied.length) { final = part.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim() || part.trim(); break; }
       const tool = reqs.length ? await runTools(env, J.project_id, reqs) : '';
-      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: [tool, res.problems.length ? `[ผลการเขียนไฟล์]\nมีบางไฟล์เขียนไม่ได้ แก้แล้วส่งใหม่ (ส่วนที่เหลือถูกเขียนแล้ว):\n- ${res.problems.join('\n- ')}` : '', res.applied.length ? `[เขียนแล้ว] ${res.applied.join(', ')}\nตรวจทานงานด้วย READ ถ้าจำเป็น แล้วสรุปผล (ไม่ต้องส่งไฟล์ซ้ำ)` : ''].filter(Boolean).join('\n\n') }];
+      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: [tool, res.problems.length ? `[ผลการเขียนไฟล์]\nมีบางไฟล์เขียนไม่ได้ แก้แล้วส่งใหม่ (ส่วนที่เหลือถูกเขียนแล้ว):\n- ${res.problems.join('\n- ')}` : '', res.warnings?.length ? `[ตัวตรวจวงเล็บอัตโนมัติ] ไฟล์ที่เขียนไปน่าจะมี syntax ผิด (ตรวจแบบเดา อาจเตือนผิดได้ ให้ READ ไฟล์ตรวจแล้วแก้ถ้าผิดจริง):\n- ${res.warnings.join('\n- ')}` : '', res.applied.length ? `[เขียนแล้ว] ${res.applied.join(', ')}\nตรวจทานงานด้วย READ ถ้าจำเป็น แล้วสรุปผล (ไม่ต้องส่งไฟล์ซ้ำ)` : ''].filter(Boolean).join('\n\n') }];
     }
     if (status === 'done' && !final) { final = 'ครบ ' + AGENT_MAX_ROUNDS + ' รอบแล้ว Agent หยุดไว้ก่อน (งานอาจยังไม่ครบ ตรวจไฟล์และสั่งต่อได้)'; }
   } catch (x) { console.log('agent', x.stack); status = 'failed'; usageNote = 'เกิดข้อผิดพลาด: ' + String(x.message).slice(0, 120); }

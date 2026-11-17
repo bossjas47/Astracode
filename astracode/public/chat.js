@@ -111,7 +111,12 @@ async function chatView(id) {
       sheet('เริ่มใช้ AstraCode', `<div class="sheet-form"><p class="sheet-msg"><b>1. เลือกโมเดลหรือปล่อย Auto</b><br>Auto เลือกโมเดลที่คุ้มสุดให้ตามความยากของคำถาม เปลี่ยนเองได้ที่ปุ่มชื่อโมเดล</p>
         <p class="sheet-msg"><b>2. พิมพ์ / เพื่อใช้ Skill</b><br>เช่น /translator /summarizer /code-reviewer ให้ AI ทำงานตามบทบาทนั้น</p>
         <p class="sheet-msg"><b>3. โหมด Code</b><br>ให้ AI สร้างและแก้ไฟล์จริง รันดูผลได้ทันที เปิดจากเมนู Code</p>
-        <div class="sheet-acts"><button type="button" class="btn blue x">เริ่มเลย</button></div></div>`); }
+        <p class="sheet-msg"><b>คุณใช้ AstraCode เพื่ออะไร?</b><br><small class="muted">เลือกแล้วเราเปิด Skill ที่เหมาะให้ (ปิดได้ทีหลังที่ปุ่ม +)</small></p>
+        <div class="sheet-acts" style="flex-wrap:wrap"><button type="button" class="btn out" data-goal="code">เขียนโค้ด</button><button type="button" class="btn out" data-goal="work">งานเอกสาร/อีเมล</button><button type="button" class="btn out" data-goal="study">เรียน/หาความรู้</button><button type="button" class="btn blue x">ข้ามไปก่อน</button></div></div>`, d => d.querySelectorAll('[data-goal]').forEach(b => b.onclick = async () => {
+        const want = { code: ['code-reviewer', 'refactor-clean', 'sql-helper'], work: ['email-writer', 'summarizer', 'thai-pro-writer'], study: ['study-tutor', 'explain-simple', 'translator'] }[b.dataset.goal], all = await loadSkills();
+        chat.skills = want.map(n => all.find(s => s.name === n)?.id).filter(Boolean); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI();
+        d.remove(); toast(chat.skills.length ? 'เปิด Skill ที่เหมาะให้แล้ว' : 'ตั้งค่าเรียบร้อย', 'ok');
+      })); }
   } catch { /* ไม่มีที่เก็บ */ }
   $('#effort').onchange = e => { localStorage.setItem('effort', e.target.value); modelUI(); };
   $('#model2').onchange = e => { localStorage.setItem('model2', e.target.value); modelUI(); };
