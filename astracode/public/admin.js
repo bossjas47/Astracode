@@ -149,7 +149,7 @@ const ADMIN = {
         <div class="kpi"><div class="muted">รายได้</div><div class="stat">฿${baht(c.rev)}</div><div class="kd">${delta(c.rev, p.rev)}</div></div>
         <div class="kpi"><div class="muted">ต้นทุน API</div><div class="stat">฿${baht(c.cost)}</div><div class="kd">${delta(c.cost, p.cost, true)}</div></div>
         <div class="kpi"><div class="muted">กำไรขั้นต้น</div><div class="stat">฿${baht(profit)}</div><div class="kd">${margin == null ? '<span class="muted">ยังไม่มีรายได้</span>' : `<span class="muted">มาร์จิ้น</span> <b>${margin}%</b>`}</div></div>
-        <div class="kpi"><div class="muted">ผู้ใช้ที่ใช้งาน</div><div class="stat">${num(c.au)}</div><div class="kd">${delta(c.au, p.au)}</div></div>
+        <div class="kpi"><div class="muted">ผู้ใช้ที่ส่งข้อความ (${days} วัน)</div><div class="stat">${num(c.au)}</div><div class="kd">${delta(c.au, p.au)}</div></div>
         <div class="kpi"><div class="muted">ข้อความ</div><div class="stat">${compact(c.msgs)}</div><div class="kd">${delta(c.msgs, p.msgs)}</div></div>
         <div class="kpi"><div class="muted">Token ทั้งหมด</div><div class="stat">${compact(c.tok)}</div><div class="kd">${delta(c.tok, p.tok)}</div></div>
         <div class="kpi"><div class="muted">สมาชิก / จ่ายเงิน</div><div class="stat">${num(s.users.total)} / ${num(s.users.paid)}</div><div class="kd"><span class="muted">จ่ายเงิน ${s.users.total ? Math.round(s.users.paid / s.users.total * 100) : 0}%</span></div></div>
