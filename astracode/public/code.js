@@ -422,7 +422,7 @@ function runTab(t) {
   IDE.runTab = t; $('#out').hidden = t !== 'out'; $('#console').hidden = t !== 'con'; $('#term').hidden = t !== 'term';
   document.querySelectorAll('[data-rtab]').forEach(b => { b.classList.toggle('on', b.dataset.rtab === t); if (b.dataset.rtab === t) b.classList.remove('alert'); });
 }
-function showRun(on) { $('.ide').dataset.run = on ? '1' : ''; if (on && matchMedia('(max-width: 999px)').matches) setPane('run'); }
+function showRun(on) { $('.ide').dataset.run = on ? '1' : ''; if (on && matchMedia('(max-width: 999px)').matches && !$('.ide').hasAttribute('data-split')) setPane('run'); } // แบ่งจอ: ผลลัพธ์อยู่ใต้โค้ดอยู่แล้ว ไม่ต้องสลับหน้า
 // ลิ้นชักไฟล์ (มือถือ): ปุ่มเมนูมุมซ้ายบน / แท็บ "ไฟล์" ด้านล่าง
 function drawer(on) { const ide = $('.ide'); if (!ide) return; ide.dataset.drawer = on ? '1' : ''; $('#burger')?.setAttribute('aria-expanded', !!on); }
 // รูปแบบ AI บนมือถือ (ผู้ใช้เลือกในตั้งค่า): page = หน้าแยก · sheet = แผ่นลอยทับโค้ด · bar = แถบสั่งเร็วใต้โค้ด + แผ่นลอย · split = แบ่งจอบน-ล่าง
@@ -1278,13 +1278,13 @@ async function codeView(id) {
         <input type="file" id="uplf" multiple hidden><input type="file" id="zinf" accept=".zip,application/zip" hidden></div></aside>
       <div class="ide-scrim" id="idescrim"></div>
       <section class="ide-main"><div class="ide-tabs" id="tabs"></div>
-        <div class="ide-tools"><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
+        <div class="ide-tools"><button id="split" aria-label="แบ่งจอ: โค้ดกับผลลัพธ์" aria-pressed="false">${ic('layers', 'sm')} แบ่งจอ</button><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
           <button id="fmtb" aria-label="จัดรูปแบบโค้ด" title="จัดรูปแบบโค้ด (Prettier)">${ic('code', 'sm')} จัดรูป</button><button id="wrapb" aria-label="ตัดบรรทัด">${ic('filetext', 'sm')} ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">${ic('sparkles', 'sm')} AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">${ic('activity', 'sm')} History</button><button id="save" aria-label="บันทึก">${ic('check', 'sm')} Save</button></div>
         <div id="editor" class="ide-editor"></div><div id="imgview" class="imgview" hidden></div>
         <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
         <form class="cmdbar" id="cmdbar"><div class="cmd-opts"><button type="button" id="bmdl" aria-haspopup="dialog"></button><button type="button" id="beff" aria-haspopup="dialog"></button><span class="muted">อัตโนมัติ: แก้ไฟล์ · รัน · ตรวจผล</span></div>
           <div class="cmd-in"><input id="cmdi" placeholder="สั่ง AI แก้ไฟล์นี้ เช่น เพิ่มปุ่มรีเซ็ต" aria-label="สั่ง AI" autocomplete="off"><button aria-label="ส่ง">${ic('up')}</button></div></form>
-        <div class="mkeys" id="mkeys">${[['Tab', '  '], ['{ }', '{}', 1], ['( )', '()', 1], ['[ ]', '[]', 1], ['=>', ' => '], [';', ';'], ['" "', '""', 1], ["' '", "''", 1], ['< >', '<>', 1], ['/', '/'], ['=', ' = ']].map(([l, v, o]) => `<button type="button" data-ins="${esc(v)}" data-off="${o || 0}">${esc(l)}</button>`).join('')}</div>
+        <div class="mkeys" id="mkeys"><button type="button" data-mv="undo" aria-label="ย้อนกลับ">${ic('undo', 'sm')}</button><button type="button" data-mv="redo" aria-label="ทำซ้ำ">${ic('redo', 'sm')}</button><button type="button" data-mv="L" aria-label="เลื่อนซ้าย">←</button><button type="button" data-mv="R" aria-label="เลื่อนขวา">→</button><button type="button" data-mv="U" aria-label="ขึ้นบรรทัดบน">↑</button><button type="button" data-mv="D" aria-label="ลงบรรทัดล่าง">↓</button>${[['Tab', '  '], ['{ }', '{}', 1], ['( )', '()', 1], ['[ ]', '[]', 1], ['=>', ' => '], [';', ';'], ['" "', '""', 1], ["' '", "''", 1], ['< >', '<>', 1], ['/', '/'], ['=', ' = '], [':', ':'], ['.', '.'], [',', ','], ['!', '!'], ['&', '&'], ['|', '|'], ['+', '+'], ['-', '-'], ['*', '*'], ['$', '$'], ['#', '#'], ['` `', '``', 1]].map(([l, v, o]) => `<button type="button" data-ins="${esc(v)}" data-off="${o || 0}">${esc(l)}</button>`).join('')}</div>
         <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">Output</button><button data-rtab="con">Console</button><button data-rtab="term">Terminal</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
           <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ" aria-label="ขยายเต็มจอ">${ic('eye', 'sm')}</button><button id="stop" title="หยุด" aria-label="หยุด">${ic('stop', 'sm')}</button><button id="clr">Clear</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
           <div id="out" class="run-out"><p class="muted" style="padding:16px">กด รัน เพื่อดูผล</p></div><div id="console" class="console" hidden></div><div id="term" class="term" hidden><pre id="term-o"></pre><form id="term-f"><span>$</span><input id="term-i" placeholder="npm install lodash / npm test / node app.js" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="คำสั่ง"></form></div></div></section>
@@ -1324,6 +1324,10 @@ async function codeView(id) {
   $('#run').onclick = run; $('#git').onclick = () => gitPanel(); $('#stop').onclick = stopRun; $('#clr').onclick = () => { IDE.logs = []; $('#console').innerHTML = ''; };
   $('#hiderun').onclick = () => { $('.ide').classList.remove('run-full'); $('#rfull')?.classList.remove('on'); showRun(false); setPane('code'); };
   document.querySelectorAll('[data-rtab]').forEach(b => b.onclick = () => runTab(b.dataset.rtab));
+  // แบ่งจอบนมือถือ: โค้ดด้านบน ผลลัพธ์ด้านล่าง (จำค่าไว้)
+  const splitSet = on => { $('.ide').toggleAttribute('data-split', on); $('#split').classList.toggle('on', on); $('#split').setAttribute('aria-pressed', on); try { localStorage.setItem('codeSplit', on ? '1' : '0'); } catch { /* ไม่มีที่เก็บ */ } requestAnimationFrame(() => IDE.view?.requestMeasure()); };
+  $('#split').onclick = () => { const on = !$('.ide').hasAttribute('data-split'); splitSet(on); if (on && !IDE.frame) run(); };
+  try { if (localStorage.getItem('codeSplit') === '1') splitSet(true); } catch { /* ไม่มีที่เก็บ */ }
   $('#undo').onclick = () => { CM.undo(IDE.view); IDE.view.focus(); }; $('#redo').onclick = () => { CM.redo(IDE.view); IDE.view.focus(); };
   $('#find').onclick = () => CM.openSearchPanel(IDE.view); $('#save').onclick = saveNow;
   $('#wrapb').onclick = () => { const on = localStorage.getItem('wrap') === '0'; localStorage.setItem('wrap', on ? '1' : '0'); IDE.view.dispatch({ effects: wrap.reconfigure(on ? CM.EditorView.lineWrapping : []) }); for (const [p, s] of IDE.states) if (p !== IDE.active) IDE.states.set(p, s.update({ effects: wrap.reconfigure(on ? CM.EditorView.lineWrapping : []) }).state); };
@@ -1357,6 +1361,14 @@ async function codeView(id) {
   });
   $('#mkeys').onmousedown = e => e.preventDefault();
   $('#mkeys').onclick = e => {
+    const mv = e.target.closest('[data-mv]')?.dataset.mv, v = IDE.view;
+    if (mv && v) { // ย้อน/ทำซ้ำ และเลื่อนเคอร์เซอร์ (คีย์บอร์ดมือถือไม่มีปุ่มลูกศร)
+      const r = v.state.selection.main;
+      if (mv === 'undo') CM.undo(v); else if (mv === 'redo') CM.redo(v);
+      else if (mv === 'L' || mv === 'R') v.dispatch({ selection: { anchor: Math.max(0, Math.min(v.state.doc.length, r.head + (mv === 'R' ? 1 : -1))) } });
+      else v.dispatch({ selection: { anchor: v.moveVertically(r, mv === 'D').head }, scrollIntoView: true });
+      return v.focus();
+    }
     const b = e.target.closest('[data-ins]'); if (!b || !IDE.view) return;
     const ins = b.dataset.ins, off = +b.dataset.off || 0, { from, to } = IDE.view.state.selection.main;
     IDE.view.dispatch({ changes: { from, to, insert: ins }, selection: { anchor: from + ins.length - off } });
