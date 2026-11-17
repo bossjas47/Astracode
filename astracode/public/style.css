@@ -1270,15 +1270,15 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 .dm-row b { font-weight: 600; color: var(--ash); font-size: 12px; } .dm-row small { color: var(--ash); }
 .dm-row.lead { animation-delay: 0s; } .dm-row.w { animation-delay: calc(var(--i) * .25s + .6s); } .dm-row.rv, .dm-rep { animation: dmIn var(--t) infinite; animation-delay: 5.2s; opacity: 0; }
 .dm-bar { display: block; width: 56px; height: 5px; border-radius: 9px; background: rgba(var(--ov), .1); overflow: hidden; }
-.dm-bar i { display: block; height: 100%; width: 0; background: var(--blue); border-radius: 9px; animation: dmFill var(--t) infinite; animation-delay: calc(var(--i) * .25s + .6s); }
+.dm-bar i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; background: var(--blue); border-radius: 9px; animation: dmFill var(--t) infinite; animation-delay: calc(var(--i) * .25s + .6s); }
 .dm-row em { font-style: normal; color: var(--green); opacity: 0; animation: dmDone var(--t) infinite; animation-delay: calc(var(--i) * .25s + .6s); }
 .dm-rep { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--hair); }
 .dm-rep i { display: block; height: 6px; border-radius: 9px; background: rgba(var(--ov), .12); } .dm-rep i:nth-child(2) { width: 85%; } .dm-rep i:nth-child(3) { width: 60%; }
 .dm-rep small { color: var(--ash); font-size: 12px; }
 @keyframes dmIn { 0% { opacity: 0; transform: translateY(4px); } 4%, 92% { opacity: 1; transform: none; } 100% { opacity: 0; } }
-@keyframes dmFill { 0%, 8% { width: 0; } 40%, 100% { width: 100%; } }
+@keyframes dmFill { 0%, 8% { transform: scaleX(0); } 40%, 100% { transform: scaleX(1); } } /* transform ไม่ทำให้คำนวณเลย์เอาต์ใหม่ทุกเฟรม */
 @keyframes dmDone { 0%, 38% { opacity: 0; } 42%, 92% { opacity: 1; } 100% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .dm-row, .dm-rep, .dm-row em { animation: none; opacity: 1; } .dm-bar i { animation: none; width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .dm-row, .dm-rep, .dm-row em { animation: none; opacity: 1; } .dm-bar i { animation: none; transform: none; } }
 
 .ic.ok { color: var(--green); }
 .pc-msg { margin: 10px 0 0; font-size: 14px; } .pc-msg small { display: block; font-size: 12px; }
