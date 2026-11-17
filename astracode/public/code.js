@@ -624,10 +624,12 @@ async function bgAgentSheet() {
 }
 // ดูสถานะงาน Agent ตลอดที่เปิดหน้า Code: ขึ้นป้าย + พอเสร็จโหลดไฟล์ใหม่ให้อัตโนมัติ
 let agPoll = 0;
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && IDE.pid) agWatch().catch(() => {}); }); // กลับมาที่แอป: เช็กงาน Agent ใหม่ทันที
 async function agWatch() {
   clearInterval(agPoll);
   const tick = async () => {
-    const jobs = await api('/agent?project=' + IDE.pid).catch(() => []), busy = jobs.find(agBusy), prev = IDE.bgJob;
+    const jobs = await api('/agent?project=' + IDE.pid).catch(() => null); if (!jobs) return; // เน็ตหลุด (เช่นปิดจอ) ≠ งานจบ: คงสถานะเดิมไว้ ลองใหม่รอบหน้า
+    const busy = jobs.find(agBusy), prev = IDE.bgJob;
     IDE.bgJob = busy || null; if (!!busy !== !!prev || busy?.rounds !== prev?.rounds || JSON.stringify(busy?.team?.map(k => k.status)) !== JSON.stringify(prev?.team?.map(k => k.status))) cUI();
     if (prev && !busy) { const j = jobs.find(x => x.id === prev.id); clearInterval(agPoll); if (j) { toast(`Agent ${AG_LABEL[j.status] || j.status}: ${(JSON.parse(j.changed || '[]')).length} ไฟล์ที่เปลี่ยน`, j.status === 'done' ? 'ok' : ''); if (!IDE.busy) reloadFiles().catch(() => {}); } }
     else if (!busy) clearInterval(agPoll);
