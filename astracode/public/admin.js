@@ -355,6 +355,9 @@ const ADMIN = {
       <h2 style="margin-top:24px">ประกาศ</h2><label>ข้อความ (เว้นว่าง = ไม่แสดง) ใส่ลิงก์แบบ [ข้อความ](https://...) ได้</label><textarea name="announcement" rows="2">${esc(s.announcement)}</textarea>
       <label>ระดับ</label><select name="announcement_level">${[['info', 'ทั่วไป'], ['warn', 'เตือน'], ['critical', 'สำคัญมาก']].map(([k, l]) => `<option value="${k}" ${s.announcement_level === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <h2 style="margin-top:24px">ย่อแชตอัตโนมัติ</h2><label>ย่อแชตเมื่อ context ใช้ถึงกี่ % ของหน้าต่างโมเดล (เว้นว่าง = 75 · 0 = ปิดทั้งระบบ · ผู้ใช้ปิดของตัวเองได้)</label><input name="compact_pct" type="number" min="0" max="95" value="${esc(s.compact_pct || '')}" placeholder="75">
+      <h2 style="margin-top:24px">โปรเพิ่มลิมิต</h2><label>หมดเขตโปร (เวลาไทย · เว้นว่าง = ไม่มีโปร) แพลนเสียเงินได้ลิมิตเพิ่มตามตัวคูณจนถึงเวลานี้ แล้วกลับเป็นปกติเอง</label><input name="promo_until_dt" type="datetime-local" value="${+s.promo_until ? new Date(+s.promo_until - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16) : ''}">
+      <div class="form2"><div><label>ตัวคูณรอบ 4 ชม.</label><input name="promo_x4h" type="number" min="1" step="0.1" value="${esc(s.promo_x4h || '')}"></div><div><label>ตัวคูณรายสัปดาห์</label><input name="promo_xweek" type="number" min="1" step="0.1" value="${esc(s.promo_xweek || '')}"></div></div>
+      <label>ข้อความประกาศโปร (แถบบนเว็บ · ต่อท้ายวันหมดเขตให้เอง)</label><input name="promo_label" maxlength="200" value="${esc(s.promo_label || '')}">
       <h2 style="margin-top:24px">ทีม Agent</h2><label>เพดานลิมิตต่อหนึ่งงานทีม (% ของลิมิตสัปดาห์ · เว้นว่าง = 30)</label><input name="team_budget_pct" type="number" min="1" max="100" step="any" value="${esc(s.team_budget_pct || '')}">
       <label>โมเดลลูกทีม (id ของโมเดล · เว้นว่าง = DeepSeek 4.1 Flash ถ้าแพลนมี ไม่งั้นตัวที่ถูกสุด)</label><input name="team_worker_model" type="number" min="1" value="${esc(s.team_worker_model || '')}">
       <h2 style="margin-top:24px">ช่วยเขียน prompt สร้างภาพ</h2><label>โมเดลที่ช่วยปรับ prompt (id · เว้นว่าง = ChatGPT 6.1 Sol ถ้าแพลนของผู้ใช้มี ไม่งั้น DeepSeek 4.1 Flash)</label><input name="image_prompt_model" type="number" min="1" value="${esc(s.image_prompt_model || '')}">
@@ -368,6 +371,13 @@ const ADMIN = {
       <label>แจ้งเมื่อต้นทุน API ต่อวันเกิน (บาท, 0 = ปิด)</label><input name="cost_alert_daily" type="number" min="0" step="any" value="${esc(s.cost_alert_daily || '0')}">
       <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><button type="button" class="btn out" id="atest">Send test</button><span class="ok" id="as"></span></div></form>
 
+      <section class="panel"><div class="ph"><h2>อีเมลถึงผู้ใช้ทุกคน</h2></div><p class="muted">ไม่ส่งถึงคนที่ปิดอีเมลสรุป/ข่าวสารในหน้าบัญชี · ส่งได้วันละ 2 ครั้ง · กดส่งทดสอบให้ตัวเองก่อน</p>
+        <form id="bcf" class="sheet-form" onsubmit="return false"><input name="subject" maxlength="150" placeholder="หัวข้อ" value="AstraCode โปรเดือนนี้: ใช้งานได้ 2 เท่า ถึง 30 พ.ย.">
+        <textarea name="body" rows="5" maxlength="4000">ตั้งแต่วันนี้ถึง 30 พ.ย. 23:59 (เวลาไทย) ทุกแพลนที่ชำระเงินใช้งานได้ 2 เท่าในรอบ 4 ชั่วโมง และลิมิตรายสัปดาห์เพิ่ม 50% ไม่ต้องกดรับ ระบบปรับให้เอง
+
+มีอะไรใหม่: Deep research, ทีม Agent ในโหมด Code และระบบสร้างภาพที่ AI ช่วยเขียน prompt ให้</textarea>
+        <input name="button" maxlength="40" placeholder="ข้อความปุ่ม (ลิงก์ไปหน้าแพลน · เว้นว่าง = ไม่มีปุ่ม)" value="ดูแพลน">
+        <div class="row"><button type="button" class="btn out sm" id="bct">ส่งทดสอบให้ฉัน</button><button type="button" class="btn red sm" id="bca">ส่งถึงทุกคน</button></div></form></section>
       <section class="panel"><div class="ph"><h2>สำรองข้อมูล (R2)</h2><span><button class="btn out sm" id="bkv">ตรวจไฟล์ล่าสุด</button> <button class="btn out sm" id="bk">Back up now</button></span></div><div id="bkr"></div>
         <p class="muted">ระบบสำรองอัตโนมัติทุกวันตี 3 (ต้องตั้ง Cron Trigger) เก็บ 14 ชุดล่าสุด</p>
         ${backups.error ? `<p class="warn">${esc(backups.error)}</p>` : backups.length ? backups.map(b => `<div class="row" style="padding:6px 0;border-top:1px solid var(--steel)"><span>${when(b.at)}</span><span class="muted">${compact(b.size)}B</span><span style="flex:1"></span><a href="/api/admin/backups/${esc(b.key)}" download>ดาวน์โหลด</a></div>`).join('') : '<p class="muted">ยังไม่มีไฟล์สำรอง</p>'}</section>
@@ -381,7 +391,16 @@ const ADMIN = {
 
       <section class="panel"><div class="ph"><h2>บันทึกการกระทำของแอดมิน</h2></div>
         ${logs.length ? `<div class="tw"><table class="tbl"><tr><th>เวลา</th><th>แอดมิน</th><th>การกระทำ</th><th>รายละเอียด</th></tr>${logs.slice(0, 100).map(a => `<tr><td>${when(a.created_at)}</td><td>${esc(a.admin_email)}</td><td>${esc(a.action)}</td><td class="muted"><code>${esc(a.detail)}</code></td></tr>`).join('')}</table></div>` : '<p class="muted">ยังไม่มีบันทึก</p>'}</section>`;
-    $('#mf').onsubmit = e => { e.preventDefault(); const fd = new FormData(e.target); save({ maintenance: fd.get('maintenance') ? '1' : '0', announcement: fd.get('announcement'), announcement_level: fd.get('announcement_level') }, $('#ms')); };
+    $('#mf').onsubmit = e => { // บันทึกทุกช่องในฟอร์ม (เดิมบันทึกแค่ 3 ช่อง ช่องอื่นที่เพิ่มทีหลังจึงไม่ถูกบันทึก)
+      e.preventDefault(); const fd = new FormData(e.target), o = Object.fromEntries(fd);
+      o.maintenance = fd.get('maintenance') ? '1' : '0';
+      o.promo_until = o.promo_until_dt ? String(new Date(o.promo_until_dt).getTime()) : ''; delete o.promo_until_dt;
+      save(o, $('#ms'));
+    };
+    const bc = async test => { const f = $('#bcf'), body = { subject: f.subject.value, body: f.body.value, button: f.button.value, test };
+      if (!test && !await confirmSheet('ส่งอีเมลนี้ถึงผู้ใช้ทุกคนตอนนี้? ยกเลิกไม่ได้', { title: 'ส่งอีเมลถึงทุกคน', ok: 'Send to everyone', danger: true })) return;
+      try { const r = await api('/admin/broadcast', { method: 'POST', body }); toast(test ? 'ส่งทดสอบให้อีเมลแอดมินแล้ว' : `ส่งแล้ว ${r.sent}/${r.total} ฉบับ`, 'ok'); } catch (x) { toast(x.message, 'bad'); } };
+    $('#bct').onclick = () => bc(true); $('#bca').onclick = () => bc(false);
     $('#af').onsubmit = e => { e.preventDefault(); save(Object.fromEntries(new FormData(e.target)), $('#as')); };
     $('#atest').onclick = async () => { try { await api('/admin/notify-test', { method: 'POST' }); $('#as').textContent = '✓ ส่งแล้ว ตรวจใน Discord/LINE'; } catch (x) { toast(x.message, 'bad'); } };
     $('#bkv').onclick = async e => { e.target.disabled = true; try { const v = await api('/admin/backups/verify', { method: 'POST' }); $('#bkr').innerHTML = v.error ? `<p class="warn">${esc(v.error)}</p>` : `<p class="${v.ok ? 'ok' : 'warn'}">${v.ok ? '✓ อ่านได้ครบ' : 'ไม่มีตารางในฐานข้อมูลตอนนี้: ' + esc(v.missing.join(', '))} · ${v.tables.length} ตาราง · ${v.tables.reduce((a, x) => a + x.backup, 0)} แถว · ${when(+new Date(v.at))}</p>${v.note ? `<p class="muted">${esc(v.note)}</p>` : ''}`; } catch (x) { toast(x.message, 'bad'); } e.target.disabled = false; };
