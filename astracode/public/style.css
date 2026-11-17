@@ -1214,3 +1214,15 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .ctxs .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
 .ctxs td:nth-child(2), .ctxs td:nth-child(3) { text-align: right; white-space: nowrap; }
 button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+
+/* แถวปุ่มใต้คำตอบ: ขึ้นบรรทัดใหม่ได้ ไม่บีบชื่อโมเดลและไม่ตัดปุ่ม */
+.acts { flex-wrap: wrap; row-gap: 2px; }
+.acts button { white-space: nowrap; flex: none; }
+.msg.ai .acts .muted { flex: 1 0 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0 0 2px; }
+@media (min-width: 640px) { .msg.ai .acts .muted { flex: 0 1 auto; margin: 0 6px 0 0; } }
+.acts .tok { margin-left: auto; }
+/* แถวฟอร์มที่ป้ายยาวไม่เท่ากัน: ให้ช่องกรอกชิดล่างเสมอ ไม่เหลื่อมกัน */
+.form2 { align-items: end; }
+.form2 > div { display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; }
+/* ฟอร์มสร้าง key / webhook บนจอเล็ก: ช่องกรอกเต็มแถว ปุ่มอยู่ล่าง */
+@media (max-width: 520px) { .row.stack-m { flex-wrap: wrap !important; } .row.stack-m > input:first-child { flex: 1 1 100%; } .row.stack-m > select { flex: 1 1 auto; } }

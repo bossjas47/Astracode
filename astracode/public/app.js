@@ -663,6 +663,7 @@ const customIcons = () => { try { return JSON.parse(site.model_icons || '{}') ||
 function vendorLogo(name, cls = '') {
   if (site.picker_logos === '0') return '';
   const raw = vendorOf(name).toLowerCase(), k = VENDOR_ALIAS[raw] || raw, custom = customIcons()[raw];
+  if (raw === 'อัตโนมัติ' || raw === 'auto') return `<span class="vlogo ${cls}">${ic('sparkles')}</span>`; // โหมด Auto ไม่ใช่ค่ายไหน: ใช้ไอคอนแทนตัวอักษรตัวแรก
   const inner = /^data:image\//.test(custom || '') ? `<img src="${esc(custom)}" alt="">` : VENDOR_SVG[k] ? `<svg viewBox="0 0 24 24" aria-hidden="true">${VENDOR_SVG[k]}</svg>` : `<b>${esc((vendorOf(name)[0] || '?').toUpperCase())}</b>`;
   return `<span class="vlogo ${cls}">${inner}</span>`;
 }
