@@ -3,7 +3,8 @@ import { ensureFb, isSafeMcpUrl, mcpSync } from './ai.js';
 import { applyPayment, audit, getSetting, mail, mailBox, notify, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { slug } from './api.js';
-import { backup, status } from './jobs.js';
+import { backup, status, verifyBackup } from './jobs.js';
+import { ensureAgentTable } from './agent.js';
 // ---------- admin ----------
 export const TABLES = {
   plans: ['name', 'price', 'price_year', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
@@ -373,6 +374,14 @@ export async function admin(req, env, path, url, me) {
       return json({ ok: true });
     }
   }
+  if (path === '/api/admin/agents') { // ต้นทุน Agent / ทีม Agent 30 วัน: ต่องาน (รวมลูกทีม) และต่อผู้ใช้
+    await ensureAgentTable(env); const from = Date.now() - 30 * DAY;
+    const jobs = (await DB.prepare(`SELECT j.id,j.prompt,j.status,j.role,j.rounds,j.created_at,j.finished_at,u.email, COALESCE(j.cost,0)+COALESCE((SELECT SUM(c.cost) FROM agent_jobs c WHERE c.parent_id=j.id),0) cost, (SELECT COUNT(*) FROM agent_jobs c WHERE c.parent_id=j.id AND c.role='worker') workers
+      FROM agent_jobs j JOIN users u ON u.id=j.user_id WHERE j.parent_id IS NULL AND j.created_at>=? ORDER BY j.id DESC LIMIT 200`).bind(from).all()).results;
+    const users = Object.values(jobs.reduce((a, j) => { const x = a[j.email] ||= { email: j.email, jobs: 0, teams: 0, cost: 0 }; x.jobs++; if (j.role === 'lead') x.teams++; x.cost += j.cost; return a; }, {})).sort((a, b) => b.cost - a.cost).slice(0, 20);
+    return json({ jobs, users, total: jobs.reduce((a, j) => a + j.cost, 0) });
+  }
+  if (path === '/api/admin/backups/verify' && M === 'POST') return json(await verifyBackup(env)); // เปิดไฟล์สำรองล่าสุด ตรวจว่าอ่านได้และนับแถวเทียบฐานข้อมูลจริง (ไม่เขียนอะไร)
   if (path === '/api/admin/audit') return json((await DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all()).results);
   if (path === '/api/admin/events') return json((await DB.prepare('SELECT e.*,m.name model FROM events e LEFT JOIN models m ON m.id=e.model_id ORDER BY e.id DESC LIMIT 200').all()).results);
   if (path === '/api/admin/backups') {

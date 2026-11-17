@@ -49,7 +49,7 @@ export async function ensureAgentTable(env) {
   if (agentReady) return;
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, model_id INTEGER NOT NULL, prompt TEXT NOT NULL, status TEXT NOT NULL, rounds INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT \'\', summary TEXT, changed TEXT, chat_id INTEGER, created_at INTEGER NOT NULL, finished_at INTEGER)').run();
   // ทีม Agent: role = lead (หัวหน้าวางแผน) / worker (ลูกทีม) / review (ผู้ตรวจรวม) · scope = ไฟล์ที่ลูกทีมแก้ได้ (JSON) · started_at = เริ่มรันจริง (ใช้กับตัวเก็บงานค้าง)
-  for (const c of ['parent_id INTEGER', 'role TEXT', 'scope TEXT', 'started_at INTEGER']) try { await env.DB.prepare('ALTER TABLE agent_jobs ADD COLUMN ' + c).run(); } catch { /* มีแล้ว */ }
+  for (const c of ['parent_id INTEGER', 'role TEXT', 'scope TEXT', 'started_at INTEGER', 'cost REAL']) try { await env.DB.prepare('ALTER TABLE agent_jobs ADD COLUMN ' + c).run(); } catch { /* มีแล้ว */ }
   agentReady = true;
 }
 let agentReady = false;
@@ -138,7 +138,7 @@ async function runLead(env, J, u, plan, m) {
     let part = '', usage = null;
     try { for await (const e of callModel(env, m, fitContext(LEAD_NOTE, msgs, ctxMax(m)).msgs, { effort: null, system: SYSTEM_CODE + '\n\n' + LEAD_NOTE, userId: u.id, signal: AbortSignal.timeout(150e3) })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
     catch (x) { note = 'หัวหน้าตอบไม่ได้: ' + String(x.message).slice(0, 80); await new Promise(r => setTimeout(r, 3000)); continue; }
-    if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan }); }
+    if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: J.id }); }
     await setJob(env, J.id, { rounds: round });
     tasks = parsePlan(part); if (tasks) break;
     const reqs = toolReqs(part);
@@ -207,7 +207,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       try { for await (const e of callModel(env, m, msgs, { effort: null, system, userId: u.id, signal: ac.signal })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
       catch (x) { clearTimeout(timer); log.push(`รอบ ${round}: โมเดลตอบไม่ได้ (${String(x.message).slice(0, 80)})`); if (lead && !part) await new Promise(r => setTimeout(r, 4000 * round)); /* ทีมยิงพร้อมกันหลายตัว: รอแล้วลองใหม่ (มักโดน rate limit) */ if (round >= 2 && !part) { status = 'failed'; usageNote = 'โมเดลตอบไม่ได้ตอนนี้'; break; } if (!part) continue; }
       clearTimeout(timer);
-      if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan }); cumIn += usage.fresh + usage.read + usage.write; }
+      if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: jobId }); cumIn += usage.fresh + usage.read + usage.write; }
       const reqs = toolReqs(part.replace(/```[\s\S]*?```/g, '')), imgs = imagesOf(part);
       const cur = new Map((await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(J.project_id).all()).results.map(f => [f.path, f.content]));
       const all = changesOf(part, p => cur.has(p) ? cur.get(p) : null), ch = scope ? all.filter(c => scope.includes(c.path)) : all, out = all.filter(c => !ch.includes(c)); // ลูกทีมแก้ได้เฉพาะไฟล์ในขอบเขต

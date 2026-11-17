@@ -67,3 +67,31 @@ test('team: the budget cap stops the workers and the reviewer; stop-all ends a r
   assert.deepEqual(t.DB.raw.prepare('SELECT status FROM agent_jobs WHERE id=? OR parent_id=? ORDER BY id').all(L, L).map(x => x.status), ['stopped', 'stopped']);
   fm.close();
 });
+
+// R2 จำลองในหน่วยความจำ (put/get/list/delete)
+const fakeR2 = () => { const m = new Map(); return { m, async put(k, v) { m.set(k, { body: String(v), uploaded: new Date() }); }, async get(k) { const o = m.get(k); return o && { body: o.body, json: async () => JSON.parse(o.body) }; }, async list({ prefix }) { return { objects: [...m].filter(([k]) => k.startsWith(prefix)).map(([key, o]) => ({ key, size: o.body.length, uploaded: o.uploaded })) }; }, async delete(ks) { [].concat(ks).forEach(k => m.delete(k)); } }; };
+
+test('admin sees agent cost per job (team incl. workers) and per user', async () => {
+  const { t, fm, u, pid, lead } = await setup();
+  await t.json('/api/agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, model_id: lead.id, prompt: 'ทำเว็บหน้าแรกพร้อม CSS และเมนู', team: true } });
+  const adm = await t.user({ role: 'admin' }), d = (await t.json('/api/admin/agents', { cookie: adm.cookie })).data;
+  assert.equal(d.jobs.length, 1); assert.equal(d.jobs[0].workers, 3); assert.ok(d.jobs[0].cost > 0, 'cost recorded');
+  const sum = t.DB.raw.prepare('SELECT SUM(cost) c FROM usage WHERE user_id=?').get(u.id).c; assert.ok(Math.abs(d.jobs[0].cost - sum) < 1e-9, 'job cost = all usage rows of the team');
+  assert.equal(d.users[0].teams, 1); assert.equal((await t.json('/api/admin/agents', { cookie: u.cookie })).status, 403);
+  fm.close();
+});
+
+test('backup: verify reads the latest file and compares row counts; a stale backup alerts once a day', async () => {
+  const t = await makeEnv(); t.env.SLIPS = fakeR2(); const adm = await t.user({ role: 'admin' });
+  assert.match((await t.json('/api/admin/backups/verify', { method: 'POST', cookie: adm.cookie })).data.error, /ยังไม่มี/);
+  assert.equal((await t.json('/api/admin/backups', { method: 'POST', cookie: adm.cookie })).status, 200);
+  const v = (await t.json('/api/admin/backups/verify', { method: 'POST', cookie: adm.cookie })).data;
+  assert.equal(v.ok, true, JSON.stringify(v)); assert.equal(v.tables.find(x => x.table === 'users').backup, 1);
+  const sent = []; t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('alert_discord','https://discord.test/hook')").run();
+  const orig = globalThis.fetch; globalThis.fetch = async (u, o) => { if (String(u).includes('discord.test')) { sent.push(JSON.parse(o.body).content); return new Response('{}'); } return orig(u, o); };
+  try {
+    for (const o of t.env.SLIPS.m.values()) o.uploaded = new Date(Date.now() - 3 * 864e5);
+    for (let i = 0; i < 2; i++) { t.ctx.pending.length = 0; t.worker.default.scheduled({}, t.env, t.ctx); await Promise.all(t.ctx.pending); }
+  } finally { globalThis.fetch = orig; }
+  assert.equal(sent.filter(x => /ไม่มีไฟล์สำรองข้อมูลใหม่/.test(x)).length, 1, 'alert once per day');
+});

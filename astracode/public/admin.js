@@ -43,7 +43,7 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>' };
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -328,6 +328,14 @@ const ADMIN = {
       <div class="card"><b>ข้อผิดพลาดล่าสุด</b>${tbl(['เวลา', 'ผู้ใช้', 'endpoint', 'โมเดล', 'status', 'ข้อความ'], d.errors.map(r => `<tr><td>${when(r.created_at)}</td><td>${esc(r.email)}</td><td><code>${esc(r.path)}</code></td><td>${esc(r.model || '-')}</td><td class="bad">${r.status}</td><td>${esc(r.err || '')}</td></tr>`))}</div>`;
   },
 
+  async agents(box) { // ต้นทุน Agent / ทีม Agent (ต้นทุนจริงของเรา บาท)
+    const d = await api('/admin/agents'), tbl = (head, rows) => rows.length ? `<div class="tw"><table class="tbl"><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.join('')}</table></div>` : '<p class="muted">ยังไม่มีข้อมูล</p>';
+    const dur = j => j.finished_at ? Math.max(1, Math.round((j.finished_at - j.created_at) / 60e3)) + ' นาที' : '-';
+    box.innerHTML = `<p class="muted hint">งาน Agent เบื้องหลังและทีม Agent 30 วันล่าสุด · ต้นทุนจริงของเรา รวมลูกทีมและผู้ตรวจ · รวม ฿${d.total.toFixed(2)}</p>
+      <div class="card"><b>ผู้ใช้ที่ใช้มากสุด</b>${tbl(['ผู้ใช้', 'งาน', 'ทีม', 'ต้นทุน ฿'], d.users.map(r => `<tr><td>${esc(r.email)}</td><td>${r.jobs}</td><td>${r.teams}</td><td>${r.cost.toFixed(2)}</td></tr>`))}</div>
+      <div class="card"><b>งานล่าสุด</b>${tbl(['เวลา', 'ผู้ใช้', 'งาน', 'แบบ', 'สถานะ', 'รอบ', 'ใช้เวลา', 'ต้นทุน ฿'], d.jobs.map(j => `<tr><td>${when(j.created_at)}</td><td>${esc(j.email)}</td><td>${esc(j.prompt.slice(0, 60))}</td><td>${j.role === 'lead' ? 'ทีม ' + j.workers + ' ตัว' : 'เดี่ยว'}</td><td class="${['failed', 'limit', 'timeout'].includes(j.status) ? 'bad' : ''}">${esc(j.status)}</td><td>${j.rounds}</td><td>${dur(j)}</td><td>${j.cost.toFixed(2)}</td></tr>`))}</div>`;
+  },
+
   async quality(box, reload) {
     const d = await api('/admin/quality');
     box.innerHTML = `<p class="muted hint">คะแนนถูกใจ/ไม่ถูกใจจากผู้ใช้ใน 30 วันล่าสุด และรายงานคำตอบที่ไม่เหมาะสม</p>
@@ -357,7 +365,7 @@ const ADMIN = {
       <label>แจ้งเมื่อต้นทุน API ต่อวันเกิน (บาท, 0 = ปิด)</label><input name="cost_alert_daily" type="number" min="0" step="any" value="${esc(s.cost_alert_daily || '0')}">
       <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><button type="button" class="btn out" id="atest">Send test</button><span class="ok" id="as"></span></div></form>
 
-      <section class="panel"><div class="ph"><h2>สำรองข้อมูล (R2)</h2><button class="btn out sm" id="bk">Back up now</button></div>
+      <section class="panel"><div class="ph"><h2>สำรองข้อมูล (R2)</h2><span><button class="btn out sm" id="bkv">ตรวจไฟล์ล่าสุด</button> <button class="btn out sm" id="bk">Back up now</button></span></div><div id="bkr"></div>
         <p class="muted">ระบบสำรองอัตโนมัติทุกวันตี 3 (ต้องตั้ง Cron Trigger) เก็บ 14 ชุดล่าสุด</p>
         ${backups.error ? `<p class="warn">${esc(backups.error)}</p>` : backups.length ? backups.map(b => `<div class="row" style="padding:6px 0;border-top:1px solid var(--steel)"><span>${when(b.at)}</span><span class="muted">${compact(b.size)}B</span><span style="flex:1"></span><a href="/api/admin/backups/${esc(b.key)}" download>ดาวน์โหลด</a></div>`).join('') : '<p class="muted">ยังไม่มีไฟล์สำรอง</p>'}</section>
 
@@ -373,6 +381,7 @@ const ADMIN = {
     $('#mf').onsubmit = e => { e.preventDefault(); const fd = new FormData(e.target); save({ maintenance: fd.get('maintenance') ? '1' : '0', announcement: fd.get('announcement'), announcement_level: fd.get('announcement_level') }, $('#ms')); };
     $('#af').onsubmit = e => { e.preventDefault(); save(Object.fromEntries(new FormData(e.target)), $('#as')); };
     $('#atest').onclick = async () => { try { await api('/admin/notify-test', { method: 'POST' }); $('#as').textContent = '✓ ส่งแล้ว ตรวจใน Discord/LINE'; } catch (x) { toast(x.message, 'bad'); } };
+    $('#bkv').onclick = async e => { e.target.disabled = true; try { const v = await api('/admin/backups/verify', { method: 'POST' }); $('#bkr').innerHTML = v.error ? `<p class="warn">${esc(v.error)}</p>` : `<p class="${v.ok ? 'ok' : 'warn'}">${v.ok ? '✓ อ่านได้ครบ' : 'ไม่มีตารางในฐานข้อมูลตอนนี้: ' + esc(v.missing.join(', '))} · ${v.tables.length} ตาราง · ${v.tables.reduce((a, x) => a + x.backup, 0)} แถว · ${when(+new Date(v.at))}</p>${v.note ? `<p class="muted">${esc(v.note)}</p>` : ''}`; } catch (x) { toast(x.message, 'bad'); } e.target.disabled = false; };
     $('#bk').onclick = async e => { e.target.disabled = true; try { await api('/admin/backups', { method: 'POST' }); reload(); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; } };
   },
   async models(box, reload) {

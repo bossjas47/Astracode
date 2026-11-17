@@ -373,13 +373,14 @@ export function excerptFiles(content, question) {
   });
 }
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
-export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null } = {}) {
+export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null } = {}) {
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)')
     .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now).run();
+  if (job) await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+? WHERE id=?').bind(cost, job).run(); // ต้นทุนต่องาน Agent (ดูในหลังบ้าน)
   let charge = 0;
   if (wallet) {
     const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6) * 10000) / 10000;

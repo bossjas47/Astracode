@@ -46,6 +46,11 @@ export async function cron(env) {
   }
   // 4) สำรองข้อมูลวันละครั้ง (ตี 3 เวลาไทย) เก็บ 14 ชุด
   if (env.SLIPS && new Date(now + BKK).getUTCHours() === 3) await step('backup', async () => { try { await backup(env); } catch (e) { await notify(env, '⚠️ สำรองข้อมูลรายวันล้มเหลว: ' + String(e.message).slice(0, 200)); throw e; } });
+  // 4.2) ไม่มีไฟล์สำรองใหม่เกิน 2 วัน (cron ไม่รัน / R2 มีปัญหา): เตือนแอดมินวันละครั้ง
+  if (env.SLIPS) await step('backup-stale', async () => {
+    const last = (await env.SLIPS.list({ prefix: 'backup/' })).objects.reduce((a, o) => Math.max(a, +new Date(o.uploaded)), 0);
+    if (now - last > 2 * DAY && now - (+(await getSetting(env, 'backup_alert_at')) || 0) > DAY) { await notify(env, `🗄️ ไม่มีไฟล์สำรองข้อมูลใหม่มา ${last ? Math.floor((now - last) / DAY) + ' วัน' : 'เลย'} · หลังบ้าน → ระบบ → Back up now`); await DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('backup_alert_at',?)").bind(String(now)).run(); }
+  });
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
   if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream
   if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)
@@ -121,6 +126,17 @@ export async function backup(env) {
   const old = (await env.SLIPS.list({ prefix: 'backup/' })).objects.sort((a, b) => a.key < b.key ? 1 : -1).slice(14);
   if (old.length) await env.SLIPS.delete(old.map(o => o.key));
   return key;
+}
+
+// ตรวจไฟล์สำรองล่าสุด: อ่าน JSON ได้ไหม มีตารางครบไหม จำนวนแถวใกล้เคียงฐานข้อมูลจริงไหม (ไม่กู้คืน ไม่เขียนอะไร)
+export async function verifyBackup(env) {
+  if (!env.SLIPS) return { ok: false, error: 'ไม่ได้ผูก R2' };
+  const last = (await env.SLIPS.list({ prefix: 'backup/' })).objects.sort((a, b) => a.key < b.key ? 1 : -1)[0]; if (!last) return { ok: false, error: 'ยังไม่มีไฟล์สำรอง' };
+  let data; try { data = await (await env.SLIPS.get(last.key)).json(); } catch (e) { return { ok: false, key: last.key, error: 'อ่านไฟล์ไม่ได้: ' + e.message }; }
+  const tables = [];
+  for (const [t, rows] of Object.entries(data)) { const live = (await env.DB.prepare(`SELECT COUNT(*) n FROM "${t}"`).first().catch(() => null))?.n; tables.push({ table: t, backup: rows.length, live: live ?? null }); }
+  const missing = tables.filter(x => x.live === null).map(x => x.table), short = tables.filter(x => x.live != null && x.backup > x.live).map(x => x.table);
+  return { ok: !missing.length, key: last.key, at: last.uploaded, size: last.size, tables, missing, note: short.length ? 'ตารางที่ไฟล์สำรองมีแถวมากกว่าตอนนี้ (มีการลบหลังสำรอง): ' + short.join(', ') : '' };
 }
 
 // ---------- หน้าสถานะระบบ ----------
