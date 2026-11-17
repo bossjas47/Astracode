@@ -417,11 +417,11 @@ export async function admin(req, env, path, url, me) {
   if (path === '/api/admin/audit') return json((await DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all()).results);
   if (path === '/api/admin/model-health') { // สุขภาพโมเดล 24 ชม.: ตอบสำเร็จ (จาก usage) เทียบ error (จาก events)
     const since = Date.now() - 864e5;
-    const ok = (await DB.prepare('SELECT model_id, COUNT(*) n FROM usage WHERE created_at>? AND model_id>0 GROUP BY model_id').bind(since).all()).results;
+    const ok = (await DB.prepare('SELECT model_id, COUNT(*) n, AVG(ttft) ttft, AVG(ms) ms FROM usage WHERE created_at>? AND model_id>0 GROUP BY model_id').bind(since).all()).results;
     const er = (await DB.prepare("SELECT model_id, COUNT(*) n, MAX(created_at) at FROM events WHERE kind='error' AND created_at>? GROUP BY model_id").bind(since).all()).results;
     const last = (await DB.prepare("SELECT model_id, detail FROM events WHERE id IN (SELECT MAX(id) FROM events WHERE kind='error' AND created_at>? GROUP BY model_id)").bind(since).all().catch(() => ({ results: [] }))).results;
     const ms = (await DB.prepare('SELECT id,name,active FROM models ORDER BY id').all()).results;
-    return json(ms.map(m => ({ id: m.id, name: m.name, active: m.active, ok: ok.find(x => x.model_id === m.id)?.n || 0, err: er.find(x => x.model_id === m.id)?.n || 0, last_at: er.find(x => x.model_id === m.id)?.at || null, last: last.find(x => x.model_id === m.id)?.detail || '' })).filter(x => x.ok || x.err));
+    return json(ms.map(m => ({ id: m.id, name: m.name, active: m.active, ok: ok.find(x => x.model_id === m.id)?.n || 0, ttft: Math.round(ok.find(x => x.model_id === m.id)?.ttft || 0), ms: Math.round(ok.find(x => x.model_id === m.id)?.ms || 0), err: er.find(x => x.model_id === m.id)?.n || 0, last_at: er.find(x => x.model_id === m.id)?.at || null, last: last.find(x => x.model_id === m.id)?.detail || '' })).filter(x => x.ok || x.err));
   }
   if (path === '/api/admin/events') return json((await DB.prepare('SELECT e.*,m.name model FROM events e LEFT JOIN models m ON m.id=e.model_id ORDER BY e.id DESC LIMIT 200').all()).results);
   if (path === '/api/admin/backups') {

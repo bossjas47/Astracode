@@ -1,4 +1,4 @@
-import { BKK, DAY, SYSTEM, allowedModels, ensureCols, err, esc, json, planOf, unlimit, usageStatus } from './core.js';
+import { BKK, DAY, SYSTEM, allowedModels, ensureCols, err, esc, json, limited, planOf, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
 import { sendPush } from './push.js';
@@ -21,6 +21,12 @@ export async function cron(env) {
       await mail(env, u.email, 'AstraCode: ต่ออายุแพลนแล้ว', mailBox('ต่ออายุแพลนแล้ว', `ตัดเงินจาก Wallet ฿${price} ต่ออายุ ${u.pname} เรียบร้อย`)); log.push('renew ' + u.id);
     }
   } });
+  // ค่าใช้จ่ายผิดปกติ: ต้นทุนวันนี้ (24 ชม.) เกิน 5 เท่าของเฉลี่ยรายวัน 7 วันก่อนหน้า และเกิน ฿20 → แจ้งแอดมิน คนละครั้งต่อวัน
+  await step('anomaly', async () => {
+    const rows = (await DB.prepare(`SELECT u.id, u.email, SUM(CASE WHEN s.created_at>?1 THEN s.cost END) today, SUM(CASE WHEN s.created_at<=?1 THEN s.cost END) / 7.0 avg
+      FROM usage s JOIN users u ON u.id=s.user_id WHERE s.created_at>?2 AND u.role<>'admin' GROUP BY u.id HAVING today > 20 AND today > 5 * COALESCE(avg, 0)`).bind(now - DAY, now - 8 * DAY).all()).results;
+    for (const r of rows) if (!await limited(env, 'anom:' + r.id, 1, DAY)) await notify(env, `⚠️ ค่าใช้จ่ายผิดปกติ: ${r.email} ใช้ต้นทุน ฿${r.today.toFixed(2)} ใน 24 ชม. (เฉลี่ยเดิม ฿${(r.avg || 0).toFixed(2)}/วัน) ตรวจ API key หรือบัญชีที่หลังบ้าน`);
+  });
   // 2) เตือนแพลนใกล้หมด (3 วัน) ครั้งเดียวต่อรอบ
   await step('remind', async () => { for (const u of (await DB.prepare('SELECT u.id,u.email,u.plan_expires,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.banned=0 AND u.plan_expires BETWEEN ? AND ? AND (u.reminded_at IS NULL OR u.reminded_at<>u.plan_expires)').bind(now, now + 3 * DAY).all()).results) {
     await mail(env, u.email, 'AstraCode: แพลนใกล้หมดอายุ', mailBox('แพลนใกล้หมดอายุ', `${u.pname} จะหมดอายุ ${new Date(u.plan_expires + BKK).toISOString().slice(0, 16).replace('T', ' ')} (เวลาไทย) ต่ออายุได้ที่หน้าแพลน หรือเปิด "ต่ออายุอัตโนมัติจาก Wallet" ในหน้าบัญชี`));

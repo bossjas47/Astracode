@@ -377,13 +377,13 @@ export function excerptFiles(content, question) {
   });
 }
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
-export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null } = {}) {
+export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null } = {}) {
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
-  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)')
-    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now).run();
+  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null).run();
   // ต้นทุน/token ต่องาน Agent · ctx_peak = input ของรอบที่ใหญ่สุด (ใช้แสดง context ของทีม)
   if (job) { const tin = usage.fresh + usage.read + usage.write; await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, tin, usage.out, tin, job).run(); }
   let charge = 0;
@@ -492,7 +492,7 @@ export const runStream = (stub, from) => stub.fetch('https://run/stream?from=' +
 export async function runChat(env, J, send, st) {
   const { u, plan, m, hist, cid, pid, effort, overflow, lock } = J;
   let imgs0 = J.images;
-  let out = '', think = '', usage = null, model = m;
+  let out = '', think = '', usage = null, model = m; const tStart = Date.now(); let ttft = 0; // เวลาจนได้ตัวอักษรแรก/ความคิดแรก (สุขภาพโมเดล)
   await send({ chat_id: cid, model: m.name, overflow: overflow === 'overflow', wallet: overflow === 'wallet' });
   const sources = !pid && (J.search || await autoSearch(env, hist.at(-1).content)) ? await smartSearch(env, u, hist) : [];
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
@@ -539,6 +539,7 @@ export async function runChat(env, J, send, st) {
           arm(idleMs);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
+          if ((e.t || e.th) && !ttft) ttft = Date.now() - tStart;
           if (e.t) { lastKind = 't'; out += e.t; part += e.t; await send({ t: e.t }); }
           if (e.th) { if (lastKind === 't') { think += '\u0001'; out += '\u2063\u2063'; await send({ t: '\u2063\u2063' }); } lastKind = 'th'; think += e.th; await send({ th: e.th }); }
           if (e.tc_start) { const idx = tcs.size; anthIdx.set(e.tc_start.index, idx); tcs.set(idx, { id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }); }
@@ -607,7 +608,7 @@ export async function runChat(env, J, send, st) {
   let mid = null;
   if ((out || think) && cid) mid = (await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id')
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).first())?.id ?? null;
-  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet' }) : 0;
+  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet', ms: Date.now() - tStart, ttft }) : 0;
   await unlimit(env, lock);
   const fin = await usageStatus(env, u, plan);
   await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: ctxUsed, max: ctxMax(model) }, ...fin });

@@ -289,3 +289,20 @@ test('gallery submission waits for admin approval; agent line diff counts adds a
   const { lineDiff } = await import('../src/agent.js');
   assert.deepEqual(lineDiff('a\nb\nc', 'a\nc\nd\ne'), [2, 1]); assert.deepEqual(lineDiff('', 'x\ny'), [2, 0]);
 });
+
+test('agent estimate grows with team and project size; resume only for stopped jobs', async () => {
+  const { estimateAgent } = await import('../src/agent.js');
+  const m = { cost_in: 30, cost_out: 120, cost_cache: 3, use_mult: 1 }, w = { cost_in: 2, cost_out: 8, cost_cache: 0.2, use_mult: 1 };
+  const small = estimateAgent(m, null, 3000, 3, 100), big = estimateAgent(m, null, 90000, 20, 100), team = estimateAgent(m, w, 90000, 20, 100);
+  assert.ok(small.low <= small.high && big.high > small.high && team.high > 0);
+  const t = await makeEnv(), u = await t.user();
+  assert.equal((await t.json('/api/agent/999/resume', { method: 'POST', cookie: u.cookie })).status, 404);
+});
+
+test('cron flags a user whose 24h cost jumps far above their 7-day average (once per day)', async () => {
+  const t = await makeEnv(), u = await t.user(), now = Date.now();
+  const ins = t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,1,0,0,0,0,?,?)');
+  for (let d = 2; d <= 7; d++) ins.run(u.id, 1, now - d * 864e5); ins.run(u.id, 60, now - 3600e3);
+  const { cron } = await import('../src/jobs.js'); await cron(t.env);
+  assert.ok(t.DB.raw.prepare("SELECT 1 FROM rate WHERE key=?").get('anom:' + u.id));
+});

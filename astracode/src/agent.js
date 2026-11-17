@@ -1,7 +1,7 @@
 // Agent เบื้องหลัง: ทำงานแก้โค้ดบนเซิร์ฟเวอร์ทั้งชุดโดยผู้ใช้ไม่ต้องเปิดหน้าค้างไว้ (รันใน Durable Object ของ ChatRun)
 // วนรอบ: ให้โมเดลคิด → อ่านไฟล์ที่ขอ (READ/GREP/LIST) → เขียนไฟล์ที่แก้ลงโปรเจกต์ → ส่งผลกลับให้โมเดล จนไม่มีอะไรต้องทำ
 // ข้อจำกัด: เซิร์ฟเวอร์รันโค้ดและจับภาพหน้าจอไม่ได้ Agent จึงตรวจงานด้วยการอ่านไฟล์กลับ ผู้ใช้ควรเปิดดูผลเองตอนจบ
-import { DAY, SYSTEM_CODE, allowedModels, ctxMax, err, esc, fitContext, json, limited, planOf, touchWindows, usageStatus } from './core.js';
+import { DAY, SYSTEM_CODE, allowedModels, ctxMax, err, esc, fitContext, flat, json, limMult, limited, planOf, touchWindows, usageStatus } from './core.js';
 import { callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs, webSearch } from './ai.js';
 import { b64 } from './projects.js';
 import { sendPush } from './push.js';
@@ -301,6 +301,20 @@ async function diffStats(env, pid, paths, since) {
     const [a, d] = lineDiff(old?.content || '', cur); return `${p} (+${a} −${d})${old ? '' : ' ใหม่'}`;
   }));
 }
+// ประเมินต้นทุนงาน Agent เป็น % ของลิมิตสัปดาห์: token ≈ ตัวอักษร/3 · ช่วงต่ำ = รอบน้อย+แคชเยอะ · ช่วงสูง = รอบมาก ไม่มีแคช
+// shortcut: สูตรหยาบจากพฤติกรรมเฉลี่ย ไม่ได้ดูความยากของงาน ถ้าจะแม่นขึ้นให้เก็บสถิติงานจริง (tin/tout ต่องาน) มาเทียบ
+export function estimateAgent(lead, wm, chars, files, limitWeek) {
+  const proj = Math.min(chars / 3, 60000), sys = 3500 + files * 12;
+  const calls = (m, n, inTok, out, cache) => (flat(m) ? m.req_cost * n : n * (inTok * ((1 - cache) * m.cost_in + cache * (m.cost_cache || m.cost_in)) + out * m.cost_out) / 1e6) * limMult(m);
+  const one = (hi) => {
+    const k = hi ? 1 : 0, cache = hi ? 0 : 0.5;
+    if (!wm) return calls(lead, hi ? 10 : 4, sys + proj * (hi ? 0.8 : 0.4), hi ? 5000 : 2500, cache);
+    const n = hi ? 5 : 3;
+    return calls(lead, 2 + k, sys + proj * 0.3, 1500, cache) + calls(wm, n * (hi ? 5 : 3), sys + proj * 0.3, hi ? 5000 : 3000, cache) + calls(lead, hi ? 4 : 2, sys + proj * 0.6, 2500, cache);
+  };
+  const pct = x => Math.max(0.1, Math.round(x / limitWeek * 1000) / 10);
+  return { low: pct(one(false)), high: pct(one(true)) };
+}
 // สถานะสดของ Agent ระหว่างที่โมเดลกำลังเขียน: ดูจากข้อความที่ได้มาแล้ว (บล็อกโค้ดที่ยังไม่ปิด / READ / GREP)
 export function doingNow(part) {
   const fences = [...part.matchAll(/```([^\n]*)\n/g)];
@@ -354,6 +368,20 @@ export async function agentApi(req, env, u, path) {
     const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role,scope,effort,worker_model_id) VALUES (?,?,?,?,'queued',?,?,?,?,?) RETURNING id").bind(u.id, b.research ? 0 : +b.project_id, model.id, prompt, Date.now(), b.research ? 'research' : b.team ? 'lead' : null, b.team && !b.research && b.confirm !== false ? 'confirm' : null, effort, b.team && +b.worker_model_id > 0 ? +b.worker_model_id : null).first();
     await launch(env, job.id); // ทำต่อใน Durable Object แม้ผู้ใช้ปิดแอป
     return json({ id: job.id });
+  }
+  if (path === '/api/agent/estimate' && M === 'POST') { // ประเมินว่างานนี้น่าจะใช้ลิมิตสัปดาห์กี่ % (ช่วงต่ำ–สูง)
+    const plan = await planOf(env, u), b = await req.json().catch(() => ({})), ms = await allowedModels(env, plan.id);
+    const lead = ms.find(x => x.id === +b.model_id), wm = b.team ? (await workerModel(env, plan, +b.worker_model_id || null)) || lead : null;
+    if (!lead || !(plan.limit_week > 0)) return json({ ok: false });
+    const sz = (await DB.prepare('SELECT COALESCE(SUM(length(content)),0) n, COUNT(*) c FROM project_files WHERE project_id=? AND project_id IN (SELECT id FROM projects WHERE user_id=?)').bind(+b.project_id, u.id).first());
+    return json({ ok: true, ...estimateAgent(lead, wm, sz.n, sz.c, plan.limit_week) });
+  }
+  const rs = path.match(/^\/api\/agent\/(\d+)\/resume$/);
+  if (rs && M === 'POST') { // ทำต่อจากงานที่หยุด: สั่งงานใหม่ (Agent เดี่ยว โมเดลเดิม) พร้อมสรุปของรอบก่อน
+    const J = await DB.prepare("SELECT * FROM agent_jobs WHERE id=? AND user_id=? AND parent_id IS NULL AND role IS NOT 'research' AND status IN ('stopped','limit','timeout','failed')").bind(+rs[1], u.id).first();
+    if (!J) return err('ไม่พบงานที่ทำต่อได้', 404);
+    const prompt = `${J.prompt.slice(0, 2500)}\n\n[ทำต่อจากงานก่อนหน้าที่หยุดไว้ (${J.status})]\n${(J.summary || '').slice(0, 900)}\nไฟล์ที่แก้ไปแล้ว: ${(JSON.parse(J.changed || '[]')).join(', ') || '-'}\nอ่านไฟล์ที่แก้แล้วก่อน แล้วทำส่วนที่ยังไม่เสร็จต่อ อย่าทำซ้ำส่วนที่เสร็จแล้ว`;
+    return agentApi(new Request(new URL('/api/agent', req.url), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project_id: J.project_id, model_id: J.model_id, effort: J.effort || '', prompt: prompt.slice(0, 4000) }) }), env, u, '/api/agent');
   }
   const st = path.match(/^\/api\/agent\/(\d+)\/start$/);
   if (st && M === 'POST') { // ผู้ใช้ยืนยันแผน (แก้ชื่อ/คำสั่ง/ไฟล์ หรือตัดงานย่อยทิ้งได้) แล้วเริ่มทีม

@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS usage (
   units REAL NOT NULL,
   cost REAL NOT NULL,                       -- บาท
   created_at INTEGER NOT NULL
+  , ms INTEGER                              -- เวลารวมของข้อความ (แชตเว็บ)
+  , ttft INTEGER                            -- เวลาจนได้ตัวอักษรแรก
 );
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, created_at);
 
@@ -342,6 +344,8 @@ CREATE TABLE IF NOT EXISTS usage (
   units REAL NOT NULL,
   cost REAL NOT NULL,                       -- บาท
   created_at INTEGER NOT NULL
+  , ms INTEGER                              -- เวลารวมของข้อความ (แชตเว็บ)
+  , ttft INTEGER                            -- เวลาจนได้ตัวอักษรแรก
 );
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, created_at);
 
