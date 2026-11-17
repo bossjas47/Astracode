@@ -438,7 +438,7 @@ function head() {
 const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace(/0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 function drawSide() {
   const q = ($('#search')?.value || '').toLowerCase(), list = $('#list'); if (!list) return;
-  const item = c => `<div class="item ${c.id === chat.id ? 'on' : ''}" data-id="${c.id}"><a href="/chat?id=${c.id}" data-chat="${c.id}">${ic(c.pinned ? 'pin' : c.has_code ? 'code' : 'msg', 'sm ci')}<span>${esc(c.title)}</span></a>
+  const item = c => `<div class="item ${c.id === chat.id ? 'on' : ''}" data-id="${c.id}"><a href="/chat?id=${c.id}" data-chat="${c.id}">${ic(c.pinned ? 'pin' : { '🤖': 'server', '⏰': 'bell', '📥': 'inbox', '🎨': 'palette' }[[...c.title][0]] || (c.has_code ? 'code' : 'msg'), 'sm ci')}<span>${esc(c.title.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''))}</span></a>
     <button data-cmenu="${c.id}" aria-label="ตัวเลือกแชต">${ic('more')}</button></div>`;
   const shown = chat.chats.filter(c => c.title.toLowerCase().includes(q)), open = JSON.parse(localStorage.getItem('fopen') || '{}');
   const pinned = shown.filter(c => c.pinned && !chat.folders.some(f => f.id === c.folder_id));

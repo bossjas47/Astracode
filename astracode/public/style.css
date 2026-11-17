@@ -1355,3 +1355,10 @@ small.ag-doing { display: block; margin: 2px 0 0; color: #d9a400; }
 :root[data-theme="light"] .ide-editor .cm-foldGutter span { color: #a39a8d; }
 
 .run-h > * { flex: none; } .run-h button { display: inline-flex; align-items: center; gap: 4px; } /* ปุ่มขวาบนของแผงรันไม่บีบทับกัน */
+
+/* ปุ่มเลือกไฟล์: แบบปุ่มของเว็บ แทนปุ่มเทาของเบราว์เซอร์ */
+input[type=file] { font: 400 14px var(--font); color: var(--ash); }
+input[type=file]::file-selector-button { margin-right: 12px; padding: 8px 16px; border-radius: 9999px; border: 1px solid var(--steel); background: var(--carbon); color: var(--porcelain); font: 600 14px var(--font); cursor: pointer; transition: background-color .2s; }
+input[type=file]::file-selector-button:hover { background: var(--graphite); }
+/* แถบเมนูหลังบ้านบนมือถือ: ไม่ลอยตามจอ (เคยทับเนื้อหาตอนเลื่อน) */
+@media (max-width: 820px) { .adm-nav { position: static; background: none; backdrop-filter: none; border-bottom-color: var(--hair); } }
