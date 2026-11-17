@@ -15,6 +15,11 @@ export const TEMPLATES = {
     'index.html': '<!DOCTYPE html>\n<html lang="th">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>โปรเจกต์ใหม่</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-zinc-950 text-zinc-100 min-h-screen flex items-center justify-center p-6">\n  <div class="max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-6 text-center space-y-4">\n    <h1 class="text-2xl font-semibold">สวัสดี AstraCode</h1>\n    <button id="btn" class="px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-medium">เริ่มต้น</button>\n  </div>\n  <script type="module" src="script.js"></script>\n</body>\n</html>\n',
     'script.js': "document.getElementById('btn').onclick = () => console.log('Tailwind starter ready');\n",
   },
+  react: { // React + Babel จาก CDN: เปิดแสดงผลได้ทันที ไม่ต้อง npm install
+    'index.html': '<!DOCTYPE html>\n<html lang="th">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>React</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <div id="root"></div>\n  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>\n  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>\n  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>\n  <script type="text/babel" src="app.jsx"></script>\n</body>\n</html>\n',
+    'app.jsx': 'function App() {\n  const [n, setN] = React.useState(0);\n  return (\n    <main>\n      <h1>สวัสดี React</h1>\n      <button onClick={() => setN(n + 1)}>กดแล้ว {n} ครั้ง</button>\n    </main>\n  );\n}\nReactDOM.createRoot(document.getElementById("root")).render(<App />);\n',
+    'style.css': 'body { font-family: system-ui, sans-serif; background: #111; color: #f5f5f7; padding: 24px; }\nbutton { padding: 10px 20px; border-radius: 999px; border: 0; background: #0a84ff; color: #fff; font-size: 16px; }\n',
+  },
   node: {
     'package.json': '{\n  "name": "astracode-app",\n  "version": "1.0.0",\n  "scripts": {\n    "start": "node index.js"\n  }\n}\n',
     'index.js': 'const name = "AstraCode";\nconsole.log(`Hello from Node.js, ${name}!`);\n',
@@ -120,6 +125,13 @@ export async function projects(req, env, u, path, url) {
     if (!moves.length) return err('ไม่พบไฟล์', 404);
     if (moves.some(([, n]) => rows.includes(n) && !moves.some(([o]) => o === n))) return err('มีไฟล์ชื่อนี้อยู่แล้ว');
     await DB.batch([...moves.map(([o, n]) => DB.prepare('UPDATE project_files SET path=?, updated_at=? WHERE project_id=? AND path=?').bind(n, now, pid, o)), touch]);
+    return json({ ok: true });
+  }
+  if (sub === '/env') { // ตัวแปรลับของโปรเจกต์ (KEY=VALUE): เก็บแบบเข้ารหัส ไม่ปนกับไฟล์ (AI/GitHub/zip ไม่เห็น) ส่งให้เทอร์มินัลตอนรันเท่านั้น
+    if (M === 'GET') return json({ text: p.env_sealed ? await unseal(env, p.env_sealed).catch(() => '') : '' });
+    if (M !== 'PUT') return err('method not allowed', 405);
+    const text = String((await req.json()).text ?? '').slice(0, 8000);
+    await DB.prepare('UPDATE projects SET env_sealed=? WHERE id=?').bind(text.trim() ? await seal(env, text) : null, pid).run();
     return json({ ok: true });
   }
   if (sub === '/share') { // ลิงก์อ่านอย่างเดียวของโปรเจกต์ (หน้าเว็บที่รันได้ที่ /p/<token>) · DELETE = ยกเลิกลิงก์

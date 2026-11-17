@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   , instructions TEXT NOT NULL DEFAULT ''
   , share_token TEXT                        -- ลิงก์แชร์แบบอ่านอย่างเดียว /p/<token>
   , slug TEXT                               -- ชื่อลิงก์ที่ตั้งเอง /p/<slug>
+  , env_sealed TEXT   -- ตัวแปรลับของโปรเจกต์ (เข้ารหัส)
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id);
 CREATE TABLE IF NOT EXISTS project_files (

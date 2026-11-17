@@ -18,7 +18,7 @@ async function codeHome() {
   page(nav() + `<div class="wrap"><section class="hero code-hero" style="padding:20px 0 8px"><h1>Code</h1>
     <p>เขียนโค้ดบนมือถือ มี AI ช่วยแก้ไฟล์ รัน HTML, JavaScript และ Python ได้ในเบราว์เซอร์</p></section>
     <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px">
-      <select name="template" style="width:auto;min-width:160px"><option value="starter">เว็บเริ่มต้น (HTML/CSS/JS/Py)</option><option value="tailwind">HTML + Tailwind CSS</option><option value="node">Node.js (package.json)</option><option value="python">Python</option><option value="empty">โปรเจกต์ว่าง</option></select>
+      <select name="template" style="width:auto;min-width:160px"><option value="starter">เว็บเริ่มต้น (HTML/CSS/JS/Py)</option><option value="tailwind">HTML + Tailwind CSS</option><option value="react">React (ไม่ต้องติดตั้ง)</option><option value="node">Node.js (package.json)</option><option value="python">Python</option><option value="empty">โปรเจกต์ว่าง</option></select>
       <button class="btn blue">+ New project</button></form>
     <details class="card clone"><summary><b>${ic('branch')} Clone จาก GitHub</b> <span class="muted">ดึง repo มาเป็นโปรเจกต์ใหม่</span></summary>
       <form id="cf2" class="form2" style="margin-top:12px"><div><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required></div>
@@ -130,7 +130,7 @@ async function saveNow() {
     try { await api(`/projects/${IDE.pid}/file`, { method: 'PUT', body: { path: p, content: c } }); IDE.files.set(p, c); if (content(p) === c) IDE.dirty.delete(p); }
     catch (x) { setStatus('บันทึกไม่ได้: ' + x.message, true); return; }
   }
-  setStatus(IDE.dirty.size ? 'ยังไม่บันทึก' : 'บันทึกแล้ว ✓'); drawTabs();
+  setStatus(IDE.dirty.size ? 'ยังไม่บันทึก' : 'บันทึกแล้ว ✓'); drawTabs(); syntaxCheck();
 }
 function setStatus(t, bad) { IDE.status = t; const s = $('#ide-status'); if (s) { s.textContent = t; s.classList.toggle('bad', !!bad); } }
 
@@ -467,6 +467,49 @@ function termOut(text, cls = '') {
   if (cls === 'err' && text.trim()) t.insertAdjacentHTML('beforeend', ` <button type="button" class="btn-fix" data-fix="${esc(text.slice(0, 1500))}">Fix with AI</button>\n`);
   t.scrollTop = t.scrollHeight;
 }
+// ---------- จัดรูปแบบโค้ด (Prettier: โหลดจาก CDN เมื่อกดครั้งแรก ตรวจ SRI) + ตรวจไวยากรณ์ ----------
+const PRET = 'https://cdn.jsdelivr.net/npm/prettier@3.3.3/';
+Object.assign(LIBS, {
+  prStd: [PRET + 'standalone.js', 'sha384-92h6ALm8/lHpNGn6MfGlgZ+I8c/4yn/nSN8dV9ZmDxqbP9L93gk/Jj2i0LtV+AVd'], prBabel: [PRET + 'plugins/babel.js', 'sha384-LVGbDV/P7cLtPieWR5eaG37eUXcUZWd+WiDayBt6n6/teTUJlQngL9TYCOVT3ZRj'],
+  prEstree: [PRET + 'plugins/estree.js', 'sha384-mNSKm0X7oH5iPYdbWeG0lmp0/RQ9VlHbsLaVbkkCPFep276FSXr8YrErabQmjcIJ'], prHtml: [PRET + 'plugins/html.js', 'sha384-VCy7LKCQow/T2yndLoIV5EJejLOuAjN751ZhVr3Ht99t2BncwdQuvukah28BeS03'],
+  prCss: [PRET + 'plugins/postcss.js', 'sha384-FUOoCpwcTLZEOGwXBLpirv3vYTBa8H30d595o52TC4oHV5F3nLVFNGuxn+O8EHPC'], prMd: [PRET + 'plugins/markdown.js', 'sha384-5ufuUgoSsr/2oihBZ5d+c+yt0qaUmzLtUz41VZNJ4txtyJ6mBve3ZwuKoq/IygYX'],
+});
+const PARSERS = [[/\.(m?jsx?|cjs)$/i, 'babel', ['prBabel', 'prEstree']], [/\.json$/i, 'json', ['prBabel', 'prEstree']], [/\.(css|scss|less)$/i, 'css', ['prCss']], [/\.html?$/i, 'html', ['prHtml', 'prBabel', 'prEstree', 'prCss']], [/\.(md|markdown)$/i, 'markdown', ['prMd']]];
+const parserOf = path => PARSERS.find(x => x[0].test(path || ''));
+const PLUGIN_NAMES = { prBabel: 'babel', prEstree: 'estree', prHtml: 'html', prCss: 'postcss', prMd: 'markdown' };
+async function prettierOpts(path, load) {
+  const pr = parserOf(path); if (!pr) return null;
+  if (load) { await lib('prStd'); for (const k of pr[2]) await lib(k); } else if (!window.prettier || pr[2].some(k => !loading[k])) return null; // ตรวจไวยากรณ์เฉพาะเมื่อโหลดตัวจัดรูปแบบแล้ว (ไม่โหลดเองให้เปลืองเน็ต)
+  return { parser: pr[1], plugins: pr[2].map(k => window.prettierPlugins[PLUGIN_NAMES[k]]), tabWidth: 2 };
+}
+const errLine = e => e?.loc?.start?.line || +(/\((\d+):\d+\)/.exec(e?.message || '') || [])[1] || null;
+async function formatActive() {
+  const path = IDE.active; if (!path || !parserOf(path)) return toast('ไฟล์ชนิดนี้ยังจัดรูปแบบไม่ได้ (รองรับ JS, JSON, CSS, HTML, Markdown)');
+  const b = $('#fmtb'); b.disabled = true; setStatus('กำลังจัดรูปแบบ...');
+  try {
+    const opt = await prettierOpts(path, true), src = content(path), out = await prettier.format(src, opt);
+    if (out !== src) { IDE.view.dispatch({ changes: { from: 0, to: IDE.view.state.doc.length, insert: out } }); toast('จัดรูปแบบแล้ว', 'ok'); } else toast('โค้ดเป็นระเบียบอยู่แล้ว');
+    IDE.synErr = null; setStatus(IDE.dirty.size ? 'ยังไม่บันทึก' : 'บันทึกแล้ว ✓');
+  } catch (x) { synFail(path, x); }
+  finally { b.disabled = false; }
+}
+function synFail(path, x) { const ln = errLine(x); IDE.synErr = { path, ln }; setStatus(`⚠ ไวยากรณ์ผิด${ln ? ' บรรทัด ' + ln : ''}: ${String(x.message || x).split('\n')[0].replace(/\s*\(\d+:\d+\)$/, '').slice(0, 80)}`, true); }
+async function syntaxCheck() { // หลังบันทึก: ไฟล์ที่เปิดอยู่ผิดไวยากรณ์ไหม (แตะแถบสถานะเพื่อไปบรรทัดที่ผิด)
+  const path = IDE.active; if (!path || isImg(path)) return;
+  const was = IDE.synErr; IDE.synErr = null;
+  try {
+    const src = content(path);
+    if (/\.json$/i.test(path)) JSON.parse(src); else { const opt = await prettierOpts(path, false); if (opt) await prettier.format(src, opt); }
+    if (was) setStatus(IDE.dirty.size ? 'ยังไม่บันทึก' : 'บันทึกแล้ว ✓');
+  } catch (x) { const m = /position (\d+)/.exec(x.message); if (m && x instanceof SyntaxError) x.loc = { start: { line: content(path).slice(0, +m[1]).split('\n').length } }; synFail(path, x); }
+}
+// ตัวแปรลับของโปรเจกต์ (.env): เก็บเข้ารหัสแยกจากไฟล์ ส่งให้เทอร์มินัลเป็นไฟล์ .env ชั่วคราวตอนรันเท่านั้น (ไม่เข้า AI, GitHub, zip)
+async function envSheet() {
+  const cur = await api(`/projects/${IDE.pid}/env`).catch(() => ({ text: '' }));
+  sheet('ตัวแปรลับ (.env)', `<div class="sheet-form"><p class="muted" style="margin:0">บรรทัดละ 1 ตัว เช่น <code>API_KEY=abc123</code> เก็บเข้ารหัส AI และ GitHub ไม่เห็น เทอร์มินัลจะได้รับเป็นไฟล์ <code>.env</code> ชั่วคราวตอนรัน (อ่านด้วย dotenv หรือ fs ได้ <code>process.env</code> ตรงๆ ยังไม่รองรับ)</p><textarea id="envt" rows="7" spellcheck="false" placeholder="API_KEY=...">${esc(cur.text || '')}</textarea><button class="btn blue sm" id="envs">Save</button></div>`, (d, close) => {
+    d.querySelector('#envs').onclick = async () => { try { const text = d.querySelector('#envt').value; await api(`/projects/${IDE.pid}/env`, { method: 'PUT', body: { text } }); IDE.env = text; toast('บันทึกตัวแปรลับแล้ว', 'ok'); close(); } catch (x) { toast(x.message, 'bad'); } };
+  });
+}
 // รันคำสั่ง: ส่งไฟล์โปรเจกต์ไปด้วย ไฟล์ที่คำสั่งสร้าง/แก้ (ยกเว้น node_modules) จะถูกบันทึกกลับเข้าโปรเจกต์
 async function nodeRun(cmd) {
   if (window.DEMO) { termOut(`$ ${cmd}\nหน้าเดโมรันเทอร์มินัลไม่ได้ บนเว็บจริงใช้ได้\n`, 'err'); return { code: 1, stdout: '', stderr: 'หน้าเดโมรันเทอร์มินัลไม่ได้' }; }
@@ -475,9 +518,10 @@ async function nodeRun(cmd) {
   try { await nodeFrame(); } catch (x) { termOut(x.message + '\n', 'err'); return { code: 1, stdout: '', stderr: x.message }; }
   const id = Math.random().toString(36).slice(2);
   const files = [...IDE.files.keys()].map(p => ({ path: p, content: content(p) }));
+  IDE.env ??= (await api(`/projects/${IDE.pid}/env`).catch(() => ({ text: '' }))).text || ''; if (IDE.env.trim()) files.push({ path: '.env', content: IDE.env });
   const d = await new Promise(ok => { IDE.node.jobs.set(id, ok); IDE.node.f.contentWindow.postMessage({ id, cmd, files }, '*'); });
   termOut(`[exit ${d.code}]\n`, d.code ? 'err' : 'muted'); $('#run-status').textContent = '';
-  const changed = (d.files || []).filter(f => PATH_OK(f.path) && content(f.path) !== f.content);
+  const changed = (d.files || []).filter(f => PATH_OK(f.path) && f.path !== '.env' && content(f.path) !== f.content);
   if (changed.length) { await writeFiles(changed); termOut(`บันทึกไฟล์ที่เปลี่ยน: ${changed.map(f => f.path).join(', ')}\n`, 'muted'); }
   return d;
 }
@@ -1108,13 +1152,13 @@ async function codeView(id) {
         <div class="dr-head"><div><b>${esc(d.name)}</b><div class="dr-links"><a href="/code" class="dr-back">‹ Projects</a><a href="/chat" class="dr-exit">Exit Code mode</a></div></div><button type="button" class="icon-btn sm" id="edset" aria-label="ตั้งค่าตัวแก้ไข">${ic('settings')}</button></div>
         <div class="dr-find"><input id="tfilter" type="search" placeholder="ค้นหาชื่อไฟล์" aria-label="ค้นหาชื่อไฟล์" autocomplete="off"></div><div id="recent" class="recent"></div>
         <div id="tree" class="tree"></div>
-        <div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="nfold">+ Folder</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">Upload</button>
+        <div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="nfold">+ Folder</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="envb">${ic('settings', 'sm')} .env</button><button class="btn out sm" id="upl">Upload</button>
         <button class="btn out sm" id="zin">Import zip</button><button class="btn out sm" id="zout">Export zip</button>
         <input type="file" id="uplf" multiple hidden><input type="file" id="zinf" accept=".zip,application/zip" hidden></div></aside>
       <div class="ide-scrim" id="idescrim"></div>
       <section class="ide-main"><div class="ide-tabs" id="tabs"></div>
         <div class="ide-tools"><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
-          <button id="wrapb" aria-label="ตัดบรรทัด">${ic('filetext', 'sm')} ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">${ic('sparkles', 'sm')} AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">${ic('activity', 'sm')} History</button><button id="save" aria-label="บันทึก">${ic('check', 'sm')} Save</button></div>
+          <button id="fmtb" aria-label="จัดรูปแบบโค้ด" title="จัดรูปแบบโค้ด (Prettier)">${ic('code', 'sm')} จัดรูป</button><button id="wrapb" aria-label="ตัดบรรทัด">${ic('filetext', 'sm')} ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">${ic('sparkles', 'sm')} AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">${ic('activity', 'sm')} History</button><button id="save" aria-label="บันทึก">${ic('check', 'sm')} Save</button></div>
         <div id="editor" class="ide-editor"></div><div id="imgview" class="imgview" hidden></div>
         <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
         <form class="cmdbar" id="cmdbar"><div class="cmd-opts"><button type="button" id="bmdl" aria-haspopup="dialog"></button><button type="button" id="beff" aria-haspopup="dialog"></button><span class="muted">อัตโนมัติ: แก้ไฟล์ · รัน · ตรวจผล</span></div>
@@ -1203,17 +1247,35 @@ async function codeView(id) {
     ct.value = `จากไฟล์ \`${IDE.active}\` บรรทัด ${l1}${l2 > l1 ? '-' + l2 : ''}:\n\`\`\`\n${code}\n\`\`\`\nช่วย`;
     ct.oninput(); ct.focus();
   };
+  $('#fmtb').onclick = formatActive; $('#envb').onclick = envSheet;
+  $('#ide-status')?.addEventListener('click', () => { const e = IDE.synErr; if (!e) return; if (e.path !== IDE.active) openFile(e.path); if (e.ln) { const ln = Math.min(e.ln, IDE.view.state.doc.lines); IDE.view.dispatch({ selection: { anchor: IDE.view.state.doc.line(ln).from }, scrollIntoView: true }); IDE.view.focus(); } });
   $('#gfind').onclick = () => {
     document.querySelector('.gsearch')?.remove();
     const box = document.createElement('div'); box.className = 'diffbox gitbox gsearch';
     box.innerHTML = `<div class="diff-h"><b>${ic('search', 'sm')} ค้นหาทั้งโปรเจกต์</b><span style="flex:1"></span><button class="btn out sm" data-x>Close</button></div>
-      <div class="git-b"><input id="gf-i" placeholder="พิมพ์คำหรือชื่อฟังก์ชันที่ต้องการค้นหา..." autofocus><div id="gf-r" style="margin-top:10px"></div></div>`;
+      <div class="git-b"><input id="gf-i" placeholder="พิมพ์คำหรือชื่อฟังก์ชันที่ต้องการค้นหา..." autofocus>
+      <div class="row" style="margin-top:8px;flex-wrap:nowrap"><input id="gf-w" placeholder="แทนที่ด้วย..." aria-label="แทนที่ด้วย" style="flex:1"><button class="btn out sm" id="gf-rep" disabled>แทนที่ทั้งหมด</button></div><div id="gf-r" style="margin-top:10px"></div></div>`;
     $('.ide').append(box);
     const inp = box.querySelector('#gf-i'), res = box.querySelector('#gf-r');
     setTimeout(() => inp.focus(), 30);
     box.onclick = e => { if (e.target.closest('[data-x]')) box.remove(); };
+    const repB = box.querySelector('#gf-rep'), repI = box.querySelector('#gf-w');
+    repB.onclick = async () => { // แทนที่ทุกที่ในโปรเจกต์ (ไม่สนตัวพิมพ์เล็กใหญ่ เหมือนการค้นหา) แล้วบันทึกอัตโนมัติ · ย้อนกลับได้จากประวัติไฟล์
+      const q = inp.value.trim(), rep = repI.value; if (!q) return;
+      const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), todo = [];
+      for (const fp of IDE.files.keys()) { if (isImg(fp)) continue; const c = content(fp), n = (c.match(re) || []).length; if (n) todo.push([fp, c, n]); }
+      const total = todo.reduce((a, x) => a + x[2], 0); if (!total) return toast('ไม่พบคำที่ค้นหา');
+      if (!await confirmSheet(`แทนที่ "${q}" ด้วย "${rep}" ${total} จุดใน ${todo.length} ไฟล์?`, { title: 'แทนที่ทั้งโปรเจกต์', ok: 'Replace all' })) return;
+      for (const [fp, c] of todo) {
+        const next = c.replace(re, () => rep);
+        if (fp === IDE.active) IDE.view.dispatch({ changes: { from: 0, to: IDE.view.state.doc.length, insert: next } });
+        else { IDE.files.set(fp, next); IDE.states.delete(fp); }
+        markDirty(fp);
+      }
+      toast(`แทนที่ ${total} จุดแล้ว`, 'ok'); inp.oninput(); drawTabs();
+    };
     inp.oninput = () => {
-      const q = inp.value.trim().toLowerCase();
+      const q = inp.value.trim().toLowerCase(); repB.disabled = !q;
       if (!q) { res.innerHTML = '<p class="muted">พิมพ์คำที่ต้องการค้นหา</p>'; return; }
       const hits = [];
       for (const fp of IDE.files.keys()) {
