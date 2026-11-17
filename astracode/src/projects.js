@@ -118,10 +118,18 @@ export async function projects(req, env, u, path, url) {
     return json({ ok: true });
   }
   if (sub === '/share') { // ลิงก์อ่านอย่างเดียวของโปรเจกต์ (หน้าเว็บที่รันได้ที่ /p/<token>) · DELETE = ยกเลิกลิงก์
-    if (M === 'DELETE') { await DB.prepare('UPDATE projects SET share_token=NULL WHERE id=?').bind(pid).run(); return json({ ok: true }); }
+    if (M === 'DELETE') { await DB.prepare('UPDATE projects SET share_token=NULL, slug=NULL WHERE id=?').bind(pid).run(); return json({ ok: true }); }
     const token = p.share_token || rand(12);
     if (!p.share_token) await DB.prepare('UPDATE projects SET share_token=? WHERE id=?').bind(token, pid).run();
-    return json({ token });
+    const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
+    if ('slug' in b) { // ตั้งชื่อลิงก์เอง: a-z 0-9 - ยาว 3-40 ไม่ซ้ำกับคนอื่น และไม่ใช่รูปแบบ token (กันชนกัน)
+      const slug = String(b.slug || '').trim().toLowerCase();
+      if (slug && (!/^[a-z0-9][a-z0-9-]{2,39}$/.test(slug) || /^[a-f0-9]{24}$/.test(slug))) return err('ชื่อลิงก์ใช้ได้เฉพาะ a-z 0-9 และ - ยาว 3–40 ตัว');
+      if (slug && await DB.prepare('SELECT 1 FROM projects WHERE slug=? AND id<>?').bind(slug, pid).first()) return err('ชื่อลิงก์นี้มีคนใช้แล้ว');
+      await DB.prepare('UPDATE projects SET slug=? WHERE id=?').bind(slug || null, pid).run();
+      return json({ token, slug: slug || null });
+    }
+    return json({ token, slug: p.slug || null });
   }
   if (sub === '/restorepoints') return json((await DB.prepare('SELECT MIN(created_at) ts, source, COUNT(DISTINCT path) files FROM file_versions WHERE project_id=? GROUP BY created_at/60000, source ORDER BY ts DESC LIMIT 40').bind(pid).all()).results);
   if (sub === '/restore' && M === 'POST') { // ย้อนทั้งโปรเจกต์ไปสถานะก่อนช่วงเวลานั้น (ใช้ประวัติรายไฟล์) · ไฟล์ที่สร้างใหม่หลังจุดนั้นจะยังอยู่

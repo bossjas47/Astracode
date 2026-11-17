@@ -182,7 +182,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     await creditsInit(env); await ensureImgTable(env); // ให้ตารางสิทธิ์รีเซ็ตและตารางรูปมีอยู่ก่อนลบ
     const c = 'SELECT id FROM chats WHERE user_id=?1', pj = 'SELECT id FROM projects WHERE user_id=?1';
     await DB.batch([`DELETE FROM messages WHERE chat_id IN (${c})`, 'DELETE FROM chats WHERE user_id=?1', `DELETE FROM project_files WHERE project_id IN (${pj})`, `DELETE FROM file_versions WHERE project_id IN (${pj})`,
-      'DELETE FROM projects WHERE user_id=?1', 'DELETE FROM chat_images WHERE user_id=?1', 'DELETE FROM team_members WHERE user_id=?1', 'DELETE FROM mcp_servers WHERE user_id=?1', 'DELETE FROM skills WHERE user_id=?1', 'DELETE FROM reset_grants WHERE user_id=?1', 'DELETE FROM reset_credits WHERE user_id=?1', 'DELETE FROM memories WHERE user_id=?1', 'DELETE FROM folders WHERE user_id=?1', 'DELETE FROM api_keys WHERE user_id=?1', 'DELETE FROM sessions WHERE user_id=?1',
+      'DELETE FROM projects WHERE user_id=?1', 'DELETE FROM chat_images WHERE user_id=?1', 'DELETE FROM team_members WHERE user_id=?1', 'DELETE FROM user_docs WHERE user_id=?1', 'DELETE FROM tasks WHERE user_id=?1', 'DELETE FROM mcp_servers WHERE user_id=?1', 'DELETE FROM skills WHERE user_id=?1', 'DELETE FROM reset_grants WHERE user_id=?1', 'DELETE FROM reset_credits WHERE user_id=?1', 'DELETE FROM memories WHERE user_id=?1', 'DELETE FROM folders WHERE user_id=?1', 'DELETE FROM api_keys WHERE user_id=?1', 'DELETE FROM sessions WHERE user_id=?1',
       `DELETE FROM ticket_msgs WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)`, 'DELETE FROM tickets WHERE user_id=?1', 'DELETE FROM tokens WHERE user_id=?1',
       "UPDATE users SET email='deleted-'||id||'@deleted.local', pass_hash='x', banned=1, gh_token=NULL, totp_secret=NULL, google_id=NULL, line_id=NULL, fb_uid=NULL, instructions='' WHERE id=?1", // เก็บแถวผู้ใช้ไว้เพราะประวัติการเงินต้องเก็บตามกฎหมาย
     ].map(q => DB.prepare(q).bind(u.id)));
@@ -315,6 +315,40 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (?,?,?,?,1,?) RETURNING id,user_id,name,description,content,enabled').bind(u.id, name, desc, content, Date.now()).first());
     }
   }
+  if ((r = path.match(/^\/api\/skills\/(\d+)\/share$/)) && M === 'POST') { // ลิงก์แชร์ Skill (ผู้ช่วยเฉพาะทาง) ให้คนอื่นนำเข้าไปใช้
+    const row = await DB.prepare('UPDATE skills SET share_token=COALESCE(share_token,?) WHERE id=? AND user_id=? RETURNING share_token').bind(rand(10), +r[1], u.id).first();
+    return row ? json({ token: row.share_token }) : err('ไม่พบ Skill', 404);
+  }
+  if (path === '/api/skills/import' && M === 'POST') { // นำเข้า Skill จากลิงก์: คัดลอกมาเป็นของตัวเอง (ต้นฉบับแก้ทีหลังไม่กระทบ)
+    const s = await DB.prepare('SELECT name,description,content FROM skills WHERE share_token=? AND enabled=1').bind(String((await req.json()).token || '')).first();
+    if (!s) return err('ลิงก์ Skill ไม่ถูกต้องหรือถูกยกเลิกแล้ว', 404);
+    const mine = await DB.prepare('SELECT id FROM skills WHERE user_id=? AND name=? AND content=?').bind(u.id, s.name, s.content).first();
+    if (mine) return json({ id: mine.id, name: s.name });
+    if ((await DB.prepare('SELECT COUNT(*) n FROM skills WHERE user_id=?').bind(u.id).first()).n >= 30) return err('สร้าง Skill ส่วนตัวได้สูงสุด 30 อัน');
+    return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (?,?,?,?,1,?) RETURNING id,name').bind(u.id, s.name, s.description, s.content, Date.now()).first());
+  }
+  if (path === '/api/docs') { // คลังความรู้: เอกสารข้อความที่เก็บถาวร ถามได้จากทุกแชต (สูงสุด 20 ไฟล์ ไฟล์ละ 400,000 ตัวอักษร)
+    if (M === 'GET') return json((await DB.prepare('SELECT id,name,LENGTH(content) size,created_at FROM user_docs WHERE user_id=? ORDER BY id DESC').bind(u.id).all()).results);
+    if (M === 'POST') {
+      const b = await req.json(), name = String(b.name || '').trim().slice(0, 120), content = String(b.content || '');
+      if (!name || content.trim().length < 20) return err('เอกสารว่างหรือสั้นเกินไป');
+      if (content.length > 400000) return err('เอกสารยาวเกิน 400,000 ตัวอักษร');
+      if ((await DB.prepare('SELECT COUNT(*) n FROM user_docs WHERE user_id=?').bind(u.id).first()).n >= 20) return err('คลังความรู้เก็บได้สูงสุด 20 เอกสาร ลบของเก่าก่อน');
+      return json(await DB.prepare('INSERT INTO user_docs (user_id,name,content,created_at) VALUES (?,?,?,?) RETURNING id,name').bind(u.id, name, content, Date.now()).first());
+    }
+  }
+  if ((r = path.match(/^\/api\/docs\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('DELETE FROM user_docs WHERE id=? AND user_id=?').bind(+r[1], u.id).run(); return json({ ok: true }); }
+  if (path === '/api/tasks') { // งานตั้งเวลา: ทุกวันตอนชั่วโมงที่เลือก (เวลาไทย) AI ทำตามคำสั่งแล้วส่งผลทางอีเมล + เก็บเป็นแชต
+    if (M === 'GET') return json((await DB.prepare('SELECT id,prompt,hour,search,last_day FROM tasks WHERE user_id=? ORDER BY id').bind(u.id).all()).results);
+    if (M === 'POST') {
+      if (!((await planOf(env, u))?.price > 0)) return err('งานตั้งเวลาใช้ได้กับแพลนที่ชำระเงิน', 403);
+      const b = await req.json(), prompt = String(b.prompt || '').trim().slice(0, 1000), hour = Math.floor(+b.hour);
+      if (prompt.length < 5 || !(hour >= 0 && hour <= 23)) return err('ใส่คำสั่งและเลือกเวลา 0–23 น.');
+      if ((await DB.prepare('SELECT COUNT(*) n FROM tasks WHERE user_id=?').bind(u.id).first()).n >= 3) return err('ตั้งงานได้สูงสุด 3 งาน');
+      return json(await DB.prepare('INSERT INTO tasks (user_id,prompt,hour,search,created_at) VALUES (?,?,?,?,?) RETURNING id').bind(u.id, prompt, hour, b.search === false ? 0 : 1, Date.now()).first());
+    }
+  }
+  if ((r = path.match(/^\/api\/tasks\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('DELETE FROM tasks WHERE id=? AND user_id=?').bind(+r[1], u.id).run(); return json({ ok: true }); }
   if ((r = path.match(/^\/api\/skills\/(\d+)$/))) {
     const sid = +r[1];
     if (M === 'DELETE') { await DB.prepare('DELETE FROM skills WHERE id=? AND user_id=?').bind(sid, u.id).run(); return json({ ok: true }); }

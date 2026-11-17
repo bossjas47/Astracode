@@ -221,12 +221,12 @@ export const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 export let colsDone;
 // เดิมสั่ง ALTER ทีละคำสั่งทุกครั้งที่ isolate เริ่ม (13 รอบไป-กลับ D1 ก่อนตอบคำขอแรก) ตอนนี้ถามโครงสร้างครั้งเดียวแล้วเพิ่มเฉพาะที่ขาด
-const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
+const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['projects', 'slug', 'TEXT'], ['skills', 'share_token', 'TEXT'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
 const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
 export const ensureCols = env => colsDone ||= (async () => {
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
   try {
-    const rows = (await env.DB.prepare("SELECT m.name t, p.name c FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name IN ('api_keys','plans','models','team_members','sessions','projects','api_log')").all()).results;
+    const rows = (await env.DB.prepare("SELECT m.name t, p.name c FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name IN ('api_keys','plans','models','team_members','sessions','projects','skills','api_log')").all()).results;
     const has = new Set(rows.map(r => r.t + '.' + r.c));
     todo = NEW_COLS.filter(([t, c]) => !has.has(t + '.' + c)).map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`);
     apiLog = !rows.some(r => r.t === 'api_log');

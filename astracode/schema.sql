@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   gh_synced TEXT                            -- JSON: path → blob sha ตอน sync ล่าสุด
   , instructions TEXT NOT NULL DEFAULT ''
   , share_token TEXT                        -- ลิงก์แชร์แบบอ่านอย่างเดียว /p/<token>
+  , slug TEXT                               -- ชื่อลิงก์ที่ตั้งเอง /p/<slug>
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id);
 CREATE TABLE IF NOT EXISTS project_files (
@@ -189,6 +190,9 @@ CREATE TABLE IF NOT EXISTS project_files (
 
 -- ระบบเพิ่มเติม (เหมือน migrate-6.sql)
 CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT, use_plan INTEGER NOT NULL DEFAULT 1, ip_allow TEXT, expires_at INTEGER);
+CREATE TABLE IF NOT EXISTS user_docs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL); -- คลังความรู้: เอกสารที่ถามได้จากทุกแชต
+CREATE INDEX IF NOT EXISTS user_docs_user ON user_docs(user_id);
+CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, prompt TEXT NOT NULL, hour INTEGER NOT NULL, search INTEGER NOT NULL DEFAULT 1, last_day INTEGER, created_at INTEGER NOT NULL); -- งานตั้งเวลา: รันทุกวันตอน hour (เวลาไทย) แล้วส่งอีเมล
 CREATE TABLE IF NOT EXISTS gift_codes (code TEXT PRIMARY KEY, amount REAL NOT NULL, from_user INTEGER NOT NULL, created_at INTEGER NOT NULL, used_by INTEGER, used_at INTEGER); -- โค้ดของขวัญ: โอนเงิน Wallet ให้คนอื่น
 CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id);
@@ -247,7 +251,8 @@ CREATE TABLE IF NOT EXISTS skills (
   description TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  share_token TEXT
 );
 CREATE INDEX IF NOT EXISTS skills_user ON skills(user_id, id);
 INSERT OR IGNORE INTO skills (id,user_id,name,description,content,enabled,created_at) VALUES

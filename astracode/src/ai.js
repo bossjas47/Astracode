@@ -259,6 +259,15 @@ export async function systemFor(env, u, base, skillIds = []) {
   return sys;
 }
 // ผลค้นเว็บแปะหน้าข้อความล่าสุด ไม่ต่อท้าย system เพราะ system ที่เปลี่ยนจะทำให้ prefix cache ของทั้งแชตหลุด
+// คลังความรู้: เลือกท่อนที่เกี่ยวกับคำถามจากเอกสารทั้งหมดของผู้ใช้ (ไม่เกิน ~12,000 ตัวอักษร) แปะหน้าข้อความล่าสุด
+export async function kbBlock(env, uid, question) {
+  const docs = (await env.DB.prepare('SELECT name,content FROM user_docs WHERE user_id=?').bind(uid).all().catch(() => ({ results: [] }))).results;
+  if (!docs.length) return '';
+  const q = grams(question), chunks = [];
+  for (const d of docs) for (let i = 0; i < d.content.length; i += 1500) { const text = d.content.slice(i, i + 1500); let s = 0; for (const g of grams(text)) if (q.has(g)) s++; if (s) chunks.push({ name: d.name, at: i, text, s }); }
+  const top = chunks.sort((a, b) => b.s - a.s).slice(0, 8); if (!top.length) return '';
+  return 'Excerpts from the user\'s knowledge base. Answer from them when relevant and name the document you used:\n' + top.map(c => `[${c.name} @${c.at}]\n${c.text}`).join('\n\n');
+}
 export const withSources = (text, sources) => sources?.length ? `Web search results (today is ${new Date().toISOString().slice(0, 10)}). Use them when relevant and cite as [1], [2]:\n${sources.map((x, i) => `[${i + 1}] ${x.title} (${x.url})\n${x.content}`).join('\n\n')}\n\nUser message:\n${text}` : text;
 // ค้นเว็บอัตโนมัติเมื่อคำถามดูเป็นข้อมูลสด (ข่าว ราคา อากาศ ผลแข่ง เวอร์ชันล่าสุด) · แอดมินปิดได้ที่ search_auto · shortcut: ใช้ regex ไม่เรียกโมเดลจัดประเภท ถ้าพลาดบ่อยค่อยเปลี่ยนเป็นโมเดลเล็ก
 export const FRESH = /ล่าสุด|วันนี้|ตอนนี้|เมื่อวาน|พรุ่งนี้|ข่าว|ราคา(?:ทอง|น้ำมัน|หุ้น|บิทคอยน์|ล่าสุด)|อัตราแลกเปลี่ยน|สภาพอากาศ|พยากรณ์|ผลบอล|ผลการแข่งขัน|ปัจจุบัน|\b(?:latest|today|tonight|news|current(?:ly)?|right now|this (?:week|month|year)|weather|score|release date|stock price)\b|\b202[5-9]\b/i;
@@ -457,7 +466,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, pw0 };
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -501,9 +510,11 @@ export async function runChat(env, J, send, st) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
     if (fb && !await modelDown(env, fb.id)) { model = fb; await send({ fallback: fb.name }); }
   }
-  let msgs = sources.length ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: withSources(x.content, sources) } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
+  const kb = J.kb ? await kbBlock(env, u.id, hist.at(-1).content) : '';
+  let msgs = sources.length || kb ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: (kb ? kb + '\n\n' : '') + withSources(x.content, sources) } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
+  const maxRounds = J.agent ? AGENT_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า
   let ctxUsed = 0, cumIn = 0, capped = false; // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     round_ = round + 1;
@@ -567,15 +578,15 @@ export async function runChat(env, J, send, st) {
       lastKind = 't';
       continue;
     }
-    const reqs = pid && !st.gone && round < TOOL_ROUNDS && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
+    const reqs = pid && !st.gone && round < maxRounds && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
     if (!reqs.length) break;
-    if (cumIn >= ANSWER_IN_MAX) { // คำตอบเดียวใช้ input เกินเพดาน: ไม่อ่านไฟล์เพิ่ม ให้ทำต่อจากที่มี (รอบถัดไปถ้ายังขออ่านอีกก็จบเลย)
+    if (cumIn >= inMax) { // คำตอบเดียวใช้ input เกินเพดาน: ไม่อ่านไฟล์เพิ่ม ให้ทำต่อจากที่มี (รอบถัดไปถ้ายังขออ่านอีกก็จบเลย)
       if (capped) break; capped = true;
       await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
       msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: '[ระบบ] คำตอบนี้ใช้ context ครบเพดานแล้ว ห้าม READ / GREP / LIST เพิ่ม ทำงานต่อหรือตอบจากข้อมูลที่มีตอนนี้เลย' }];
       continue;
     }
-    await send({ round: round + 2, of: TOOL_ROUNDS + 1, doing: doingOf(reqs) }); // บอกหน้าเว็บว่าเข้ารอบถัดไป (อ่านไฟล์แล้วคิดต่อ)
+    await send({ round: round + 2, of: maxRounds + 1, doing: doingOf(reqs) }); // บอกหน้าเว็บว่าเข้ารอบถัดไป (อ่านไฟล์แล้วคิดต่อ)
     const result = await runTools(env, pid, reqs);
     await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
     msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: result }]; imgs = [];
@@ -698,6 +709,7 @@ export async function mcpCall(url, token, name, args) {
 }
 
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
+export const AGENT_ROUNDS = 20, AGENT_IN_MAX = 1.2e6; // โหมด Agent ในหน้า Code (แพลนชำระเงิน)
 export const TOOL_ROUNDS = 6, READ_MAX = 100e3, ANSWER_IN_MAX = 400e3; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
 // หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
 export const stripOpenFile = t => String(t || '').replace(/\n\n\[(?:เนื้อหาไฟล์ที่เปิดอยู่|เนื้อหาไฟล์ในโปรเจกต์)\][\s\S]*$/, '');

@@ -49,9 +49,9 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
-    if ((r = path.match(/^\/p\/([a-f0-9]{24})$/))) { // โปรเจกต์ที่แชร์: หน้าเว็บอ่านอย่างเดียว รันใน sandbox (ไม่มีคุกกี้/ข้อมูลของเว็บเรา)
+    if ((r = path.match(/^\/p\/([a-z0-9][a-z0-9-]{2,39})$/))) { // token 24 ตัว หรือชื่อลิงก์ที่เจ้าของตั้งเอง // โปรเจกต์ที่แชร์: หน้าเว็บอ่านอย่างเดียว รันใน sandbox (ไม่มีคุกกี้/ข้อมูลของเว็บเรา)
       await ensureCols(env);
-      const pr = await env.DB.prepare('SELECT id FROM projects WHERE share_token=?').bind(r[1]).first();
+      const pr = await env.DB.prepare('SELECT id FROM projects WHERE share_token IS NOT NULL AND (share_token=?1 OR slug=?1)').bind(r[1]).first();
       const rows = pr ? (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pr.id).all()).results : [];
       const html = rows.length ? bundleProject(new Map(rows.map(f => [f.path, f.content]))) : null;
       if (!html) return new Response('ไม่พบโปรเจกต์นี้ หรือเจ้าของยกเลิกการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });

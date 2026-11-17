@@ -376,3 +376,32 @@ test('gift codes move wallet money once; request cap, blocked words, key expiry 
   assert.equal((await call()).status, 200); t.DB.raw.prepare('UPDATE api_keys SET expires_at=?').run(Date.now() - 1000); assert.equal((await call()).status, 401);
   fm.close();
 });
+
+test('knowledge base, shared skills, project slug, scheduled task and agent rounds', async () => {
+  const seen = []; const fm = await fakeModel((q, res, body) => { seen.push(body); fm.sse(res, 'answer'); }); const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'KB', base_url: fm.url }); const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 100 });
+  const a = await t.user(), b = await t.user(); give(t.DB, a, plan);
+  // knowledge base
+  assert.equal((await t.json('/api/docs', { method: 'POST', cookie: a.cookie, body: { name: 'policy.txt', content: 'x'.repeat(3000) + ' นโยบายคืนเงิน refund_window = 14 วัน ' + 'y'.repeat(3000) } })).status, 200);
+  assert.equal((await t.json('/api/docs', { cookie: b.cookie })).data.length, 0, 'docs are private');
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: a.cookie, body: { model_id: m.id, text: 'refund_window คืนเงินกี่วัน', kb: true } }));
+  assert.match(JSON.stringify(seen.at(-1).messages), /refund_window = 14/); assert.match(JSON.stringify(seen.at(-1).messages), /policy\.txt/);
+  // shared skill
+  const sk = await t.json('/api/skills', { method: 'POST', cookie: a.cookie, body: { name: 'bot', content: 'be brief' } });
+  const sh = await t.json(`/api/skills/${sk.data.id}/share`, { method: 'POST', cookie: a.cookie });
+  const im = await t.json('/api/skills/import', { method: 'POST', cookie: b.cookie, body: { token: sh.data.token } }); assert.equal(im.status, 200); assert.equal(im.data.name, 'bot');
+  assert.equal((await t.json('/api/skills/import', { method: 'POST', cookie: b.cookie, body: { token: 'nope' } })).status, 404);
+  // project slug
+  const pr = await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'Shop' } }), pid = pr.data.id;
+  const s1 = await t.json(`/api/projects/${pid}/share`, { method: 'POST', cookie: a.cookie, body: { slug: 'my-shop' } }); assert.equal(s1.data.slug, 'my-shop', JSON.stringify(s1.data));
+  assert.equal((await t.call('/p/my-shop')).status, 200); assert.equal((await t.call('/p/' + s1.data.token)).status, 200); assert.equal((await t.call('/p/other-name')).status, 404);
+  assert.equal((await t.json(`/api/projects/${pid}/share`, { method: 'POST', cookie: a.cookie, body: { slug: 'Bad Slug!' } })).status, 400);
+  // scheduled task
+  assert.equal((await t.json('/api/tasks', { method: 'POST', cookie: b.cookie, body: { prompt: 'สรุปข่าว AI', hour: 8 } })).status, 403, 'free plan');
+  const hour = new Date(Date.now() + 7 * 3600e3).getUTCHours();
+  assert.equal((await t.json('/api/tasks', { method: 'POST', cookie: a.cookie, body: { prompt: 'สรุปข่าว AI วันนี้', hour, search: false } })).status, 200);
+  const { runTasks } = await import('../src/jobs.js'); const chats0 = t.DB.raw.prepare('SELECT COUNT(*) n FROM chats').get().n;
+  assert.equal(await runTasks(t.env), 1); assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM chats').get().n, chats0 + 1);
+  assert.equal(await runTasks(t.env), 0, 'runs once a day');
+  fm.close();
+});
