@@ -577,6 +577,26 @@ function sheet(title, html, bind) {
   document.body.append(d); (d.querySelector('.opt.on') || d.querySelector('.sheet-b button, .sheet-b a'))?.focus();
   bind?.(d, close);
 }
+// ดู context แบบละเอียด: อะไรกินหน้าต่าง context ของโมเดลอยู่เท่าไร + ย่อแชต + เปิด/ปิดย่ออัตโนมัติ
+const CTX_COLORS = { system: '#7aa2f7', instr: '#bb9af7', mem: '#2ac3de', skill: '#9ece6a', rules: '#e0af68', summary: '#73daca', files: '#f7768e', user: '#7dcfff', assistant: '#a9b1d6' };
+async function ctxSheet({ chatId, modelId, projectId, skills = [], onCompact }) {
+  const q = new URLSearchParams(); if (chatId) q.set('chat_id', chatId); if (modelId) q.set('model_id', modelId); if (projectId) q.set('project_id', projectId); if (skills.length) q.set('skills', skills.join(','));
+  const r = await api('/context?' + q).catch(x => { toast(x.message, 'bad'); return null; }); if (!r) return;
+  const k = n => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n), pc = n => (n / r.max * 100).toFixed(n / r.max < 0.01 ? 2 : 1) + '%';
+  const bar = [...r.parts.map(p => [CTX_COLORS[p.k] || '#888', p.tok, p.label]), [ 'rgba(255,255,255,.08)', r.reserve, 'เผื่อคำตอบ' ]].filter(x => x[1] > 0).map(([c, n, l]) => `<i style="flex:${Math.max(n, r.max * 0.004)};background:${c}" title="${esc(l)} ${k(n)}"></i>`).join('');
+  sheet('Context ของแชตนี้', `<div class="sheet-form ctxs">
+    <p class="sheet-msg"><b>${k(r.used)}</b> / ${k(r.max)} token (${r.pct}%)${r.model ? ` · ${esc(r.model)}` : ''}<br><small class="muted">ข้อความ ${r.msgs} ข้อความที่ส่งให้โมเดลรอบหน้า${r.compacted ? ' · เคยย่อแชตแล้ว' : ''}</small></p>
+    <div class="ctxbar">${bar}</div>
+    <div class="tw"><table class="tbl">${r.parts.map(p => `<tr><td><span class="dot" style="background:${CTX_COLORS[p.k] || '#888'}"></span>${esc(p.label)}${p.detail ? `<br><small class="muted">${esc(p.detail)}</small>` : ''}</td><td>${k(p.tok)}</td><td class="muted">${pc(p.tok)}</td></tr>`).join('')}
+      <tr><td><span class="dot" style="background:rgba(255,255,255,.18)"></span>เผื่อคำตอบ</td><td>${k(r.reserve)}</td><td class="muted">${pc(r.reserve)}</td></tr>
+      <tr><td><b>ว่าง</b></td><td><b>${k(r.free)}</b></td><td class="muted">${pc(r.free)}</td></tr></table></div>
+    <label class="sw-row"><span class="sw"><input type="checkbox" id="cxauto" ${me.auto_compact !== false ? 'checked' : ''}><span></span></span> ย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม</label>
+    ${chatId ? '<button type="button" class="btn blue sm" id="cxnow">ย่อแชตตอนนี้</button>' : ''}
+    <p class="muted" style="margin:0;font-size:12.5px">ตัวเลขเป็นการประมาณจากจำนวนตัวอักษร (ภาษาไทยนับหนักกว่าอังกฤษ) อาจคลาดราว 20% · ย่อแชต = สรุปข้อความเก่าเหลือ 2 ข้อความล่าสุด</p></div>`, (d, close) => {
+    d.querySelector('#cxauto').onchange = async e => { try { await api('/me', { method: 'PUT', body: { auto_compact: e.target.checked } }); me.auto_compact = e.target.checked; toast(e.target.checked ? 'เปิดย่อแชตอัตโนมัติ' : 'ปิดย่อแชตอัตโนมัติ', 'ok'); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } };
+    const now = d.querySelector('#cxnow'); if (now) now.onclick = async () => { now.disabled = true; now.textContent = 'กำลังย่อ...'; try { const c = await api(`/chats/${chatId}/compact`, { method: 'POST' }); toast(c.ok ? 'ย่อแชตแล้ว' : 'แชตยังสั้นเกินกว่าจะย่อ', c.ok ? 'ok' : ''); close(); if (c.ok) onCompact?.(); } catch (x) { toast(x.message, 'bad'); now.disabled = false; now.textContent = 'ย่อแชตตอนนี้'; } };
+  });
+}
 function toast(msg, kind = '') {
   document.querySelector('.toast')?.remove();
   const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = msg;

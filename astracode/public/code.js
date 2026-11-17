@@ -838,7 +838,7 @@ function aiMsgHTML(m, i) {
   const cleanBody = fenceBare(stripTools(ask.text));
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${hasSegs(m) ? segHTML(m, cleanBody) : cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : waitHTML(m)}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
-    + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${m.tin || m.tout ? `<span class="tok" title="Input ${m.tin || 0} · Output ${m.tout || 0} token">↑${ktok(m.tin || 0)} ↓${ktok(m.tout || 0)}${m.rounds ? ` · ${m.rounds} รอบ` : ''}${m.ctx ? ` · <span class="ctxm ${m.ctx.used / m.ctx.max >= 0.9 ? 'bad' : m.ctx.used / m.ctx.max >= 0.7 ? 'warn' : ''}" title="context ที่ใช้ในรอบสุดท้าย เทียบกับขนาด context ของโมเดล">ctx ${ktok(m.ctx.used)}/${ktok(m.ctx.max)}</span>` : ''}${m.cost ? ` · ฿${m.cost}` : ''}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;
+    + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${m.tin || m.tout ? `<span class="tok" title="Input ${m.tin || 0} · Output ${m.tout || 0} token">↑${ktok(m.tin || 0)} ↓${ktok(m.tout || 0)}${m.rounds ? ` · ${m.rounds} รอบ` : ''}${m.ctx ? ` · <button type="button" class="ctxm ${m.ctx.used / m.ctx.max >= 0.9 ? 'bad' : m.ctx.used / m.ctx.max >= 0.7 ? 'warn' : ''}" data-ctx title="แตะเพื่อดูว่าอะไรกิน context อยู่เท่าไร">ctx ${ktok(m.ctx.used)}/${ktok(m.ctx.max)}</button>` : ''}${m.cost ? ` · ฿${m.cost}` : ''}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;
 }
 function drawAI() {
   const box = $('#cmsgs'); if (!box) return;
@@ -907,6 +907,8 @@ async function codeSend(auto) {
             ai.doing = `${ai.doingBase} · ${Math.round((Date.now() - ai.doingAt) / 1000)} วินาที`; const el = $('#cmsgs')?.lastElementChild?.querySelector('.doing'); if (el) el.textContent = ai.doing;
           }, 1000); }
         if (d.t?.trim() && ai.doing) ai.doing = '';
+        if (d.compacted) toast(`ย่อแชตอัตโนมัติแล้ว (${d.why})`, 'ok');
+        if (d.trimmed) toast('context เต็ม: ตัดข้อความเก่าบางส่วนออกจากที่ส่งให้ AI', 'bad');
         if (d.done && IDE.agent && document.hidden && 'Notification' in window && Notification.permission === 'granted') try { new Notification('AstraCode', { body: 'AI ทำงานเสร็จแล้ว แตะเพื่อดูผล' }); } catch { /* บางเบราว์เซอร์ต้องใช้ service worker */ }
         if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }
@@ -1241,6 +1243,7 @@ async function codeView(id) {
   $('#cmsgs').onclick = async e => {
     if (answer(e)) return;
     const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.ctx != null) return ctxSheet({ chatId: IDE.chatId, projectId: IDE.pid, modelId: +$('#cmodel')?.value || null, skills: IDE.skills, onCompact: () => {} });
     if (b.classList.contains('cp-code')) return copy(b.closest('.code').querySelector('code').textContent, b);
     if (b.dataset.copy) return copy(IDE.msgs[+b.dataset.copy].content, b);
     if (b.dataset.cs) { ct.value = b.dataset.cs; ct.focus(); return; }

@@ -315,10 +315,11 @@ function head() {
   ctl.textContent = chat.compare ? 'เทียบ 2 โมเดล' : chat.chats.find(c => c.id === chat.id)?.title || 'Chat';
   // แถบ context: ใช้ไปเท่าไรจากขนาด context ของโมเดล (จากคำตอบล่าสุด) · เกิน 70% มีปุ่มย่อแชต
   const cx = !chat.compare && chat.ctx?.id === chat.id ? chat.ctx : null, pct = cx ? Math.min(100, Math.round(cx.used / cx.max * 100)) : 0;
-  $('#ctok').innerHTML = cx ? `<span class="ctxm ${pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : ''}" title="context ที่ใช้ในคำตอบล่าสุด เทียบกับขนาด context ของโมเดล">context ${kTok(cx.used)} / ${kTok(cx.max)} (${pct}%)</span>${pct >= 70 && chat.id ? ' <button type="button" class="linkb" id="cmpct">ย่อแชต</button>' : ''}` : '';
+  $('#ctok').innerHTML = cx ? `<button type="button" class="ctxm ${pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : ''}" id="ctxopen" title="แตะเพื่อดูว่าอะไรกิน context อยู่เท่าไร">context ${kTok(cx.used)} / ${kTok(cx.max)} (${pct}%)</button>${pct >= 70 && chat.id ? ' <button type="button" class="linkb" id="cmpct">ย่อแชต</button>' : ''}` : '';
+  const co = $('#ctxopen'); if (co) co.onclick = () => ctxSheet({ chatId: chat.id, modelId: +curModel()?.id || null, skills: chat.skills, onCompact: () => { chat.ctx = null; head(); } });
   const cb = $('#cmpct'); if (cb) cb.onclick = async () => { cb.disabled = true; cb.textContent = 'กำลังย่อ...'; try { const r = await api(`/chats/${chat.id}/compact`, { method: 'POST' }); toast(r.ok ? 'ย่อแชตแล้ว ข้อความเก่าถูกสรุปไว้' : 'แชตยังสั้นเกินกว่าจะย่อ', r.ok ? 'ok' : ''); if (r.ok) chat.ctx = null; } catch (x) { toast(x.message, 'bad'); } head(); };
 }
-const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace(/0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 function drawSide() {
   const q = ($('#search')?.value || '').toLowerCase(), list = $('#list'); if (!list) return;
   const item = c => `<div class="item ${c.id === chat.id ? 'on' : ''}" data-id="${c.id}"><a href="/chat?id=${c.id}" data-chat="${c.id}">${ic(c.pinned ? 'pin' : c.has_code ? 'code' : 'msg', 'sm ci')}<span>${esc(c.title)}</span></a>
@@ -618,6 +619,8 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
       if (d.error) streamErr = d.error;
       if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; }
       if (d.ctx) { chat.ctx = { ...d.ctx, id: chat.id }; }
+      if (d.compacted) { toast(`ย่อแชตอัตโนมัติแล้ว (${d.why}) ข้อความเก่าถูกสรุปไว้`, 'ok'); chat.ctx = null; }
+      if (d.trimmed) toast('context เต็ม: ตัดข้อความเก่าบางส่วนออกจากที่ส่งให้ AI ลองย่อแชตหรือเปิดแชตใหม่', 'bad');
       if (d.done) { ai.pct = Math.max(0, d.pctWeek - me.usage.pctWeek); setUsage(d); }
     });
   } catch (x) {

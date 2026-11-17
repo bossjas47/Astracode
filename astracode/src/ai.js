@@ -515,12 +515,12 @@ export async function runChat(env, J, send, st) {
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
   const maxRounds = J.agent ? AGENT_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า
-  let ctxUsed = 0, cumIn = 0, capped = false; // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
+  let ctxUsed = 0, cumIn = 0, capped = false, trimmedSent = false; // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     round_ = round + 1;
     let part = '', ru = null;
     const tcs = new Map(), anthIdx = new Map();
-    const fit = fitContext(system, msgs, ctxMax(model)); msgs = fit.msgs; ctxUsed = fit.used; // ไม่ส่งเกิน context ของโมเดล (upstream จะ error)
+    const fit = fitContext(system, msgs, ctxMax(model)); msgs = fit.msgs; ctxUsed = fit.used; if (fit.trimmed && !trimmedSent) { trimmedSent = true; await send({ trimmed: true }); } // ไม่ส่งเกิน context ของโมเดล (upstream จะ error)
     for (let attempt = 0; attempt < 2; attempt++) {
       // นาฬิกาเฝ้าโมเดล: ไม่มีข้อความ/ความคิดตัวแรกภายใน 90 วิ (effort สูงสุด 150 วิ) หรือเงียบเกิน 60 วิกลางทาง = ตัดการเชื่อมต่อ แล้วใช้ทางสลับโมเดลสำรอง/แจ้งข้อผิดพลาด แทนที่ผู้ใช้จะรอไม่จบ
       const ac = new AbortController(); let stalled = 0, wd;
@@ -608,7 +608,11 @@ export async function runChat(env, J, send, st) {
     await mail(env, u.email, `AstraCode: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', (env.PUBLIC_URL || 'https://astracode.panderx.xyz') + '/plans')).catch(() => {});
     break;
   }
-  if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
+  if (cid && (out || think) && u.auto_compact !== 0) { // ย่อแชตอัตโนมัติหลังตอบเสร็จ: context ใช้ถึง compact_pct % ของหน้าต่างโมเดล (ค่าเริ่มต้น 75 · 0 = ปิดทั้งระบบ) หรือแชตยาวเกินเกณฑ์ตัวอักษร
+    const pctSet = await getSetting(env, 'compact_pct'), pctLim = pctSet === '' ? 75 : +pctSet, full = pctLim > 0 && ctxUsed >= ctxMax(model) * pctLim / 100;
+    const did = await compact(env, u, cid, false, full).catch(e => { console.log('compact', e.message); return false; }); // ไม่ทำให้ผู้ใช้รอ: สตรีมปิดหลังงานนี้เสร็จ
+    if (did) await send({ compacted: true, why: full ? 'context ใกล้เต็ม' : 'แชตยาว' });
+  }
 }
 
 // ---------- ลดต้นทุน: เลือกโมเดลอัตโนมัติ + ย่อแชตยาว ----------
@@ -631,10 +635,10 @@ export async function autoModel(env, plan, u, { text, images, files, effort, reg
   return m.id;
 }
 export const COMPACT_CHARS = 30000, COMPACT_KEEP = 6;
-export async function compact(env, u, cid, force = false) { // force = ผู้ใช้กด "ย่อแชต" เอง (ไม่ต้องรอให้ยาวถึงเกณฑ์)
+export async function compact(env, u, cid, force = false, byCtx = false) { // byCtx = context ใกล้เต็ม: ไม่ต้องรอถึงเกณฑ์ตัวอักษร // force = ผู้ใช้กด "ย่อแชต" เอง (ไม่ต้องรอให้ยาวถึงเกณฑ์)
   const c = await env.DB.prepare('SELECT summary,summary_upto FROM chats WHERE id=?').bind(cid).first();
   const rows = (await env.DB.prepare('SELECT id,role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id').bind(cid, c?.summary_upto || 0).all()).results.map(r => ({ ...r, content: String(r.content || '').replace(/\u2063/g, '') }));
-  if (rows.length <= (force ? 2 : COMPACT_KEEP + 2) || (!force && rows.reduce((a, r) => a + r.content.length, 0) < COMPACT_CHARS)) return false;
+  if (rows.length <= (force ? 2 : COMPACT_KEEP + 2) || (!force && !byCtx && rows.reduce((a, r) => a + r.content.length, 0) < COMPACT_CHARS)) return false;
   const old = rows.slice(0, force ? -2 : -COMPACT_KEEP);
   const want = +(await getSetting(env, 'summary_model'));
   const m = (await env.DB.prepare('SELECT * FROM models WHERE active=1 ORDER BY cost_in+cost_out').all()).results.filter(x => env[x.key_name]).find(x => !want || x.id === want);

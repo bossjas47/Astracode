@@ -485,3 +485,25 @@ test('background agent creates a requested image on the server and saves it in t
   assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM usage WHERE model_id=0 AND user_id=?').get(a.id).n, 1, 'image cost is logged');
   fm.close();
 });
+
+test('context report breaks down what fills the window; auto compact runs when the window is nearly full and the user can turn it off', async () => {
+  const fm = await fakeModel((q, res) => fm.sse(res, 'summary of the chat'.padEnd(40, '.'))); const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'Ctx2', base_url: fm.url }); t.DB.raw.prepare('UPDATE models SET ctx_k=2 WHERE id=?').run(m.id); t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('compact_pct','40')").run(); // หน้าต่างเล็กมาก (2k) และย่อที่ 40% ให้เต็มเร็ว
+  const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+  t.DB.raw.prepare("UPDATE users SET instructions='ตอบสั้นๆ เสมอ' WHERE id=?").run(u.id); t.DB.raw.prepare("INSERT INTO memories (user_id,text,created_at) VALUES (?,?,?)").run(u.id, 'ชอบกาแฟดำ', Date.now());
+  const say = async (text, cid) => { t.DB.raw.exec('DELETE FROM rate'); const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text, chat_id: cid } })); return { ev, cid: cid || ev.find(e => e.chat_id)?.chat_id }; };
+  let { cid } = await say('x'.repeat(600) + ' เรื่องที่หนึ่ง');
+  const rep = (await t.json(`/api/context?chat_id=${cid}&model_id=${m.id}`, { cookie: u.cookie })).data;
+  assert.equal(rep.max, 2000); assert.ok(rep.used > 0 && rep.free >= 0); assert.ok(rep.parts.some(p => p.k === 'system') && rep.parts.some(p => p.k === 'instr') && rep.parts.some(p => p.k === 'mem') && rep.parts.some(p => p.k === 'user'));
+  assert.equal((await t.json(`/api/context?chat_id=${cid}`, { cookie: (await t.user()).cookie })).status, 404, "another user's chat is hidden");
+  let last; for (let i = 0; i < 6; i++) last = await say('y'.repeat(1200) + ' ต่อเรื่อง ' + i, cid);
+  assert.ok(t.DB.raw.prepare('SELECT summary FROM chats WHERE id=?').get(cid).summary, 'auto compact wrote a summary once the window was nearly full');
+  assert.ok(last.ev.some(e => e.compacted) || t.DB.raw.prepare('SELECT summary_upto FROM chats WHERE id=?').get(cid).summary_upto, 'compacted event or summary pointer');
+  const rep2 = (await t.json(`/api/context?chat_id=${cid}&model_id=${m.id}`, { cookie: u.cookie })).data; assert.ok(rep2.parts.some(p => p.k === 'summary') && rep2.compacted);
+  // user can turn it off
+  const off = await t.user(); give(t.DB, off, plan); await t.json('/api/me', { method: 'PUT', cookie: off.cookie, body: { auto_compact: false } });
+  const sayOff = async (text, c) => { t.DB.raw.exec('DELETE FROM rate'); const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: off.cookie, body: { model_id: m.id, text, chat_id: c } })); return { ev, cid: c || ev.find(e => e.chat_id)?.chat_id }; };
+  let c2 = (await sayOff('z'.repeat(600))).cid; for (let i = 0; i < 6; i++) await sayOff('w'.repeat(1200) + i, c2);
+  assert.ok(!t.DB.raw.prepare('SELECT summary FROM chats WHERE id=?').get(c2).summary, 'no auto compact when the user turned it off');
+  fm.close();
+});

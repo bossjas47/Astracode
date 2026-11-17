@@ -1207,3 +1207,10 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .img-dl .ic { width: 20px; height: 20px; }
 .img-dl:hover { background: rgba(10,10,12,.85); }
 .acts button .ic { width: 16px; height: 16px; vertical-align: -3px; }
+
+/* context แบบละเอียด */
+.ctxbar { display: flex; height: 14px; border-radius: 8px; overflow: hidden; background: rgba(255,255,255,.05); gap: 1px; }
+.ctxbar i { display: block; min-width: 2px; }
+.ctxs .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
+.ctxs td:nth-child(2), .ctxs td:nth-child(3) { text-align: right; white-space: nowrap; }
+button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
