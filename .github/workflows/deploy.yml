@@ -9,8 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -37,18 +35,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: astracode
           command: deploy --keep-vars --var VERSION:${{ github.sha }}
-      # ผลงานโชว์บนหน้าแรก: เขียนไฟล์ลง D1 เฉพาะ commit ที่แก้ tools/showcase.sql (ไม่ทับงานที่แก้ในเว็บทุกครั้งที่ deploy)
-      - name: Showcase changed?
-        id: sc
-        run: git diff --quiet HEAD~1 -- astracode/tools/showcase.sql || echo "changed=1" >> "$GITHUB_OUTPUT"
-      - uses: cloudflare/wrangler-action@v3
-        if: steps.sc.outputs.changed == '1'
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: astracode
-          command: d1 execute astracode --remote --file=tools/showcase.sql
       - name: Verify live version
         run: |
           for i in $(seq 1 12); do

@@ -8,6 +8,7 @@ import { contextApi } from './context.js';
 import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
+import { SHOWCASE_SLUG, seedShowcase } from './showcase.js';
 import { passkeyApi, passkeyPublic } from './passkey.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
@@ -55,6 +56,7 @@ export default {
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
     if ((r = path.match(/^\/p\/([a-z0-9][a-z0-9-]{2,39})$/))) { // token 24 ตัว หรือชื่อลิงก์ที่เจ้าของตั้งเอง // โปรเจกต์ที่แชร์: หน้าเว็บอ่านอย่างเดียว รันใน sandbox (ไม่มีคุกกี้/ข้อมูลของเว็บเรา)
       await ensureCols(env);
+      if (r[1] === SHOWCASE_SLUG) await seedShowcase(env).catch(e => console.log('showcase', e.message));
       const pr = await env.DB.prepare('SELECT id FROM projects WHERE share_token IS NOT NULL AND (share_token=?1 OR slug=?1)').bind(r[1]).first();
       const rows = pr ? (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pr.id).all()).results : [];
       const html = rows.length ? bundleProject(new Map(rows.map(f => [f.path, f.content]))) + '<a href="/support" rel="noopener" style="position:fixed;right:8px;bottom:8px;z-index:2147483647;font:12px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:99px;text-decoration:none">รายงานหน้านี้ · Report</a><a href="/code?remix=' + r[1] + '" target="_blank" rel="noopener" style="position:fixed;right:8px;bottom:40px;z-index:2147483647;font:12px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:99px;text-decoration:none">Remix ใน AstraCode</a>' : null; // ปุ่มรายงานคงที่ ให้ผู้พบหน้าผิดกฎแจ้งแอดมินได้
@@ -143,7 +145,7 @@ export async function route(req, env, ctx, url, path, M) {
         return json({ per1, month: per1 * n * 30, plans: pls.map(x => ({ id: x.id, pct: weekUnits / x.limit_week * 100 })) });
       }
       if (path === '/api/status') return json(await status(env));
-      if (path === '/api/gallery') return await projects(req, env, null, path, url); // ผลงานเด่น: เปิดดูได้โดยไม่ต้องล็อกอิน
+      if (path === '/api/gallery') { await seedShowcase(env).catch(() => {}); return await projects(req, env, null, path, url); } // ผลงานเด่น: เปิดดูได้โดยไม่ต้องล็อกอิน
       if ((r = path.match(/^\/api\/share\/([a-f0-9]{12,48})$/))) {
         const c = await env.DB.prepare('SELECT id,title,created_at FROM chats WHERE share_token=? AND deleted_at IS NULL').bind(r[1]).first();
         if (!c) return err('ไม่พบแชตที่แชร์ หรือถูกยกเลิกแล้ว', 404);
