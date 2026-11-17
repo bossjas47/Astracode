@@ -1198,3 +1198,4 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .doing { color: var(--ash); font-size: 13px; padding: 2px 0 8px; }
 .ctxm.warn { color: #f5b74e; } .ctxm.bad { color: #ff6b6b; }
 .acts .memhint { color: #f5b74e; border-color: rgba(245,183,78,.5); }
+.flag.agent-on { color: #7dcfff; border-color: rgba(125,207,255,.55); background: rgba(125,207,255,.10); font-weight: 600; }
