@@ -1233,3 +1233,20 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 /* ตารางบนจอเล็ก: ให้ข้อความขึ้นบรรทัดใหม่ได้ จะได้พอดีจอมากขึ้น ไม่ต้องเลื่อนข้างทุกตาราง */
 @media (max-width: 520px) { .tw th, .tw td { white-space: normal; padding: 8px 6px; } .tw table, .tbl { font-size: 12.5px; } }
 .ide-tools button .ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 2px; }
+
+/* จอแคบมาก (≤360px): แถบบนไม่ดันหน้าเว็บให้เลื่อนข้าง */
+@media (max-width: 360px) {
+  .nav .nav-top { gap: 6px; padding: 0 8px; }
+  .nav .logo { font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .nav .nav-r { gap: 5px; flex: none; }
+  .nav-lim { padding: 0 8px; gap: 5px; }
+  .nav-wal { display: none; }
+}
+/* แถบปุ่มของหน้าผลลัพธ์ (Output/Console/Terminal/Fullscreen/Stop): เลื่อนข้างได้ + เงาจางขวา */
+.run-h { overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 36px; }
+.run-h::-webkit-scrollbar { display: none; }
+
+/* ข้อความ error + ปุ่มลองใหม่ใต้ช่องพิมพ์: ปุ่มไม่ทับข้อความ (จอแคบข้อความขึ้นหลายบรรทัด) */
+.compose .err .btn { display: flex; width: fit-content; margin: 8px auto 0; position: static; }
+/* จอแคบ: ปุ่มเลือกโมเดลไม่ถูกบีบจนเหลือแต่ไอคอน (โหมดเทียบ 2 โมเดลมี 2 ปุ่ม ให้ขึ้นบรรทัดใหม่แทน) */
+@media (max-width: 380px) { .cb.pick { min-width: 96px; max-width: none; flex: 1 1 96px; } .crow { flex-wrap: wrap; } }
