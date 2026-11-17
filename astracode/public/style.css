@@ -1314,3 +1314,23 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 .vcall[data-s="speak"] .vc-orb { background: var(--green, #22c55e); animation: vcpulse .9s ease-in-out infinite; }
 @keyframes vcpulse { 50% { transform: scale(1.08); } }
 @media (prefers-reduced-motion: reduce) { .vcall .vc-orb { animation: none !important; } }
+
+/* ห้องทำงานทีม Agent แบบการ์ตูน */
+.ag-stage { position: relative; margin: 4px 0 10px; border-radius: 18px; overflow: hidden; background: linear-gradient(#f6f1e8, #ece3d4); aspect-ratio: 360 / 230; }
+.ag-stage svg { display: block; width: 100%; height: 100%; }
+.ag-b { position: absolute; transform: translate(-50%, -100%); max-width: 30%; padding: 2px 7px; border-radius: 9px; background: #fff; color: #222; font-size: 9.5px; line-height: 1.25; box-shadow: 0 2px 6px rgba(0,0,0,.18); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-align: center; pointer-events: auto; }
+.ag-b::after { display: none; }
+.ag-b::after { content: ''; position: absolute; left: 50%; bottom: -4px; margin-left: -4px; border: 4px solid transparent; border-bottom: 0; border-top-color: #fff; }
+.ag-b.on { background: #fffbe6; font-weight: 600; }
+.ag-p .arm { transform-box: fill-box; transform-origin: 100% 50%; } .ag-p .arm.r { transform-origin: 0% 50%; }
+.ag-p.on .arm { animation: agtype .35s ease-in-out infinite alternate; animation-delay: var(--d); }
+.ag-p.on .scr { animation: agscr 1.6s steps(2) infinite; }
+.ag-p .zzz { animation: agz 2s ease-in-out infinite; }
+.ag-stage .clk { transform-box: fill-box; transform-origin: 50% 100%; animation: agclk 6s linear infinite; }
+@keyframes agtype { to { transform: translateY(1.6px); } }
+@keyframes agscr { 50% { fill: #93c5fd; } }
+@keyframes agz { 50% { transform: translateY(-4px); opacity: .5; } }
+@keyframes agclk { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ag-stage * { animation: none !important; } }
+.ag-doing { margin: 0 0 8px; font-size: 13px; color: var(--muted, #999); }
+small.ag-doing { display: block; margin: 2px 0 0; color: #d9a400; }

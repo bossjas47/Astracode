@@ -299,7 +299,7 @@ function bindInstall() {
 
 // ---------- หน้าแรก ----------
 async function landing() {
-  const [plans, posts, pr] = await Promise.all([api('/plans').catch(() => []), api('/blog').catch(() => []), api('/pricing').catch(() => ({ models: [] }))]);
+  const [plans, posts, pr, gal] = await Promise.all([api('/plans').catch(() => []), api('/blog').catch(() => []), api('/pricing').catch(() => ({ models: [] })), api('/gallery').catch(() => [])]);
   const cheapest = plans.filter(p => p.price > 0).sort((a, b) => a.price - b.price)[0];
   // ถูกกว่าซื้อ API ทางการ: เฉพาะโมเดลที่ตั้งราคาทางการไว้และเราถูกกว่า (เรียงตามลำดับโมเดลในระบบ) · ทางการแปลงเป็นบาทด้วยอัตราเดียวกับหน้าราคา
   const vs = pr.models.filter(m => m.official?.in > 0 && m.official?.out > 0 && m.out > 0).map(m => ({ m, pct: Math.round((1 - m.out / (m.official.out * usdRate())) * 100) })).filter(x => x.pct > 0).slice(0, 6);
@@ -344,6 +344,7 @@ async function landing() {
         ${[['ราคาและรุ่น', 6], ['สถานีชาร์จ', 4], ['ต้นทุนต่อเดือน', 5]].map(([t, n], i) => `<div class="dm-row w" style="--i:${i + 1}"><b>ค้น</b><span>${t} <small>${n} แหล่ง</small></span><i class="dm-bar"><i></i></i><em>✓</em></div>`).join('')}
         <div class="dm-rep"><i></i><i></i><i></i><small>รายงานพร้อมอ้างอิง [1]–[15]</small></div></div>
     </div></div>
+    ${gal.length ? `<div class="band" id="showcase"><h2>ผลงานที่สร้างด้วย AstraCode</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">เปิดลองใช้ได้เลย ไม่ต้องสมัคร · กด Remix เพื่อคัดลอกไปแก้ต่อในโหมด Code</p><div class="grid">${gal.slice(0, 6).map(g => `<div class="tile"><b style="font:600 18px var(--display)">${esc(g.name)}</b>${g.blurb ? `<p class="muted" style="margin:6px 0 10px">${esc(g.blurb)}</p>` : ''}<div class="row"><a class="btn blue sm" href="/p/${esc(g.link)}" target="_blank" rel="noopener">เปิดดู Demo</a><a class="btn out sm" href="/code?remix=${esc(g.link)}">Remix</a></div></div>`).join('')}</div></div>` : ''}
     <div class="band" id="cmp"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>
     <div class="band"><h2>คำถามที่พบบ่อย</h2>${faqHTML()}</div>
@@ -596,7 +597,10 @@ function sheet(title, html, bind) {
 const CTX_COLORS = { system: '#7aa2f7', instr: '#bb9af7', mem: '#2ac3de', skill: '#9ece6a', rules: '#e0af68', summary: '#73daca', files: '#f7768e', user: '#7dcfff', assistant: '#a9b1d6' };
 async function ctxSheet({ chatId, modelId, projectId, skills = [], onCompact, onPickModel }) {
   const q = new URLSearchParams(); if (chatId) q.set('chat_id', chatId); if (modelId) q.set('model_id', modelId); if (projectId) q.set('project_id', projectId); if (skills.length) q.set('skills', skills.join(','));
-  const r = await api('/context?' + q).catch(x => { toast(x.message, 'bad'); return null; }); if (!r) return;
+  const [r, jobs] = await Promise.all([api('/context?' + q).catch(x => { toast(x.message, 'bad'); return null; }), projectId ? api('/agent?project=' + projectId).catch(() => []) : []]); if (!r) return;
+  // Agent บนเซิร์ฟเวอร์ทำงานนอกแชตนี้: แสดง context ของงานล่าสุด (24 ชม.) แยกรายสมาชิก · ctx_peak = input ของรอบที่ใหญ่สุด
+  const ag = jobs.find(j => j.role !== 'research' && Date.now() - j.created_at < 864e5), mctx = id => ((me.models.find(x => x.id === id)?.ctx_k || 128) * 1000);
+  const agRows = ag ? [{ ...ag, title: ag.role === 'lead' ? 'หัวหน้าทีม' : 'Agent' }, ...(ag.team || []).map(k => ({ ...k, title: (k.role === 'review' ? 'ผู้ตรวจ' : 'ลูกทีม') + ' · ' + (k.title || '') }))] : [];
   const k = n => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n), pc = n => (n / r.max * 100).toFixed(n / r.max < 0.01 ? 2 : 1) + '%';
   const bar = [...r.parts.map(p => [CTX_COLORS[p.k] || '#888', p.tok, p.label]), [ 'rgba(255,255,255,.08)', r.reserve, 'เผื่อคำตอบ' ]].filter(x => x[1] > 0).map(([c, n, l]) => `<i style="flex:${Math.max(n, r.max * 0.004)};background:${c}" title="${esc(l)} ${k(n)}"></i>`).join('');
   sheet('Context ของแชตนี้', `<div class="sheet-form ctxs">
@@ -608,6 +612,7 @@ async function ctxSheet({ chatId, modelId, projectId, skills = [], onCompact, on
     <label class="sw-row"><span class="sw"><input type="checkbox" id="cxauto" ${me.auto_compact !== false ? 'checked' : ''}><span></span></span> ย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม</label>
     ${r.models?.length > 1 ? `<b style="margin-top:6px">ถ้าคุยต่อด้วยโมเดลอื่น</b><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ขนาด context</th><th>เต็ม</th></tr>${r.models.map(m => `<tr ${onPickModel ? `data-pickm="${m.id}" style="cursor:pointer"` : ''} class="${m.id === r.model_id ? 'on' : ''}"><td>${esc(m.name)}${m.id === r.model_id ? ' <small class="muted">(ใช้อยู่)</small>' : ''}</td><td>${k(m.max)}</td><td class="${m.pct >= 90 ? 'bad' : m.pct >= 70 ? 'warn' : ''}">${m.pct}%</td></tr>`).join('')}</table></div>${onPickModel ? '<small class="muted">แตะแถวเพื่อสลับไปใช้โมเดลนั้น</small>' : ''}` : ''}
     ${r.byModel?.length ? `<b style="margin-top:6px">ใช้ไปแล้วในแชตนี้ (ตัวเลขจริงจากผู้ให้บริการ)</b><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ตอบ</th><th>ส่งเข้า</th><th>ตอบออก</th><th>สูงสุด/ครั้ง</th></tr>${r.byModel.map(m => `<tr><td>${esc(m.name)}</td><td>${m.replies}</td><td>${k(m.tin)}</td><td>${k(m.tout)}</td><td>${k(m.peak)}</td></tr>`).join('')}</table></div>` : ''}
+    ${agRows.length ? `<b style="margin-top:6px">Agent บนเซิร์ฟเวอร์ (งานล่าสุด · ${esc(ag.status)})</b><p class="muted" style="margin:0;font-size:12.5px">Agent ทำงานนอกแชตนี้ แต่ละตัวมี context แยกกัน · ตัวเลขจริงจากผู้ให้บริการ</p><div class="tw"><table class="tbl"><tr><th>สมาชิก</th><th>context สูงสุด</th><th>token เข้า/ออก</th></tr>${agRows.map(x => `<tr><td>${esc(x.title.slice(0, 40))}<br><small class="muted">${esc(me.models.find(m => m.id === x.model_id)?.name || '')}${x.doing ? ' · ' + esc(x.doing) : ''}</small></td><td>${x.ctx_peak ? `${k(x.ctx_peak)} / ${k(mctx(x.model_id))}<br><small class="muted">${(x.ctx_peak / mctx(x.model_id) * 100).toFixed(1)}%</small>` : '<span class="muted">ยังไม่เริ่ม</span>'}</td><td>${x.tin ? k(x.tin) + ' / ' + k(x.tout || 0) : '-'}</td></tr>`).join('')}</table></div>` : ''}
     ${chatId ? '<button type="button" class="btn blue sm" id="cxnow">ย่อแชตตอนนี้</button>' : ''}
     <p class="muted" style="margin:0;font-size:12.5px">ตัวเลขเป็นการประมาณจากจำนวนตัวอักษร (ภาษาไทยนับหนักกว่าอังกฤษ) อาจคลาดราว 20% · ย่อแชต = สรุปข้อความเก่าเหลือ 2 ข้อความล่าสุด</p></div>`, (d, close) => {
     d.querySelectorAll('[data-pickm]').forEach(tr => tr.onclick = () => { close(); onPickModel(+tr.dataset.pickm); });

@@ -382,7 +382,8 @@ export async function logUsage(env, uid, m, usage, { units = true, wallet = null
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)')
     .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now).run();
-  if (job) await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+? WHERE id=?').bind(cost, job).run(); // ต้นทุนต่องาน Agent (ดูในหลังบ้าน)
+  // ต้นทุน/token ต่องาน Agent · ctx_peak = input ของรอบที่ใหญ่สุด (ใช้แสดง context ของทีม)
+  if (job) { const tin = usage.fresh + usage.read + usage.write; await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, tin, usage.out, tin, job).run(); }
   let charge = 0;
   if (wallet) {
     const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6) * 10000) / 10000;

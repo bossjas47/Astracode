@@ -50,7 +50,7 @@ export async function ensureAgentTable(env) {
   if (agentReady) return;
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, model_id INTEGER NOT NULL, prompt TEXT NOT NULL, status TEXT NOT NULL, rounds INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT \'\', summary TEXT, changed TEXT, chat_id INTEGER, created_at INTEGER NOT NULL, finished_at INTEGER)').run();
   // ทีม Agent: role = lead (หัวหน้าวางแผน) / worker (ลูกทีม) / review (ผู้ตรวจรวม) · scope = ไฟล์ที่ลูกทีมแก้ได้ (JSON) · started_at = เริ่มรันจริง (ใช้กับตัวเก็บงานค้าง)
-  for (const c of ['parent_id INTEGER', 'role TEXT', 'scope TEXT', 'started_at INTEGER', 'cost REAL', 'effort TEXT']) try { await env.DB.prepare('ALTER TABLE agent_jobs ADD COLUMN ' + c).run(); } catch { /* มีแล้ว */ }
+  for (const c of ['parent_id INTEGER', 'role TEXT', 'scope TEXT', 'started_at INTEGER', 'cost REAL', 'effort TEXT', 'doing TEXT', 'worker_model_id INTEGER', 'tin INTEGER', 'tout INTEGER', 'ctx_peak INTEGER']) try { await env.DB.prepare('ALTER TABLE agent_jobs ADD COLUMN ' + c).run(); } catch { /* มีแล้ว */ }
   agentReady = true;
 }
 let agentReady = false;
@@ -139,18 +139,18 @@ async function runLead(env, J, u, plan, m) {
   let msgs = [{ role: 'user', content: `${J.prompt}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${files.map(f => `${f.path} (${f.n})`).join('\n').slice(0, 15000)}` }], tasks = null, note = '';
   for (let round = 1; round <= 4 && !tasks; round++) {
     if ((await DB.prepare('SELECT status FROM agent_jobs WHERE id=?').bind(J.id).first())?.status === 'stopping') return { status: 'stopped', note: 'หยุดก่อนแบ่งงาน' };
-    let part = '', usage = null;
+    let part = '', usage = null; await setJob(env, J.id, { doing: round === 1 ? 'หัวหน้ากำลังอ่านโปรเจกต์' : 'หัวหน้ากำลังวางแผน' });
     try { for await (const e of callModel(env, m, fitContext(LEAD_NOTE, msgs, ctxMax(m)).msgs, { effort: J.effort || null, system: SYSTEM_CODE + '\n\n' + LEAD_NOTE, userId: u.id, signal: AbortSignal.timeout(150e3) })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
     catch (x) { note = 'หัวหน้าตอบไม่ได้: ' + String(x.message).slice(0, 80); await new Promise(r => setTimeout(r, 3000)); continue; }
     if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: J.id }); }
-    await setJob(env, J.id, { rounds: round });
+    await setJob(env, J.id, { rounds: round, doing: 'กำลังแบ่งงานให้ลูกทีม' });
     tasks = parsePlan(part); if (tasks) break;
     const reqs = toolReqs(part);
     msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: reqs.length && round < 4 ? await runTools(env, J.project_id, reqs) : 'ตอบเป็น JSON ตามรูปแบบที่กำหนดเท่านั้น {"tasks":[...]} ทุกงานต้องมี files อย่างน้อย 1 ไฟล์' }];
     note = 'หัวหน้าส่งแผนไม่ถูกรูปแบบ';
   }
   if (!tasks) return { status: 'failed', note: note || 'หัวหน้าแบ่งงานไม่สำเร็จ' };
-  const wm = await workerModel(env, plan), goal = J.prompt.slice(0, 1500), now = Date.now(), confirm = J.scope === 'confirm'; // scope ของงานหัวหน้า = 'confirm' → รอผู้ใช้ยืนยันแผน
+  const wm = await workerModel(env, plan, J.worker_model_id), goal = J.prompt.slice(0, 1500), now = Date.now(), confirm = J.scope === 'confirm'; // scope ของงานหัวหน้า = 'confirm' → รอผู้ใช้ยืนยันแผน
   await DB.batch(tasks.map(t => DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,parent_id,role,scope,summary) VALUES (?,?,?,?,?,?,?,'worker',?,?)")
     .bind(J.user_id, J.project_id, (wm || m).id, workerPrompt(t, goal), confirm ? 'planned' : 'waiting', now, J.id, JSON.stringify(t.files), confirm ? JSON.stringify({ title: t.title, prompt: t.prompt }) : null)));
   await setJob(env, J.id, { status: confirm ? 'plan' : 'team', log: `แบ่งงาน ${tasks.length} ชิ้น (ลูกทีมใช้ ${(wm || m).name})\n` + tasks.map((t, i) => `${i + 1}. ${t.title} → ${t.files.join(', ')}`).join('\n') });
@@ -206,9 +206,9 @@ async function runResearch(env, J, u, plan, m) {
   await mail(env, u.email, `AstraCode Deep research ${status === 'done' ? 'เสร็จแล้ว' : 'ไม่ครบ'}: ${J.prompt.slice(0, 50)}`, mailBox('รายงานพร้อมแล้ว', esc((report || log.at(-1) || '').slice(0, 1500)).replace(/\n/g, '<br>'), 'เปิดรายงาน', `${siteUrl(env)}/chat?id=${chat.id}`)).catch(() => {});
 }
 // โมเดลลูกทีม: ตั้งใน team_worker_model (id) ไม่งั้นใช้ DeepSeek 4.1 Flash ถ้าแพลนมี สุดท้ายใช้ตัวที่ตัวคูณต่ำสุด
-export async function workerModel(env, plan) {
+export async function workerModel(env, plan, chosen = null) { // chosen = ผู้ใช้เลือกเอง (ต้องอยู่ในแพลน) · ไม่งั้นค่าที่แอดมินตั้ง → DeepSeek Flash → ถูกสุด
   const ms = (await allowedModels(env, plan.id)).filter(x => !['image', 'embedding'].includes(x.provider)), set = +(await getSetting(env, 'team_worker_model'));
-  const pick = ms.find(x => x.id === set) || ms.find(x => /deepseek.*4\.1.*flash/i.test(x.name)) || [...ms].sort((a, b) => a.multiplier - b.multiplier)[0];
+  const pick = (chosen && ms.find(x => x.id === +chosen)) || ms.find(x => x.id === set) || ms.find(x => /deepseek.*4\.1.*flash/i.test(x.name)) || [...ms].sort((a, b) => a.multiplier - b.multiplier)[0];
   return pick && env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(pick.id).first();
 }
 export async function runAgent(env, jobId, st = { gone: false }) {
@@ -221,7 +221,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
   const lead = J.parent_id ? await DB.prepare('SELECT * FROM agent_jobs WHERE id=?').bind(J.parent_id).first() : null, scope = J.role === 'worker' && J.scope ? JSON.parse(J.scope) : null;
   const finish = async () => {
     if (J.role === 'worker') { // ลูกทีม: ไม่สร้างแชต ไม่ส่งอีเมล (ผู้ตรวจสรุปรวมทีเดียว) แล้วให้ทีมเดินต่อ
-      await setJob(env, jobId, { status, rounds: round, log: log.join('\n').slice(0, 8000), summary: (final || usageNote).slice(0, 4000), changed: JSON.stringify([...changedAll]), finished_at: Date.now() });
+      await setJob(env, jobId, { doing: null, status, rounds: round, log: log.join('\n').slice(0, 8000), summary: (final || usageNote).slice(0, 4000), changed: JSON.stringify([...changedAll]), finished_at: Date.now() });
       return teamAdvance(env, J.parent_id);
     }
     const chat = await DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id) VALUES (?,?,?,?) RETURNING id').bind(J.user_id, ('🤖 ' + J.prompt).slice(0, 40), Date.now(), J.project_id).first();
@@ -255,10 +255,11 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       const lim = await usageStatus(env, u, plan); if (lim.pct4h >= 100 || lim.pctWeek >= 100) { status = 'limit'; usageNote = 'ลิมิตของแพลนเต็ม หยุดไว้ก่อน (ไฟล์ที่แก้แล้วยังอยู่)'; break; }
       if (cumIn >= AGENT_MAX_IN) { status = 'limit'; usageNote = 'ใช้ token ครบเพดานต่อคำสั่งแล้ว (1.5 ล้าน)'; break; }
       if (lead && await teamOver(env, u, plan, lead)) { status = 'limit'; usageNote = 'ทีมใช้ลิมิตครบเพดานต่องานแล้ว หยุดไว้ก่อน (ไฟล์ที่แก้แล้วยังอยู่)'; break; }
-      round++; await setJob(env, jobId, { rounds: round });
+      round++; await setJob(env, jobId, { rounds: round, doing: round === 1 ? 'กำลังอ่านงานและวางแผน' : 'กำลังดูผลรอบก่อนแล้วทำต่อ' }); const fcache = {};
       msgs = fitContext(system, msgs, ctxMax(m)).msgs;
       let part = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 150e3);
-      try { for await (const e of callModel(env, m, msgs, { effort: J.effort || null, system, userId: u.id, signal: ac.signal })) { if (e.t) part += e.t; if (e.usage) usage = e.usage; } }
+      let lastDo = 0; const fileOf = async f => (fcache[f] ??= (await DB.prepare('SELECT content FROM project_files WHERE project_id=? AND path=?').bind(J.project_id, f).first())?.content || '');
+      try { for await (const e of callModel(env, m, msgs, { effort: J.effort || null, system, userId: u.id, signal: ac.signal })) { if (e.t) { part += e.t; if (Date.now() - lastDo > 2500) { lastDo = Date.now(); const d = doingNow(part); setJob(env, jobId, { doing: d.file && d.search ? doingLine(d, await fileOf(d.file)) : d.text }).catch(() => {}); } } if (e.usage) usage = e.usage; } }
       catch (x) { clearTimeout(timer); log.push(`รอบ ${round}: โมเดลตอบไม่ได้ (${String(x.message).slice(0, 80)})`); await event(env, 'error', m.id, 'agent: ' + String(x.message).slice(0, 280)).catch(() => {}); if (lead && !part) await new Promise(r => setTimeout(r, 4000 * round)); /* ทีมยิงพร้อมกันหลายตัว: รอแล้วลองใหม่ (มักโดน rate limit) */ if (round >= 2 && !part) { status = 'failed'; usageNote = 'โมเดลตอบไม่ได้ตอนนี้'; break; } if (!part) continue; }
       clearTimeout(timer);
       if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: jobId }); cumIn += usage.fresh + usage.read + usage.write; }
@@ -289,6 +290,23 @@ export async function runAgent(env, jobId, st = { gone: false }) {
   await finish();
 }
 
+// สถานะสดของ Agent ระหว่างที่โมเดลกำลังเขียน: ดูจากข้อความที่ได้มาแล้ว (บล็อกโค้ดที่ยังไม่ปิด / READ / GREP)
+export function doingNow(part) {
+  const fences = [...part.matchAll(/```([^\n]*)\n/g)];
+  if (fences.length % 2 === 1) { // อยู่ในบล็อกโค้ดที่ยังไม่ปิด
+    const f = fences.at(-1), file = /path=([^\s`]+)/.exec(f[1])?.[1], body = part.slice(f.index + f[0].length);
+    if (!file) return { text: 'กำลังเขียนตัวอย่างโค้ด' };
+    const s = body.lastIndexOf('<<<<<<< SEARCH');
+    if (s >= 0) return { file, search: body.slice(s + 15).split('\n=======')[0].split('\n').find(l => l.trim().length > 3) || '', text: `กำลังแก้ ${file}` };
+    return { file, text: `กำลังเขียน ${file} บรรทัดที่ ${body.split('\n').length}` };
+  }
+  const tool = [...part.replace(/```[\s\S]*?```/g, '').matchAll(/^[ \t]*(READ|GREP|LIST)[ \t]+(?:path=)?(.+)$/gm)].at(-1);
+  if (tool) return { text: { READ: 'กำลังอ่าน ', GREP: 'กำลังค้นหา ', LIST: 'กำลังดูโฟลเดอร์ ' }[tool[1]] + tool[2].trim().slice(0, 60) };
+  const last = part.trim().split('\n').filter(l => l.trim() && !/^[`#>*-]/.test(l.trim())).at(-1) || '';
+  return { text: last ? 'กำลังคิด: ' + last.trim().slice(0, 70) : 'กำลังคิด…' };
+}
+export const doingLine = (d, content) => { const i = d.search ? content.split('\n').findIndex(l => l.includes(d.search.trim())) : -1; return i >= 0 ? `${d.text} บรรทัดที่ ${i + 1}` : d.text; };
+
 // บล็อกโค้ดที่ไม่มี path=: จับคู่กับไฟล์ที่ยังขาดตามนามสกุล (ไม่ชัด = ข้าม) · ไฟล์ละบล็อกที่ยาวที่สุด
 const EXT = { js: 'js', javascript: 'js', mjs: 'mjs', ts: 'ts', css: 'css', html: 'html', json: 'json', md: 'md', markdown: 'md', py: 'py', python: 'py', svg: 'svg', txt: 'txt' };
 export function guessFiles(text, miss) {
@@ -306,9 +324,9 @@ export async function agentApi(req, env, u, path) {
   await ensureAgentTable(env); const DB = env.DB, M = req.method;
   if (path === '/api/agent' && M === 'GET') {
     const pj = new URL(req.url).searchParams.get('project');
-    const list = (await DB.prepare(`SELECT id,project_id,prompt,status,rounds,summary,changed,chat_id,created_at,finished_at,role FROM agent_jobs WHERE user_id=? AND parent_id IS NULL${pj ? ' AND project_id=?' : ''}${new URL(req.url).searchParams.get('research') ? " AND role='research'" : ''} ORDER BY id DESC LIMIT 10`).bind(...(pj ? [u.id, +pj] : [u.id])).all()).results;
+    const list = (await DB.prepare(`SELECT id,project_id,prompt,status,rounds,summary,changed,chat_id,created_at,finished_at,role,doing,model_id,worker_model_id,tin,tout,ctx_peak FROM agent_jobs WHERE user_id=? AND parent_id IS NULL${pj ? ' AND project_id=?' : ''}${new URL(req.url).searchParams.get('research') ? " AND role='research'" : ''} ORDER BY id DESC LIMIT 10`).bind(...(pj ? [u.id, +pj] : [u.id])).all()).results;
     const leads = list.filter(j => j.role === 'lead').map(j => j.id);
-    if (leads.length) { const kids = (await DB.prepare(`SELECT id,parent_id,role,prompt,status,rounds,changed,scope,CASE WHEN status='planned' THEN summary END plan FROM agent_jobs WHERE parent_id IN (${leads.map(() => '?')}) ORDER BY id`).bind(...leads).all()).results; list.forEach(j => { if (j.role === 'lead') j.team = kids.filter(k => k.parent_id === j.id).map(({ prompt, ...k }) => ({ ...k, title: prompt.split('\n')[0].slice(0, 80) })); }); }
+    if (leads.length) { const kids = (await DB.prepare(`SELECT id,parent_id,role,prompt,status,rounds,changed,scope,doing,model_id,tin,tout,ctx_peak,CASE WHEN status='planned' THEN summary END plan FROM agent_jobs WHERE parent_id IN (${leads.map(() => '?')}) ORDER BY id`).bind(...leads).all()).results; list.forEach(j => { if (j.role === 'lead') j.team = kids.filter(k => k.parent_id === j.id).map(({ prompt, ...k }) => ({ ...k, title: prompt.split('\n')[0].slice(0, 80) })); }); }
     return json(list);
   }
   if (path === '/api/agent' && M === 'POST') {
@@ -322,7 +340,7 @@ export async function agentApi(req, env, u, path) {
     if (await DB.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND ((status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)>?) OR status IN ('waiting','team','reviewing','plan'))").bind(u.id, Date.now() - 20 * 60e3).first()) return err('มีงาน Agent ที่กำลังทำอยู่ รอให้เสร็จหรือกดหยุดก่อน', 409);
     if (await limited(env, 'agent:' + u.id, 12, DAY)) return err('สั่ง Agent วันนี้ครบแล้ว (12 งานต่อวัน)', 429);
     const effort = model.effort && model.effort !== 'none' && ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.effort) ? b.effort : null; // ระดับการคิดที่เลือกในหน้าเว็บ (ลูกทีมใช้ค่าเริ่มต้นของโมเดล)
-    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role,scope,effort) VALUES (?,?,?,?,'queued',?,?,?,?) RETURNING id").bind(u.id, b.research ? 0 : +b.project_id, model.id, prompt, Date.now(), b.research ? 'research' : b.team ? 'lead' : null, b.team && !b.research && b.confirm !== false ? 'confirm' : null, effort).first();
+    const job = await DB.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at,role,scope,effort,worker_model_id) VALUES (?,?,?,?,'queued',?,?,?,?,?) RETURNING id").bind(u.id, b.research ? 0 : +b.project_id, model.id, prompt, Date.now(), b.research ? 'research' : b.team ? 'lead' : null, b.team && !b.research && b.confirm !== false ? 'confirm' : null, effort, b.team && +b.worker_model_id > 0 ? +b.worker_model_id : null).first();
     await launch(env, job.id); // ทำต่อใน Durable Object แม้ผู้ใช้ปิดแอป
     return json({ id: job.id });
   }

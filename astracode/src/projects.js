@@ -43,7 +43,7 @@ export async function snapshot(env, pid, files, source) {
 export async function projects(req, env, u, path, url) {
   const DB = env.DB, M = req.method, now = Date.now();
   if (path === '/api/gallery') { // โปรเจกต์เด่นที่แอดมินเลือก (ต้องแชร์อยู่)
-    return json((await DB.prepare('SELECT p.name, COALESCE(p.slug,p.share_token) link, p.updated_at, (SELECT COUNT(*) FROM project_files f WHERE f.project_id=p.id) files FROM projects p WHERE p.featured=1 AND p.share_token IS NOT NULL ORDER BY p.updated_at DESC LIMIT 24').all()).results);
+    return json((await DB.prepare('SELECT p.name, p.blurb, COALESCE(p.slug,p.share_token) link, p.updated_at, (SELECT COUNT(*) FROM project_files f WHERE f.project_id=p.id) files FROM projects p WHERE p.featured=1 AND p.share_token IS NOT NULL ORDER BY p.updated_at DESC LIMIT 24').all()).results);
   }
   if (path === '/api/projects/remix' && M === 'POST') { // คัดลอกโปรเจกต์ที่แชร์เป็นของตัวเอง (ต้นฉบับไม่เปลี่ยน)
     const t = String((await req.json().catch(() => ({}))).token || '').toLowerCase();

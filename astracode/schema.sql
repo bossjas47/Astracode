@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   , share_token TEXT                        -- ลิงก์แชร์แบบอ่านอย่างเดียว /p/<token>
   , slug TEXT                               -- ชื่อลิงก์ที่ตั้งเอง /p/<slug>
   , featured INTEGER                        -- 1 = แอดมินเลือกขึ้นแกลเลอรีหน้า Code
+  , blurb TEXT                              -- คำอธิบายในแกลเลอรี/หน้าแรก (เช่น สร้างด้วยโมเดลอะไร)
   , env_sealed TEXT   -- ตัวแปรลับของโปรเจกต์ (เข้ารหัส)
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id);
@@ -404,6 +405,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   , share_token TEXT                        -- ลิงก์แชร์แบบอ่านอย่างเดียว /p/<token>
   , slug TEXT                               -- ชื่อลิงก์ที่ตั้งเอง /p/<slug>
   , featured INTEGER                        -- 1 = แอดมินเลือกขึ้นแกลเลอรีหน้า Code
+  , blurb TEXT                              -- คำอธิบายในแกลเลอรี/หน้าแรก (เช่น สร้างด้วยโมเดลอะไร)
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id);
 CREATE TABLE IF NOT EXISTS project_files (

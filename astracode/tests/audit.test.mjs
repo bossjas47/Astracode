@@ -255,3 +255,12 @@ test('chat import stores user/assistant turns only; badges endpoint reports prog
   const b = (await t.json('/api/badges', { cookie: u.cookie })).data;
   assert.equal(b.badges.length, 8); assert.equal(b.msgs, 1);
 });
+
+test('agent live status: writing a file shows its line, editing shows the matched line, READ shows the file', async () => {
+  const { doingNow, doingLine } = await import('../src/agent.js');
+  assert.equal(doingNow('ok\n```css path=style.css\nbody{}\na{}\n').text, 'กำลังเขียน style.css บรรทัดที่ 3');
+  const d = doingNow('```js path=app.js\n<<<<<<< SEARCH\nconst total = 0;\n=======\nconst total = 1;');
+  assert.equal(doingLine(d, 'let a;\nlet b;\nconst total = 0;\n'), 'กำลังแก้ app.js บรรทัดที่ 3');
+  assert.equal(doingNow('ขออ่านก่อน\nREAD path=index.html').text, 'กำลังอ่าน index.html');
+  assert.match(doingNow('```js path=a.js\nx\n```\nเสร็จแล้ว').text, /^กำลังคิด: เสร็จแล้ว/);
+});

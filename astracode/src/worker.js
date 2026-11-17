@@ -143,6 +143,7 @@ export async function route(req, env, ctx, url, path, M) {
         return json({ per1, month: per1 * n * 30, plans: pls.map(x => ({ id: x.id, pct: weekUnits / x.limit_week * 100 })) });
       }
       if (path === '/api/status') return json(await status(env));
+      if (path === '/api/gallery') return await projects(req, env, null, path, url); // ผลงานเด่น: เปิดดูได้โดยไม่ต้องล็อกอิน
       if ((r = path.match(/^\/api\/share\/([a-f0-9]{12,48})$/))) {
         const c = await env.DB.prepare('SELECT id,title,created_at FROM chats WHERE share_token=? AND deleted_at IS NULL').bind(r[1]).first();
         if (!c) return err('ไม่พบแชตที่แชร์ หรือถูกยกเลิกแล้ว', 404);
