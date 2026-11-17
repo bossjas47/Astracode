@@ -867,7 +867,7 @@ async function codeSend(auto) {
     else setTimeout(go, 2000);
     return;
   }
-  if (resume && !ai.content && !ai.thinking && IDE.chatId) { IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => IDE.msgs); IDE.resumeTries = 0; drawAI(); return; } // เซิร์ฟเวอร์ตอบจบไปแล้ว: โหลดคำตอบที่บันทึกไว้
+  if (resume && !ai.content && !ai.thinking && IDE.chatId) { IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => IDE.msgs); IDE.resumeTries = 0; IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI(); return; } // ต้องคืนปุ่มส่งด้วย ไม่งั้นปุ่มหยุดค้างหลังต่อสตรีมกลับมาแล้วพบว่าตอบจบไปแล้ว // เซิร์ฟเวอร์ตอบจบไปแล้ว: โหลดคำตอบที่บันทึกไว้
   IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
   // โหมดอัตโนมัติ: ใช้การแก้ไขทันที แล้วให้ AI ดูผลลัพธ์เอง (สูงสุด 3 รอบ)
   // Auto-apply: ใช้การแก้ไขทันที (และรันคำสั่งที่ AI ขอ) · ตรวจผลเอง: ใช้การแก้ไข แล้วรัน + จับภาพให้ AI ดู (สูงสุด 3 รอบ)

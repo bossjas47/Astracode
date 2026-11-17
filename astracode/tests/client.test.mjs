@@ -96,3 +96,10 @@ test('every page loads only scripts that exist, every script parses, the manifes
   const app = readFileSync(join(pub, 'app.js'), 'utf8'), shop = readFileSync(join(pub, 'shop.js'), 'utf8');
   assert.ok(shop.includes('PAGES.plans = plansPage') && shop.includes('PAGES.pricing = pricing') && !/^async function plansPage/m.test(app), 'plans and pricing pages live in shop.js');
 });
+
+test('Code mode: every path that ends a send puts the send button back (no stuck stop button)', () => {
+  const code = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/code.js'), 'utf8');
+  const fn = code.slice(code.indexOf('async function codeSend'), code.indexOf('// ---------- AI ดูผลลัพธ์เอง'));
+  const resumeReturn = fn.slice(fn.indexOf('if (resume && !ai.content'), fn.indexOf('IDE.busy = false; $(\'#cgo\').innerHTML = ic(\'up\'); $(\'#cgo\').classList.remove(\'stop\'); drawAI();\n  // โหมดอัตโนมัติ'));
+  assert.ok(/IDE\.busy = false/.test(resumeReturn) && /classList\.remove\('stop'\)/.test(resumeReturn), 'the resume early-return must reset busy and the button');
+});
