@@ -170,7 +170,7 @@ function segHTML(m, text) {
   return h || (m.streaming ? waitHTML(m) : '');
 }
 function paintStreaming(el, m) {
-  const body = typeof stripTools === 'function' ? stripTools(m.content) : m.content; // โหมด Code: ซ่อนบรรทัดคำสั่ง READ/GREP/RUN ระหว่างพิมพ์ด้วย
+  const body = typeof stripTools === 'function' ? fenceBare(stripTools(m.content)) : m.content; // โหมด Code: ซ่อนบรรทัดคำสั่ง READ/GREP/RUN ระหว่างพิมพ์ด้วย
   if (hasSegs(m)) { el.querySelector('.think')?.remove(); el.querySelector('.b').innerHTML = segHTML(m, body); return; }
   let th = el.querySelector('.think');
   if (m.thinking && !th) { el.insertAdjacentHTML('afterbegin', thinkHTML(m)); th = el.querySelector('.think'); }

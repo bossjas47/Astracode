@@ -800,6 +800,26 @@ function stepsOf(text) {
   }
   return out;
 }
+// โมเดลบางตัว (เช่น DeepSeek Flash) พิมพ์โค้ดโดยไม่ใส่กรอบ ``` ทำให้หน้าจอแสดงเป็นข้อความธรรมดา เยื้องหายและบรรทัดติดกัน
+// เฉพาะข้อความที่ไม่มี ``` เลย: หาช่วงบรรทัดที่เป็นโค้ด (ตั้งแต่ 4 บรรทัดขึ้นไปติดกัน) แล้วห่อเป็นกรอบโค้ดให้อ่านได้ · ไม่แตะข้อความที่มีกรอบอยู่แล้ว
+const CODE_LINE = /^\s*(?:(?:const|let|var|function|async|class|import|export|return|if|else|for|while|switch|case|try|catch|def|from|elif|print|await|public|private|static|package|using|#include|<\/?[A-Za-z!][^>]*>?)\b|[}\])]+[;,)]*\s*$|\/\/|\/\*|\*\/|\*\s|@\w+|[\w.$\[\]'"`]+\s*(?:=|\+=|-=|=>|:)\s*\S|[\w.$]+\(.*\)[;,]?\s*$)|[;{}]\s*$/;
+function fenceBare(text) {
+  text = String(text || '');
+  if (text.includes('```') || text.length < 80) return text;
+  const L = text.split('\n'), out = []; let i = 0;
+  while (i < L.length) {
+    if (!CODE_LINE.test(L[i]) || /[\u0E00-\u0E7F]{3}/.test(L[i].replace(/(?:\/\/|#).*$|(['"`]).*?\1/g, ''))) { out.push(L[i++]); continue; } // บรรทัดภาษาไทยล้วนไม่ใช่โค้ด (ไม่นับคอมเมนต์/สตริง)
+    let j = i, n = 0, end = i;
+    while (j < L.length) {
+      if (CODE_LINE.test(L[j])) { n++; end = j; j++; continue; }
+      if (!L[j].trim()) { let k = j; while (k < L.length && !L[k].trim()) k++; if (k < L.length && CODE_LINE.test(L[k]) && k - j < 3) { j = k; continue; } }
+      break;
+    }
+    if (n >= 4) { const body = L.slice(i, end + 1).join('\n'), lang = /^\s*(?:def |from \S+ import|import \w+$|print\()/m.test(body) ? 'python' : /^\s*<[A-Za-z!]/m.test(body) ? 'html' : /\{[^}]*:[^}]*;/.test(body) && !/\b(?:function|const|let)\b/.test(body) ? 'css' : 'js'; out.push('```' + lang, body, '```'); i = end + 1; }
+    else { out.push(...L.slice(i, i + 1)); i++; }
+  }
+  return out.join('\n');
+}
 const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/(\S)(READ path=)/g, '$1\n$2').replace(/^[ \t]*(?:READ|LIST)\b[ \t]*(?:path=)?[`'"]?[\w./@~-]*[`'"]?/gm, '').replace(/^[ \t]*(?:GREP|RUN|IMAGE)\b.*$/gm, '')).join('```').replace(/\n{3,}/g, '\n\n').trim();
 function stepsBar(m, i) {
   const s = stepsOf(m.content); if (!s.length) return '';
@@ -815,7 +835,7 @@ function aiMsgHTML(m, i) {
     return `<div class="msg user ${m.auto ? 'auto' : ''}"><div class="b">${m.imgs ? `<div class="mimgs shot">${m.imgs.map(d => `<img src="${d}" alt="ภาพหน้าจอผลลัพธ์">`).join('')}</div>` : ''}${esc(m.content.replace(FILE_RE, '').replace(TREE_RE, '').replace(CHECK_RE, '').replace(/\n\n\[แนบรูป \d+ รูป\]/, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${icon(f[1])} <span>${esc(f[1])}</span></span>`).join('')}</div>` : ''}</div></div>`;
   }
   const ask = parseAsk(m.content, m.streaming);
-  const cleanBody = stripTools(ask.text);
+  const cleanBody = fenceBare(stripTools(ask.text));
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${hasSegs(m) ? segHTML(m, cleanBody) : cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : waitHTML(m)}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
     + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${m.tin || m.tout ? `<span class="tok" title="Input ${m.tin || 0} · Output ${m.tout || 0} token">↑${ktok(m.tin || 0)} ↓${ktok(m.tout || 0)}${m.rounds ? ` · ${m.rounds} รอบ` : ''}${m.ctx ? ` · <span class="ctxm ${m.ctx.used / m.ctx.max >= 0.9 ? 'bad' : m.ctx.used / m.ctx.max >= 0.7 ? 'warn' : ''}" title="context ที่ใช้ในรอบสุดท้าย เทียบกับขนาด context ของโมเดล">ctx ${ktok(m.ctx.used)}/${ktok(m.ctx.max)}</span>` : ''}${m.cost ? ` · ฿${m.cost}` : ''}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;

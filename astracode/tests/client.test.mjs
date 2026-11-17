@@ -103,3 +103,16 @@ test('Code mode: every path that ends a send puts the send button back (no stuck
   const resumeReturn = fn.slice(fn.indexOf('if (resume && !ai.content'), fn.indexOf('IDE.busy = false; $(\'#cgo\').innerHTML = ic(\'up\'); $(\'#cgo\').classList.remove(\'stop\'); drawAI();\n  // โหมดอัตโนมัติ'));
   assert.ok(/IDE\.busy = false/.test(resumeReturn) && /classList\.remove\('stop'\)/.test(resumeReturn), 'the resume early-return must reset busy and the button');
 });
+
+test('fenceBare wraps unfenced code runs for display and leaves prose and fenced replies alone', () => {
+  const code = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/code.js'), 'utf8');
+  const fb = new Function(`${code.slice(code.indexOf('const CODE_LINE'), code.indexOf('const stripTools'))}\nreturn fenceBare;`)();
+  const bare = 'function chunkify(str, size) {\nconst out = [];\nconst s = String(str || \'\');\nfor (let i = 0; i < s.length; i += size) out.push(s.slice(i, i + size));\nreturn out;\n}\n\n/* ── live ── */\nasync function liveStream(a, b) {\nconst mt = a.metrics;\nconst url = settings.baseUrl;\n}';
+  const r = fb(bare); assert.ok(r.startsWith('```js\nfunction chunkify') && r.trim().endsWith('```'), r);
+  assert.equal(fb('```js\nlet a = 1;\n```\nเสร็จแล้ว'), '```js\nlet a = 1;\n```\nเสร็จแล้ว', 'already fenced');
+  const prose = 'ผมแก้ไฟล์ให้แล้ว: ปรับสีปุ่มเป็นสีน้ำเงิน และเพิ่มคำอธิบายให้ชัดขึ้น ลองเปิดดูผลได้เลยครับ ถ้ายังไม่ถูกใจบอกได้';
+  assert.equal(fb(prose), prose);
+  const mixed = 'แก้ฟังก์ชันนี้:\nconst a = 1;\nconst b = 2;\nlet c = a + b;\nreturn c;\nแล้วลองรันดู ถ้ามีปัญหาบอกได้ครับ ขอบคุณ';
+  const m = fb(mixed); assert.ok(m.includes('```js\nconst a = 1;') && m.includes('return c;\n```\nแล้วลองรันดู'), m);
+  const short = 'const a = 1;\nconst b = 2;'; assert.equal(fb(short), short, 'two lines are not wrapped');
+});
