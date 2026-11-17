@@ -149,3 +149,22 @@ test('context report: Code mode counts project files, compares every plan model 
   assert.deepEqual(r.models.map(m => [m.name, m.max]), [['Big', 1050000], ['Small', 128000]]); assert.ok(r.models[1].pct > r.models[0].pct);
   const big = r.byModel.find(m => m.name === 'Big'); assert.equal(big.replies, 2); assert.equal(big.tin, 4000); assert.equal(big.peak, 3000);
 });
+
+test('wallet-only users (free plan with balance): API key and every public model, charged at sell price without plan limits', async () => {
+  const { fakeModel } = await import('./helpers.mjs'); const fm = await fakeModel((q, res) => fm.sse(res, 'ok'));
+  const t = await makeEnv({ K: 'k' }), luna = addModel(t.DB, { name: 'ChatGPT 6 Luna', base_url: fm.url }), pro = addModel(t.DB, { name: 'Pro model', base_url: fm.url });
+  t.DB.raw.prepare('UPDATE models SET price_in=1000, price_out=1000 WHERE id IN (?,?)').run(luna.id, pro.id);
+  const free = t.DB.raw.prepare('SELECT id FROM plans WHERE price=0 AND active=1 ORDER BY sort LIMIT 1').get(); t.DB.raw.prepare('INSERT OR IGNORE INTO plan_models VALUES (?,?)').run(free.id, luna.id);
+  const poor = await t.user(), rich = await t.user({ balance: 10 });
+  assert.equal((await t.json('/api/keys', { method: 'POST', cookie: poor.cookie, body: { name: 'x' } })).status, 403);
+  const me = (await t.json('/api/me', { cookie: rich.cookie })).data; assert.ok(me.models.find(m => m.id === pro.id)?.wallet, 'off-plan model offered as wallet');
+  const k = await t.json('/api/keys', { method: 'POST', cookie: rich.cookie, body: { name: 'x' } }); assert.equal(k.status, 200, JSON.stringify(k.data));
+  const r = await t.worker.default.fetch(new Request('https://t.test/v1/chat/completions', { method: 'POST', headers: { authorization: 'Bearer ' + k.data.key, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'chatgpt-6-luna', messages: [{ role: 'user', content: 'hi' }] }) }), t.env, t.ctx);
+  const body = await r.text(); assert.equal(r.status, 200, body);
+  const bal = () => t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(rich.id).balance; const b1 = bal(); assert.ok(b1 < 10, 'luna charged at sell price even though it is in the free plan');
+  t.DB.raw.exec('DELETE FROM rate');
+  const { readSSE } = await import('./helpers.mjs'); const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: rich.cookie, body: { model_id: pro.id, text: 'hello' } }));
+  assert.ok(ev.some(e => e.done), JSON.stringify(ev).slice(0, 200)); assert.ok(bal() < b1, 'web chat on an off-plan model charged from the wallet');
+  assert.equal(t.DB.raw.prepare('SELECT COALESCE(SUM(units),0) u FROM usage WHERE user_id=?').get(rich.id).u, 0, 'plan limits untouched');
+  fm.close();
+});

@@ -19,7 +19,7 @@ async function plansPage() {
     if (!me.promptpay_id && !i.bank_account) return '';
     return `<div class="pay-info">${row('ชื่อบัญชี', i.bank_holder)}${row(i.bank_name || 'ธนาคาร', i.bank_account, String(i.bank_account || '').replace(/\D/g, ''))}${row('พร้อมเพย์', me.promptpay_id, me.promptpay_id)}
       <details ${tab === 'topup' ? 'open' : ''}><summary>สแกน Thai QR (โอนได้ทุกธนาคาร ใส่ยอดเอง)</summary><img class="thai-qr" src="/thai-qr.jpg" alt="Thai QR PromptPay" loading="lazy"></details>
-      <p class="muted" style="font-size:13px;margin:8px 0 0">${tab === 'topup' ? `โอนเท่าไหร่ก็ได้ตั้งแต่ ฿${+site.topup_min || 20} ระบบเติม Wallet ตามยอดในสลิป` : 'ต้องโอนยอดตรงตามที่ระบุเป๊ะ'} · อัปโหลดสลิปภายใน 15 นาทีหลังโอน · สลิปใช้ได้ครั้งเดียว</p></div>`;
+      <p class="muted" style="font-size:13px;margin:8px 0 0">${tab === 'topup' ? `โอนเท่าไหร่ก็ได้ตั้งแต่ ฿${+site.topup_min || 10} ระบบเติม Wallet ตามยอดในสลิป` : 'ต้องโอนยอดตรงตามที่ระบุเป๊ะ'} · อัปโหลดสลิปภายใน 15 นาทีหลังโอน · สลิปใช้ได้ครั้งเดียว</p></div>`;
   };
   const qr = amount => me.promptpay_id ? `<p class="muted">สแกนจ่ายผ่าน PromptPay แล้วอัปโหลดสลิป</p><img class="qr" alt="QR PromptPay" src="https://promptpay.io/${encodeURIComponent(me.promptpay_id)}/${amount}.png">${payInfo()}` : `<p class="warn">ยังไม่ได้ตั้งค่า PromptPay</p>${payInfo()}`;
   const slipForm = label => `<form id="f" style="max-width:400px;margin:16px auto 0"><label>รูปสลิป</label><input type="file" name="slip" accept="image/*" required style="border-radius:20px">
@@ -44,7 +44,7 @@ async function plansPage() {
         : '<p class="muted" style="text-align:center">แตะแพลนเพื่อชำระเงิน</p>'}
         <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>`
       : `<div class="card pay" style="text-align:center;max-width:520px;margin:0 auto"><p class="muted">เงินใน Wallet ใช้กับ API สำหรับนักพัฒนา ใช้ต่อเมื่อลิมิตแพลนเต็ม (เปิดได้ในหน้าบัญชี) และจ่ายค่าแพลน</p>
-          <label>จำนวนเงิน (บาท)</label><input id="amt" type="number" inputmode="decimal" min="${+site.topup_min || 20}" max="50000" step="1" value="${+site.topup_min || 100}" style="text-align:center;font-size:24px">
+          <label>จำนวนเงิน (บาท)</label><input id="amt" type="number" inputmode="decimal" min="${+site.topup_min || 10}" max="50000" step="1" value="${+site.topup_min || 100}" style="text-align:center;font-size:24px">
           <div class="row" style="justify-content:center;margin-top:8px">${[100, 300, 500, 1000].map(v => `<button class="btn out sm" data-amt="${v}">฿${v}</button>`).join('')}</div>
           <div id="tq">${qr(+site.topup_min || 100)}</div>${slipForm('ส่งสลิปเติมเงิน')}</div>`}
       ${pays.length ? `<div class="card"><div style="font:600 19px var(--display)">ประวัติการชำระ</div><div class="tw"><table class="tbl"><tr><th>วันที่</th><th>รายการ</th><th>ยอด</th><th>สถานะ</th><th></th></tr>

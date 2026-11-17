@@ -1,4 +1,4 @@
-import { DAY, allowedModels, flat, limitBoost, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy } from './core.js';
+import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy } from './core.js';
 import { bundleProject, chat, compact, ensureFb } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
@@ -16,7 +16,7 @@ const modelCache = new WeakMap(); // แยกตามฐานข้อมู�
 const cachedModels = async (env, planId) => {
   let m = modelCache.get(env.DB); if (!m) modelCache.set(env.DB, m = new Map());
   const hit = m.get(planId); if (hit && hit.exp > Date.now()) return hit.body;
-  const body = await allowedModels(env, planId); m.set(planId, { exp: Date.now() + 30e3, body }); return body;
+  const body = planId === 'wallet' ? await walletModels(env) : await allowedModels(env, planId); m.set(planId, { exp: Date.now() + 30e3, body }); return body;
 };
 async function pricingBody(env) {
     const [ms, ps, pm] = await Promise.all([
@@ -217,7 +217,7 @@ export async function route(req, env, ctx, url, path, M) {
           email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, paid: plan.price > 0, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, webhook_url: u.webhook_url || '', auto_compact: u.auto_compact !== 0, digest: !u.digest_off, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
-          usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, models: models.map(({ cost_in, cost_out, cost_cache, ...m }) => m),
+          usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, models: [...models, ...(u.balance > 0 ? (await cachedModels(env, 'wallet')).filter(w => !models.some(x => x.id === w.id)).map(w => ({ ...w, wallet: true })) : [])].map(({ cost_in, cost_out, cost_cache, ...m }) => m), // มียอด Wallet: ใช้ได้ทุกโมเดล โมเดลนอกแพลนตัดเงินตามราคาขาย
           promptpay_id: pay.promptpay_id, pay_info: { bank_name: pay.bank_name, bank_account: pay.bank_account, bank_holder: pay.bank_holder },
         });
       }

@@ -220,7 +220,7 @@ if (typeof MutationObserver !== 'undefined') new MutationObserver(() => { clearT
 const navL = (h, t, i) => `<a class="l${curl().pathname === h ? ' on' : ''}" href="${h}">${ic(i)}<span>${t}</span></a>`;
 // มุมขวาบน: ล็อกอินแล้ว = วงแหวนลิมิต (กดเปิดรายละเอียด) + ยอด Wallet + ปุ่มบัญชี · ยังไม่ล็อกอิน = Log in + Get started free
 const navRight = () => me
-  ? `<div class="nav-r"><button type="button" class="nav-lim" aria-label="ลิมิตการใช้งาน">${limHTML(me.usage)}</button><button type="button" class="nav-bell" aria-label="การแจ้งเตือน">${ic('bell')}<i hidden></i></button><a class="nav-wal" href="/plans?topup=1" aria-label="เติม Wallet">฿${baht(me.balance)}</a><a class="nav-av" href="/account" aria-label="บัญชี ${esc(me.email)}">${esc((me.email || '?')[0].toUpperCase())}</a></div>`
+  ? `<div class="nav-r"><button type="button" class="nav-lim" aria-label="ลิมิตการใช้งาน">${limHTML(me.usage)}</button><button type="button" class="nav-bell" aria-label="การแจ้งเตือน">${ic('bell')}<i hidden></i></button><a class="nav-wal" href="/plans?topup=1" aria-label="เติมเงิน Wallet (ยอด ฿${baht(me.balance)})"><span class="w-amt">฿${baht(me.balance)}</span><span class="w-add">${ic('plus', 'sm')}<span class="w-t">เติมเงิน</span></span></a><a class="nav-av" href="/account" aria-label="บัญชี ${esc(me.email)}">${esc((me.email || '?')[0].toUpperCase())}</a></div>`
   : '<div class="nav-r"><a class="btn out sm nav-login" href="/login">Log in</a><a class="btn blue sm" href="/login">Get started free</a></div>';
 // กระดิ่งแจ้งเตือน: โหลดครั้งเดียวต่อ 5 นาที จุดแดง = มีรายการใหม่กว่าที่เปิดดูล่าสุด
 let notifs = null, notifAt = 0;
@@ -245,7 +245,7 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-la
 const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}${me.role === 'admin' ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
+  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}${me.role === 'admin' ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
        : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
@@ -691,7 +691,7 @@ function modelSheet(which) {
   const mult = m => site.picker_mult === '0' ? '' : `<span class="vmult">×${m.multiplier}</span>`;
   sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', chips
     + (auto ? vOpt('auto', `<span class="vlogo auto">${ic('sparkles')}</span>`, 'อัตโนมัติ', 'ระบบเลือกโมเดลให้: ถามทั่วไปใช้โมเดลประหยัด โจทย์ยากหรือโค้ดใช้โมเดลเก่ง', '', cur === 'auto', 'auto') : '')
-    + me.models.map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name), [m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป', mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase())).join('')
+    + me.models.map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name), [m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป', mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase())).join('')
     + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', (d, close) => {
       pickTo(which)(d, close);
       d.querySelectorAll('[data-vf]').forEach(c => c.onclick = () => {

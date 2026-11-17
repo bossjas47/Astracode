@@ -234,7 +234,7 @@ export async function pay(req, env, u) {
     discount = discountOf(coupon, amount); amount = Math.round((amount - discount) * 100) / 100;
   } else {
     amount = Math.round(+fd.get('amount') * 100) / 100;
-    const min = +(await getSetting(env, 'topup_min')) || 20;
+    const min = +(await getSetting(env, 'topup_min')) || 10;
     if (!(amount >= min && amount <= 50000)) return err(`เติมเงินได้ ฿${min} ถึง ฿50,000`);
   }
   if (await limited(env, 'pay:' + u.id, 5, 3600e3)) return err('ส่งสลิปบ่อยเกินไป รอ 1 ชั่วโมง', 429);
@@ -276,7 +276,7 @@ export async function pay(req, env, u) {
   const c = await checkSlip(env, buf, type, amount, kind === 'topup');
   if (c.ref && await env.DB.prepare('SELECT 1 FROM payments WHERE slip_ref=?').bind(c.ref).first()) c.code = '200501'; // สลิปที่เคยสแกนแล้วใช้ซ้ำไม่ได้ แม้ครั้งก่อนถูกปฏิเสธ // เลขอ้างอิงธนาคารซ้ำในระบบเรา
   if (kind === 'topup' && c.flex && c.code === '200000') { // เติมเงินด้วย EasySlip: ได้ยอดตามสลิป (ไม่ต้องตรงกับที่กรอก) ขั้นต่ำตามที่ตั้ง
-    const min = +(await getSetting(env, 'topup_min')) || 20;
+    const min = +(await getSetting(env, 'topup_min')) || 10;
     if (!(c.amount >= min)) c.code = '200404'; else if (c.amount > 50000) c.code = 'over_limit'; else amount = Math.round(c.amount * 100) / 100;
   }
   const fail = SLIP_FAIL[c.code];

@@ -154,10 +154,10 @@ test('IP allowlist, request log, usage history and budget crossing', async () =>
   void u; fm.close();
 });
 
-test('free plan cannot create API keys and old keys of free users stop working', async () => {
+test('free plan without wallet money cannot create API keys and old keys stop working; a paid plan or wallet balance unlocks them', async () => {
   const { t, fm, v1, u, key } = await setup();
-  t.DB.raw.prepare('UPDATE users SET plan_id=NULL WHERE id=?').run(u.id); // แพลนหมด = ฟรี
-  const r = await v1('/v1/models'); assert.equal(r.status, 403); assert.equal(r.d.error.type, 'permission_error');
+  t.DB.raw.prepare('UPDATE users SET plan_id=NULL, balance=0 WHERE id=?').run(u.id); // แพลนหมด = ฟรี และไม่มีเงินใน Wallet
+  const r = await v1('/v1/models'); assert.equal(r.status, 402); assert.equal(r.d.error.type, 'insufficient_quota');
   const mk = await t.json('/api/keys', { method: 'POST', cookie: u.cookie, body: { name: 'x' } }); assert.equal(mk.status, 403);
   const paid = addPlan(t.DB, { name: 'P2', price: 50 }); t.DB.raw.prepare('UPDATE users SET plan_id=?,plan_expires=? WHERE id=?').run(paid.id, Date.now() + 864e5, u.id);
   assert.equal((await t.json('/api/keys', { method: 'POST', cookie: u.cookie, body: { name: 'x' } })).status, 200);

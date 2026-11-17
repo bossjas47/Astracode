@@ -68,6 +68,7 @@ async function chatView(id) {
       <nav class="side-nav">
         <a href="/code">${ic('code')}<span>Code</span></a>
         <a href="/plans">${ic('layers')}<span>Plans · ${esc(me.plan.name)}</span></a>
+        <a href="/plans?topup=1">${ic('wallet')}<span>เติมเงิน · ฿${baht(me.balance)}</span></a>
         <a href="/pricing">${ic('tag')}<span>Pricing</span></a>
         <a href="/developers">${ic('braces')}<span>Developer API</span></a>
         <a href="/support">${ic('mail')}<span>Contact us</span></a>
@@ -631,7 +632,7 @@ async function stream(body, signal, onData) {
     }
   }
 }
-const noteOf = (m, d) => { if (d.fallback) m.note = `โมเดลหลักขัดข้อง จึงตอบด้วย ${d.fallback}`; if (d.overflow) m.note = 'ลิมิตเต็ม ใช้เงินใน Wallet'; if (d.sources) m.sources = d.sources; };
+const noteOf = (m, d) => { if (d.wallet) m.note = 'โมเดลนอกแพลน: ตัดเงินจาก Wallet ตามราคาขาย'; if (d.fallback) m.note = `โมเดลหลักขัดข้อง จึงตอบด้วย ${d.fallback}`; if (d.overflow) m.note = 'ลิมิตเต็ม ใช้เงินใน Wallet'; if (d.sources) m.sources = d.sources; };
 async function compareSend() {
   const t = $('#t'), text = t.value.trim(), files = chat.files, imgs = chat.images;
   if (files.some(f => f.text == null)) return showErr('รออ่านไฟล์ให้เสร็จก่อน');
