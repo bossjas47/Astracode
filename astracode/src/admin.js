@@ -315,7 +315,7 @@ export async function admin(req, env, path, url, me) {
     return json((await DB.prepare(`SELECT l.id,l.kind,l.scope,l.n,l.expires_at,l.by_email,l.created_at,u.email FROM reset_log l LEFT JOIN users u ON u.id=l.user_id ${uid ? 'WHERE l.user_id=?1' : 'WHERE ?1=0'} ORDER BY l.id DESC LIMIT 100`).bind(uid).all()).results);
   }
   if (path === '/api/admin/shared') { // หน้าโปรเจกต์ที่ผู้ใช้แชร์เป็นลิงก์สาธารณะ: แอดมินปิดลิงก์ที่ผิดกฎ (ฟิชชิง ฯลฯ) ได้
-    return json((await DB.prepare('SELECT p.id,p.name,p.share_token,p.slug,p.updated_at,COALESCE(p.featured,0) featured,u.email FROM projects p JOIN users u ON u.id=p.user_id WHERE p.share_token IS NOT NULL ORDER BY p.updated_at DESC LIMIT 300').all()).results);
+    return json((await DB.prepare('SELECT p.id,p.name,p.share_token,p.slug,p.updated_at,COALESCE(p.featured,0) featured,p.blurb,u.email FROM projects p JOIN users u ON u.id=p.user_id WHERE p.share_token IS NOT NULL ORDER BY COALESCE(p.featured,0)=2 DESC, p.updated_at DESC LIMIT 300').all()).results);
   }
   if ((r = path.match(/^\/api\/admin\/shared\/(\d+)$/)) && M === 'PUT') { // ติดดาวขึ้นแกลเลอรีหน้า Code
     const f = (await req.json().catch(() => ({}))).featured ? 1 : 0; await DB.prepare('UPDATE projects SET featured=? WHERE id=?').bind(f, +r[1]).run(); await ctxAudit('feature project', { id: +r[1], f }); return json({ ok: true });

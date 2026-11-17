@@ -224,13 +224,13 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       await setJob(env, jobId, { doing: null, status, rounds: round, log: log.join('\n').slice(0, 8000), summary: (final || usageNote).slice(0, 4000), changed: JSON.stringify([...changedAll]), finished_at: Date.now() });
       return teamAdvance(env, J.parent_id);
     }
+    if (J.role === 'review' && lead) (await DB.prepare('SELECT changed FROM agent_jobs WHERE parent_id=?').bind(lead.id).all()).results.forEach(r => { try { JSON.parse(r.changed || '[]').forEach(x => changedAll.add(x)); } catch { /* ข้าม */ } }); // ผู้ตรวจสรุปทั้งทีม
+    const stats = await diffStats(env, J.project_id, [...changedAll], (lead?.started_at || lead?.created_at || t0) - 1).catch(() => [...changedAll]);
     const chat = await DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id) VALUES (?,?,?,?) RETURNING id').bind(J.user_id, ('🤖 ' + J.prompt).slice(0, 40), Date.now(), J.project_id).first();
-    const body = (final || '(Agent ไม่ได้ส่งสรุป)') + (changedAll.size ? `\n\n**ไฟล์ที่เปลี่ยน:** ${[...changedAll].join(', ')}` : '') + (usageNote ? `\n\n_${usageNote}_` : '') + `\n\n<details><summary>ขั้นตอน</summary>\n\n${log.join('\n')}\n\n</details>`;
+    const body = (final || '(Agent ไม่ได้ส่งสรุป)') + (changedAll.size ? `\n\n**ไฟล์ที่เปลี่ยน:**\n${stats.map(x => '- ' + x).join('\n')}` : '') + (usageNote ? `\n\n_${usageNote}_` : '') + `\n\n<details><summary>ขั้นตอน</summary>\n\n${log.join('\n')}\n\n</details>`;
     await DB.batch([DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(chat.id, 'user', J.prompt, J.model_id, Date.now()), DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(chat.id, 'assistant', body, J.model_id, Date.now() + 1)]);
     await setJob(env, jobId, { status, rounds: round, log: log.join('\n').slice(0, 8000), summary: (final || usageNote).slice(0, 4000), changed: JSON.stringify([...changedAll]), chat_id: chat.id, finished_at: Date.now() });
     if (J.role === 'review' && lead) { // ผู้ตรวจจบ = ทั้งทีมจบ: สรุปและไฟล์ที่เปลี่ยนทั้งหมดไปอยู่ที่งานหัวหน้า
-      const all = (await DB.prepare("SELECT changed FROM agent_jobs WHERE parent_id=?").bind(lead.id).all()).results.flatMap(r => { try { return JSON.parse(r.changed || '[]'); } catch { return []; } });
-      [...all].forEach(p => changedAll.add(p));
       await DB.prepare("UPDATE agent_jobs SET status=?, summary=?, changed=?, chat_id=?, finished_at=? WHERE id=? AND status='reviewing'").bind(status === 'done' ? 'done' : status, (final || usageNote).slice(0, 4000), JSON.stringify([...changedAll]), chat.id, Date.now(), lead.id).run();
     }
     if (status === 'failed') { // Agent ล้มติดกัน 3 งานของผู้ใช้เดียวกัน: เตือนแอดมิน (น่าจะมีปัญหาคีย์/โมเดล)
@@ -290,6 +290,17 @@ export async function runAgent(env, jobId, st = { gone: false }) {
   await finish();
 }
 
+// จำนวนบรรทัดที่เพิ่ม/ลบต่อไฟล์ เทียบกับเวอร์ชันก่อนงานเริ่ม (file_versions แรกหลัง since) · ไฟล์ใหม่ = ลบ 0
+// shortcut: นับแบบไม่สนลำดับบรรทัด และถ้าเวอร์ชันเก่าถูกตัดทิ้งไปแล้วจะเทียบกับเวอร์ชันกลางทาง พอสำหรับสรุป ถ้าต้องดู diff จริงให้ใช้ประวัติไฟล์
+export const lineDiff = (a, b) => { const m = new Map(); for (const l of a.split('\n')) m.set(l, (m.get(l) || 0) + 1); let add = 0; for (const l of b.split('\n')) { const n = m.get(l); if (n) m.set(l, n - 1); else add++; } let del = 0; for (const n of m.values()) del += n; return [add, a ? del : 0]; };
+async function diffStats(env, pid, paths, since) {
+  return Promise.all(paths.slice(0, 40).map(async p => {
+    const old = await env.DB.prepare('SELECT content FROM file_versions WHERE project_id=? AND path=? AND created_at>=? ORDER BY id LIMIT 1').bind(pid, p, since).first();
+    const cur = (await env.DB.prepare('SELECT content FROM project_files WHERE project_id=? AND path=?').bind(pid, p).first())?.content;
+    if (cur == null) return `${p} (ลบ)`; if (cur.startsWith('data:')) return `${p} (รูป)`;
+    const [a, d] = lineDiff(old?.content || '', cur); return `${p} (+${a} −${d})${old ? '' : ' ใหม่'}`;
+  }));
+}
 // สถานะสดของ Agent ระหว่างที่โมเดลกำลังเขียน: ดูจากข้อความที่ได้มาแล้ว (บล็อกโค้ดที่ยังไม่ปิด / READ / GREP)
 export function doingNow(part) {
   const fences = [...part.matchAll(/```([^\n]*)\n/g)];

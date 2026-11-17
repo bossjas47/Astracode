@@ -1,5 +1,6 @@
 import { err, hex, json, rand, sha, userErr } from './core.js';
 import { status } from './jobs.js';
+import { notify } from './billing.js';
 // ---------- projects (โหมด Code) ----------
 export const PATH_RE = /^(?!.*\.\.)(?!.*\/\/)(?!.*\/$)[^\/\\\x00-\x1f<>:"|?*][^\\\x00-\x1f<>:"|?*]{0,199}$/;
 export const FILE_LIMIT = 500e3, PROJECT_LIMIT = 5e6, FILES_PER_PROJECT = 300, PROJECTS_PER_USER = 20;
@@ -146,6 +147,14 @@ export async function projects(req, env, u, path, url) {
     await DB.prepare('UPDATE projects SET env_sealed=? WHERE id=?').bind(text.trim() ? await seal(env, text) : null, pid).run();
     return json({ ok: true });
   }
+  if (sub === '/gallery') { // เจ้าของส่งเข้าแกลเลอรี (featured=2 รอแอดมินอนุมัติ) · DELETE = ถอนออก
+    if (M === 'DELETE') { await DB.prepare('UPDATE projects SET featured=0 WHERE id=?').bind(pid).run(); return json({ ok: true }); }
+    if (!p.share_token) return err('แชร์ลิงก์ก่อน แล้วค่อยส่งเข้าแกลเลอรี');
+    const blurb = String((await req.json().catch(() => ({}))).blurb || '').trim().slice(0, 160); if (blurb.length < 10) return err('เขียนคำอธิบายสั้นๆ อย่างน้อย 10 ตัวอักษร');
+    await DB.prepare('UPDATE projects SET blurb=?, featured=CASE WHEN featured=1 THEN 1 ELSE 2 END WHERE id=?').bind(blurb, pid).run();
+    if (p.featured !== 1) await notify(env, `🖼️ มีโปรเจกต์ส่งเข้าแกลเลอรี: ${p.name} (/p/${p.slug || p.share_token}) รออนุมัติในหลังบ้าน แท็บลิงก์แชร์`).catch(() => {});
+    return json({ ok: true, featured: p.featured === 1 ? 1 : 2 });
+  }
   if (sub === '/share') { // ลิงก์อ่านอย่างเดียวของโปรเจกต์ (หน้าเว็บที่รันได้ที่ /p/<token>) · DELETE = ยกเลิกลิงก์
     if (M === 'DELETE') { await DB.prepare('UPDATE projects SET share_token=NULL, slug=NULL WHERE id=?').bind(pid).run(); return json({ ok: true }); }
     const token = p.share_token || rand(12);
@@ -158,7 +167,7 @@ export async function projects(req, env, u, path, url) {
       await DB.prepare('UPDATE projects SET slug=? WHERE id=?').bind(slug || null, pid).run();
       return json({ token, slug: slug || null });
     }
-    return json({ token, slug: p.slug || null });
+    return json({ token, slug: p.slug || null, featured: p.featured || 0, blurb: p.blurb || '' });
   }
   if (sub === '/restorepoints') return json((await DB.prepare('SELECT MIN(created_at) ts, source, COUNT(DISTINCT path) files FROM file_versions WHERE project_id=? GROUP BY created_at/60000, source ORDER BY ts DESC LIMIT 40').bind(pid).all()).results);
   if (sub === '/restore' && M === 'POST') { // ย้อนทั้งโปรเจกต์ไปสถานะก่อนช่วงเวลานั้น (ใช้ประวัติรายไฟล์) · ไฟล์ที่สร้างใหม่หลังจุดนั้นจะยังอยู่

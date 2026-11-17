@@ -276,3 +276,16 @@ test('shared multi-page site: /p/<link>/<page>.html serves that page with a base
   const h = await (await t.call(`/p/${tok}/add.html`)).text();
   assert.match(h, /ADD PAGE/); assert.match(h, new RegExp(`<base href="/p/${tok}/">`));
 });
+
+test('gallery submission waits for admin approval; agent line diff counts adds and removals', async () => {
+  const t = await makeEnv(), u = await t.user(), adm = await t.user({ role: 'admin' });
+  const p = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'ผลงาน' } })).data;
+  assert.equal((await t.json(`/api/projects/${p.id}/gallery`, { method: 'POST', cookie: u.cookie, body: { blurb: 'แอปตัวอย่างทำด้วย Agent' } })).status, 400); // ยังไม่แชร์
+  await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: u.cookie });
+  assert.equal((await t.json(`/api/projects/${p.id}/gallery`, { method: 'POST', cookie: u.cookie, body: { blurb: 'แอปตัวอย่างทำด้วย Agent' } })).data.featured, 2);
+  assert.equal((await t.json('/api/gallery')).data.length, 0);
+  await t.json('/api/admin/shared/' + p.id, { method: 'PUT', cookie: adm.cookie, body: { featured: true } });
+  assert.equal((await t.json('/api/gallery')).data[0].blurb, 'แอปตัวอย่างทำด้วย Agent');
+  const { lineDiff } = await import('../src/agent.js');
+  assert.deepEqual(lineDiff('a\nb\nc', 'a\nc\nd\ne'), [2, 1]); assert.deepEqual(lineDiff('', 'x\ny'), [2, 0]);
+});

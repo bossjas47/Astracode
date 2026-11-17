@@ -37,6 +37,8 @@ export async function mail(env, to, subject, html) {
 export async function notify(env, text) {
   const s = await getSettings(env, ['alert_discord', 'alert_line_to']), jobs = [];
   if (s.alert_discord) jobs.push(fetch(s.alert_discord, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: text.slice(0, 1900), allowed_mentions: { parse: [] } }) })); // กันข้อความผู้ใช้ปิง @everyone
+  // แอดมินที่เปิดแจ้งเตือนในเครื่องไว้: ได้ push ด้วย (สลิปรอตรวจ, โมเดลล่ม, ticket ใหม่ ฯลฯ)
+  jobs.push(env.DB.prepare("SELECT id FROM users WHERE role='admin'").all().then(async r => { const { sendPush } = await import('./push.js'); for (const a of r.results) await sendPush(env, a.id, { title: 'AstraCode แอดมิน', body: text.slice(0, 280), url: '/admin' }); }));
   if (env.LINE_ALERT_TOKEN && s.alert_line_to) jobs.push(fetch('https://api.line.me/v2/bot/message/push', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.LINE_ALERT_TOKEN }, body: JSON.stringify({ to: s.alert_line_to, messages: [{ type: 'text', text: text.slice(0, 4900) }] }) }));
   await Promise.allSettled(jobs);
 }
