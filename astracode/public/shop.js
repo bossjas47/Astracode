@@ -89,7 +89,7 @@ async function plansPage() {
 async function pricing() {
   const d = await api('/pricing');
   let per = localStorage.getItem('per') || 'M';
-  const unit = () => per === 'M' ? 'ต่อ 1M token' : 'ต่อ 1K token', f = v => money(toCur(per === 'M' ? v : v / 1000));
+  const unit = () => per === 'M' ? 'ต่อ 1M token' : 'ต่อ 1K token', u1 = () => per === 'M' ? '1M token' : '1K token', f = v => money(toCur(per === 'M' ? v : v / 1000));
   const planName = id => d.plans.find(p => p.id === id)?.name;
   const day = t => new Date(t).toLocaleDateString(LOC, { day: 'numeric', month: 'short', year: '2-digit' });
   const period = p => 'โปรโมชั่น' + (p.start && p.end ? ` ${day(p.start)} – ${day(p.end)}` : p.end ? 'ถึง ' + day(p.end) : p.start ? 'ตั้งแต่ ' + day(p.start) : '');
@@ -105,10 +105,10 @@ async function pricing() {
     ${m.promo ? `<p class="sale-t">${period(m.promo)}</p>` : ''}
     ${m.note ? `<p class="muted">${esc(m.note)}</p>` : ''}
     <div class="pc-rows">
-      ${m.req ? `<div><span>ต่อ 1 request</span><span class="pc-v"><b>${curSign()}${money(toCur(m.req))}</b></span></div>` : `<div><span>Input</span>${cell(m, 'in')}</div>
-      <div><span>Output</span>${cell(m, 'out')}</div>
-      <div><span>Cache read</span>${cell(m, 'cache')}</div>
-      ${m.cache_write ? `<div><span>Cache write</span>${cell(m, 'cache_write')}</div>` : ''}`}
+      ${m.req ? `<div><span>ต่อ 1 request</span><span class="pc-v"><b>${curSign()}${money(toCur(m.req))}</b></span></div>` : `<div><span>Input <small class="muted">/ ${u1()}</small></span>${cell(m, 'in')}</div>
+      <div><span>Output <small class="muted">/ ${u1()}</small></span>${cell(m, 'out')}</div>
+      <div><span>Cache read <small class="muted">/ ${u1()}</small></span>${cell(m, 'cache')}</div>
+      ${m.cache_write ? `<div><span>Cache write <small class="muted">/ ${u1()}</small></span>${cell(m, 'cache_write')}</div>` : ''}`}
     </div>
     <div class="pc-f"><span class="muted">ใช้ลิมิต ×${m.multiplier}${m.lim != null && m.lim !== 1 ? ` · หักจริง ×${m.lim}` : ''}</span><span class="muted">${m.plans.map(planName).filter(Boolean).map(esc).join(' · ') || 'ยังไม่อยู่ในแพลนไหน'}</span></div></div>`;
   const draw = () => {
