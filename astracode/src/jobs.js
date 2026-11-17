@@ -1,7 +1,7 @@
 import { BKK, DAY, SYSTEM, allowedModels, ensureCols, err, esc, json, planOf, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
-import { event, getSetting, mail, mailBox, notify, origin, siteUrl } from './billing.js';
+import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl } from './billing.js';
 import { admin } from './admin.js';
 import { slug } from './api.js';
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
@@ -51,6 +51,8 @@ export async function cron(env) {
     const last = (await env.SLIPS.list({ prefix: 'backup/' })).objects.reduce((a, o) => Math.max(a, +new Date(o.uploaded)), 0);
     if (now - last > 2 * DAY && now - (+(await getSetting(env, 'backup_alert_at')) || 0) > DAY) { await notify(env, `🗄️ ไม่มีไฟล์สำรองข้อมูลใหม่มา ${last ? Math.floor((now - last) / DAY) + ' วัน' : 'เลย'} · หลังบ้าน → ระบบ → Back up now`); await DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('backup_alert_at',?)").bind(String(now)).run(); }
   });
+  // 4.3) สรุปการใช้รายเดือนทางอีเมล: วันที่ 1 ตั้งแต่ 10 โมง (เวลาไทย) ทีละ 40 คนต่อชั่วโมง จำคนล่าสุดไว้ไม่ส่งซ้ำ
+  await step('digest', () => monthlyDigest(env, now));
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
   if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream
   if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)
@@ -126,6 +128,23 @@ export async function backup(env) {
   const old = (await env.SLIPS.list({ prefix: 'backup/' })).objects.sort((a, b) => a.key < b.key ? 1 : -1).slice(14);
   if (old.length) await env.SLIPS.delete(old.map(o => o.key));
   return key;
+}
+
+export async function monthlyDigest(env, now = Date.now(), batch = 40) {
+  const t = new Date(now + BKK); if (t.getUTCDate() !== 1 || t.getUTCHours() < 10) return 0;
+  const start = Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 1, 1) - BKK, end = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), 1) - BKK, month = new Date(start + BKK).toISOString().slice(0, 7);
+  const cur = String(await getSetting(env, 'digest_cursor') || ''), after = cur.startsWith(month + ':') ? +cur.split(':')[1] : 0;
+  const users = (await env.DB.prepare(`SELECT u.id,u.email,p.name pname,p.price FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.id>? AND u.banned=0 AND COALESCE(u.digest_off,0)=0 AND u.plan_expires>? AND p.price>0 AND EXISTS (SELECT 1 FROM usage g WHERE g.user_id=u.id AND g.created_at>=? AND g.created_at<?) ORDER BY u.id LIMIT ?`).bind(after, now, start, end, batch).all()).results;
+  const models = new Map((await env.DB.prepare('SELECT * FROM models').all()).results.map(m => [m.id, m]));
+  for (const u of users) {
+    const rows = (await env.DB.prepare('SELECT model_id, COUNT(*) n, SUM(tokens_in) tin, SUM(tokens_out) tout, SUM(tokens_cache) tc FROM usage WHERE user_id=? AND created_at>=? AND created_at<? GROUP BY model_id ORDER BY n DESC').bind(u.id, start, end).all()).results;
+    let payg = 0; const lines = [];
+    for (const r of rows) { const m = models.get(r.model_id); if (!m) continue; const p = await priceOf(env, m); payg += p.req > 0 ? p.req * r.n : (r.tin * p.in + r.tout * p.out + r.tc * p.cache) / 1e6; lines.push(`${esc(m.name)} · ${r.n.toLocaleString('th-TH')} ครั้ง`); }
+    const total = rows.reduce((a, r) => a + r.n, 0), save = payg - u.price;
+    await mail(env, u.email, `AstraCode: สรุปการใช้งานเดือน ${month}`, mailBox(`สรุปเดือน ${month}`, `แพลน ${esc(u.pname)} · ใช้ AI ไป <b>${total.toLocaleString('th-TH')}</b> ครั้ง<br><br>${lines.slice(0, 5).join('<br>')}<br><br>ถ้าจ่ายตามใช้จะเป็นประมาณ <b>฿${payg.toFixed(2)}</b>${save > 0 ? ` · แพลนช่วยประหยัด <b>฿${save.toFixed(2)}</b>` : ''}<br><br><small>ปิดอีเมลนี้ได้ที่หน้าบัญชี</small>`, 'ดูการใช้งาน', siteUrl(env) + '/account')).catch(() => {});
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('digest_cursor',?)").bind(month + ':' + u.id).run();
+  }
+  return users.length;
 }
 
 // ตรวจไฟล์สำรองล่าสุด: อ่าน JSON ได้ไหม มีตารางครบไหม จำนวนแถวใกล้เคียงฐานข้อมูลจริงไหม (ไม่กู้คืน ไม่เขียนอะไร)

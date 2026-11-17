@@ -92,3 +92,16 @@ test('project secrets (.env): stored sealed, readable only by the owner, never p
   assert.equal((await t.json(`/api/projects/${p.data.id}/env`, { cookie: o.cookie })).status, 404, 'other users cannot read it');
   const full = JSON.stringify((await t.json(`/api/projects/${p.data.id}`, { cookie: u.cookie })).data); assert.ok(!full.includes('abc123') && !full.includes('env_sealed'), 'not in the project payload');
 });
+
+test('monthly digest: paid users with usage last month get one email, opted-out users none, re-runs do not resend', async () => {
+  const t = await makeEnv({ RESEND_KEY: 'rk' }), m = addModel(t.DB, { name: 'M', base_url: 'http://x' }); t.DB.raw.prepare('UPDATE models SET price_in=10, price_out=20 WHERE id=?').run(m.id);
+  const plan = addPlan(t.DB, { price: 1, models: [m.id] }), a = await t.user(), b = await t.user(), c = await t.user();
+  const at = Date.UTC(2026, 10, 1, 4, 0) /* 1 พ.ย. 11:00 เวลาไทย */, last = Date.UTC(2026, 9, 15);
+  for (const u of [a, b, c]) { t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, at + 30 * 864e5, u.id); t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,1000000,0,0,1,1,?)').run(u.id, m.id, last); }
+  assert.equal((await t.json('/api/me', { method: 'PUT', cookie: b.cookie, body: { digest: false } })).status, 200);
+  const sent = [], orig = globalThis.fetch; globalThis.fetch = async (u, o) => { if (String(u).includes('resend')) { sent.push(JSON.parse(o.body)); return new Response('{}'); } return orig(u, o); };
+  const { monthlyDigest } = await import('../src/jobs.js');
+  try { assert.equal(await monthlyDigest(t.env, at), 2); assert.equal(await monthlyDigest(t.env, at), 0, 'cursor stops resends'); assert.equal(await monthlyDigest(t.env, at - 864e5), 0, 'only on day 1'); }
+  finally { globalThis.fetch = orig; }
+  assert.deepEqual(sent.map(x => x.to).sort(), [a.email, c.email].sort()); assert.match(sent[0].html, /฿10\.00/); assert.match(sent[0].subject, /2026-10/);
+});

@@ -72,6 +72,7 @@ PAGES.account = async function account() {
       <div id="tklist" style="margin-top:8px"></div></div>
     <div class="card acc-c" id="sec-wallet">${h3('Wallet')}
       ${sw('overflow', me.wallet_overflow, 'ใช้ Wallet เมื่อลิมิตเต็ม', 'แชตต่อได้ คิดตามราคาต่อ token จริง')}
+      ${me.plan.paid ? sw('digest', me.digest !== false, 'สรุปการใช้รายเดือนทางอีเมล', 'ต้นเดือนส่งสรุปว่าใช้ไปเท่าไร โมเดลไหน และคุ้มกว่าจ่ายตามใช้แค่ไหน') : ''}
       ${me.plan.expires ? sw('renew', me.auto_renew, 'ต่ออายุแพลนอัตโนมัติ', 'ตัดเงินจาก Wallet ก่อนหมดอายุ 1 วัน ถ้ายอดพอ') : ''}
       <form id="cp" class="row" style="flex-wrap:nowrap;margin-top:12px"><input name="code" placeholder="โค้ดคูปองเครดิต" autocapitalize="characters" required><button class="btn out sm">Apply coupon</button></form><div class="err" id="cpe"></div>
       <details class="faq" style="margin-top:8px"><summary>ของขวัญ (โอนเงิน Wallet ให้เพื่อนเป็นโค้ด)</summary>
@@ -116,7 +117,7 @@ PAGES.account = async function account() {
   const pickSeg = (sel, attr, key) => document.querySelectorAll(sel + ' button').forEach(b => b.onclick = () => { localStorage.setItem(key, b.dataset[attr]); window.applyTheme?.(); document.querySelectorAll(sel + ' button').forEach(x => x.classList.toggle('on', x === b)); });
   pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize'); pickSeg('#seg-fx', 'x', 'fx');
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
-  toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew');
+  toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew'); toggle('#digest', 'digest');
   const tasks = async () => { const ts = await api('/tasks').catch(() => []); const el = $('#tklist'); if (el) el.innerHTML = ts.map(x => `<div class="mem tm"><span>${String(x.hour).padStart(2, '0')}:00 · ${esc(x.prompt)}</span><button type="button" data-deltk="${x.id}" aria-label="ลบงาน">${ic('x')}</button></div>`).join(''); };
   tasks();
   $('#tkf').onsubmit = async e => { e.preventDefault(); try { await api('/tasks', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); e.target.reset(); toast('เพิ่มงานตั้งเวลาแล้ว', 'ok'); tasks(); } catch (x) { toast(x.message, 'bad'); } };

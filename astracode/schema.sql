@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   gh_token TEXT,                            -- GitHub token (เข้ารหัส)
   gh_login TEXT,
   balance REAL NOT NULL DEFAULT 0, ref_code TEXT, referred_by INTEGER, ref_rewarded INTEGER NOT NULL DEFAULT 0,
-  email_verified INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_last INTEGER, totp_on INTEGER NOT NULL DEFAULT 0, google_id TEXT, line_id TEXT,
+  email_verified INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_last INTEGER, digest_off INTEGER, totp_on INTEGER NOT NULL DEFAULT 0, google_id TEXT, line_id TEXT,
   instructions TEXT NOT NULL DEFAULT '', wallet_overflow INTEGER NOT NULL DEFAULT 0, auto_renew INTEGER NOT NULL DEFAULT 0,
   plan_period TEXT NOT NULL DEFAULT 'month', reminded_at INTEGER, has_password INTEGER NOT NULL DEFAULT 1, fb_uid TEXT UNIQUE,
   created_at INTEGER NOT NULL

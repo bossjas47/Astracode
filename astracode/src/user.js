@@ -40,6 +40,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     await DB.prepare('UPDATE users SET instructions=COALESCE(?,instructions), wallet_overflow=COALESCE(?,wallet_overflow), auto_renew=COALESCE(?,auto_renew) WHERE id=?')
       .bind(typeof b.instructions === 'string' ? b.instructions.slice(0, 3000) : null, 'wallet_overflow' in b ? (b.wallet_overflow ? 1 : 0) : null, 'auto_renew' in b ? (b.auto_renew ? 1 : 0) : null, u.id).run();
     if ('auto_compact' in b) await DB.prepare('UPDATE users SET auto_compact=? WHERE id=?').bind(b.auto_compact ? 1 : 0, u.id).run();
+    if ('digest' in b) await DB.prepare('UPDATE users SET digest_off=? WHERE id=?').bind(b.digest ? 0 : 1, u.id).run();
     if ('webhook_url' in b) { // Webhook แจ้งเมื่อ API key ใช้งบถึง 80% / 100% (https เท่านั้น ห้ามที่อยู่ภายใน)
       const w = String(b.webhook_url || '').trim(), safe = w ? isSafeMcpUrl(w) : '';
       if (w && !safe) return err('Webhook ต้องเป็นลิงก์ https ที่เปิดสู่สาธารณะเท่านั้น');
