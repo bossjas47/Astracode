@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS models (
   cost_cache_write REAL NOT NULL DEFAULT 0,
   vision INTEGER NOT NULL DEFAULT 0,        -- อ่านรูปได้
   ctx_k REAL,                               -- ขนาด context ของโมเดล (พัน token) ว่าง = 128
+  req_cap INTEGER,                          -- เพดานจำนวนคำขอต่อผู้ใช้ต่อ 4 ชม. (ว่าง = ไม่จำกัด)
   bill TEXT,                                -- วิธีคิดเงิน: NULL/token = ตามจำนวน token · request = เหมาต่อ request (ใช้ req_cost/req_price แทนราคา token ทั้งหมด ไม่ผสมกัน)
   req_cost REAL, req_price REAL,            -- ต้นทุน/ราคาขายต่อ request (บาท) ใช้เมื่อ bill=request
   price_in REAL, price_out REAL, price_cache REAL, price_cache_write REAL, -- ราคาขาย/1M token (ว่าง = ทุน + markup)
@@ -187,7 +188,8 @@ CREATE TABLE IF NOT EXISTS project_files (
 );
 
 -- ระบบเพิ่มเติม (เหมือน migrate-6.sql)
-CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT, use_plan INTEGER NOT NULL DEFAULT 1, ip_allow TEXT);
+CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT, use_plan INTEGER NOT NULL DEFAULT 1, ip_allow TEXT, expires_at INTEGER);
+CREATE TABLE IF NOT EXISTS gift_codes (code TEXT PRIMARY KEY, amount REAL NOT NULL, from_user INTEGER NOT NULL, created_at INTEGER NOT NULL, used_by INTEGER, used_at INTEGER); -- โค้ดของขวัญ: โอนเงิน Wallet ให้คนอื่น
 CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id);
 CREATE TABLE IF NOT EXISTS wallet_tx (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount REAL NOT NULL, balance_after REAL NOT NULL, kind TEXT NOT NULL, ref TEXT, created_at INTEGER NOT NULL);

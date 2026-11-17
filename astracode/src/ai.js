@@ -1,5 +1,5 @@
-import { HISTORY, HISTORY_CODE, LOCK_MS, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr } from './core.js';
-import { event, getSetting, getSettings, priceOf, walletAdd } from './billing.js';
+import { HISTORY, HISTORY_CODE, LOCK_MS, reqCapHit, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr } from './core.js';
+import { blockedText, event, getSetting, getSettings, mail, mailBox, priceOf, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { v1 } from './api.js';
@@ -363,7 +363,9 @@ export async function chat(req, env, u, ctx) {
   if (!m) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
   if (images.length && !m.vision) return err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น');
   if (await capHit(env, u, plan, m)) return json({ error: `${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว ลองโมเดลอื่นได้เลย`, cap: true }, 429);
-  const st = await usageStatus(env, u, plan);
+  if (await reqCapHit(env, u, m)) return json({ error: `${m.name} ใช้ครบ ${m.req_cap} ครั้งใน 4 ชั่วโมงแล้ว ลองโมเดลอื่นหรือรอสักครู่`, cap: true }, 429);
+  if (await blockedText(env, text)) return err('ข้อความนี้มีเนื้อหาที่ระบบไม่รับ');
+  const st = await usageStatus(env, u, plan), pw0 = st.pctWeek;
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
   const overflow = (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance > 0 && !ephemeral ? 'overflow' : null) : null;
   if ((st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429);
@@ -413,7 +415,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null };
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, pw0 };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -547,7 +549,12 @@ export async function runChat(env, J, send, st) {
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).first())?.id ?? null;
   const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan }) : 0;
   await unlimit(env, lock);
-  await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: ctxUsed, max: ctxMax(model) }, ...(await usageStatus(env, u, plan)) });
+  const fin = await usageStatus(env, u, plan);
+  await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: ctxUsed, max: ctxMax(model) }, ...fin });
+  for (const lv of [100, 80]) if (J.pw0 < lv && fin.pctWeek >= lv) { // ข้ามเส้น 80% / 100% ของลิมิตสัปดาห์: อีเมลครั้งเดียวตอนข้าม
+    await mail(env, u.email, `AstraCode: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', (env.PUBLIC_URL || 'https://astracode.panderx.xyz') + '/plans')).catch(() => {});
+    break;
+  }
   if (cid && (out || think)) await compact(env, u, cid).catch(e => console.log('compact', e.message)); // ย่อแชตยาวหลังตอบเสร็จ ไม่ทำให้ผู้ใช้รอ
 }
 

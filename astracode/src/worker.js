@@ -249,6 +249,14 @@ export async function route(req, env, ctx, url, path, M) {
         await env.DB.prepare('UPDATE users SET gh_token=?, gh_login=? WHERE id=?').bind(await seal(env, token), who.login, u.id).run();
         return json({ ok: true, login: who.login });
       }
+      if ((r = path.match(/^\/api\/chats\/(\d+)\/branch$/)) && M === 'POST') { // แตกกิ่ง: แชตใหม่ที่มีข้อความถึงจุดที่เลือก (ของเดิมไม่ถูกแตะ)
+        const c = await env.DB.prepare('SELECT title,project_id,folder_id FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first();
+        if (!c) return err('ไม่พบแชต', 404);
+        const upto = +(await req.json().catch(() => ({}))).message_id || 1e15;
+        const n = await env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,?) RETURNING id').bind(u.id, ('↳ ' + c.title).slice(0, 60), Date.now(), c.project_id, c.folder_id).first();
+        await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) SELECT ?1,role,content,model_id,created_at,thinking,sources,tin,tout FROM messages WHERE chat_id=?2 AND id<=?3 ORDER BY id').bind(n.id, r[1], upto).run();
+        return json({ id: n.id });
+      }
       if ((r = path.match(/^\/api\/chats\/(\d+)\/compact$/)) && M === 'POST') { // ผู้ใช้กดย่อแชต: สรุปข้อความเก่าเหลือ 2 ข้อความล่าสุด (ลด context)
         if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
         if (await limited(env, 'compact:' + u.id, 10, 3600e3)) return err('ย่อแชตบ่อยเกินไป ลองใหม่ภายหลัง', 429);

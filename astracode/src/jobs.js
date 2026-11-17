@@ -27,6 +27,9 @@ export async function cron(env) {
     const c = (await DB.prepare('SELECT COALESCE(SUM(cost),0) c FROM usage WHERE created_at>=?').bind(dayStart).first()).c;
     if (c > lim) { await notify(env, `💸 ต้นทุน API วันนี้ ฿${c.toFixed(2)} เกินที่ตั้งไว้ ฿${lim}`); await DB.prepare("INSERT OR REPLACE INTO settings VALUES ('cost_alert_day',?)").bind(String(dayStart)).run(); }
   }
+  // 3.5) โมเดลที่ error ตั้งแต่ 10 ครั้งในชั่วโมงที่ผ่านมา: สรุปแจ้งแอดมิน (cron รายชั่วโมง = แจ้งไม่เกินชั่วโมงละครั้ง)
+  const spike = (await DB.prepare("SELECT e.model_id, md.name, COUNT(*) n FROM events e LEFT JOIN models md ON md.id=e.model_id WHERE e.kind='error' AND e.created_at>? GROUP BY e.model_id HAVING n>=10 ORDER BY n DESC").bind(now - 3600e3).all()).results;
+  if (spike.length) await notify(env, '🔥 error พุ่งในชั่วโมงที่ผ่านมา: ' + spike.map(s => `${s.name || 'ระบบ'} ${s.n} ครั้ง`).join(' · ') + ' (เช็คคีย์/เครดิต upstream)');
   // 4) สำรองข้อมูลวันละครั้ง (ตี 3 เวลาไทย) เก็บ 14 ชุด
   if (env.SLIPS && new Date(now + BKK).getUTCHours() === 3) await backup(env);
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check

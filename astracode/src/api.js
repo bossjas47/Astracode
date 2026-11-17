@@ -1,6 +1,6 @@
-import { BKK, DAY, capHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus } from './core.js';
+import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, chat, logUsage } from './ai.js';
-import { event, mail, mailBox, origin, priceOf } from './billing.js';
+import { blockedText, event, mail, mailBox, origin, priceOf } from './billing.js';
 import { status } from './jobs.js';
 // ---------- API สำหรับนักพัฒนา: /v1/models, /v1/chat/completions (แบบ OpenAI) คิดเงินจาก wallet ----------
 export const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 7); // เดือนตามเวลาไทย เช่น 2026-11
@@ -33,7 +33,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
   let walletKey = null; // ล็อก Wallet ทีละคำขอ: ต้องปลดทุกทางออก (สำเร็จ/ผิดพลาด) ไม่งั้นผู้ใช้ติดล็อก 3 นาที
   try {
     const key = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '') || req.headers.get('x-api-key') || '';
-    const k = key && await env.DB.prepare('SELECT k.id kid, k.budget, k.models kmodels, k.use_plan, k.spent, k.spent_month, k.ip_allow, k.name kname, u.* FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.key_hash=? AND k.revoked=0').bind(await sha(key)).first();
+    const k = key && await env.DB.prepare('SELECT k.id kid, k.budget, k.models kmodels, k.use_plan, k.spent, k.spent_month, k.ip_allow, k.name kname, u.* FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.key_hash=? AND k.revoked=0 AND (k.expires_at IS NULL OR k.expires_at>?)').bind(await sha(key), Date.now()).first();
     if (!k || k.banned) return fail('API key ไม่ถูกต้อง', 401, 'invalid_api_key');
     lg.kid = k.kid; lg.uid = k.id;
     if (k.ip_allow && !ipAllowed(k.ip_allow, ip(req, env))) return fail('This IP address is not allowed for this API key.', 403, 'permission_error');
@@ -65,6 +65,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const b = await req.json().catch(() => null) || {}, pool = allPublic.filter(x => (!allow || allow.includes(slug(x))) && (isImg ? x.provider === 'image' : isEmb ? x.provider === 'embedding' : x.provider !== 'embedding'));
     const m = pool.find(x => slug(x) === b.model || x.api_model === b.model) || ((isImg || isEmb) && !b.model ? pool[0] : null);
     if (!m) return fail(`ไม่พบโมเดล "${String(b?.model ?? '').slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404);
+    if (await reqCapHit(env, k, m)) return fail(`${m.name} reached its request cap (${m.req_cap} per 4 hours).`, 429, 'rate_limit_error');
     let billingMode = 'wallet';
     if (canPlan && planIds.has(m.id)) {
       if (await capHit(env, k, plan, m)) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');
@@ -108,6 +109,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       : x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.length
         ? { role: 'assistant', content: text(x.content) || null, tool_calls: x.tool_calls }
         : { role: x.role, content: normContent(x.content) }).filter(x => x.role === 'tool' || (x.tool_calls?.length) || (Array.isArray(x.content) ? x.content.length : x.content));
+    if (await blockedText(env, hist.map(x => typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '')).join('\n'))) return fail('This request contains content that is not accepted.', 400, 'invalid_request_error');
     if (extra.response_format && m.provider !== 'openai') { // Claude/Responses ไม่มี JSON mode แบบ chat/completions: สั่งผ่านคำสั่งระบบ
       system += (system ? '\n\n' : '') + 'Respond with a single valid JSON value only: no prose, no code fences.' + (extra.response_format.json_schema?.schema ? ' It must match this JSON Schema: ' + JSON.stringify(extra.response_format.json_schema.schema).slice(0, 4000) : '');
       delete extra.response_format;

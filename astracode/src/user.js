@@ -39,6 +39,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const b = await req.json();
     await DB.prepare('UPDATE users SET instructions=COALESCE(?,instructions), wallet_overflow=COALESCE(?,wallet_overflow), auto_renew=COALESCE(?,auto_renew) WHERE id=?')
       .bind(typeof b.instructions === 'string' ? b.instructions.slice(0, 3000) : null, 'wallet_overflow' in b ? (b.wallet_overflow ? 1 : 0) : null, 'auto_renew' in b ? (b.auto_renew ? 1 : 0) : null, u.id).run();
+    if (b.auto_renew === false && typeof b.reason === 'string' && b.reason.trim()) await event(env, 'cancel', null, `${u.email}: ${b.reason.trim().slice(0, 300)}`); // เหตุผลที่ปิดต่ออายุ ให้แอดมินดูในเหตุการณ์ระบบ
     return json({ ok: true });
   }
   if (path === '/api/memories') {
@@ -73,7 +74,37 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (u.plan_id && u.plan_expires > now && u.plan_expires < now + 3 * DAY) out.push({ t: u.plan_expires - 3 * DAY, kind: 'warn', text: `แพลนจะหมดอายุ ${new Date(u.plan_expires + BKK).toISOString().slice(0, 10)}`, href: '/plans' });
     for (const k of (await DB.prepare('SELECT name,budget,spent,last_used FROM api_keys WHERE user_id=? AND revoked=0 AND budget>0 AND spent_month=? AND spent>=budget*0.8').bind(u.id, monthKey()).all()).results)
       out.push({ t: k.last_used || now, kind: k.spent >= k.budget ? 'bad' : 'warn', text: `API key "${k.name}" ใช้งบเดือนนี้ไป ฿${(+k.spent).toFixed(2)} จาก ฿${k.budget}`, href: '/developers' });
+    const st = await usageStatus(env, u, await planOf(env, u)).catch(() => null), day = Math.floor(now / DAY) * DAY;
+    if (st?.pctWeek >= 80) out.push({ t: day, kind: st.pctWeek >= 100 ? 'bad' : 'warn', text: st.pctWeek >= 100 ? 'ลิมิตสัปดาห์เต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อ' : `ใช้ลิมิตสัปดาห์ไป ${Math.round(st.pctWeek)}% แล้ว`, href: '/plans' });
     return json(out.sort((a, b) => b.t - a.t));
+  }
+  if (path === '/api/gift') { // โค้ดของขวัญ: ตัดเงินจาก Wallet ของผู้ให้ คนรับกรอกโค้ดแล้วเงินเข้า Wallet
+    if (M === 'GET') return json((await DB.prepare('SELECT code,amount,created_at,used_at FROM gift_codes WHERE from_user=? ORDER BY created_at DESC LIMIT 50').bind(u.id).all()).results);
+    if (M !== 'POST') return err('method not allowed', 405);
+    const amount = Math.round(+(await req.json()).amount * 100) / 100;
+    if (!(amount >= 20 && amount <= 50000)) return err('ยอดของขวัญต้องอยู่ระหว่าง ฿20–฿50,000');
+    const took = await DB.prepare('UPDATE users SET balance=ROUND(balance-?1,4) WHERE id=?2 AND balance>=?1 RETURNING balance').bind(amount, u.id).first(); // ตัดแบบ atomic กันยอดติดลบ
+    if (!took) return err('ยอดเงินใน Wallet ไม่พอ', 402);
+    const code = 'GIFT-' + rand(6).toUpperCase();
+    await DB.batch([DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, took.balance, 'gift', code, Date.now()),
+      DB.prepare('INSERT INTO gift_codes (code,amount,from_user,created_at) VALUES (?,?,?,?)').bind(code, amount, u.id, Date.now())]);
+    return json({ code, amount });
+  }
+  if (path === '/api/gift/redeem' && M === 'POST') {
+    if (await limited(env, 'gift:' + u.id, 10, 3600e3)) return err('ลองหลายครั้งเกินไป รอสักครู่', 429);
+    const code = String((await req.json()).code || '').trim().toUpperCase();
+    const g = code && await DB.prepare('UPDATE gift_codes SET used_by=?, used_at=? WHERE code=? AND used_by IS NULL RETURNING amount').bind(u.id, Date.now(), code).first();
+    if (!g) return err('โค้ดของขวัญไม่ถูกต้องหรือถูกใช้ไปแล้ว', 404);
+    return json({ ok: true, amount: g.amount, balance: await walletAdd(env, u.id, g.amount, 'gift', code) });
+  }
+  if (path === '/api/team/usage.csv') { // หัวหน้าทีม: การใช้ของสมาชิก 7 และ 30 วัน (หน่วย = บาทต้นทุนที่หักลิมิต)
+    const own = await DB.prepare("SELECT team_id FROM team_members WHERE user_id=? AND role='owner'").bind(u.id).first();
+    if (!own) return err('เฉพาะหัวหน้าทีมเท่านั้น', 403);
+    const now = Date.now(), rows = (await DB.prepare(`SELECT u.email, tm.role, (SELECT COUNT(*) FROM usage g WHERE g.user_id=u.id AND g.created_at>=?2) n30,
+      (SELECT COALESCE(SUM(g.units),0) FROM usage g WHERE g.user_id=u.id AND g.created_at>=?3) u7, (SELECT COALESCE(SUM(g.units),0) FROM usage g WHERE g.user_id=u.id AND g.created_at>=?2) u30
+      FROM team_members tm JOIN users u ON u.id=tm.user_id WHERE tm.team_id=?1 ORDER BY u30 DESC`).bind(own.team_id, now - 30 * DAY, now - 7 * DAY).all()).results;
+    const csv = '\ufeffemail,role,requests_30d,units_7d,units_30d\n' + rows.map(r => [r.email, r.role, r.n30, (+r.u7).toFixed(4), (+r.u30).toFixed(4)].join(',')).join('\n');
+    return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="team-usage.csv"' } });
   }
   if (path === '/api/wallet') {
     const ref = await DB.prepare('SELECT COUNT(*) n, SUM(ref_rewarded) paid FROM users WHERE referred_by=?').bind(u.id).first();
@@ -99,12 +130,12 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     return json(rows);
   }
   if (path === '/api/keys') {
-    if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,ip_allow,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
+    if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,ip_allow,expires_at,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
     if (M === 'POST' && !((await planOf(env, u))?.price > 0)) return err('แพลนฟรีสร้าง API key ไม่ได้ ต้องใช้แพลนที่ชำระเงิน', 403);
     if (M === 'POST' && (await planOf(env, u))?._team?.api_off) return err('หัวหน้าทีมปิดสิทธิ์สร้าง API key ของคุณไว้', 403);
     if ((await DB.prepare('SELECT COUNT(*) n FROM api_keys WHERE user_id=? AND revoked=0').bind(u.id).first()).n >= 10) return err('สร้าง key ได้สูงสุด 10 อัน');
-    const name = String((await req.json()).name || 'default').trim().slice(0, 40) || 'default', key = 'sk-astra-' + rand(24);
-    await DB.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').bind(u.id, name, await sha(key), key.slice(0, 14), Date.now()).run();
+    const kb = await req.json(), name = String(kb.name || 'default').trim().slice(0, 40) || 'default', key = 'sk-astra-' + rand(24), days = Math.min(3650, Math.max(0, Math.floor(+kb.days) || 0)); // days = อายุ key (0 = ไม่หมดอายุ)
+    await DB.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at,expires_at) VALUES (?,?,?,?,?,?)').bind(u.id, name, await sha(key), key.slice(0, 14), Date.now(), days ? Date.now() + days * DAY : null).run();
     return json({ key }); // แสดงครั้งเดียว เก็บแค่ hash
   }
   if ((r = path.match(/^\/api\/keys\/(\d+)\/log$/)) && M === 'GET') { // คำขอล่าสุดของ key (เก็บ 30 วัน)

@@ -346,3 +346,33 @@ test('chat reply reports context use against the model window, and the user can 
   assert.ok(t.DB.raw.prepare('SELECT summary FROM chats WHERE id=?').get(cid).summary);
   fm.close();
 });
+
+test('gift codes move wallet money once; request cap, blocked words, key expiry and chat branch work', async () => {
+  const fm = await fakeModel((q, res) => fm.sse(res, 'ok')); const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'Cap', base_url: fm.url }); const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 100, api_limit: 1 });
+  const a = await t.user({ balance: 100 }), b = await t.user(); give(t.DB, a, plan);
+  assert.equal((await t.json('/api/gift', { method: 'POST', cookie: b.cookie, body: { amount: 50 } })).status, 402, 'no balance');
+  const g = await t.json('/api/gift', { method: 'POST', cookie: a.cookie, body: { amount: 50 } }); assert.equal(g.status, 200);
+  const bal = id => t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(id).balance; assert.equal(bal(a.id), 50);
+  assert.equal((await t.json('/api/gift/redeem', { method: 'POST', cookie: b.cookie, body: { code: g.data.code } })).data.amount, 50); assert.equal(bal(b.id), 50);
+  assert.equal((await t.json('/api/gift/redeem', { method: 'POST', cookie: a.cookie, body: { code: g.data.code } })).status, 404, 'a code works once');
+  // chat + branch
+  let cid; for (const text of ['one', 'two']) { t.DB.raw.exec('DELETE FROM rate'); const ev = await readSSE(await chat(t, a, m, text).then(async r => r)); cid ||= ev.find(e => e.chat_id)?.chat_id; if (!cid) cid = t.DB.raw.prepare('SELECT id FROM chats ORDER BY id DESC').get().id; }
+  t.DB.raw.exec('DELETE FROM rate');
+  const first = t.DB.raw.prepare('SELECT id FROM messages WHERE chat_id=? ORDER BY id').all(t.DB.raw.prepare('SELECT chat_id FROM messages ORDER BY id').get().chat_id);
+  const src = t.DB.raw.prepare('SELECT chat_id FROM messages ORDER BY id').get().chat_id;
+  const br = await t.json(`/api/chats/${src}/branch`, { method: 'POST', cookie: a.cookie, body: { message_id: first[1].id } });
+  assert.equal(br.status, 200); assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM messages WHERE chat_id=?').get(br.data.id).n, 2);
+  assert.equal((await t.json(`/api/chats/${src}/branch`, { method: 'POST', cookie: b.cookie, body: {} })).status, 404);
+  // request cap: 2 chats already used
+  t.DB.raw.prepare('UPDATE models SET req_cap=2 WHERE id=?').run(m.id); t.DB.raw.exec('DELETE FROM rate');
+  assert.equal((await chat(t, a, m)).status, 429);
+  t.DB.raw.prepare('UPDATE models SET req_cap=NULL WHERE id=?').run(m.id);
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('block_words','badword, อีกคำ')").run(); t.DB.raw.exec('DELETE FROM rate');
+  assert.equal((await chat(t, a, m, 'this has BadWord inside')).status, 400);
+  // key expiry
+  t.DB.raw.exec('DELETE FROM rate'); const k = await t.json('/api/keys', { method: 'POST', cookie: a.cookie, body: { name: 'x', days: 7 } }); assert.equal(k.status, 200, JSON.stringify(k.data));
+  const call = () => t.call('/v1/models', { headers: { authorization: 'Bearer ' + k.data.key } });
+  assert.equal((await call()).status, 200); t.DB.raw.prepare('UPDATE api_keys SET expires_at=?').run(Date.now() - 1000); assert.equal((await call()).status, 401);
+  fm.close();
+});
