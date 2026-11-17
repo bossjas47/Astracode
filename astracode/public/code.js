@@ -648,10 +648,21 @@ async function projectHistory() {
     });
   });
 }
+// เมตร context บนหัวแท็บ AI: นับตั้งแต่ก่อนส่งข้อความแรก (คำสั่งระบบ + ไฟล์โปรเจกต์) อัปเดตเมื่อเปลี่ยนโมเดล/แชต/ตอบเสร็จ
+let ctxT = 0;
+function ctxMeter() {
+  clearTimeout(ctxT); ctxT = setTimeout(async () => {
+    const b = $('#cctx'); if (!b || window.DEMO) return;
+    const q = new URLSearchParams({ project_id: IDE.pid, model_id: $('#cmodel')?.value || '' }); if (IDE.chatId) q.set('chat_id', IDE.chatId); if (IDE.skills?.length) q.set('skills', IDE.skills.join(','));
+    const r = await api('/context?' + q).catch(() => null); if (!r) return;
+    const k = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace(/0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+    b.hidden = false; b.className = 'ctxm ' + (r.pct >= 90 ? 'bad' : r.pct >= 70 ? 'warn' : ''); b.textContent = `ctx ${k(r.used)}/${k(r.max)} · ${Math.round(r.pct)}%`;
+  }, 400);
+}
 function codeTools() {
   sheet('เครื่องมือ AI', optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
     + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
-    + optHTML('bgagent', ic('server') + 'ส่งงานให้ Agent ทำบนเซิร์ฟเวอร์' + newPill('team'), me.plan.paid ? 'สั่งแล้วปิดแอปได้ Agent แก้ไฟล์และสร้างรูปให้เองสูงสุด 20 รอบ เสร็จแล้วส่งอีเมล · ไม่รันโค้ด ตรวจผลเองตอนจบ' : 'ใช้ได้กับแพลนที่ชำระเงิน')
+    + optHTML('bgagent', ic('server') + 'Agent / ทีม Agent บนเซิร์ฟเวอร์' + newPill('team'), me.plan.paid ? 'สั่งแล้วปิดแอปได้ Agent แก้ไฟล์และสร้างรูปให้เองสูงสุด 20 รอบ เสร็จแล้วส่งอีเมล · ไม่รันโค้ด ตรวจผลเองตอนจบ' : 'ใช้ได้กับแพลนที่ชำระเงิน')
     + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว)', me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง ปิดจอได้ กลับมาดูผล · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
@@ -965,7 +976,7 @@ async function codeSend(auto) {
         if (d.compacted) toast(`ย่อแชตอัตโนมัติแล้ว (${d.why})`, 'ok');
         if (d.trimmed) toast('context เต็ม: ตัดข้อความเก่าบางส่วนออกจากที่ส่งให้ AI', 'bad');
         if (d.done && IDE.agent && document.hidden && 'Notification' in window && Notification.permission === 'granted') try { new Notification('AstraCode', { body: 'AI ทำงานเสร็จแล้ว แตะเพื่อดูผล' }); } catch { /* บางเบราว์เซอร์ต้องใช้ service worker */ }
-        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
+        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; ctxMeter(); if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }
     }
   } catch (x) {
@@ -1178,7 +1189,7 @@ async function codeView(id) {
         <div class="ide-run"><div class="run-h"><button data-rtab="out" class="on">Output</button><button data-rtab="con">Console</button><button data-rtab="term">Terminal</button><span id="run-status" class="muted"></span><span style="flex:1"></span>
           <button id="rmob" title="สลับขนาดมือถือ">${ic('smartphone', 'sm')}</button><button id="rfull" title="ขยายเต็มจอ">${ic('eye', 'sm')} Fullscreen</button><button id="stop">${ic('stop')} Stop</button><button id="clr">Clear</button><button id="hiderun" aria-label="ปิดแผงรัน">${ic('x')}</button></div>
           <div id="out" class="run-out"><p class="muted" style="padding:16px">กด รัน เพื่อดูผล</p></div><div id="console" class="console" hidden></div><div id="term" class="term" hidden><pre id="term-o"></pre><form id="term-f"><span>$</span><input id="term-i" placeholder="npm install lodash / npm test / node app.js" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="คำสั่ง"></form></div></div></section>
-      <aside class="ide-ai"><div class="ai-h"><b class="ai-t">${ic('sparkles')} AI</b><span class="sp"></span><button class="lim" id="clim" aria-label="ลิมิตการใช้งาน"></button><button class="icon-btn sm" id="chist" aria-label="ประวัติแชตโปรเจกต์" title="ประวัติแชต">${ic('more')}</button><button class="icon-btn sm" id="cnew" aria-label="แชตใหม่">${ic('newchat')}</button>
+      <aside class="ide-ai"><div class="ai-h"><b class="ai-t">${ic('sparkles')} AI</b><button type="button" class="ctxm" id="cctx" hidden title="context ที่ใช้อยู่ · แตะดูรายละเอียด"></button><span class="sp"></span><button class="lim" id="clim" aria-label="ลิมิตการใช้งาน"></button><button class="icon-btn sm" id="chist" aria-label="ประวัติแชตโปรเจกต์" title="ประวัติแชต">${ic('more')}</button><button class="icon-btn sm" id="cnew" aria-label="แชตใหม่">${ic('newchat')}</button>
         <button type="button" class="icon-btn sm" id="aiclose" aria-label="ปิดแผง AI">${ic('x')}</button>
         <select id="cmodel" hidden>${me.models.map(m => `<option value="${m.id}" ${String(m.id) === saved ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
         <select id="ceffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></div>
@@ -1199,7 +1210,8 @@ async function codeView(id) {
   $('#tfilter').oninput = e => { IDE.filter = e.target.value; drawTree(); drawRecent(); }; $('#edset').onclick = editorSettings; $('#aiclose').onclick = () => openAI(false);
   $('#cmdbar').onsubmit = e => { e.preventDefault(); const i = $('#cmdi'), v = i.value.trim(); if (!v || IDE.busy) return; $('#ct').value = v; $('#ct').dispatchEvent(new Event('input')); i.value = ''; openAI(true); codeSend(); };
 
-  $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); };
+  $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); ctxMeter(); };
+  $('#cctx').onclick = () => ctxSheet({ chatId: IDE.chatId, projectId: IDE.pid, modelId: +$('#cmodel')?.value || null, skills: IDE.skills, onCompact: ctxMeter, onPickModel: id => { $('#cmodel').value = id; $('#cmodel').onchange({ target: $('#cmodel') }); } });
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
   $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools; $('#cup').onclick = () => $('#uplf').click();
   $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'bgagent') { bgAgentSheet(); return; } if (f === 'agent') { IDE.agent = false; localStorage.setItem('agent', '0'); toast('ปิดโหมด Agent', 'ok'); cUI(); return; } if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
@@ -1227,13 +1239,13 @@ async function codeView(id) {
   $('#upl').onclick = () => $('#uplf').click(); $('#uplf').onchange = async e => { try { await uploadFiles([...e.target.files]); } catch (x) { setStatus(x.message, true); } e.target.value = ''; };
   $('#zin').onclick = () => $('#zinf').click(); $('#zinf').onchange = async e => { try { await importZip(e.target.files[0]); } catch (x) { setStatus('zip: ' + x.message, true); } e.target.value = ''; };
   $('#zout').onclick = () => exportZip().catch(x => setStatus(x.message, true));
-  $('#cnew').onclick = () => { IDE.chatId = null; IDE.msgs = []; drawAI(); };
+  $('#cnew').onclick = () => { IDE.chatId = null; IDE.msgs = []; drawAI(); ctxMeter(); };
   $('#chist').onclick = async () => {
     const list = await api('/chats?project=' + IDE.pid).catch(() => []);
     if (!list.length) return toast('ยังไม่มีประวัติแชตในโปรเจกต์นี้');
     sheet('ประวัติแชตในโปรเจกต์', list.map(c => optHTML(c.id, ic('msg') + esc(c.title), c.id === IDE.chatId ? 'กำลังเปิดอยู่' : '', c.id === IDE.chatId)).join(''), (d, close) => {
       d.querySelectorAll('[data-v]').forEach(b => b.onclick = async () => {
-        close(); IDE.chatId = +b.dataset.v; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI();
+        close(); IDE.chatId = +b.dataset.v; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); ctxMeter();
       });
     });
   };
@@ -1316,7 +1328,7 @@ async function codeView(id) {
   $('#cmsgs').onclick = async e => {
     if (answer(e)) return;
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.ctx != null) return ctxSheet({ chatId: IDE.chatId, projectId: IDE.pid, modelId: +$('#cmodel')?.value || null, skills: IDE.skills, onCompact: () => {} });
+    if (b.dataset.ctx != null) return $('#cctx').click();
     if (b.classList.contains('cp-code')) return copy(b.closest('.code').querySelector('code').textContent, b);
     if (b.dataset.copy) return copy(IDE.msgs[+b.dataset.copy].content, b);
     if (b.dataset.cs) { ct.value = b.dataset.cs; ct.focus(); return; }
@@ -1350,6 +1362,7 @@ async function codeView(id) {
   };
   drawAI();
   const chats = await api('/chats?project=' + IDE.pid).catch(() => []); // เปิดแชตล่าสุดของโปรเจกต์
+  ctxMeter();
   if (chats[0]) { IDE.chatId = chats[0].id; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); if (IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); }
 }
 addEventListener('beforeunload', e => { if (IDE.dirty.size) { saveNow(); e.preventDefault(); } });

@@ -592,7 +592,7 @@ function sheet(title, html, bind) {
 }
 // ดู context แบบละเอียด: อะไรกินหน้าต่าง context ของโมเดลอยู่เท่าไร + ย่อแชต + เปิด/ปิดย่ออัตโนมัติ
 const CTX_COLORS = { system: '#7aa2f7', instr: '#bb9af7', mem: '#2ac3de', skill: '#9ece6a', rules: '#e0af68', summary: '#73daca', files: '#f7768e', user: '#7dcfff', assistant: '#a9b1d6' };
-async function ctxSheet({ chatId, modelId, projectId, skills = [], onCompact }) {
+async function ctxSheet({ chatId, modelId, projectId, skills = [], onCompact, onPickModel }) {
   const q = new URLSearchParams(); if (chatId) q.set('chat_id', chatId); if (modelId) q.set('model_id', modelId); if (projectId) q.set('project_id', projectId); if (skills.length) q.set('skills', skills.join(','));
   const r = await api('/context?' + q).catch(x => { toast(x.message, 'bad'); return null; }); if (!r) return;
   const k = n => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n), pc = n => (n / r.max * 100).toFixed(n / r.max < 0.01 ? 2 : 1) + '%';
@@ -604,8 +604,11 @@ async function ctxSheet({ chatId, modelId, projectId, skills = [], onCompact }) 
       <tr><td><span class="dot" style="background:rgba(255,255,255,.18)"></span>เผื่อคำตอบ</td><td>${k(r.reserve)}</td><td class="muted">${pc(r.reserve)}</td></tr>
       <tr><td><b>ว่าง</b></td><td><b>${k(r.free)}</b></td><td class="muted">${pc(r.free)}</td></tr></table></div>
     <label class="sw-row"><span class="sw"><input type="checkbox" id="cxauto" ${me.auto_compact !== false ? 'checked' : ''}><span></span></span> ย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม</label>
+    ${r.models?.length > 1 ? `<b style="margin-top:6px">ถ้าคุยต่อด้วยโมเดลอื่น</b><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ขนาด context</th><th>เต็ม</th></tr>${r.models.map(m => `<tr ${onPickModel ? `data-pickm="${m.id}" style="cursor:pointer"` : ''} class="${m.id === r.model_id ? 'on' : ''}"><td>${esc(m.name)}${m.id === r.model_id ? ' <small class="muted">(ใช้อยู่)</small>' : ''}</td><td>${k(m.max)}</td><td class="${m.pct >= 90 ? 'bad' : m.pct >= 70 ? 'warn' : ''}">${m.pct}%</td></tr>`).join('')}</table></div>${onPickModel ? '<small class="muted">แตะแถวเพื่อสลับไปใช้โมเดลนั้น</small>' : ''}` : ''}
+    ${r.byModel?.length ? `<b style="margin-top:6px">ใช้ไปแล้วในแชตนี้ (ตัวเลขจริงจากผู้ให้บริการ)</b><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ตอบ</th><th>ส่งเข้า</th><th>ตอบออก</th><th>สูงสุด/ครั้ง</th></tr>${r.byModel.map(m => `<tr><td>${esc(m.name)}</td><td>${m.replies}</td><td>${k(m.tin)}</td><td>${k(m.tout)}</td><td>${k(m.peak)}</td></tr>`).join('')}</table></div>` : ''}
     ${chatId ? '<button type="button" class="btn blue sm" id="cxnow">ย่อแชตตอนนี้</button>' : ''}
     <p class="muted" style="margin:0;font-size:12.5px">ตัวเลขเป็นการประมาณจากจำนวนตัวอักษร (ภาษาไทยนับหนักกว่าอังกฤษ) อาจคลาดราว 20% · ย่อแชต = สรุปข้อความเก่าเหลือ 2 ข้อความล่าสุด</p></div>`, (d, close) => {
+    d.querySelectorAll('[data-pickm]').forEach(tr => tr.onclick = () => { close(); onPickModel(+tr.dataset.pickm); });
     d.querySelector('#cxauto').onchange = async e => { try { await api('/me', { method: 'PUT', body: { auto_compact: e.target.checked } }); me.auto_compact = e.target.checked; toast(e.target.checked ? 'เปิดย่อแชตอัตโนมัติ' : 'ปิดย่อแชตอัตโนมัติ', 'ok'); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } };
     const now = d.querySelector('#cxnow'); if (now) now.onclick = async () => { now.disabled = true; now.textContent = 'กำลังย่อ...'; try { const c = await api(`/chats/${chatId}/compact`, { method: 'POST' }); toast(c.ok ? 'ย่อแชตแล้ว' : 'แชตยังสั้นเกินกว่าจะย่อ', c.ok ? 'ok' : ''); close(); if (c.ok) onCompact?.(); } catch (x) { toast(x.message, 'bad'); now.disabled = false; now.textContent = 'ย่อแชตตอนนี้'; } };
   });

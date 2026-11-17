@@ -1,5 +1,5 @@
 // รายงาน context แบบละเอียด: ในหน้าต่าง context ของโมเดลตอนนี้มีอะไรกินที่อยู่เท่าไร (ประมาณจากจำนวนตัวอักษร ไม่ใช่ tokenizer จริง)
-import { HISTORY, HISTORY_CODE, SYSTEM, SYSTEM_CODE, ctxMax, estTokens, histStart, json, err } from './core.js';
+import { HISTORY, HISTORY_CODE, SYSTEM, SYSTEM_CODE, allowedModels, ctxMax, estTokens, histStart, json, err, planOf } from './core.js';
 import { familyHint, stripOpenFile } from './ai.js';
 
 export const COMPACT_DEFAULT_PCT = 75;
@@ -16,6 +16,10 @@ export async function contextReport(env, u, { cid, pid, model, skill_ids = [] })
     const pr = await DB.prepare('SELECT instructions FROM projects WHERE id=? AND user_id=?').bind(pid, u.id).first();
     const af = (await DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid).first())?.content || '';
     add('rules', 'กฎประจำโปรเจกต์', ((pr?.instructions || '') + (af.startsWith('data:') ? '' : af.slice(0, 3000))).slice(0, 6000));
+    // ทุกข้อความในโหมด Code แนบรายชื่อไฟล์ และถ้าโปรเจกต์เล็ก (ข้อความรวม ≤ 14,000 ตัวอักษร) แนบเนื้อหาทุกไฟล์ด้วย (เหมือนหน้าเว็บ)
+    const fl = (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pid).all()).results;
+    const text = fl.filter(f => !String(f.content).startsWith('data:')), small = text.reduce((a, f) => a + f.content.length, 0) <= 14000;
+    add('files', `ไฟล์โปรเจกต์ที่แนบทุกข้อความ (${fl.length} ไฟล์${small ? ' พร้อมเนื้อหา' : ' เฉพาะรายชื่อ'})`, fl.map(f => f.path).join('\n').slice(0, 15000) + (small ? text.map(f => `${f.path}:\n${f.content}`).join('\n\n') : ''), { detail: small ? 'โปรเจกต์เล็ก: AI ได้เนื้อหาทุกไฟล์ไม่ต้อง READ' : 'AI อ่านไฟล์เองด้วย READ เมื่อจำเป็น' });
   }
   let msgs = 0;
   if (cid) {
@@ -46,5 +50,9 @@ export async function contextApi(req, env, u) {
   if (cid && !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, u.id).first()) return err('ไม่พบแชต', 404);
   const sk = (q.get('skills') || '').split(',').filter(Boolean);
   const [rep, c] = await Promise.all([contextReport(env, u, { cid, pid, model, skill_ids: sk }), cid ? env.DB.prepare('SELECT summary_upto FROM chats WHERE id=?').bind(cid).first() : null]);
-  return json({ ...rep, model: model?.name || null, compacted: !!c?.summary_upto });
+  // เทียบทุกโมเดลในแพลน: ถ้าคุยต่อด้วยโมเดลนั้น context จะเต็มกี่ % · และแต่ละโมเดลที่ตอบในแชตนี้ใช้ token ไปเท่าไร (ตัวเลขจริงจากผู้ให้บริการ)
+  const plan = await planOf(env, u), ids = (await allowedModels(env, plan?.id)).filter(m => !['image', 'embedding'].includes(m.provider)).map(m => m.id);
+  const models = ids.length ? (await env.DB.prepare(`SELECT id,name,ctx_k FROM models WHERE id IN (${ids.map(() => '?')}) ORDER BY sort,id`).bind(...ids).all()).results.map(m => { const max = ctxMax(m); return { id: m.id, name: m.name, max, pct: Math.round(rep.used / max * 1000) / 10 }; }) : [];
+  const byModel = cid ? (await env.DB.prepare("SELECT COALESCE(m.name,'โมเดลที่ถูกลบ') name, COUNT(*) replies, COALESCE(SUM(x.tin),0) tin, COALESCE(SUM(x.tout),0) tout, COALESCE(MAX(x.tin),0) peak FROM messages x LEFT JOIN models m ON m.id=x.model_id WHERE x.chat_id=? AND x.role='assistant' GROUP BY x.model_id ORDER BY replies DESC").bind(cid).all()).results : [];
+  return json({ ...rep, model: model?.name || null, model_id: model?.id || null, compacted: !!c?.summary_upto, models, byModel });
 }

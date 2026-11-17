@@ -136,3 +136,16 @@ test('site promo: paid plans get x2 on the 4h window and x1.5 on the week until 
   t.DB.raw.prepare("UPDATE settings SET value=? WHERE key='promo_until'").run(String(Date.now() - 1000)); t.worker = await loadWorker();
   st = (await call(u.cookie)).usage; assert.equal(st.pct4h, 50, 'promo ended'); void f;
 });
+
+test('context report: Code mode counts project files, compares every plan model and splits real usage by model', async () => {
+  const t = await makeEnv({ K: 'k' }), a = addModel(t.DB, { name: 'Big', base_url: 'http://x' }), b = addModel(t.DB, { name: 'Small', base_url: 'http://x' });
+  t.DB.raw.prepare('UPDATE models SET ctx_k=1050 WHERE id=?').run(a.id); t.DB.raw.prepare('UPDATE models SET ctx_k=128 WHERE id=?').run(b.id);
+  const plan = addPlan(t.DB, { price: 100, models: [a.id, b.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const pid = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'P' } })).data.id;
+  const c = t.DB.raw.prepare('INSERT INTO chats (user_id,title,created_at,project_id) VALUES (?,?,?,?) RETURNING id').get(u.id, 'x', Date.now(), pid).id;
+  for (const [m, tin] of [[a.id, 1000], [a.id, 3000], [b.id, 500]]) { t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,'user','hi',?)").run(c, Date.now()); t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,model_id,tin,tout,created_at) VALUES (?,'assistant','ok',?,?,10,?)").run(c, m, tin, Date.now()); }
+  const r = (await t.json(`/api/context?project_id=${pid}&chat_id=${c}&model_id=${a.id}`, { cookie: u.cookie })).data;
+  assert.ok(r.parts.some(p => p.k === 'files' && /ไฟล์โปรเจกต์/.test(p.label)), 'project files counted');
+  assert.deepEqual(r.models.map(m => [m.name, m.max]), [['Big', 1050000], ['Small', 128000]]); assert.ok(r.models[1].pct > r.models[0].pct);
+  const big = r.byModel.find(m => m.name === 'Big'); assert.equal(big.replies, 2); assert.equal(big.tin, 4000); assert.equal(big.peak, 3000);
+});
