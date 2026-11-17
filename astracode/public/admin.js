@@ -333,7 +333,7 @@ const ADMIN = {
     const dur = j => j.finished_at ? Math.max(1, Math.round((j.finished_at - j.created_at) / 60e3)) + ' นาที' : '-';
     box.innerHTML = `<p class="muted hint">งาน Agent เบื้องหลังและทีม Agent 30 วันล่าสุด · ต้นทุนจริงของเรา รวมลูกทีมและผู้ตรวจ · รวม ฿${d.total.toFixed(2)}</p>
       <div class="card"><b>ผู้ใช้ที่ใช้มากสุด</b>${tbl(['ผู้ใช้', 'งาน', 'ทีม', 'ต้นทุน ฿'], d.users.map(r => `<tr><td>${esc(r.email)}</td><td>${r.jobs}</td><td>${r.teams}</td><td>${r.cost.toFixed(2)}</td></tr>`))}</div>
-      <div class="card"><b>งานล่าสุด</b>${tbl(['เวลา', 'ผู้ใช้', 'งาน', 'แบบ', 'สถานะ', 'รอบ', 'ใช้เวลา', 'ต้นทุน ฿'], d.jobs.map(j => `<tr><td>${when(j.created_at)}</td><td>${esc(j.email)}</td><td>${esc(j.prompt.slice(0, 60))}</td><td>${j.role === 'lead' ? 'ทีม ' + j.workers + ' ตัว' : 'เดี่ยว'}</td><td class="${['failed', 'limit', 'timeout'].includes(j.status) ? 'bad' : ''}">${esc(j.status)}</td><td>${j.rounds}</td><td>${dur(j)}</td><td>${j.cost.toFixed(2)}</td></tr>`))}</div>`;
+      <div class="card"><b>งานล่าสุด</b>${tbl(['เวลา', 'ผู้ใช้', 'งาน', 'แบบ', 'สถานะ', 'รอบ', 'ใช้เวลา', 'ต้นทุน ฿'], d.jobs.map(j => `<tr><td style="white-space:nowrap">${when(j.created_at)}</td><td>${esc(j.email)}</td><td style="min-width:200px">${esc(j.prompt.slice(0, 60))}</td><td style="white-space:nowrap">${j.role === 'lead' ? 'ทีม ' + j.workers + ' ตัว' : j.role === 'research' ? 'research' : 'เดี่ยว'}</td><td class="${['failed', 'limit', 'timeout'].includes(j.status) ? 'bad' : ''}">${esc(j.status)}</td><td>${j.rounds}</td><td>${dur(j)}</td><td>${j.cost.toFixed(2)}</td></tr>`))}</div>`;
   },
 
   async quality(box, reload) {
