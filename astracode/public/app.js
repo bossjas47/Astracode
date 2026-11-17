@@ -245,7 +245,7 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-la
 const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}${me.role === 'admin' ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
+  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<a class="l" href="/blog?c=1" id="clnav">${ic('sparkles')}<span>มีอะไรใหม่</span></a>${me.role === 'admin' ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
        : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
@@ -257,7 +257,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelector('.nav.open')?.classList.remove('open'); });
 // วาดซ้ำหน้าเดิม (เช่น สลับสกุลเงิน): ไม่เล่นแอนิเมชันเข้าหน้าซ้ำ และคงตำแหน่งที่เลื่อนอยู่
-const page = html => { const again = !!app.querySelector('.view'), y = scrollY; app.innerHTML = `<div class="view${again ? ' still' : ''}">${html}</div>`; if (again) scrollTo(0, y); if (me) notifLoad(); };
+const page = html => { const again = !!app.querySelector('.view'), y = scrollY; app.innerHTML = `<div class="view${again ? ' still' : ''}">${html}</div>`; if (again) scrollTo(0, y); let seen = 0; try { seen = +localStorage.getItem('clSeen') || 0; } catch { /* ไม่มีที่เก็บ */ } if (site?.cl_latest > seen) app.querySelector('#clnav')?.classList.add('dot'); if (me) notifLoad(); };
 
 function planTiles(plans, sel, period) {
   return `<div class="grid" tabindex="0" aria-label="แพลน (เลื่อนดูได้)">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">

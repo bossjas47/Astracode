@@ -130,8 +130,9 @@ export async function route(req, env, ctx, url, path, M) {
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้
         const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min', 'model_icons', 'picker_filter', 'picker_mult', 'picker_logos']);
-        return json({ ...s, turnstile: env.TURNSTILE_SECRET ? await getSetting(env, 'turnstile_site') : '', google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', promo: await limitBoost(env), image: s.image_enabled === '1', mail: !!env.RESEND_KEY });
+        return json({ ...s, turnstile: env.TURNSTILE_SECRET ? await getSetting(env, 'turnstile_site') : '', google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', promo: await limitBoost(env), image: s.image_enabled === '1', mail: !!env.RESEND_KEY, cl_latest: (await env.DB.prepare('SELECT MAX(created_at) t FROM posts WHERE published=1 AND changelog=1').first().catch(() => null))?.t || 0 });
       }
+      if (path === '/api/changelog') return json((await env.DB.prepare('SELECT slug,title,summary,body,created_at FROM posts WHERE published=1 AND changelog=1 ORDER BY created_at DESC LIMIT 30').all()).results);
       if (path === '/api/blog') return json((await env.DB.prepare('SELECT slug,title,summary,cover,created_at FROM posts WHERE published=1 ORDER BY created_at DESC LIMIT 100').all()).results);
       if (path.startsWith('/api/blog/')) { const p = await env.DB.prepare('SELECT slug,title,summary,body,cover,created_at FROM posts WHERE slug=? AND published=1').bind(path.slice(10)).first(); return p ? json(p) : err('ไม่พบบทความ', 404); }
       if (path === '/api/pricing/calc' && M === 'POST') { // เครื่องคิดเลขหน้าราคา: คำนวณฝั่งเซิร์ฟเวอร์ ไม่ส่งราคาทุนออกไป

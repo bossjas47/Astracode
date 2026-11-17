@@ -135,6 +135,12 @@ export async function turnstileOk(req, env, token) {
     return !!(await r.json()).success;
   } catch { return false; }
 }
+// อีเมลชั่วคราว (ใช้แล้วทิ้ง) สมัครไม่ได้ กันสมัครหลายบัญชีเพื่อใช้แพลนฟรี · แอดมินเพิ่มโดเมนได้ที่ settings.block_domains (คั่นด้วย , หรือขึ้นบรรทัด)
+const TEMP_MAIL = 'mailinator.com guerrillamail.com guerrillamail.net sharklasers.com 10minutemail.com 10minutemail.net temp-mail.org tempmail.com tempmail.net tempmailo.com throwawaymail.com yopmail.com yopmail.net getnada.com nada.email dispostable.com trashmail.com trashmail.net maildrop.cc mintemail.com mohmal.com emailondeck.com fakeinbox.com moakt.com tempr.email discard.email spamgourmet.com mailnesia.com mytemp.email tmpmail.org tmail.ws burnermail.io inboxkitten.com 1secmail.com 1secmail.net 1secmail.org emltmp.com tmpeml.com dropmail.me minuteinbox.com linshiyouxiang.net'.split(' ');
+export async function tempEmail(env, email) {
+  const d = email.split('@')[1] || '', extra = String(await env.DB.prepare("SELECT value FROM settings WHERE key='block_domains'").first().then(r => r?.value || '', () => '')).toLowerCase().split(/[\s,]+/).filter(Boolean);
+  return [...TEMP_MAIL, ...extra].some(x => d === x || d.endsWith('.' + x));
+}
 export async function emailAuth(req, env) {
   const b = await req.json(), a = b.action, email = String(b.email || '').trim().toLowerCase(), pw = String(b.password || '');
   if (['login', 'register', 'forgot'].includes(a) && !await turnstileOk(req, env, b.cf)) return err('ยืนยันว่าไม่ใช่บอทไม่สำเร็จ รีเฟรชหน้าแล้วลองใหม่', 400);
@@ -143,6 +149,7 @@ export async function emailAuth(req, env) {
     if (a === 'forgot') { await fbApi(req, env, 'sendOobCode', { requestType: 'PASSWORD_RESET', email }).catch(x => { if (!x.known) throw x; }); return json({ ok: true }); } // ไม่บอกว่ามีอีเมลนี้ไหม
     if (!['login', 'register', 'check'].includes(a) || !email || !pw) return err('ใส่อีเมลและรหัสผ่าน');
     if (a === 'register' && pw.length < 8) return err('รหัสผ่านต้องยาวอย่างน้อย 8 ตัว');
+    if (a === 'register' && await tempEmail(env, email)) return err('ใช้อีเมลชั่วคราวสมัครไม่ได้ ใช้อีเมลจริง หรือเข้าสู่ระบบด้วย Google', 400);
     const d = await fbApi(req, env, a === 'register' ? 'signUp' : 'signInWithPassword', { email, password: pw, returnSecureToken: true });
     const c = JSON.parse(new TextDecoder().decode(b64u(d.idToken.split('.')[1]))); // ได้ token ตรงจาก Google ผ่าน HTTPS จึงอ่าน payload ได้เลย
     if (!c.email_verified) { // check = กด "ยืนยันแล้ว" ไม่ต้องส่งอีเมลซ้ำ
@@ -234,13 +241,13 @@ export const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 export let colsDone;
 // เดิมสั่ง ALTER ทีละคำสั่งทุกครั้งที่ isolate เริ่ม (13 รอบไป-กลับ D1 ก่อนตอบคำขอแรก) ตอนนี้ถามโครงสร้างครั้งเดียวแล้วเพิ่มเฉพาะที่ขาด
-const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['users', 'webhook_url', 'TEXT'], ['users', 'auto_compact', 'INTEGER'], ['users', 'totp_last', 'INTEGER'], ['chats', 'deleted_at', 'INTEGER'], ['chats', 'archived', 'INTEGER'], ['skills', 'as_text', 'INTEGER'], ['skills', 'model_id', 'INTEGER'], ['users', 'bill_info', 'TEXT'], ['usage', 'ms', 'INTEGER'], ['usage', 'ttft', 'INTEGER'], ['projects', 'featured', 'INTEGER'], ['projects', 'blurb', 'TEXT'], ['projects', 'env_sealed', 'TEXT'], ['users', 'digest_off', 'INTEGER'], ['projects', 'slug', 'TEXT'], ['skills', 'share_token', 'TEXT'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
+const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['users', 'webhook_url', 'TEXT'], ['users', 'auto_compact', 'INTEGER'], ['users', 'totp_last', 'INTEGER'], ['chats', 'deleted_at', 'INTEGER'], ['chats', 'archived', 'INTEGER'], ['skills', 'as_text', 'INTEGER'], ['skills', 'model_id', 'INTEGER'], ['users', 'bill_info', 'TEXT'], ['usage', 'ms', 'INTEGER'], ['posts', 'changelog', 'INTEGER'], ['usage', 'ttft', 'INTEGER'], ['projects', 'featured', 'INTEGER'], ['projects', 'blurb', 'TEXT'], ['projects', 'env_sealed', 'TEXT'], ['users', 'digest_off', 'INTEGER'], ['projects', 'slug', 'TEXT'], ['skills', 'share_token', 'TEXT'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT']];
 const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
 const PAY_UQ = ["CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_key_uq ON payments(slip_key) WHERE slip_key LIKE 'slip/%'", "CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_ref_uq ON payments(slip_ref) WHERE slip_ref IS NOT NULL AND status<>'rejected'"];
 export const ensureCols = env => colsDone ||= (async () => {
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
   try {
-    const rows = (await env.DB.prepare("SELECT m.name t, p.name c FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name IN ('api_keys','plans','models','team_members','sessions','projects','skills','users','chats','api_log','usage')").all()).results;
+    const rows = (await env.DB.prepare("SELECT m.name t, p.name c FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name IN ('api_keys','plans','models','team_members','sessions','projects','skills','users','chats','api_log','usage','posts')").all()).results;
     const has = new Set(rows.map(r => r.t + '.' + r.c));
     todo = NEW_COLS.filter(([t, c]) => !has.has(t + '.' + c)).map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`);
     apiLog = !rows.some(r => r.t === 'api_log');

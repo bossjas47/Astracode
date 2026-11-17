@@ -136,6 +136,13 @@ PAGES.blog = async () => {
       <div class="msg ai"><div class="b">${md(p.body)}</div></div><p style="margin:32px 0"><a class="btn blue" href="/login">Try AstraCode free</a></p></article>${footer()}`);
     bindCopy(); return;
   }
+  if (qs().get('c')) { // มีอะไรใหม่: โพสต์ที่ติ๊ก changelog เรียงใหม่สุดก่อน เปิดแล้วถือว่าเห็นแล้ว (ลบจุดแดง)
+    const list = await api('/changelog').catch(() => []);
+    try { localStorage.setItem('clSeen', String(list[0]?.created_at || Date.now())); } catch { /* ไม่มีที่เก็บ */ }
+    page(nav() + `<div class="wrap" style="max-width:760px"><section class="hero" style="padding:48px 0 16px"><h1>มีอะไรใหม่</h1><p>ฟีเจอร์และการปรับปรุงล่าสุดของ AstraCode</p></section>
+      ${list.map(p => `<article class="card" style="margin-bottom:14px"><p class="muted" style="margin:0">${when(p.created_at)}</p><h2 style="margin:4px 0 8px">${esc(p.title)}</h2><div class="msg ai"><div class="b">${md(p.body || p.summary || '')}</div></div></article>`).join('') || '<p class="muted">ยังไม่มีอัปเดต</p>'}</div>${footer()}`);
+    bindCopy(); return;
+  }
   const posts = await api('/blog');
   page(nav() + `<div class="wrap"><section class="hero" style="padding:56px 0 24px"><h1>บล็อก</h1><p>ข่าวสาร วิธีใช้ และเทคนิคการใช้ AI</p></section>
     ${posts.length ? `<div class="grid">${posts.map(postTile).join('')}</div>` : '<p class="muted" style="text-align:center">ยังไม่มีบทความ</p>'}${footer()}</div>`);

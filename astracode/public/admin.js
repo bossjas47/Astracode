@@ -15,7 +15,7 @@ const FIELDS = {
     ['use_mult', 'ตัวคูณหักลิมิต (เว้นว่าง = 1 · 0.5 = หักครึ่ง · 2 = หัก 2 เท่า)', 'o'], ['promo_mult', 'ตัวคูณหักลิมิตช่วงโปร (เว้นว่าง = ใช้ตัวปกติ · ใช้ช่วงวันเดียวกับโปรด้านบน)', 'o'],
     ['note', 'คำอธิบายในหน้าราคา', 's'], ['code_prompt', 'คำสั่งเพิ่มในโหมด Code (เช่น บังคับให้อ่านไฟล์ก่อนแก้)', 'x'], ['fallback_id', 'โมเดลสำรองเมื่อตัวนี้ล่ม', 'm'],
     ['effort', 'รูปแบบ effort', ['none', 'openai', 'anthropic', 'deepseek', 'kimi', 'gemini']], ['effort_levels', 'ระดับ Effort ที่เลือกได้ (คั่นด้วย , เช่น none,low,medium,high,max · เว้นว่าง = ค่าเริ่มต้นค่าย)'], ['vision', 'อ่านรูปได้', 'b'], ['public', 'แสดงในหน้าราคา', 'b'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
-  posts: [['title', 'หัวข้อ'], ['slug', 'slug (a-z 0-9 -) ใช้ใน URL'], ['summary', 'สรุปสั้น (แสดงในรายการและ Google)', 's'], ['cover', 'รูปปก (path บนเว็บ เช่น /og.png)', 's'], ['body', 'เนื้อหา (Markdown)', 't'], ['published', 'เผยแพร่', 'b']],
+  posts: [['title', 'หัวข้อ'], ['slug', 'slug (a-z 0-9 -) ใช้ใน URL'], ['summary', 'สรุปสั้น (แสดงในรายการและ Google)', 's'], ['cover', 'รูปปก (path บนเว็บ เช่น /og.png)', 's'], ['body', 'เนื้อหา (Markdown)', 't'], ['published', 'เผยแพร่', 'b'], ['changelog', 'แสดงในหน้า "มีอะไรใหม่" (จุดแดงบนเมนู)', 'b']],
 };
 // โมเดลคิดเงินแบบเดียวต่อตัว: ช่องราคา token โชว์เฉพาะโหมด token · ช่องต่อ request โชว์เฉพาะโหมด request
 const BILL_GROUP = Object.fromEntries([...['cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write'].map(k => [k, 'token']), ['req_cost', 'request'], ['req_price', 'request']]);
@@ -360,7 +360,7 @@ const ADMIN = {
       <label>ข้อความประกาศโปร (แถบบนเว็บ · ต่อท้ายวันหมดเขตให้เอง)</label><input name="promo_label" maxlength="200" value="${esc(s.promo_label || '')}">
       <h2 style="margin-top:24px">ทีม Agent</h2><label>เพดานลิมิตต่อหนึ่งงานทีม (% ของลิมิตสัปดาห์ · เว้นว่าง = 30)</label><input name="team_budget_pct" type="number" min="1" max="100" step="any" value="${esc(s.team_budget_pct || '')}">
       <label>โมเดลลูกทีม (id ของโมเดล · เว้นว่าง = DeepSeek 4.1 Flash ถ้าแพลนมี ไม่งั้นตัวที่ถูกสุด)</label><input name="team_worker_model" type="number" min="1" value="${esc(s.team_worker_model || '')}">
-      <h2 style="margin-top:24px">ช่วยเขียน prompt สร้างภาพ</h2><label>โมเดลที่ช่วยปรับ prompt (id · เว้นว่าง = ChatGPT 6.1 Sol ถ้าแพลนของผู้ใช้มี ไม่งั้น DeepSeek 4.1 Flash)</label><input name="image_prompt_model" type="number" min="1" value="${esc(s.image_prompt_model || '')}">
+      <h2 style="margin-top:24px">กันสมัครปลอม</h2><label>โดเมนอีเมลที่ห้ามสมัครเพิ่มเติม (มีรายการอีเมลชั่วคราวยอดนิยมในระบบแล้ว · คั่นด้วย , หรือขึ้นบรรทัด)</label><textarea name="block_domains" rows="2" placeholder="example-temp.com, another.net">${esc(s.block_domains || '')}</textarea><h2 style="margin-top:24px">ช่วยเขียน prompt สร้างภาพ</h2><label>โมเดลที่ช่วยปรับ prompt (id · เว้นว่าง = ChatGPT 6.1 Sol ถ้าแพลนของผู้ใช้มี ไม่งั้น DeepSeek 4.1 Flash)</label><input name="image_prompt_model" type="number" min="1" value="${esc(s.image_prompt_model || '')}">
       <h2 style="margin-top:24px">คำต้องห้าม</h2><label>ข้อความที่มีคำเหล่านี้จะถูกปฏิเสธก่อนส่งให้โมเดล (คั่นด้วย , หรือขึ้นบรรทัดใหม่ · เว้นว่าง = ไม่กรอง) ใช้กันเนื้อหาที่ทำให้คีย์ upstream โดนแบน</label><textarea name="block_words" rows="2">${esc(s.block_words || '')}</textarea>
       <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><span class="ok" id="ms"></span></div></form>
 

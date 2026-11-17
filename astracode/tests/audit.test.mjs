@@ -306,3 +306,21 @@ test('cron flags a user whose 24h cost jumps far above their 7-day average (once
   const { cron } = await import('../src/jobs.js'); await cron(t.env);
   assert.ok(t.DB.raw.prepare("SELECT 1 FROM rate WHERE key=?").get('anom:' + u.id));
 });
+
+test('temporary email domains cannot register (built-in list and admin list)', async () => {
+  const { tempEmail } = await import('../src/core.js');
+  const t = await makeEnv();
+  assert.ok(await tempEmail(t.env, 'a@mailinator.com')); assert.ok(await tempEmail(t.env, 'a@x.yopmail.com'));
+  assert.ok(!await tempEmail(t.env, 'a@gmail.com'));
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('block_domains','bad.example, worse.example')").run();
+  assert.ok(await tempEmail(t.env, 'x@worse.example'));
+  assert.equal((await t.json('/api/auth', { method: 'POST', body: { action: 'register', email: 'z@mailinator.com', password: 'longenough1' } })).status, 400);
+});
+
+test('changelog lists only published posts marked changelog; public settings expose the latest time', async () => {
+  const t = await makeEnv();
+  const ins = t.DB.raw.prepare('INSERT INTO posts (slug,title,body,published,changelog,created_at) VALUES (?,?,?,?,?,?)');
+  ins.run('a', 'บทความ', 'x', 1, 0, 1); ins.run('b', 'ฟีเจอร์ใหม่', 'y', 1, 1, 5); ins.run('c', 'ร่าง', 'z', 0, 1, 9);
+  assert.deepEqual((await t.json('/api/changelog')).data.map(p => p.slug), ['b']);
+  assert.equal((await t.json('/api/settings/public')).data.cl_latest, 5);
+});
