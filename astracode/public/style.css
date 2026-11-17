@@ -1297,7 +1297,8 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 .promo-pill { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 8px; padding: 4px 10px; border-radius: 12px; background: rgba(48, 209, 88, .14); color: var(--green); font: 600 12.5px var(--font); } .promo-pill small { flex-basis: 100%; font-weight: 400; opacity: .85; }
 .ide-tools button { flex: none; } /* ปุ่มไม่หดจนตัวหนังสือทับกัน: เกินจอให้เลื่อนข้าง */
 #cctx { white-space: nowrap; font-size: 12px; margin-left: 8px; color: var(--ash); } #cctx.warn { color: #f5b74e; } #cctx.bad { color: #ff6b6b; }
-.nav-wal .w-add { display: inline-flex; align-items: center; gap: 2px; color: var(--green); font-weight: 600; } .nav-wal .w-t { display: none; }
+.nav-wal .w-add { display: inline-flex; align-items: center; gap: 2px; color: var(--green); font-weight: 600; } .nav-wal .w-t { display: none; } @media (min-width: 1000px) { .nav-wal .w-t { display: inline; margin-left: 4px; font-size: 12.5px; } }
 /* มือถือ: ยอด Wallet ซ่อน เหลือปุ่ม + เติมเงิน ให้เห็นทางไปหน้าเติมเงินเสมอ (เดิมซ่อนทั้งปุ่ม) */
-@media (max-width: 440px) { .nav .nav-wal { display: inline-flex; padding: 0 10px; } .nav-wal .w-amt { display: none; } .nav-wal .w-t { display: inline; font-size: 12.5px; } }
-@media (max-width: 360px) { .nav .nav-wal { padding: 0 8px; } .nav-wal .w-t { display: none; } }
+@media (max-width: 440px) { .nav .nav-wal { display: inline-flex; padding: 0 9px; } .nav-wal .w-amt { display: none; } } /* จอแคบ: ไอคอนกระเป๋า + เครื่องหมายบวก (ข้อความไม่พอที่) */
+.nav-wal .w-add .ic { margin-right: 1px; }
+@media (max-width: 440px) { .nav-r { gap: 5px; } .nav .logo { letter-spacing: 0; } }

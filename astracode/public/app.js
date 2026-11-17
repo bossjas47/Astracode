@@ -220,7 +220,7 @@ if (typeof MutationObserver !== 'undefined') new MutationObserver(() => { clearT
 const navL = (h, t, i) => `<a class="l${curl().pathname === h ? ' on' : ''}" href="${h}">${ic(i)}<span>${t}</span></a>`;
 // มุมขวาบน: ล็อกอินแล้ว = วงแหวนลิมิต (กดเปิดรายละเอียด) + ยอด Wallet + ปุ่มบัญชี · ยังไม่ล็อกอิน = Log in + Get started free
 const navRight = () => me
-  ? `<div class="nav-r"><button type="button" class="nav-lim" aria-label="ลิมิตการใช้งาน">${limHTML(me.usage)}</button><button type="button" class="nav-bell" aria-label="การแจ้งเตือน">${ic('bell')}<i hidden></i></button><a class="nav-wal" href="/plans?topup=1" aria-label="เติมเงิน Wallet (ยอด ฿${baht(me.balance)})"><span class="w-amt">฿${baht(me.balance)}</span><span class="w-add">${ic('plus', 'sm')}<span class="w-t">เติมเงิน</span></span></a><a class="nav-av" href="/account" aria-label="บัญชี ${esc(me.email)}">${esc((me.email || '?')[0].toUpperCase())}</a></div>`
+  ? `<div class="nav-r"><button type="button" class="nav-lim" aria-label="ลิมิตการใช้งาน">${limHTML(me.usage)}</button><button type="button" class="nav-bell" aria-label="การแจ้งเตือน">${ic('bell')}<i hidden></i></button><a class="nav-wal" href="/plans?topup=1" aria-label="เติมเงิน Wallet (ยอด ฿${baht(me.balance)})"><span class="w-amt">฿${baht(me.balance)}</span><span class="w-add">${ic('wallet', 'sm')}+<span class="w-t">เติมเงิน</span></span></a><a class="nav-av" href="/account" aria-label="บัญชี ${esc(me.email)}">${esc((me.email || '?')[0].toUpperCase())}</a></div>`
   : '<div class="nav-r"><a class="btn out sm nav-login" href="/login">Log in</a><a class="btn blue sm" href="/login">Get started free</a></div>';
 // กระดิ่งแจ้งเตือน: โหลดครั้งเดียวต่อ 5 นาที จุดแดง = มีรายการใหม่กว่าที่เปิดดูล่าสุด
 let notifs = null, notifAt = 0;
