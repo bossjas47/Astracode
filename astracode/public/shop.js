@@ -56,7 +56,7 @@ async function plansPage() {
     app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); draw(); });
     app.querySelectorAll('[data-aud]').forEach(b => b.onclick = () => { aud = b.dataset.aud; sel = null; coupon = null; draw(); });
     app.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { period = b.dataset.per; coupon = null; if (sel && !plans.find(x => x.id === sel)?.price_year && period === 'year') sel = null; draw(); });
-    app.querySelectorAll('[data-plan]').forEach(t => t.onclick = () => { sel = +t.dataset.plan; coupon = null; draw(); $('#pay')?.scrollIntoView({ behavior: 'smooth' }); });
+    app.querySelectorAll('[data-plan]').forEach(t => t.onclick = e => { if (e.target.closest('details')) return; sel = +t.dataset.plan; coupon = null; draw(); $('#pay')?.scrollIntoView({ behavior: 'smooth' }); });
     $('#cf')?.addEventListener('submit', async e => {
       e.preventDefault(); const code = new FormData(e.target).get('code').trim();
       if (!code) { coupon = null; return draw(); }
