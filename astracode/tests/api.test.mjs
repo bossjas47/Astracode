@@ -238,3 +238,21 @@ test('api: OpenRouter-style /v1/credits and /v1/key answer instead of 404; /v1/m
   assert.equal((await t.json('/v1/models/nope', { headers: h })).status, 404);
   void m;
 });
+
+test('api: a client that disconnects mid-stream is still billed (the provider already charged us for the input)', async () => {
+  const fm = await fakeModel((q, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'x' } }] }) + '\n\n');
+    setTimeout(() => { res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'more text' } }] }) + '\n\n'); setTimeout(() => { res.write('data: [DONE]\n\n'); res.end(); }, 100); }, 300);
+  });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Long One', base_url: fm.url, cost_in: 1000, cost_out: 2000 });
+  const u = await t.user({ balance: 100 }), key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const r = await t.call('/v1/chat/completions', { method: 'POST', body: { model: 'long-one', stream: true, messages: [{ role: 'user', content: 'a'.repeat(4000) }] }, headers: { authorization: 'Bearer ' + key } });
+  const rd = r.body.getReader(); await rd.read(); await rd.cancel(); // ลูกค้าตัดหลังได้ชิ้นแรก
+  await Promise.all(t.ctx.pending);
+  const row = t.DB.raw.prepare("SELECT tokens_in, charge FROM usage WHERE user_id=? AND src='api'").get(u.id);
+  assert.ok(row, 'no usage row: the request was not billed'); assert.ok(row.tokens_in >= 1000, 'input estimate too small: ' + row.tokens_in); assert.ok(row.charge > 0);
+  assert.ok(t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance < 100);
+  void m; fm.close();
+});

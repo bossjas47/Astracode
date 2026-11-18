@@ -207,7 +207,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined }, 200, { 'x-astracode-billing': billingMode });
     }
     const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder();
-    const chunk = (delta, extra = {}, fin = null) => w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n'));
+    // ลูกค้าตัดการเชื่อมต่อกลางคำตอบ (กดหยุด / timeout / ส่งซ้ำ): ผู้ให้บริการคิดเงิน input เราไปแล้ว ต้องหยุดอ่านแล้วคิดเงินตามประมาณ ไม่ใช่ถือเป็น error แล้วไม่คิดเงิน
+    let gone = false; const GONE = new Error('client gone');
+    const chunk = async (delta, extra = {}, fin = null) => { if (gone) throw GONE; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { gone = true; throw GONE; } };
     ctx.waitUntil((async () => {
       let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0;
       try {
@@ -225,6 +227,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
             }
             break;
           } catch (e) {
+            if (gone) break;
             await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
             const fb = attempt === 0 && !sentAny ? await nextFallback(activeModel) : null;
             if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { activeModel = fb; continue; }
@@ -232,8 +235,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
           }
         }
         if (tcCount > 0 && finishReason === 'stop') finishReason = 'tool_calls';
-        const used = await finish(usage, outChars);
-        await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
+        const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars);
+        if (!gone) await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
       } catch (e) { await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
