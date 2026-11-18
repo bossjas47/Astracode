@@ -1,4 +1,4 @@
-import { BKK, DAY, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus } from './core.js';
+import { BKK, DAY, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus, WALLET_MIN } from './core.js';
 import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
@@ -157,7 +157,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   }
   if (path === '/api/keys') {
     if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,ip_allow,expires_at,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
-    if (M === 'POST' && !((await planOf(env, u))?.price > 0) && !(u.balance > 0)) return err('เติม Wallet (ขั้นต่ำ ฿10) หรือใช้แพลนที่ชำระเงิน เพื่อสร้าง API key', 403);
+    if (M === 'POST' && !((await planOf(env, u))?.price > 0) && !(u.balance >= WALLET_MIN)) return err('เติม Wallet (ขั้นต่ำ ฿1) หรือใช้แพลนที่ชำระเงิน เพื่อสร้าง API key', 403);
     if (M === 'POST' && (await planOf(env, u))?._team?.api_off) return err('หัวหน้าทีมปิดสิทธิ์สร้าง API key ของคุณไว้', 403);
     if ((await DB.prepare('SELECT COUNT(*) n FROM api_keys WHERE user_id=? AND revoked=0').bind(u.id).first()).n >= 10) return err('สร้าง key ได้สูงสุด 10 อัน');
     const kb = await req.json(), name = String(kb.name || 'default').trim().slice(0, 40) || 'default', key = 'sk-astra-' + rand(24), days = Math.min(3650, Math.max(0, Math.floor(+kb.days) || 0)); // days = อายุ key (0 = ไม่หมดอายุ)

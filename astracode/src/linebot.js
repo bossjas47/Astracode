@@ -2,7 +2,7 @@
 // ตั้ง secret ของ Worker: LINE_BOT_SECRET (Channel secret) และ LINE_BOT_TOKEN (Channel access token) แล้วใส่ Webhook URL = <เว็บ>/line/webhook
 // ผูกบัญชี: ใช้ line_id จาก LINE Login (ถ้าอยู่ provider เดียวกัน) หรือส่งรหัส 6 หลักจากหน้าบัญชีให้ OA
 // คิดเงินเหมือนแชตเว็บ: หักลิมิตแพลน · ลิมิตเต็มและเปิด "ใช้ Wallet เมื่อลิมิตเต็ม" = หัก Wallet
-import { SYSTEM, allowedModels, err, json, limited, planOf, rand, usageStatus } from './core.js';
+import { SYSTEM, allowedModels, err, json, limited, planOf, rand, usageStatus, WALLET_MIN } from './core.js';
 import { callModel, logUsage } from './ai.js';
 import { getSetting, siteUrl } from './billing.js';
 
@@ -64,7 +64,7 @@ async function handle(env, ev) {
   const m = pick && await DB.prepare('SELECT * FROM models WHERE id=?').bind(pick.id).first(); // allowedModels ไม่มีคอลัมน์ที่ใช้เรียก API
   if (!m) return say(env, ev, 'แพลนของคุณยังไม่มีโมเดลที่ใช้ผ่าน LINE ได้');
   const st = await usageStatus(env, u, plan), full = st.pct4h >= 100 || st.pctWeek >= 100;
-  const wallet = full ? (u.wallet_overflow && u.balance > 0 ? 'overflow' : null) : null;
+  const wallet = full ? (u.wallet_overflow && u.balance >= WALLET_MIN ? 'overflow' : null) : null;
   if (full && !wallet) return say(env, ev, `ลิมิตแพลนเต็มแล้ว รอรอบใหม่ หรือเปิด "ใช้ Wallet เมื่อลิมิตเต็ม" ที่ ${siteUrl(env)}/account`);
   let cid = link.chat_id;
   if (!cid) { cid = (await DB.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').bind(u.id, 'LINE ' + new Date(now + 7 * 3600e3).toISOString().slice(0, 10), now).first()).id; await DB.prepare('UPDATE line_bot_users SET chat_id=? WHERE line_uid=?').bind(cid, luid).run(); }

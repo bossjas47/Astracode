@@ -1,4 +1,4 @@
-import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr } from './core.js';
+import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
@@ -428,15 +428,15 @@ export async function chat(req, env, u, ctx) {
   const plan = await planOf(env, u);
   if (b.model_id === 'auto') b.model_id = await autoModel(env, plan, u, { text, images, files, effort, regenerate: b.regenerate });
   let m = await env.DB.prepare('SELECT m.* FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.id=? AND m.active=1').bind(plan.id, b.model_id).first(), offPlan = false;
-  if (!m && u.balance > 0) { m = await env.DB.prepare("SELECT * FROM models WHERE id=? AND active=1 AND public=1 AND provider<>'embedding'").bind(b.model_id).first(); offPlan = !!m; } // โมเดลนอกแพลน: จ่ายจาก Wallet ตามราคาขาย ไม่หักลิมิตแพลน
-  if (!m) return err(u.balance > 0 ? 'ใช้โมเดลนี้ไม่ได้' : 'แพลนของคุณใช้โมเดลนี้ไม่ได้ · เติม Wallet เพื่อใช้ทุกโมเดลตามราคาขาย', 403);
+  if (!m && u.balance >= WALLET_MIN) { m = await env.DB.prepare("SELECT * FROM models WHERE id=? AND active=1 AND public=1 AND provider<>'embedding'").bind(b.model_id).first(); offPlan = !!m; } // โมเดลนอกแพลน: จ่ายจาก Wallet ตามราคาขาย ไม่หักลิมิตแพลน
+  if (!m) return err(u.balance >= WALLET_MIN ? 'ใช้โมเดลนี้ไม่ได้' : 'แพลนของคุณใช้โมเดลนี้ไม่ได้ · เติม Wallet เพื่อใช้ทุกโมเดลตามราคาขาย', 403);
   if (images.length && !m.vision) return err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น');
   if (!offPlan && await capHit(env, u, plan, m)) return json({ error: `${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว ลองโมเดลอื่นได้เลย`, cap: true }, 429);
   if (await reqCapHit(env, u, m)) return json({ error: `${m.name} ใช้ครบ ${m.req_cap} ครั้งใน 4 ชั่วโมงแล้ว ลองโมเดลอื่นหรือรอสักครู่`, cap: true }, 429);
   if (await blockedText(env, text)) return err('ข้อความนี้มีเนื้อหาที่ระบบไม่รับ');
   const st = await usageStatus(env, u, plan), pw0 = st.pctWeek;
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
-  const overflow = offPlan ? 'wallet' : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance > 0 && !ephemeral ? 'overflow' : null) : null;
+  const overflow = offPlan ? 'wallet' : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance >= WALLET_MIN && !ephemeral ? 'overflow' : null) : null;
   if (!offPlan && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429);
   if (overflow && await dayCapHit(env, u.id)) return err('ใช้ Wallet ครบเพดานต่อวันที่ตั้งไว้แล้ว ปรับได้ที่หน้าบัญชี', 429);
   if (await limited(env, 'chatmin:' + u.id, 20, 60e3)) return err('ส่งเร็วเกินไป รอสักครู่', 429);

@@ -444,3 +444,13 @@ test('smart chat search expands the query with related terms and ranks by matche
   assert.equal(r.length, 1); assert.match(r[0].snippet, /latte|coffee/);
   fm.close();
 });
+
+test('wallet minimum: below ฿1 the off-plan model stays locked and API refuses; ฿1 unlocks', async () => {
+  const t = await makeEnv({ K: 'k' }), pro = addModel(t.DB, { name: 'Pro model', base_url: 'http://x' });
+  const low = await t.user({ balance: 0.5 }), ok = await t.user({ balance: 1 });
+  assert.ok((await t.json('/api/me', { cookie: low.cookie })).data.models.find(m => m.id === pro.id).locked);
+  assert.ok(!(await t.json('/api/me', { cookie: ok.cookie })).data.models.find(m => m.id === pro.id).locked);
+  assert.equal((await t.json('/api/chat', { method: 'POST', cookie: low.cookie, body: { model_id: pro.id, text: 'hi' } })).status, 403);
+  assert.equal((await t.json('/api/keys', { method: 'POST', cookie: low.cookie, body: { name: 'x' } })).status, 403);
+  assert.equal((await t.json('/api/keys', { method: 'POST', cookie: ok.cookie, body: { name: 'x' } })).status, 200);
+});

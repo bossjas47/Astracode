@@ -1,4 +1,4 @@
-import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy } from './core.js';
+import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy, WALLET_MIN } from './core.js';
 import { bundleProject, callModel, chat, compact, ensureFb, logUsage } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
@@ -263,7 +263,7 @@ export async function route(req, env, ctx, url, path, M) {
           upsell_year: plan.price > 0 && !plan._team && u.plan_period !== 'year' && plan.price_year > 0 && plan.price * 12 > plan.price_year && (await env.DB.prepare("SELECT COUNT(*) n FROM payments WHERE user_id=? AND plan_id=? AND status='approved' AND kind='plan'").bind(u.id, plan.id).first()).n >= 2 ? { save: Math.round(plan.price * 12 - plan.price_year), price_year: plan.price_year, plan_id: plan.id } : null, // ต่อรายเดือนมาแล้ว 2 ครั้ง: ชวนเปลี่ยนเป็นรายปี
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, webhook_url: u.webhook_url || '', auto_compact: u.auto_compact !== 0, digest: !u.digest_off, wallet_overflow: !!u.wallet_overflow, wallet_day_cap: u.wallet_day_cap || null, auto_renew: !!u.auto_renew,
-          usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, models: [...models, ...(await cachedModels(env, 'wallet')).filter(w => !models.some(x => x.id === w.id)).map(w => ({ ...w, wallet: true, locked: !(u.balance > 0) }))].map(({ cost_in, cost_out, cost_cache, ...m }) => m), // มียอด Wallet: ใช้ได้ทุกโมเดล โมเดลนอกแพลนตัดเงินตามราคาขาย
+          usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, models: [...models, ...(await cachedModels(env, 'wallet')).filter(w => !models.some(x => x.id === w.id)).map(w => ({ ...w, wallet: true, locked: !(u.balance >= WALLET_MIN) }))].map(({ cost_in, cost_out, cost_cache, ...m }) => m), // มียอด Wallet: ใช้ได้ทุกโมเดล โมเดลนอกแพลนตัดเงินตามราคาขาย
           promptpay_id: pay.promptpay_id, pay_info: { bank_name: pay.bank_name, bank_account: pay.bank_account, bank_holder: pay.bank_holder },
         });
       }

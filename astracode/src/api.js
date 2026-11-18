@@ -1,4 +1,4 @@
-import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus } from './core.js';
+import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
 import { SSE, callModel, chat, logUsage } from './ai.js';
 import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl, walletAdd } from './billing.js';
 import { status } from './jobs.js';
@@ -38,12 +38,12 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     lg.kid = k.kid; lg.uid = k.id;
     if (k.ip_allow && !ipAllowed(k.ip_allow, ip(req, env))) return fail('This IP address is not allowed for this API key.', 403, 'permission_error');
     const plan = await planOf(env, k);
-    if (!(plan?.price > 0) && !(k.balance > 0)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿10)', 402, 'insufficient_quota'); // ไม่มีแพลนเสียเงิน: ใช้ได้ทุกโมเดลจาก Wallet ตามราคาขาย
+    if (!(plan?.price > 0) && !(k.balance >= WALLET_MIN)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿1)', 402, 'insufficient_quota'); // ไม่มีแพลนเสียเงิน: ใช้ได้ทุกโมเดลจาก Wallet ตามราคาขาย
     const canPlan = !!plan?.api_limit && k.use_plan !== 0 && !plan._team?.api_off; // หัวหน้าทีมปิด API ของสมาชิก = ใช้งบทีมไม่ได้ (ยังใช้ Wallet ของตัวเองได้)
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
     const allPublic = (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results;
     const planIds = canPlan ? new Set((await env.DB.prepare('SELECT model_id FROM plan_models WHERE plan_id=?').bind(plan.id).all()).results.map(x => x.model_id)) : null;
-    const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance > 0 || planIds.has(m.id)));
+    const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id)));
     if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
     if (path === '/v1/usage' && req.method === 'GET') {
       const st = await usageStatus(env, k, plan);
@@ -72,9 +72,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (await capHit(env, k, plan, m)) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');
       const st = await usageStatus(env, k, plan);
       if (st.pct4h < 100 && st.pctWeek < 100) billingMode = 'plan';
-      else if (k.wallet_overflow && k.balance > 0) billingMode = 'wallet';
+      else if (k.wallet_overflow && k.balance >= WALLET_MIN) billingMode = 'wallet';
       else return fail('ลิมิตแพลนเต็มแล้ว (4 ชม. / สัปดาห์)', 429, 'insufficient_quota');
-    } else if (!(k.balance > 0)) {
+    } else if (!(k.balance >= WALLET_MIN)) {
       return fail(canPlan ? `แพลน ${plan.name} ไม่รวมโมเดลนี้ และยอดเงินใน Wallet ไม่พอ` : 'ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans', 402, 'insufficient_quota');
     }
     if (billingMode === 'wallet' && await dayCapHit(env, k.id)) return fail('Daily wallet limit reached (set on the account page).', 429, 'insufficient_quota');
@@ -440,7 +440,7 @@ async function batchApi(req, env, k, models, path, out, fail) {
   const DB = env.DB, M = req.method, id = path.split('/')[3], uid = k.id;
   if (path === '/v1/batches' && M === 'GET') return out({ object: 'list', data: (await DB.prepare('SELECT * FROM api_batches WHERE user_id=? ORDER BY created_at DESC LIMIT 20').bind(uid).all()).results.map(b => batchView(b)) });
   if (path === '/v1/batches' && M === 'POST') {
-    if (!(k.balance > 0)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿10)', 402, 'insufficient_quota');
+    if (!(k.balance >= WALLET_MIN)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿1)', 402, 'insufficient_quota');
     const b = await req.json().catch(() => ({})), list = Array.isArray(b.requests) ? b.requests : null;
     if (!list?.length || list.length > 500) return fail('requests must be an array of 1 to 500 items.', 400);
     const rows = [];
@@ -477,7 +477,7 @@ export async function runBatches(env, limit = 40) {
     touched.add(it.batch_id); await DB.prepare("UPDATE api_batches SET status='in_progress' WHERE id=? AND status='queued'").bind(it.batch_id).run();
     const set = (st, resp, er, charge = 0) => DB.batch([DB.prepare('UPDATE api_batch_items SET status=?, response=?, error=? WHERE batch_id=? AND idx=?').bind(st, resp, er, it.batch_id, it.idx), DB.prepare(`UPDATE api_batches SET ${st === 'completed' ? 'done=done+1' : 'failed=failed+1'}, charge=charge+? WHERE id=?`).bind(charge, it.batch_id)]);
     const u = await DB.prepare('SELECT balance,banned FROM users WHERE id=?').bind(it.user_id).first(), m = models.find(x => slug(x) === it.model);
-    if (!u || u.banned || !(u.balance > 0)) return set('failed', null, 'Wallet balance is too low.');
+    if (!u || u.banned || !(u.balance >= WALLET_MIN)) return set('failed', null, 'Wallet balance is too low.');
     if (!m) return set('failed', null, 'Model is no longer available.');
     const rq = JSON.parse(it.request), text = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text).join('\n') : '';
     const system = rq.messages.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content)).join('\n\n'), hist = rq.messages.filter(x => x.role === 'user' || x.role === 'assistant').map(x => ({ role: x.role, content: text(x.content) }));

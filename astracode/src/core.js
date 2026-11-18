@@ -43,6 +43,7 @@ export const HISTORY = 20, HISTORY_CODE = 12; // ข้อความย้อ�
 export const histStart = (count, max) => count > max ? Math.ceil((count - max) / (max / 2)) * (max / 2) : 0;
 export const LOCK_MS = 45e3; // ล็อกตอบทีละข้อความ: ต่ออายุทุก 15 วินาทีระหว่างตอบ ถ้า Worker ถูกตัดกลางคัน (ผู้ใช้ปิดจอ) ล็อกหมดใน 45 วินาที
 export const H4 = 4 * 3600e3, DAY = 864e5, BKK = 7 * 3600e3;
+export const WALLET_MIN = 1; // ยอด Wallet ขั้นต่ำ (บาท) ที่ใช้โมเดลนอกแพลน / API / ใช้ต่อเมื่อลิมิตเต็มได้
 
 // ข้อผิดพลาดที่บอกผู้ใช้ได้ตรงๆ (ไม่ใช่บั๊กของเซิร์ฟเวอร์)
 // เก็บสลิป: ใช้ R2 ถ้าผูกไว้ ไม่งั้นเก็บใน D1 (shortcut: D1 แถวละไม่เกิน ~2MB จึงจำกัด 1.5MB, ถ้าสลิปเยอะให้ผูก R2)

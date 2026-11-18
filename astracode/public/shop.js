@@ -46,9 +46,9 @@ async function plansPage() {
         : '<p class="muted" style="text-align:center">แตะแพลนเพื่อชำระเงิน</p>'}
         <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}<p style="text-align:center;margin:8px 0 0"><button type="button" class="btn out" id="quote">ขอใบเสนอราคาสำหรับองค์กร</button></p></div>`
       : `<div class="card pay" style="text-align:center;max-width:520px;margin:0 auto"><p class="muted">เงินใน Wallet ใช้กับ API สำหรับนักพัฒนา ใช้ต่อเมื่อลิมิตแพลนเต็ม (เปิดได้ในหน้าบัญชี) และจ่ายค่าแพลน</p>
-          <label>จำนวนเงิน (บาท)</label><input id="amt" type="number" inputmode="decimal" min="${+site.topup_min || 10}" max="50000" step="1" value="${+site.topup_min || 100}" style="text-align:center;font-size:24px">
+          <label>จำนวนเงิน (บาท)</label><input id="amt" type="number" inputmode="decimal" min="${+site.topup_min || 10}" max="50000" step="1" value="${Math.max(+site.topup_min || 0, 100)}" style="text-align:center;font-size:24px">
           <div class="row" style="justify-content:center;margin-top:8px">${[100, 300, 500, 1000].map(v => `<button class="btn out sm" data-amt="${v}">฿${v}</button>`).join('')}</div>
-          <div id="tq">${qr(+site.topup_min || 100)}</div>${slipForm('ส่งสลิปเติมเงิน')}</div>`}
+          <div id="tq">${qr(Math.max(+site.topup_min || 0, 100))}</div>${slipForm('ส่งสลิปเติมเงิน')}</div>`}
       ${pays.length ? `<div class="card"><div style="font:600 19px var(--display)">ประวัติการชำระ</div><div class="tw"><table class="tbl"><tr><th>วันที่</th><th>รายการ</th><th>ยอด</th><th>สถานะ</th><th></th></tr>
         ${pays.map(x => `<tr><td>${when(x.created_at)}</td><td>${x.kind === 'topup' ? 'เติม Wallet' : esc(x.plan_name) + (x.period === 'year' ? ' (รายปี)' : '')}</td><td>฿${baht(x.amount)}</td><td>${PAY_STATUS[x.status] || esc(x.status)}</td><td>${x.status === 'approved' ? `<a href="/receipt?id=${x.id}">ใบเสร็จ</a>` : x.status === 'rejected' && x.created_at > Date.now() - 30 * 864e5 ? (x.review ? '<span class="warn">รอแอดมินตรวจ</span>' : `<button class="btn out sm" data-rv="${x.id}">ให้แอดมินตรวจ</button>`) : ''}</td></tr>`).join('')}</table></div></div>` : ''}
       ${footer()}</div>`);
