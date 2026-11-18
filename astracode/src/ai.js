@@ -37,6 +37,7 @@ export function nearEffort(errText, cur) {
 }
 // เพดาน output ตามค่ายของโมเดล (ไม่ส่ง = ผู้ให้บริการบางรายใช้ค่าน้อยจนคิดหมดก่อนตอบ) · ค่ายที่ไม่รู้เพดานไม่ส่ง เพราะค่าเกินอาจถูกปฏิเสธ
 export const gptMax = m => { const a = m.api_model || ''; return /^(gpt|o\d|gemini)/i.test(a) ? 256000 : /^deepseek/i.test(a) ? 356000 : undefined; };
+const capOut = (m, want) => { const cap = gptMax(m); return want && cap ? Math.min(want, cap) : want || cap; }; // ลูกค้า API ขอเกินเพดาน: ลดให้ ไม่ปล่อยให้ผู้ให้บริการปฏิเสธ
 export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false } = {}) {
   const key = env[m.key_name];
   const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
@@ -71,7 +72,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       last.content = [...imgParts, ...baseParts];
       if (last.content.length) last.content[last.content.length - 1] = { ...last.content.at(-1), cache_control: { type: 'ephemeral' } };
     }
-    const body = { model: m.api_model, max_tokens: maxTokens || 128000, stream: true, messages }; // เพดาน output ของ Claude ทุกรุ่น · ค่าน้อยกว่านี้โมเดลคิดจนหมดก่อนได้ตอบ (คิดเงินตามที่ใช้จริง ไม่ใช่ตามเพดาน)
+    const body = { model: m.api_model, max_tokens: Math.min(maxTokens || 128000, 128000), stream: true, messages }; // เพดาน output ของ Claude ทุกรุ่น · ค่าน้อยกว่านี้โมเดลคิดจนหมดก่อนได้ตอบ (คิดเงินตามที่ใช้จริง ไม่ใช่ตามเพดาน)
     if (system) body.system = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
     if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
       body.tools = tools.map(t => ({ name: t.function?.name || t.name, description: t.function?.description || t.description || '', input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));
@@ -145,7 +146,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     if (images.length) { const last = input.findLast(i => i.role === 'user'); if (last) last.content.push(...images.map(url => ({ type: 'input_image', image_url: url }))); }
     const body = { model: m.api_model, stream: true, store: false, input };
     if (system) body.instructions = system;
-    const mt = maxTokens || gptMax(m); if (mt) body.max_output_tokens = mt;
+    const mt = capOut(m, maxTokens); if (mt) body.max_output_tokens = mt;
     if (m.effort === 'openai' && effort) body.reasoning = { effort: { on: 'medium', max: 'high' }[effort] || effort };
     if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
       body.tools = tools.map(t => ({ type: 'function', name: t.function?.name || t.name, description: t.function?.description || t.description || '', parameters: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));
@@ -184,7 +185,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       body.tools = tools;
       if (toolChoice) body.tool_choice = toolChoice;
     }
-    const mt = maxTokens || gptMax(m); if (mt) body[/api\.openai\.com/.test(m.base_url) ? 'max_completion_tokens' : 'max_tokens'] = mt; // OpenAI รุ่นคิด (GPT-5, o-series) ไม่รับ max_tokens
+    const mt = capOut(m, maxTokens); if (mt) body[/api\.openai\.com/.test(m.base_url) ? 'max_completion_tokens' : 'max_tokens'] = mt; // OpenAI รุ่นคิด (GPT-5, o-series) ไม่รับ max_tokens
     if (m.effort === 'openai' && effort) body.reasoning_effort = { on: 'medium', max: 'high' }[effort] || effort;
     if (m.effort === 'gemini') body.reasoning_effort = effort ? ({ xhigh: 'high', max: 'high', on: 'medium' }[effort] || effort) : 'none';
     if (m.effort === 'deepseek') { // DeepSeek เปิดคิดเป็นค่าเริ่มต้น จึงต้องปิดเองเมื่อเลือก Instant
