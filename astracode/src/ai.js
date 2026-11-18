@@ -69,7 +69,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       last.content = [...imgParts, ...baseParts];
       if (last.content.length) last.content[last.content.length - 1] = { ...last.content.at(-1), cache_control: { type: 'ephemeral' } };
     }
-    const body = { model: m.api_model, max_tokens: maxTokens || (m.effort === 'anthropic' && ['high', 'xhigh', 'max'].includes(effort) ? 64000 : 16000), stream: true, messages }; // คิดระดับสูง: 16k หมดไปกับการคิดจนไม่เหลือคำตอบ
+    const body = { model: m.api_model, max_tokens: maxTokens || 128000, stream: true, messages }; // เพดาน output ของ Claude ทุกรุ่น · ค่าน้อยกว่านี้โมเดลคิดจนหมดก่อนได้ตอบ (คิดเงินตามที่ใช้จริง ไม่ใช่ตามเพดาน)
     if (system) body.system = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
     if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
       body.tools = tools.map(t => ({ name: t.function?.name || t.name, description: t.function?.description || t.description || '', input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));

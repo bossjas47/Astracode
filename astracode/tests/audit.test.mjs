@@ -492,7 +492,7 @@ test('chat: Claude at Max effort gets room to answer, and running out while thin
   const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'C', provider: 'anthropic', base_url: fm.url, effort: 'anthropic' });
   const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
   const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'x', effort: 'max' } }));
-  assert.equal(seen[0].max_tokens, 64000);
+  assert.equal(seen[0].max_tokens, 128000);
   assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /เต็มความยาวสูงสุด/);
   fm.close();
 });
