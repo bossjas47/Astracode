@@ -515,3 +515,18 @@ test('context report breaks down what fills the window; auto compact runs when t
   assert.ok(!t.DB.raw.prepare('SELECT summary FROM chats WHERE id=?').get(c2).summary, 'no auto compact when the user turned it off');
   fm.close();
 });
+
+test('admin can promote/demote others but not self; demote clears admin gate', async () => {
+  const t = await makeEnv(); const adm = await t.user({ role: 'admin' }), u = await t.user();
+  await t.env.DB.prepare('UPDATE sessions SET admin_ok=?').bind(Date.now() + 36e5).run();
+  const put = (id, body, c = adm.cookie) => t.json('/api/admin/users/' + id, { method: 'PUT', cookie: c, body });
+  assert.equal((await put(adm.id, { role: 'user' })).status, 400);
+  assert.equal((await put(u.id, { role: 'root' })).status, 400);
+  assert.equal((await put(u.id, { role: 'admin' })).status, 200);
+  assert.equal((await t.env.DB.prepare('SELECT role FROM users WHERE id=?').bind(u.id).first()).role, 'admin');
+  assert.equal((await t.json('/api/admin/stats', { cookie: u.cookie })).status, 403); // ยังต้องใส่รหัสหลังบ้าน
+  await t.env.DB.prepare('UPDATE sessions SET admin_ok=?').bind(Date.now() + 36e5).run();
+  assert.equal((await put(u.id, { role: 'user' })).status, 200);
+  assert.equal((await t.json('/api/admin/stats', { cookie: u.cookie })).status, 403);
+  assert.equal((await t.env.DB.prepare('SELECT admin_ok FROM sessions s JOIN users x ON x.id=s.user_id WHERE x.id=?').bind(u.id).first()).admin_ok, null);
+});

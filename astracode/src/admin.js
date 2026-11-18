@@ -119,7 +119,14 @@ export async function admin(req, env, path, url, me) {
       await logReset(env, +r[1], 'direct', lbl, { by: me.email });
       scopedRows = n;
     }
-    if ('banned' in b) await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run();
+    if ('role' in b) { // ตั้ง/ถอดแอดมิน · ถอดตัวเองไม่ได้ (กันหลังบ้านไม่มีใครเข้าได้) · ถอดแล้วต้องใส่รหัสหลังบ้านใหม่
+      if (!['admin', 'user'].includes(b.role)) return err('role ไม่ถูกต้อง');
+      if (+r[1] === me.id) return err('เปลี่ยนสิทธิ์ของตัวเองไม่ได้');
+      const t = await DB.prepare('SELECT banned FROM users WHERE id=?').bind(r[1]).first(); if (!t) return err('ไม่พบผู้ใช้', 404);
+      if (b.role === 'admin' && t.banned) return err('ผู้ใช้นี้ถูกแบนอยู่');
+      await DB.batch([DB.prepare('UPDATE users SET role=? WHERE id=?').bind(b.role, r[1]), DB.prepare('UPDATE sessions SET admin_ok=NULL WHERE user_id=?').bind(r[1])]);
+    }
+    if ('banned' in b) { if (b.banned && +r[1] === me.id) return err('แบนตัวเองไม่ได้'); await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run(); }
     if ('plan_id' in b) await DB.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').bind(b.plan_id || null, b.plan_id ? Date.now() + (b.days || 30) * DAY : null, r[1]).run();
     if (b.banned) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run();
     return json(scopedRows == null ? { ok: true } : { ok: true, rows: scopedRows });

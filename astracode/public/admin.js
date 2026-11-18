@@ -608,7 +608,7 @@ async function userDrawer(id, after) {
     <h3>จัดการ</h3>
     <label>เปลี่ยนแพลน (30 วันนับจากวันนี้)</label><div class="row"><select id="dp" style="flex:1"><option value="">Free</option>${plans.filter(p => p.price > 0).map(p => `<option value="${p.id}" ${p.id === u.plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn blue sm" id="dps">Choose plan</button></div>
     <label>รีเซ็ตลิมิต</label><div class="row"><select id="dscope" style="flex:1"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${allModels.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select><button class="btn out sm" id="dr">Reset</button></div>
-    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dpw">Log out all devices</button><button class="btn red sm" id="db">${u.banned ? 'Unban' : 'Ban'}</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dpw">Log out all devices</button><button class="btn red sm" id="db">${u.banned ? 'Unban' : 'Ban'}</button>${u.email === me.email ? '' : `<button class="btn out sm" id="drole">${u.role === 'admin' ? 'ถอดสิทธิ์แอดมิน' : 'ตั้งเป็นแอดมิน'}</button>`}</div>
     <h3>ประวัติรีเซ็ตลิมิต</h3><div class="tw">${resetLogTable(rlog, false)}</div>
     <p class="ok" id="dmsg"></p></aside>`;
   document.body.append(d);
@@ -624,6 +624,7 @@ async function userDrawer(id, after) {
   };
   d.querySelector('#dcs').onclick = async () => { const v = +d.querySelector('#dcr').value; if (!v || !await confirmSheet(`ปรับ Wallet ${v > 0 ? '+' : ''}${v} บาท?`, { title: 'ปรับยอด Wallet', ok: 'Confirm' })) return; await put({ credit: v, note: d.querySelector('#dcn').value }, 'ปรับยอดแล้ว'); setTimeout(() => userDrawer(id, after), 500); };
   d.querySelector('#dpw').onclick = async () => { if (await confirmSheet('ให้ผู้ใช้นี้ออกจากระบบทุกเครื่อง?', { title: 'บังคับออกจากระบบ', ok: 'Confirm' })) put({ logout: 1 }, 'ออกจากระบบทุกเครื่องแล้ว'); };
+  d.querySelector('#drole')?.addEventListener('click', async () => { const on = u.role !== 'admin'; if (await confirmSheet(on ? `ให้ ${u.email} เข้าหลังบ้านได้ทุกอย่าง (เงิน, ผู้ใช้, ตั้งค่า)? ต้องใช้รหัสหลังบ้านเดียวกับคุณ` : `ถอดสิทธิ์แอดมินของ ${u.email}?`, { title: on ? 'ตั้งเป็นแอดมิน' : 'ถอดสิทธิ์แอดมิน', ok: 'Confirm', danger: on })) { await put({ role: on ? 'admin' : 'user' }, on ? 'ตั้งเป็นแอดมินแล้ว' : 'ถอดสิทธิ์แล้ว'); setTimeout(() => userDrawer(id, after), 600); } });
   d.querySelector('#db').onclick = async () => { if (await confirmSheet(u.banned ? 'ปลดแบนผู้ใช้นี้?' : 'แบนผู้ใช้นี้? จะถูกออกจากระบบทันที', { title: 'จัดการบัญชี', ok: 'Confirm', danger: !u.banned })) { await put({ banned: u.banned ? 0 : 1 }, u.banned ? 'ปลดแบนแล้ว' : 'แบนแล้ว'); setTimeout(() => userDrawer(id, after), 600); } };
 }
 
