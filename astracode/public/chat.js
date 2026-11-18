@@ -384,7 +384,7 @@ const toolUse = () => { try { return JSON.parse(localStorage.getItem('toolUse') 
 const toolUsed = v => { try { const u = toolUse(); u[v] = (u[v] || 0) + 1; localStorage.setItem('toolUse', JSON.stringify(u)); } catch { /* ไม่มีที่เก็บ */ } };
 function toolRows(web) {
   const defs = {
-    img: (imgModel() || site.image) && ['palette', 'สร้างภาพ', imgModel() ? 'สลับเป็นโมเดลสร้างภาพ พิมพ์สิ่งที่อยากได้ AI ช่วยปรับ prompt ให้' : 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้', isImgMode()],
+    img: (me.models.some(m => m.provider === 'image') || site.image) && ['palette', 'สร้างภาพ', me.models.some(m => m.provider === 'image') ? 'สลับเป็นโมเดลสร้างภาพ พิมพ์สิ่งที่อยากได้ AI ช่วยปรับ prompt ให้' : 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้', isImgMode()],
     web: site.search && ['globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web],
     rsch: site.search && ['search', 'Deep research' + newPill('rsch'), 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)'],
     prm: ['book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย'],
@@ -403,7 +403,9 @@ function toolRows(web) {
 const imgModel = () => me.models.find(m => m.provider === 'image' && !m.locked);
 const isImgMode = () => curModel()?.provider === 'image';
 function enterImageMode() {
-  const im = imgModel(); if (!im) return genImage();
+  const im = imgModel(), locked = !im && me.models.find(m => m.provider === 'image');
+  if (locked) { toast(`${locked.name} ต้องเติมเครดิต (ขั้นต่ำ ฿1) แล้วจ่ายตามที่ใช้จริง`); return go('/plans?topup=1'); } // มีโมเดลสร้างภาพแต่ล็อก: พาไปเติมเงิน ไม่ใช้ทางสำรองที่ไม่ได้สลับโมเดล
+  if (!im) return genImage();
   if (chat.compare) toggleCompare();
   if (!isImgMode()) localStorage.setItem('modelBeforeImg', $('#model').value);
   $('#model').value = im.id; localStorage.setItem('model', im.id); modelUI(); $('#t').focus();

@@ -5,8 +5,9 @@ compatibility_date = "2026-11-01"
 [assets]
 directory = "./public"
 binding = "ASSETS"
-# ให้ worker ทำงานก่อน (ใส่ security headers + เลขเวอร์ชันไฟล์ JS/CSS) ยกเว้นรูป/ฟอนต์ที่ไม่ต้องแตะ จะได้ไม่เปลืองจำนวน request ของ Worker
-run_worker_first = ["/*", "!/*.png", "!/*.jpg", "!/*.jpeg", "!/*.svg", "!/*.ico", "!/*.webp", "!/*.woff2"]
+# ให้ worker ทำงานก่อนทุกไฟล์ (security headers + เลขเวอร์ชันไฟล์ JS/CSS)
+# ห้ามยกเว้นด้วยนามสกุล เช่น "!/*.png": กฎนี้จับทุกระดับโฟลเดอร์ รวมรูปที่ AI สร้าง /api/img/.../x.png ทำให้ขึ้น 404
+run_worker_first = true
 
 [[d1_databases]]
 binding = "DB"
