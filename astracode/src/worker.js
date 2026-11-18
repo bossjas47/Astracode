@@ -40,7 +40,7 @@ async function pricingBody(env) {
     };
 }
 async function plansBody(env) {
-  const plans = (await env.DB.prepare('SELECT id,name,price,price_year,description,limit_week,seats,shared_pool,api_limit FROM plans WHERE active=1 ORDER BY sort').all()).results;
+  const plans = (await env.DB.prepare('SELECT id,name,price,price_year,days,once,description,limit_week,seats,shared_pool,api_limit FROM plans WHERE active=1 ORDER BY sort').all()).results;
   const [featured, lists] = await Promise.all([getSetting(env, 'featured_plan'), Promise.all(plans.map(p => allowedModels(env, p.id)))]);
   plans.forEach((p, i) => { // ประมาณจำนวนข้อความ/สัปดาห์ ตามต้นทุนจริงของ 1 ข้อความทั่วไป
     p.models = lists[i].map(m => ({ name: m.name, week: Math.floor(p.limit_week / Math.max(msgCost(m), 1e-6)) }));
@@ -230,7 +230,7 @@ export async function route(req, env, ctx, url, path, M) {
           email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, paid: plan.price > 0, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           upsell_year: plan.price > 0 && !plan._team && u.plan_period !== 'year' && plan.price_year > 0 && plan.price * 12 > plan.price_year && (await env.DB.prepare("SELECT COUNT(*) n FROM payments WHERE user_id=? AND plan_id=? AND status='approved' AND kind='plan'").bind(u.id, plan.id).first()).n >= 2 ? { save: Math.round(plan.price * 12 - plan.price_year), price_year: plan.price_year, plan_id: plan.id } : null, // ต่อรายเดือนมาแล้ว 2 ครั้ง: ชวนเปลี่ยนเป็นรายปี
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
-          instructions: u.instructions, webhook_url: u.webhook_url || '', auto_compact: u.auto_compact !== 0, digest: !u.digest_off, wallet_overflow: !!u.wallet_overflow, auto_renew: !!u.auto_renew,
+          instructions: u.instructions, webhook_url: u.webhook_url || '', auto_compact: u.auto_compact !== 0, digest: !u.digest_off, wallet_overflow: !!u.wallet_overflow, wallet_day_cap: u.wallet_day_cap || null, auto_renew: !!u.auto_renew,
           usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, models: [...models, ...(await cachedModels(env, 'wallet')).filter(w => !models.some(x => x.id === w.id)).map(w => ({ ...w, wallet: true, locked: !(u.balance > 0) }))].map(({ cost_in, cost_out, cost_cache, ...m }) => m), // มียอด Wallet: ใช้ได้ทุกโมเดล โมเดลนอกแพลนตัดเงินตามราคาขาย
           promptpay_id: pay.promptpay_id, pay_info: { bank_name: pay.bank_name, bank_account: pay.bank_account, bank_holder: pay.bank_holder },
         });
@@ -347,7 +347,13 @@ export async function route(req, env, ctx, url, path, M) {
         return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,m.starred,md.name model,(SELECT vote FROM feedback f WHERE f.message_id=m.id AND f.user_id=?2) vote FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=?1 ORDER BY m.id').bind(r[1], u.id).all()).results);
       }
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
-      if (path === '/api/pay') return json((await env.DB.prepare('SELECT p.id,p.amount,p.status,p.created_at,p.kind,p.period,p.discount,pl.name plan_name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE user_id=? ORDER BY p.id DESC LIMIT 20').bind(u.id).all()).results);
+      if ((r = path.match(/^\/api\/pay\/(\d+)\/review$/)) && M === 'POST') { // สลิปถูกปฏิเสธ: ลูกค้าขอให้แอดมินตรวจเอง (ครั้งเดียวต่อรายการ)
+        const p = await env.DB.prepare("UPDATE payments SET review=1 WHERE id=? AND user_id=? AND status='rejected' AND review IS NULL RETURNING id,amount").bind(+r[1], u.id).first();
+        if (!p) return err('ส่งคำขอไปแล้ว หรือรายการนี้ขอตรวจไม่ได้', 409);
+        await notify(env, `🔎 ${u.email} ขอให้ตรวจสลิป #${p.id} (฿${p.amount}) ที่ถูกปฏิเสธ · หลังบ้าน → ชำระเงิน`);
+        return json({ ok: true });
+      }
+      if (path === '/api/pay') return json((await env.DB.prepare('SELECT p.id,p.amount,p.status,p.created_at,p.kind,p.period,p.discount,p.review,pl.name plan_name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE user_id=? ORDER BY p.id DESC LIMIT 20').bind(u.id).all()).results);
 
       if (path === '/api/admin-gate') return u.role === 'admin' ? await adminGate(req, env, u) : err('forbidden', 403);
       if (path.startsWith('/api/admin/')) {

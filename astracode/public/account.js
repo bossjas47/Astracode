@@ -87,11 +87,12 @@ PAGES.account = async function account() {
       <div id="tklist" style="margin-top:8px"></div></div>
     <div class="card acc-c" id="sec-wallet">${h3('Wallet')}
       ${sw('overflow', me.wallet_overflow, 'ใช้ Wallet เมื่อลิมิตเต็ม', 'แชตต่อได้ คิดตามราคาต่อ token จริง')}
+      <form id="dcap" class="row" style="flex-wrap:nowrap;margin-top:10px"><input name="cap" type="number" min="0" step="1" inputmode="decimal" placeholder="เพดานใช้ Wallet ต่อวัน (บาท) ว่าง = ไม่จำกัด" value="${me.wallet_day_cap || ''}" aria-label="เพดานใช้ Wallet ต่อวัน"><button class="btn out sm">บันทึก</button></form>
       ${me.plan.paid ? sw('digest', me.digest !== false, 'สรุปการใช้รายเดือนทางอีเมล', 'ต้นเดือนส่งสรุปว่าใช้ไปเท่าไร โมเดลไหน และคุ้มกว่าจ่ายตามใช้แค่ไหน') : ''}
       ${me.plan.expires ? sw('renew', me.auto_renew, 'ต่ออายุแพลนอัตโนมัติ', 'ตัดเงินจาก Wallet ก่อนหมดอายุ 1 วัน ถ้ายอดพอ') : ''}
       <form id="cp" class="row" style="flex-wrap:nowrap;margin-top:12px"><input name="code" placeholder="โค้ดคูปองเครดิต" autocapitalize="characters" required><button class="btn out sm">Apply coupon</button></form><div class="err" id="cpe"></div>
       <details class="faq" style="margin-top:8px"><summary>ของขวัญ (โอนเงิน Wallet ให้เพื่อนเป็นโค้ด)</summary>
-        <form id="gmk" class="row" style="flex-wrap:nowrap;margin-top:10px"><input name="amount" type="number" min="20" step="1" placeholder="ยอด (฿20 ขึ้นไป)" required><button class="btn blue sm">สร้างโค้ดของขวัญ</button></form>
+        <form id="gmk" style="margin-top:10px;display:grid;gap:8px"><div class="row" style="flex-wrap:nowrap"><input name="amount" type="number" min="20" step="1" placeholder="ยอด (฿20 ขึ้นไป)" required><button class="btn blue sm">สร้างโค้ดของขวัญ</button></div><input name="email" type="email" placeholder="ส่งให้อีเมลเพื่อน (ไม่ใส่ = คัดลอกโค้ดไปให้เอง)"><input name="message" maxlength="300" placeholder="ข้อความถึงผู้รับ (ไม่บังคับ)"></form>
         <form id="grd" class="row" style="flex-wrap:nowrap;margin-top:8px"><input name="code" placeholder="มีโค้ดของขวัญ? ใส่ที่นี่ (GIFT-...)" autocapitalize="characters" required><button class="btn out sm">รับของขวัญ</button></form>
         <div id="glist" class="muted" style="margin-top:8px;font-size:13px"></div></details>
       ${w.tx.length ? `<details class="faq" style="margin-top:8px"><summary>ประวัติ Wallet</summary><div class="tw"><table class="tbl"><tr><th>วันที่</th><th>รายการ</th><th>จำนวน</th><th>คงเหลือ</th></tr>
@@ -153,6 +154,7 @@ PAGES.account = async function account() {
   pt.onclick = () => api('/push/test', { method: 'POST' }).then(() => toast('ส่งแล้ว ดูที่แถบแจ้งเตือน', 'ok')).catch(x => toast(x.message, 'bad'));
   pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize'); pickSeg('#seg-fx', 'x', 'fx');
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
+  $('#dcap')?.addEventListener('submit', async e => { e.preventDefault(); try { await api('/me', { method: 'PUT', body: { wallet_day_cap: +new FormData(e.target).get('cap') || 0 } }); await loadMe(); toast('บันทึกเพดานแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew'); toggle('#digest', 'digest');
   const tasks = async () => { const ts = await api('/tasks').catch(() => []); const el = $('#tklist'); if (el) el.innerHTML = ts.map(x => `<div class="mem tm"><span>${String(x.hour).padStart(2, '0')}:00 · ${esc(x.prompt)}</span><button type="button" data-deltk="${x.id}" aria-label="ลบงาน">${ic('x')}</button></div>`).join(''); };
   tasks();
@@ -161,9 +163,9 @@ PAGES.account = async function account() {
   const gifts = async () => { const g = await api('/gift').catch(() => []); const el = $('#glist'); if (el) el.innerHTML = g.map(x => `<div><b data-notr>${esc(x.code)}</b> · ฿${baht(x.amount)} · ${x.used_at ? 'ใช้แล้ว' : 'ยังไม่ถูกใช้'}</div>`).join(''); };
   gifts();
   $('#gmk').onsubmit = async e => {
-    e.preventDefault(); const amount = +new FormData(e.target).get('amount');
-    if (!await confirmSheet(`ตัดเงิน ฿${amount} จาก Wallet เพื่อสร้างโค้ดของขวัญ? (ยกเลิกภายหลังไม่ได้)`, { title: 'ยืนยัน', ok: 'Confirm' })) return;
-    try { const r = await api('/gift', { method: 'POST', body: { amount } }); navigator.clipboard?.writeText(r.code).catch(() => {}); toast('สร้างโค้ดแล้ว (คัดลอกให้แล้ว): ' + r.code, 'ok'); await loadMe(); boot(); } catch (x) { toast(x.message, 'bad'); }
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), amount = +f.amount;
+    if (!await confirmSheet(`ตัดเงิน ฿${amount} จาก Wallet เพื่อสร้างโค้ดของขวัญ${f.email ? ' และส่งให้ ' + f.email : ''}? (ยกเลิกภายหลังไม่ได้)`, { title: 'ยืนยัน', ok: 'Confirm' })) return;
+    try { const r = await api('/gift', { method: 'POST', body: { amount, email: f.email, message: f.message } }); navigator.clipboard?.writeText(r.code).catch(() => {}); toast(r.sent ? `ส่งโค้ด ${r.code} ไปที่ ${f.email} แล้ว` : 'สร้างโค้ดแล้ว (คัดลอกให้แล้ว): ' + r.code, 'ok'); await loadMe(); boot(); } catch (x) { toast(x.message, 'bad'); }
   };
   $('#grd').onsubmit = async e => {
     e.preventDefault();

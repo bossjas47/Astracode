@@ -20,10 +20,10 @@ export async function cron(env) {
   await ensureCols(env).catch(() => {}); // cron ไม่ผ่านเส้นทาง /api จึงต้องให้คอลัมน์ใหม่มีก่อนใช้
   const step = async (name, fn) => { try { await fn(); } catch (e) { console.log('cron ' + name, e.message); log.push('ERR ' + name); } }; // ขั้นหนึ่งพัง ขั้นอื่นต้องไปต่อ (โดยเฉพาะสำรองข้อมูลและล้างข้อมูลเก่า)
   // 1) ต่ออายุอัตโนมัติจาก Wallet เมื่อเหลือไม่ถึง 24 ชม.
-  await step('renew', async () => { for (const u of (await DB.prepare('SELECT u.*,p.price,p.price_year,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.auto_renew=1 AND u.banned=0 AND u.plan_expires BETWEEN ? AND ?').bind(now, now + DAY).all()).results) {
+  await step('renew', async () => { for (const u of (await DB.prepare('SELECT u.*,p.price,p.price_year,p.name pname,p.days pdays FROM users u JOIN plans p ON p.id=u.plan_id WHERE COALESCE(p.once,0)=0 AND u.auto_renew=1 AND u.banned=0 AND u.plan_expires BETWEEN ? AND ?').bind(now, now + DAY).all()).results) {
     const year = u.plan_period === 'year' && u.price_year, price = year ? u.price_year : u.price;
     // หักเงินกับขยายวันใน statement เดียว (atomic) · เงื่อนไขช่วง plan_expires ทำให้รันซ้ำ/cron ซ้อนกันก็หักได้ครั้งเดียว เพราะหลังขยายแล้วหลุดช่วง
-    const took = u.balance >= price && await DB.prepare('UPDATE users SET balance=ROUND(balance-?1,4), plan_expires=plan_expires+?2 WHERE id=?3 AND balance>=?1 AND plan_expires BETWEEN ?4 AND ?5 RETURNING balance').bind(price, (year ? 365 : 30) * DAY, u.id, now, now + DAY).first();
+    const took = u.balance >= price && await DB.prepare('UPDATE users SET balance=ROUND(balance-?1,4), plan_expires=plan_expires+?2 WHERE id=?3 AND balance>=?1 AND plan_expires BETWEEN ?4 AND ?5 RETURNING balance').bind(price, (year ? 365 : u.pdays || 30) * DAY, u.id, now, now + DAY).first();
     if (took) {
       await DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -price, took.balance, 'renew', u.pname, now).run();
       await DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at) VALUES (?,?,?,'wallet','approved','plan',?,?,?)").bind(u.id, u.plan_id, price, year ? 'year' : 'month', now, now).run();
@@ -39,6 +39,8 @@ export async function cron(env) {
   // สรุป KPI เมื่อวานให้แอดมิน (8 โมงเช้าไทย): สมัครใหม่, รายได้, ต้นทุน, กำไร, โมเดลยอดนิยม
   if (new Date(now + BKK).getUTCHours() === 8) await step('kpi', async () => { const k = await kpiYesterday(env, now); if (!await limited(env, 'kpi:' + k.day, 1, 2 * DAY)) await notify(env, k.text); });
   // ดึงคนกลับ (10 โมงเช้าไทย): ผู้ใช้ที่เคยใช้งานแต่หายไป 14 วัน → อีเมลบอกของใหม่ + เครดิต (winback_credit บาท, 0 = ไม่แจก) · คนละครั้งต่อ 60 วัน
+  // เตือนแอดมินเมื่อราคาขายต่ำกว่าต้นทุน (เช่นต้นทางขึ้นราคาแต่ยังไม่ได้แก้ราคาขาย) วันละครั้ง
+  if (new Date(now + BKK).getUTCHours() === 9) await step('margin', async () => { const bad = await lossModels(env); if (bad.length && !await limited(env, 'margin:' + Math.floor((now + BKK) / DAY), 1, 2 * DAY)) await notify(env, '⚠️ ราคาขายต่ำกว่าต้นทุน (ขาดทุนทุกครั้งที่ใช้):\n' + bad.map(x => `• ${x.name}: ${x.parts.join(', ')}`).join('\n')); });
   if (new Date(now + BKK).getUTCHours() === 10) await step('winback', async () => {
     const credit = +(await getSetting(env, 'winback_credit')) || 0;
     const rows = (await DB.prepare("SELECT u.id,u.email FROM users u WHERE u.banned=0 AND u.email_verified=1 AND COALESCE(u.digest_off,0)=0 AND (SELECT MAX(created_at) FROM usage s WHERE s.user_id=u.id) BETWEEN ?1 AND ?2 LIMIT 50").bind(now - 15 * DAY, now - 14 * DAY).all()).results;
@@ -264,4 +266,16 @@ export class ChatRun {
     catch (e) { console.log('run', e.message); await unlimit(this.env, J.lock).catch(() => {}); await send({ error: 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' }); await send({ done: true }); }
     this.done = true; this.wake.splice(0).forEach(r => r());
   }
+}
+
+// โมเดลที่ราคาขาย (หลังโปร) ต่ำกว่าต้นทุนในช่องใดช่องหนึ่ง · คืน [{ id, name, parts: ['input ฿x < ทุน ฿y', ...] }]
+export async function lossModels(env) {
+  const out = [];
+  for (const m of (await env.DB.prepare("SELECT * FROM models WHERE active=1 AND provider<>'embedding'").all()).results) {
+    const p = await priceOf(env, m), parts = [];
+    for (const [k, c, l] of [['in', 'cost_in', 'input'], ['out', 'cost_out', 'output'], ['cache', 'cost_cache', 'cache'], ['write', 'cost_cache_write', 'cache write']]) if (m[c] > 0 && p[k] < m[c] - 1e-9) parts.push(`${l} ฿${p[k]} < ทุน ฿${m[c]}`);
+    if (p.req > 0 && m.req_cost > 0 && p.req < m.req_cost) parts.push(`ต่อครั้ง ฿${p.req} < ทุน ฿${m.req_cost}`);
+    if (parts.length) out.push({ id: m.id, name: m.name, parts });
+  }
+  return out;
 }

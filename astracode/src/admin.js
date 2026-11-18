@@ -1,13 +1,13 @@
 import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { ensureFb, isSafeMcpUrl, mcpSync } from './ai.js';
-import { applyPayment, audit, getSetting, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, walletAdd } from './billing.js';
+import { applyPayment, audit, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { slug } from './api.js';
-import { backup, status, verifyBackup } from './jobs.js';
+import { backup, lossModels, status, verifyBackup } from './jobs.js';
 import { ensureAgentTable, launch, workerModel } from './agent.js';
 // ---------- admin ----------
 export const TABLES = {
-  plans: ['name', 'price', 'price_year', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
+  plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
   models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'ctx_k', 'req_cap', 'bill', 'req_cost', 'req_price', 'code_prompt', 'sys_prompt', 'public', 'note', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active', 'new_until'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published', 'changelog'],
 };
@@ -83,16 +83,49 @@ export async function admin(req, env, path, url, me) {
     ]);
     return json({ ok: true, id: pid });
   }
-  if (path === '/api/admin/payments') return json((await DB.prepare(
-    'SELECT p.*,u.email,CASE WHEN p.kind=\'topup\' THEN \'เติม Wallet\' ELSE pl.name || CASE WHEN p.period=\'year\' THEN \' (รายปี)\' ELSE \'\' END END plan_name FROM payments p JOIN users u ON u.id=p.user_id LEFT JOIN plans pl ON pl.id=p.plan_id ORDER BY p.status=\'pending\' DESC, p.id DESC LIMIT 200').all()).results);
+  if (path === '/api/admin/payments') { // ป้าย likely_ok = ถูกปฏิเสธแต่ผลตรวจบอกว่าสลิปจริง ยอดตรง ผู้รับถูก (เช่นบั๊กเทียบบัญชีผู้รับเดิม)
+    const rows = (await DB.prepare(
+    'SELECT p.*,u.email,CASE WHEN p.kind=\'topup\' THEN \'เติม Wallet\' ELSE pl.name || CASE WHEN p.period=\'year\' THEN \' (รายปี)\' ELSE \'\' END END plan_name FROM payments p JOIN users u ON u.id=p.user_id LEFT JOIN plans pl ON pl.id=p.plan_id ORDER BY p.status=\'pending\' DESC, COALESCE(p.review,0) DESC, p.id DESC LIMIT 200').all()).results, st = await getSettings(env, ['easyslip_receiver', 'promptpay_id', 'bank_account']);
+    return json(rows.map(p => p.status === 'rejected' && slipLooksOk(p, st) ? { ...p, likely_ok: 1 } : p));
+  }
   if ((r = path.match(/^\/api\/admin\/payments\/(\d+)\/(approve|reject)$/)) && M === 'POST') {
-    const p = await DB.prepare("SELECT * FROM payments WHERE id=? AND status='pending'").bind(r[1]).first();
-    if (!p) return err('ไม่พบคำขอที่รออนุมัติ', 404);
-    const upd = await DB.prepare("UPDATE payments SET status=?, approved_at=? WHERE id=? AND status='pending'").bind(r[2] === 'approve' ? 'approved' : 'rejected', Date.now(), p.id).run();
+    // อนุมัติย้อนหลังได้ทั้งที่รอตรวจและที่ถูกปฏิเสธ (สลิปที่ระบบปฏิเสธผิด) · ดัชนี unique ของ slip_ref กันอนุมัติสลิปที่ใช้ไปแล้วกับรายการอื่น
+    const from = r[2] === 'approve' ? "status IN ('pending','rejected')" : "status='pending'";
+    const p = await DB.prepare(`SELECT * FROM payments WHERE id=? AND ${from}`).bind(r[1]).first();
+    if (!p) return err('ไม่พบคำขอที่จัดการได้', 404);
+    const upd = await DB.prepare(`UPDATE payments SET status=?, approved_at=?, review=NULL WHERE id=? AND ${from}`).bind(r[2] === 'approve' ? 'approved' : 'rejected', Date.now(), p.id).run().catch(e => { if (/UNIQUE/i.test(e.message)) return null; throw e; });
+    if (!upd) return err('สลิปนี้ (เลขอ้างอิงเดียวกัน) ถูกอนุมัติกับรายการอื่นไปแล้ว', 409);
     if (!upd.meta.changes) return err('คำขอนี้ถูกจัดการไปแล้ว', 409); // กันกดอนุมัติซ้ำพร้อมกัน
     await ctxAudit(r[2] + ' payment', { id: p.id, amount: p.amount, user: p.user_id });
     if (r[2] === 'approve') await applyPayment(env, p);
     return json({ ok: true });
+  }
+  if ((r = path.match(/^\/api\/admin\/payments\/(\d+)\/refund$/)) && M === 'POST') { // คืนเงิน: ปิดแพลน/หักยอดเติม · wallet=1 = คืนเป็นเครดิต ไม่งั้นแอดมินโอนคืนเอง
+    const b = await req.json().catch(() => ({}));
+    const p = await DB.prepare("UPDATE payments SET status='refunded' WHERE id=? AND status='approved' RETURNING *").bind(r[1]).first();
+    if (!p) return err('คืนเงินได้เฉพาะรายการที่สำเร็จแล้ว', 404);
+    await ctxAudit('refund payment', { id: p.id, amount: p.amount, user: p.user_id, wallet: !!b.wallet });
+    const ref = 'payment#' + p.id;
+    if (p.kind === 'topup') await walletAdd(env, p.user_id, -p.amount, 'refund', ref); // เงินออกจาก Wallet (อาจติดลบถ้าใช้ไปแล้ว)
+    else {
+      const now = Date.now(), pl = await DB.prepare('SELECT seats FROM plans WHERE id=?').bind(p.plan_id).first();
+      if (pl?.seats > 1) await DB.prepare('UPDATE teams SET expires=? WHERE owner_id=? AND plan_id=? AND expires>?').bind(now, p.user_id, p.plan_id, now).run();
+      else await DB.prepare('UPDATE users SET plan_expires=? WHERE id=? AND plan_id=? AND plan_expires>?').bind(now, p.user_id, p.plan_id, now).run();
+      if (b.wallet) await walletAdd(env, p.user_id, p.amount, 'refund', ref);
+    }
+    const u = await DB.prepare('SELECT email FROM users WHERE id=?').bind(p.user_id).first();
+    await mail(env, u?.email, 'AstraCode: คืนเงินแล้ว', mailBox('คืนเงินแล้ว', `รายการ #${p.id} ฿${p.amount} ถูกยกเลิก ${p.kind !== 'topup' && b.wallet ? 'คืนเป็นเครดิตเข้า Wallet แล้ว' : 'เราจะโอนเงินคืนเข้าบัญชีของคุณ'}`)).catch(() => {});
+    return json({ ok: true });
+  }
+  if (path === '/api/admin/margin') return json(await lossModels(env));
+  if (path === '/api/admin/fraud') { // บัญชีที่น่าสงสัย: หลายบัญชีจาก IP เดียว · ผู้ชวนกับผู้ถูกชวนใช้ IP เดียวกัน (โกงโบนัส/ค่าคอม)
+    const since = Date.now() - 60 * DAY;
+    const [ips, refs] = await Promise.all([
+      DB.prepare("SELECT s.ip, COUNT(DISTINCT s.user_id) n, group_concat(DISTINCT u.email) emails FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.ip IS NOT NULL AND s.ip<>'' AND s.created_at>? GROUP BY s.ip HAVING n>=3 ORDER BY n DESC LIMIT 50").bind(since).all(),
+      DB.prepare(`SELECT u.id, u.email, r.email referrer, r.id rid, (SELECT COALESCE(SUM(amount),0) FROM wallet_tx w WHERE w.user_id=r.id AND w.kind IN ('affiliate','referral') AND (w.ref='user#'||u.id OR w.ref LIKE 'user#'||u.id||' %')) paid
+        FROM users u JOIN users r ON r.id=u.referred_by WHERE u.created_at>? AND EXISTS (SELECT 1 FROM sessions a JOIN sessions b ON a.ip=b.ip WHERE a.user_id=u.id AND b.user_id=r.id AND a.ip IS NOT NULL AND a.ip<>'') ORDER BY u.id DESC LIMIT 100`).bind(since).all(),
+    ]);
+    return json({ ips: ips.results.map(x => ({ ...x, emails: String(x.emails || '').split(',').slice(0, 20) })), refs: refs.results });
   }
   if ((r = path.match(/^\/api\/admin\/slip\/(\d+)$/))) {
     const p = await DB.prepare('SELECT slip_key FROM payments WHERE id=?').bind(r[1]).first();

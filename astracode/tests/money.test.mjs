@@ -82,3 +82,49 @@ test('auto-renew: two cron runs at the same moment charge once', async () => {
   t.worker.default.scheduled({}, t.env, t.ctx); t.worker.default.scheduled({}, t.env, t.ctx); await Promise.all(t.ctx.pending);
   assert.equal(row(t, u.id).balance, 150); assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM wallet_tx WHERE kind='renew'").get().n, 1);
 });
+
+test('trial plan: 7 days, once per account, never auto-renewed', async () => {
+  const t = await makeEnv(), plan = addPlan(t.DB, { price: 49 }), u = await t.user({ balance: 200 });
+  t.DB.raw.prepare('UPDATE plans SET days=7, once=1 WHERE id=?').run(plan.id);
+  assert.equal((await form(t, u, { plan_id: plan.id, wallet: 1 })).status, 200);
+  const exp = row(t, u.id).plan_expires; assert.ok(exp > Date.now() + 6.9 * 864e5 && exp < Date.now() + 7.1 * 864e5, 'expires in 7 days');
+  const again = await form(t, u, { plan_id: plan.id, wallet: 1 }); assert.equal(again.status, 400); assert.match((await again.json()).error, /ครั้งเดียว/);
+  assert.equal(row(t, u.id).balance, 151);
+  t.DB.raw.prepare('UPDATE users SET auto_renew=1, plan_expires=? WHERE id=?').run(Date.now() + 3600e3, u.id);
+  const { cron } = await import('../src/jobs.js'); await cron(t.env).catch(() => {});
+  assert.equal(row(t, u.id).balance, 151, 'trial plan is not auto-renewed');
+});
+
+test('admin: approve a wrongly rejected slip, refund a top-up, refund a plan to the wallet; customer can ask for review once', async () => {
+  const t = await makeEnv(), admin = await t.user({ role: 'admin' }), u = await t.user(), plan = addPlan(t.DB, { price: 100 });
+  const ins = (o) => t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at) VALUES (?,?,?,?,?,?,'month',?) RETURNING id").get(u.id, o.plan || 0, o.amount, o.key, o.status, o.kind, Date.now()).id;
+  const rej = ins({ amount: 10, key: 'slip/a', status: 'rejected', kind: 'topup' });
+  assert.equal((await t.json(`/api/pay/${rej}/review`, { method: 'POST', cookie: u.cookie })).status, 200);
+  assert.equal((await t.json(`/api/pay/${rej}/review`, { method: 'POST', cookie: u.cookie })).status, 409, 'only once');
+  assert.equal((await t.json('/api/admin/payments', { cookie: admin.cookie })).data.find(p => p.id === rej).review, 1);
+  assert.equal((await t.json(`/api/admin/payments/${rej}/approve`, { method: 'POST', cookie: admin.cookie })).status, 200);
+  assert.equal(row(t, u.id).balance, 10);
+  assert.equal((await t.json(`/api/admin/payments/${rej}/refund`, { method: 'POST', cookie: admin.cookie, body: {} })).status, 200);
+  assert.equal(row(t, u.id).balance, 0); assert.equal(t.DB.raw.prepare('SELECT status FROM payments WHERE id=?').get(rej).status, 'refunded');
+  assert.equal((await t.json(`/api/admin/payments/${rej}/refund`, { method: 'POST', cookie: admin.cookie, body: {} })).status, 404, 'no double refund');
+  const pp = ins({ amount: 100, key: 'slip/b', status: 'approved', kind: 'plan', plan: plan.id });
+  t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 20 * 864e5, u.id);
+  await t.json(`/api/admin/payments/${pp}/refund`, { method: 'POST', cookie: admin.cookie, body: { wallet: true } });
+  assert.ok(row(t, u.id).plan_expires <= Date.now()); assert.equal(row(t, u.id).balance, 100);
+});
+
+test('slipLooksOk flags a rejected slip paid to the shop bank account; daily wallet cap; loss-making prices are listed', async () => {
+  const { slipLooksOk, dayCapHit } = await import('../src/billing.js'), { lossModels } = await import('../src/jobs.js');
+  const check = JSON.stringify({ success: true, data: { rawSlip: { amount: { amount: 10 }, receiver: { account: { bank: { account: 'xxx-x-x3233-x' } } } } } });
+  const st = { promptpay_id: '0629708835', bank_account: '193-1-13233-0' };
+  assert.equal(slipLooksOk({ slip_check: check, kind: 'topup', amount: 10 }, st), true);
+  assert.equal(slipLooksOk({ slip_check: check, kind: 'topup', amount: 10 }, { promptpay_id: '0629708835', bank_account: '111-1-11111-1' }), false);
+  const t = await makeEnv(), u = await t.user();
+  assert.equal(await dayCapHit(t.env, u.id), false, 'no cap = never hit');
+  t.DB.raw.prepare('UPDATE users SET wallet_day_cap=5 WHERE id=?').run(u.id);
+  t.DB.raw.prepare("INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,-6,0,'api','m',?)").run(u.id, Date.now());
+  assert.equal(await dayCapHit(t.env, u.id), true);
+  const { addModel } = await import('./helpers.mjs'); const m = addModel(t.DB, { name: 'Cheap', base_url: 'http://x', cost_in: 10, cost_out: 10 });
+  t.DB.raw.prepare('UPDATE models SET price_in=5, price_out=20 WHERE id=?').run(m.id);
+  const bad = await lossModels(t.env); assert.equal(bad.length, 1); assert.match(bad[0].parts[0], /input/);
+});

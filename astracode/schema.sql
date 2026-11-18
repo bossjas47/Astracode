@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
   , webhook_url TEXT                       -- แจ้งเตือนงบ API key ถึงปลายทางนี้ (https)
   , bill_info TEXT                        -- ข้อมูลผู้ซื้อในใบเสร็จ (JSON: name, address, tax_id)
   , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
+  , wallet_day_cap REAL                   -- เพดานใช้ Wallet ต่อวัน (บาท) ที่ผู้ใช้ตั้งเอง
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
 );
 
@@ -42,6 +43,8 @@ CREATE TABLE IF NOT EXISTS plans (
   seats INTEGER NOT NULL DEFAULT 1,         -- 1 = เดี่ยว, 2+ = แพลนทีม
   shared_pool INTEGER NOT NULL DEFAULT 0,   -- 0 = แยกโควตาต่อคน, 1 = ใช้งบรวมทั้งทีม
   api_limit INTEGER NOT NULL DEFAULT 0,     -- 0 = API Key หักจาก Wallet, 1 = หักจากลิมิตแพลนได้
+  days INTEGER,                             -- ระยะแพลน (วัน) ว่าง = 30 เช่นแพลนทดลอง 7 วัน
+  once INTEGER,                             -- 1 = ซื้อได้ครั้งเดียวต่อบัญชี ไม่ต่ออายุอัตโนมัติ
   sort INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
 );
@@ -143,6 +146,7 @@ CREATE TABLE IF NOT EXISTS payments (
   status TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected
   kind TEXT NOT NULL DEFAULT 'plan',        -- plan | topup
   period TEXT NOT NULL DEFAULT 'month', coupon TEXT, discount REAL NOT NULL DEFAULT 0, approved_at INTEGER, slip_ref TEXT,
+  review INTEGER,                           -- 1 = ลูกค้าขอให้แอดมินตรวจสลิปที่ถูกปฏิเสธ
   created_at INTEGER NOT NULL
 );
 
@@ -251,6 +255,7 @@ CREATE TABLE IF NOT EXISTS users (
   , webhook_url TEXT                       -- แจ้งเตือนงบ API key ถึงปลายทางนี้ (https)
   , bill_info TEXT                        -- ข้อมูลผู้ซื้อในใบเสร็จ (JSON: name, address, tax_id)
   , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
+  , wallet_day_cap REAL                   -- เพดานใช้ Wallet ต่อวัน (บาท) ที่ผู้ใช้ตั้งเอง
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
 );
 
@@ -274,6 +279,8 @@ CREATE TABLE IF NOT EXISTS plans (
   seats INTEGER NOT NULL DEFAULT 1,         -- 1 = เดี่ยว, 2+ = แพลนทีม
   shared_pool INTEGER NOT NULL DEFAULT 0,   -- 0 = แยกโควตาต่อคน, 1 = ใช้งบรวมทั้งทีม
   api_limit INTEGER NOT NULL DEFAULT 0,     -- 0 = API Key หักจาก Wallet, 1 = หักจากลิมิตแพลนได้
+  days INTEGER,                             -- ระยะแพลน (วัน) ว่าง = 30 เช่นแพลนทดลอง 7 วัน
+  once INTEGER,                             -- 1 = ซื้อได้ครั้งเดียวต่อบัญชี ไม่ต่ออายุอัตโนมัติ
   sort INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
 );
@@ -373,6 +380,7 @@ CREATE TABLE IF NOT EXISTS payments (
   status TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected
   kind TEXT NOT NULL DEFAULT 'plan',        -- plan | topup
   period TEXT NOT NULL DEFAULT 'month', coupon TEXT, discount REAL NOT NULL DEFAULT 0, approved_at INTEGER, slip_ref TEXT,
+  review INTEGER,                           -- 1 = ลูกค้าขอให้แอดมินตรวจสลิปที่ถูกปฏิเสธ
   created_at INTEGER NOT NULL
 );
 

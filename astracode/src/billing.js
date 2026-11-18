@@ -204,8 +204,8 @@ export async function applyPayment(env, p) {
       if (bonus > 0) await walletAdd(env, u.id, bonus, 'first_bonus', 'payment#' + p.id);
     }
   } else {
-    const days = p.period === 'year' ? 365 : 30, now = Date.now();
     const pl = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(p.plan_id).first();
+    const days = p.period === 'year' ? 365 : pl?.days || 30, now = Date.now(); // plans.days: แพลนระยะสั้น เช่นทดลอง 7 วัน
     if (pl && pl.seats > 1) {
       const ex = await env.DB.prepare('SELECT * FROM teams WHERE owner_id=? ORDER BY id DESC LIMIT 1').bind(u.id).first();
       let base = ex && ex.plan_id === p.plan_id && ex.expires > now ? ex.expires : now;
@@ -243,6 +243,7 @@ export async function pay(req, env, u) {
   if (kind === 'plan') {
     plan = await env.DB.prepare('SELECT * FROM plans WHERE id=? AND active=1 AND price>0').bind(fd.get('plan_id')).first();
     if (!plan) return err('ไม่พบแพลน');
+    if (plan.once && await env.DB.prepare("SELECT 1 FROM payments WHERE user_id=? AND plan_id=? AND status IN ('approved','pending','refunded')").bind(u.id, plan.id).first()) return err('แพลนนี้ซื้อได้ครั้งเดียวต่อบัญชี');
     period = fd.get('period') === 'year' && plan.price_year ? 'year' : 'month';
     amount = period === 'year' ? plan.price_year : plan.price;
     coupon = await couponFor(env, u, fd.get('coupon'), 'plan');
@@ -307,8 +308,23 @@ export async function pay(req, env, u) {
   const p = await env.DB.prepare('INSERT INTO payments (user_id,plan_id,amount,slip_key,slip_check,slip_amount,slip_ref,status,approved_at,created_at,kind,period,coupon,discount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *')
     .bind(u.id, plan?.id || 0, amount, key, c.result, c.amount, c.ref || null, fail ? 'rejected' : pass ? 'approved' : 'pending', pass ? now : null, now, kind, period, fail ? null : coupon?.code || null, discount).first().catch(e => { if (/UNIQUE/i.test(e.message)) return null; throw e; });
   if (!p) return err('สลิปนี้ถูกใช้แล้ว');
-  if (fail) { await notify(env, `⛔ สลิปไม่ผ่าน ฿${amount} จาก ${u.email} (${what}): ${fail}`); return err(fail + ' ถ้าคิดว่าผิดพลาด ติดต่อเราที่หน้า "ติดต่อเรา"'); }
+  if (fail) { await notify(env, `⛔ สลิปไม่ผ่าน ฿${amount} จาก ${u.email} (${what}): ${fail}`); return json({ error: fail + ' ถ้าคิดว่าผิดพลาด กด "ให้แอดมินตรวจ" ได้เลย', pay_id: p.id }, 400); }
   if (pass) { await applyPayment(env, p); await notify(env, `✅ อนุมัติอัตโนมัติ ฿${amount} จาก ${u.email} (${what})`); return json({ ok: true, approved: true, id: p.id }); }
   await notify(env, `💳 สลิปใหม่ ฿${amount} จาก ${u.email} (${what})${c.amount != null ? ` · API อ่านยอดได้ ฿${c.amount}` : ''}${c.code ? ` · code ${c.code}` : ''}`);
   return json({ ok: true });
+}
+
+// สลิปที่ถูกปฏิเสธแต่ผล API บอกว่าสลิปจริง ยอดตรง และผู้รับเป็นบัญชีร้าน = น่าจะปฏิเสธผิด (ใช้ติดป้ายในหลังบ้าน ไม่อนุมัติเอง)
+export function slipLooksOk(p, s) {
+  let d; try { d = JSON.parse(p.slip_check || ''); } catch { return false; }
+  const slip = d?.data || d; if (!(d?.success || d?.status === 200)) return false;
+  const amt = slipAmount(slip); if (amt == null || (p.kind !== 'topup' && Math.abs(amt - p.amount) > 0.001)) return false;
+  return receiverMatches(slip, [s.easyslip_receiver, s.promptpay_id, s.bank_account].flatMap(x => String(x || '').split(/[,\n]/)).map(x => x.trim()).filter(Boolean)) === true;
+}
+// เพดานใช้ Wallet ต่อวันที่ผู้ใช้ตั้งเอง (users.wallet_day_cap) · วันตามเวลาไทย · true = ใช้ครบแล้ววันนี้
+export async function dayCapHit(env, uid) {
+  const r = await env.DB.prepare('SELECT wallet_day_cap c FROM users WHERE id=?').bind(uid).first(); if (!(r?.c > 0)) return false;
+  const start = Math.floor((Date.now() + 7 * 3600e3) / DAY) * DAY - 7 * 3600e3;
+  const x = await env.DB.prepare("SELECT -COALESCE(SUM(amount),0) v FROM wallet_tx WHERE user_id=? AND amount<0 AND kind IN ('wallet','overflow','api') AND created_at>=?").bind(uid, start).first();
+  return x.v >= r.c;
 }

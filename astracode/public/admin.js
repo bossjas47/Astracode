@@ -2,7 +2,7 @@
 PAGES.admin = () => adminView(qs().get('tab') || 'stats');
 
 const FIELDS = {
-  plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['limit_4h', 'งบรอบ 4 ชม. (บาท ต้นทุนจริง)', 'n'], ['use_4h', 'เปิดรอบ 4 ชม. (ปิด = จำกัดเฉพาะรอบสัปดาห์)', 'b'], ['limit_week', 'งบรอบสัปดาห์ (บาท ต้นทุนจริง)', 'n'], ['seats', 'จำนวนคนในทีม (1 = เดี่ยว, 2+ = ทีม)', 'n'], ['shared_pool', 'ใช้งบลิมิตร่วมกันทั้งทีม', 'b'], ['api_limit', 'ใช้ API Key หักจากลิมิตแพลนได้ (ไม่ต้องเติม Wallet)', 'b'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
+  plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['days', 'ระยะแพลน (วัน) เว้นว่าง = 30 วัน เช่น 7 = แพลนทดลอง', 'o'], ['once', 'ซื้อได้ครั้งเดียวต่อบัญชี (ไม่ต่ออายุอัตโนมัติ)', 'b'], ['limit_4h', 'งบรอบ 4 ชม. (บาท ต้นทุนจริง)', 'n'], ['use_4h', 'เปิดรอบ 4 ชม. (ปิด = จำกัดเฉพาะรอบสัปดาห์)', 'b'], ['limit_week', 'งบรอบสัปดาห์ (บาท ต้นทุนจริง)', 'n'], ['seats', 'จำนวนคนในทีม (1 = เดี่ยว, 2+ = ทีม)', 'n'], ['shared_pool', 'ใช้งบลิมิตร่วมกันทั้งทีม', 'b'], ['api_limit', 'ใช้ API Key หักจากลิมิตแพลนได้ (ไม่ต้องเติม Wallet)', 'b'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
   models: [['name', 'ชื่อที่แสดง'], ['provider', 'รูปแบบ API (openai = /chat/completions · responses = /responses ของ OpenAI รุ่นใหม่ · image = โมเดลสร้างรูป ตอบเป็นรูป ใส่ราคาต่อ 1 รูปในช่อง ทุน output · embedding = โมเดลเวกเตอร์ใช้ผ่าน /v1/embeddings เท่านั้น คิดตาม token ขาเข้า · anthropic)', ['openai', 'responses', 'image', 'embedding', 'anthropic']], ['api_model', 'รหัสโมเดล'], ['base_url', 'Base URL'], ['key_name', 'ชื่อ secret ของ key'], ['multiplier', 'ความหนักสัมพัทธ์ (ใช้เรียง/แสดง ไม่ใช่ตัวหักลิมิต)', 'n'], ['cap_pct', 'เพดาน % ของงบสัปดาห์ (0 = ไม่จำกัด เช่น Opus 50)', 'n'],
     ['ctx_k', 'ขนาด context ของโมเดล (พัน token เช่น 128, 200, 1000 · เว้นว่าง = 128)', 'o'],
     ['req_cap', 'เพดานคำขอต่อผู้ใช้ต่อ 4 ชม. (เว้นว่าง = ไม่จำกัด)', 'o'],
@@ -42,8 +42,8 @@ function slipResult(p) {
   if (p.slip_amount == null) return '<span class="muted">ไม่มีผล</span>';
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
-const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>' };
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>', refunded: '<span class="pill">คืนเงินแล้ว</span>' };
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -80,7 +80,7 @@ async function adminView(tab = 'stats') {
   page(nav() + `<div class="adm"><aside class="adm-nav">${TABS.map(([k, i, l]) => `<a class="${k === tab ? 'on' : ''}" href="/admin?tab=${k}"><span class="ai">${ic(i)}</span>${l}${k === 'payments' && pending ? `<b class="cnt">${pending}</b>` : ''}${k === 'tickets' && open ? `<b class="cnt">${open}</b>` : ''}</a>`).join('')}</aside>
     <main class="adm-main"><h1 class="adm-h">${TABS.find(t => t[0] === tab)?.[2] || ''}</h1><div id="ad"></div></main></div>`);
   const box = $('#ad'), reload = () => adminView(tab);
-  try { await ADMIN[tab]?.(box, reload); if (tab === 'settings') gatePwCard(box); } catch (x) { if (x.data?.gate) return adminGateView(tab, x.data.set); box.innerHTML = `<p class="err">${esc(x.message)}</p>`; }
+  try { await ADMIN[tab]?.(box, reload); if (tab === 'settings') gatePwCard(box); if (tab === 'models') lossBanner(box); } catch (x) { if (x.data?.gate) return adminGateView(tab, x.data.set); box.innerHTML = `<p class="err">${esc(x.message)}</p>`; }
 }
 
 // ---------- กราฟ (SVG ล้วน ไม่ใช้ไลบรารี) ----------
@@ -185,16 +185,21 @@ const ADMIN = {
     let filter = 'pending';
     const draw = () => {
       const list = ps.filter(p => filter === 'all' || p.status === filter);
-      box.innerHTML = `<div class="seg">${[['pending', 'รออนุมัติ'], ['approved', 'อนุมัติแล้ว'], ['rejected', 'ปฏิเสธ'], ['all', 'ทั้งหมด']].map(([k, l]) => `<button data-f="${k}" class="${k === filter ? 'on' : ''}">${l} ${k === 'all' ? ps.length : ps.filter(p => p.status === k).length}</button>`).join('')}</div>
-        ${list.map(p => `<div class="card pay-card"><div class="row"><b>#${p.id}</b><span>${esc(p.email)}</span><span style="flex:1"></span>${STATUS[p.status]}</div>
+      box.innerHTML = `<div class="seg">${[['pending', 'รออนุมัติ'], ['approved', 'อนุมัติแล้ว'], ['rejected', 'ปฏิเสธ'], ['refunded', 'คืนเงิน'], ['all', 'ทั้งหมด']].map(([k, l]) => `<button data-f="${k}" class="${k === filter ? 'on' : ''}">${l} ${k === 'all' ? ps.length : ps.filter(p => p.status === k).length}</button>`).join('')}</div>
+        ${list.map(p => `<div class="card pay-card"><div class="row"><b>#${p.id}</b><span>${esc(p.email)}</span><span style="flex:1"></span>${p.review ? '<span class="pill warn">ลูกค้าขอให้ตรวจ</span>' : ''}${p.likely_ok ? '<span class="pill ok" title="ผลตรวจบอกสลิปจริง ยอดตรง ผู้รับเป็นบัญชีร้าน">น่าจะปฏิเสธผิด</span>' : ''}${STATUS[p.status] || esc(p.status)}</div>
           <div class="pay-grid"><div><div class="muted">แพลน</div>${esc(p.plan_name)}</div><div><div class="muted">ต้องจ่าย</div>฿${baht(p.amount)}</div><div><div class="muted">ส่งเมื่อ</div>${when(p.created_at)}</div>
           <div><div class="muted">ตรวจสลิป</div>${slipResult(p)}</div></div>
           ${p.slip_check ? `<details class="tview"><summary>ผลดิบจาก API</summary><pre style="white-space:pre-wrap;font-size:12px">${esc(p.slip_check)}</pre></details>` : ''}
           <div class="row" style="margin-top:12px"><button class="btn out sm" data-slip="${p.id}">View slip</button>
-          ${p.status === 'pending' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}">Approve</button><button class="btn red sm" data-act="reject" data-id="${p.id}">Reject</button>` : ''}</div>
+          ${p.status === 'pending' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}">Approve</button><button class="btn red sm" data-act="reject" data-id="${p.id}">Reject</button>` : ''}${p.status === 'rejected' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}">อนุมัติย้อนหลัง</button>` : ''}${p.status === 'approved' && !['wallet', 'coupon'].includes(p.slip_key) ? `<button class="btn out sm" data-refund="${p.id}" data-kind="${p.kind}">คืนเงิน</button>` : ''}</div>
           <div data-img="${p.id}"></div></div>`).join('') || '<div class="empty-s">ไม่มีรายการ</div>'}`;
       box.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; draw(); });
       box.querySelectorAll('[data-slip]').forEach(b => b.onclick = () => { const c = box.querySelector(`[data-img="${b.dataset.slip}"]`); c.innerHTML = c.innerHTML ? '' : `<img class="slipimg" style="margin-top:12px" src="/api/admin/slip/${b.dataset.slip}" alt="สลิป">`; });
+      box.querySelectorAll('[data-refund]').forEach(b => b.onclick = async () => {
+        const topup = b.dataset.kind === 'topup', ok = await confirmSheet(topup ? 'คืนเงินรายการเติม Wallet นี้? ระบบหักยอดออกจาก Wallet ลูกค้า (ติดลบได้ถ้าใช้ไปแล้ว) แล้วคุณโอนคืนเอง' : 'คืนเงินแพลนนี้? แพลนจะหมดอายุทันที', { title: 'คืนเงิน', ok: topup ? 'คืนเงิน' : 'คืนเป็นเงินโอน', danger: true });
+        if (!ok) return; const wallet = !topup && await confirmSheet('คืนเป็นเครดิตเข้า Wallet แทนการโอนเงินไหม?', { title: 'วิธีคืนเงิน', ok: 'คืนเข้า Wallet', cancel: 'ฉันโอนคืนเอง' });
+        b.disabled = true; try { await api(`/admin/payments/${b.dataset.refund}/refund`, { method: 'POST', body: { wallet } }); toast('คืนเงินแล้ว', 'ok'); reload(); } catch (x) { toast(x.message, 'bad'); b.disabled = false; }
+      });
       box.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
         if (!await confirmSheet(b.dataset.act === 'approve' ? 'อนุมัติและเปิดแพลนให้ผู้ใช้?' : 'ปฏิเสธคำขอนี้?', { title: 'ยืนยันรายการ', ok: 'Confirm', danger: b.dataset.act !== 'approve' })) return;
         b.disabled = true;
@@ -646,6 +651,13 @@ ADMIN.roadmap = async (box, reload) => {
   box.querySelectorAll('[data-rs]').forEach(s => s.onchange = async () => { await api('/admin/roadmap/' + s.dataset.rs, { method: 'PUT', body: { status: s.value } }); toast('บันทึกแล้ว', 'ok'); });
   box.querySelectorAll('[data-rd]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบหัวข้อนี้และโหวตทั้งหมด?', { title: 'ลบ', ok: 'ลบ', danger: true })) { await api('/admin/roadmap/' + b.dataset.rd, { method: 'DELETE' }); reload(); } });
 };
+ADMIN.fraud = async box => {
+  const d = await api('/admin/fraud');
+  box.innerHTML = `<p class="muted hint">60 วันล่าสุด · IP เดียวกันอาจเป็นครอบครัว ออฟฟิศ หรือเน็ตมือถือที่แชร์ IP ตรวจก่อนแบน</p>
+    <div class="card"><b>หลายบัญชีจาก IP เดียว (3 บัญชีขึ้นไป)</b>${d.ips.length ? `<div class="tw"><table class="tbl"><tr><th>IP</th><th>บัญชี</th><th>อีเมล</th></tr>${d.ips.map(x => `<tr><td><code>${esc(x.ip)}</code></td><td>${x.n}</td><td style="min-width:240px">${x.emails.map(esc).join(', ')}</td></tr>`).join('')}</table></div>` : '<p class="muted">ไม่พบ</p>'}</div>
+    <div class="card"><b>ชวนเพื่อนแต่ใช้ IP เดียวกัน (อาจชวนตัวเองเอาโบนัส/ค่าคอม)</b>${d.refs.length ? `<div class="tw"><table class="tbl"><tr><th>ผู้ถูกชวน</th><th>ผู้ชวน</th><th>ผู้ชวนได้ไปแล้ว</th></tr>${d.refs.map(x => `<tr data-user="${x.rid}" style="cursor:pointer"><td>${esc(x.email)}</td><td>${esc(x.referrer)}</td><td>฿${baht(x.paid)}</td></tr>`).join('')}</table></div>` : '<p class="muted">ไม่พบ</p>'}</div>`;
+  box.querySelectorAll('[data-user]').forEach(tr => tr.onclick = () => userDrawer(+tr.dataset.user));
+};
 ADMIN.churn = async box => {
   const rows = await api('/admin/churn');
   box.innerHTML = `<p class="muted hint">ผู้ใช้ที่แพลนหมดอายุใน 60 วันที่ผ่านมาแล้วไม่ต่อ · ใช้น้อยก่อนหมด = ไม่เห็นคุณค่า · ใช้เยอะแล้วหาย = อาจติดราคาหรือลิมิต</p>
@@ -714,3 +726,9 @@ ADMIN.mcp = async (box, reload) => {
     if (await confirmSheet('ลบ MCP นี้ถาวร?', { title: 'ลบ MCP', ok: 'Delete forever', danger: true })) { await api('/admin/mcp/' + b.dataset.mdel, { method: 'DELETE' }); reload(); }
   });
 };
+
+// เตือนโมเดลที่ราคาขายต่ำกว่าต้นทุน (ขาดทุนทุกครั้งที่ใช้) บนแท็บโมเดล
+async function lossBanner(box) {
+  const bad = await api('/admin/margin').catch(() => []);
+  if (bad.length) box.insertAdjacentHTML('afterbegin', `<div class="card" style="border-color:var(--red,#d33)"><b class="bad">${ic('alert', 'sm')} ราคาขายต่ำกว่าต้นทุน</b>${bad.map(x => `<div style="font-size:13px;margin-top:6px"><b>${esc(x.name)}</b>: ${x.parts.map(esc).join(', ')}</div>`).join('')}</div>`);
+}

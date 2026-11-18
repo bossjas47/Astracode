@@ -1,6 +1,8 @@
 // AstraCode: หน้าแพลน + ชำระเงิน + เติม Wallet และหน้าราคาต่อ token (แยกจาก app.js · โหลดเฉพาะ plans.html / pricing.html)
 // ---------- แพลน + ชำระเงิน + เติม Wallet ----------
-const PAY_STATUS = { pending: '<span class="warn">รออนุมัติ</span>', approved: '<span class="ok">สำเร็จ</span>', rejected: '<span class="bad">ไม่อนุมัติ</span>' };
+const PAY_STATUS = { pending: '<span class="warn">รออนุมัติ</span>', approved: '<span class="ok">สำเร็จ</span>', rejected: '<span class="bad">ไม่อนุมัติ</span>', refunded: '<span class="muted">คืนเงินแล้ว</span>' };
+// สลิปถูกปฏิเสธ: ลูกค้าส่งให้แอดมินตรวจเอง (เช่นระบบอ่านบัญชีผู้รับผิด)
+const askReview = async (id, btn) => { btn.disabled = true; try { await api('/pay/' + id + '/review', { method: 'POST' }); btn.outerHTML = '<span class="warn">ส่งให้แอดมินตรวจแล้ว</span>'; } catch (x) { toast(x.message, 'bad'); btn.disabled = false; } };
 // ตารางเทียบแพลน: ราคา, จำนวนโมเดล, ข้อความโดยประมาณ, API, ที่นั่ง
 const cmpTable = ps => ps.length < 2 ? '' : `<details class="faq" style="max-width:920px;margin:14px auto"><summary>เปรียบเทียบแพลนแบบตาราง</summary><div class="tw"><table class="tbl cmp"><tr><th></th>${ps.map(p => `<th>${esc(p.name)}</th>`).join('')}</tr>
   ${[['ราคา/เดือน', p => p.price ? '฿' + baht(p.price) : 'ฟรี'], ['รายปี', p => p.price_year ? '฿' + baht(p.price_year) : '-'], ['จำนวนโมเดล', p => p.models?.length || 0],
@@ -9,7 +11,7 @@ const cmpTable = ps => ps.length < 2 ? '' : `<details class="faq" style="max-wid
 async function plansPage() {
   const plans = await api('/plans');
   const hasYear = plans.some(p => p.price_year > 0);
-  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans.filter(x => x.seats <= 1))}${plans.some(x => x.seats > 1) ? `<h2 style="text-align:center;margin:36px 0 4px">Team</h2><p class="muted" style="text-align:center;margin:0 0 16px">หนึ่งแพ็กเกจ ใช้ร่วมกันหลายคน</p>${planTiles(plans.filter(x => x.seats > 1))}` : ''}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>${footer()}</div>`); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
+  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans.filter(x => x.seats <= 1))}${plans.some(x => x.seats > 1) ? `<h2 style="text-align:center;margin:36px 0 4px">Team</h2><p class="muted" style="text-align:center;margin:0 0 16px">หนึ่งแพ็กเกจ ใช้ร่วมกันหลายคน</p>${planTiles(plans.filter(x => x.seats > 1))}` : ''}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}<p style="text-align:center;margin:8px 0 0"><button type="button" class="btn out" id="quote">ขอใบเสนอราคาสำหรับองค์กร</button></p></div>${footer()}</div>`); $('#quote')?.addEventListener('click', () => quoteSheet(plans)); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
   const pays = await api('/pay');
   const hasTeam = plans.some(x => x.seats > 1), wantPlan = +qs().get('plan') || null;
   let aud = hasTeam && (qs().get('team') || me.plan.team) ? 'team' : 'solo', sel = plans.find(x => x.id === wantPlan && x.price > 0)?.id || null, period = 'month', coupon = null, tab = qs().get('topup') ? 'topup' : 'plan';
@@ -35,20 +37,20 @@ async function plansPage() {
         ${aud === 'team' ? '<p class="muted" style="text-align:center;margin:-4px 0 16px">แพ็กเกจเดียว ใช้ร่วมกันหลายคน ซื้อแล้วคุณเป็นหัวหน้าทีม เชิญสมาชิกได้ที่หน้าบัญชี</p>' : ''}
         ${planTiles(plans.filter(x => x.price > 0 && (aud === 'team' ? x.seats > 1 : x.seats <= 1) && (period === 'month' || x.price_year > 0)), sel, period)}
         ${cmpTable(plans.filter(x => aud === 'team' ? x.seats > 1 : x.seats <= 1))}
-        ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : '30 วัน'}</div>
+        ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : (p.days || 30) + ' วัน'}</div>
           <div class="price" style="margin:8px 0">${coupon?.discount ? `<s class="muted" style="font-size:20px">${fmtPlanPrice(priceOf(p))}</s> ` : ''}${fmtPlanPrice(total)}${getCur() === 'USD' && total > 0 ? `<div class="muted" style="font-size:13px;margin-top:4px">ยอดโอน PromptPay: ฿${baht(total)}</div>` : ''}</div>
           <form id="cf" class="row" style="max-width:400px;margin:0 auto;flex-wrap:nowrap"><input name="code" placeholder="โค้ดคูปอง" value="${esc(coupon?.code || '')}" autocapitalize="characters"><button class="btn out sm">Apply</button></form>
           <div class="err" id="ce"></div>
           ${me.balance >= total && total > 0 ? `<button class="btn blue" id="wpay" style="margin:12px 0">Pay with Wallet (฿${baht(me.balance)})</button><p class="muted">หรือโอนผ่าน PromptPay</p>` : ''}
           ${total > 0 ? qr(total) + slipForm('ส่งสลิป') : '<button class="btn blue" id="free" style="margin-top:12px">Activate free plan with coupon</button>'}</div>`
         : '<p class="muted" style="text-align:center">แตะแพลนเพื่อชำระเงิน</p>'}
-        <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>`
+        <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}<p style="text-align:center;margin:8px 0 0"><button type="button" class="btn out" id="quote">ขอใบเสนอราคาสำหรับองค์กร</button></p></div>`
       : `<div class="card pay" style="text-align:center;max-width:520px;margin:0 auto"><p class="muted">เงินใน Wallet ใช้กับ API สำหรับนักพัฒนา ใช้ต่อเมื่อลิมิตแพลนเต็ม (เปิดได้ในหน้าบัญชี) และจ่ายค่าแพลน</p>
           <label>จำนวนเงิน (บาท)</label><input id="amt" type="number" inputmode="decimal" min="${+site.topup_min || 10}" max="50000" step="1" value="${+site.topup_min || 100}" style="text-align:center;font-size:24px">
           <div class="row" style="justify-content:center;margin-top:8px">${[100, 300, 500, 1000].map(v => `<button class="btn out sm" data-amt="${v}">฿${v}</button>`).join('')}</div>
           <div id="tq">${qr(+site.topup_min || 100)}</div>${slipForm('ส่งสลิปเติมเงิน')}</div>`}
       ${pays.length ? `<div class="card"><div style="font:600 19px var(--display)">ประวัติการชำระ</div><div class="tw"><table class="tbl"><tr><th>วันที่</th><th>รายการ</th><th>ยอด</th><th>สถานะ</th><th></th></tr>
-        ${pays.map(x => `<tr><td>${when(x.created_at)}</td><td>${x.kind === 'topup' ? 'เติม Wallet' : esc(x.plan_name) + (x.period === 'year' ? ' (รายปี)' : '')}</td><td>฿${baht(x.amount)}</td><td>${PAY_STATUS[x.status]}</td><td>${x.status === 'approved' ? `<a href="/receipt?id=${x.id}">ใบเสร็จ</a>` : ''}</td></tr>`).join('')}</table></div></div>` : ''}
+        ${pays.map(x => `<tr><td>${when(x.created_at)}</td><td>${x.kind === 'topup' ? 'เติม Wallet' : esc(x.plan_name) + (x.period === 'year' ? ' (รายปี)' : '')}</td><td>฿${baht(x.amount)}</td><td>${PAY_STATUS[x.status] || esc(x.status)}</td><td>${x.status === 'approved' ? `<a href="/receipt?id=${x.id}">ใบเสร็จ</a>` : x.status === 'rejected' && x.created_at > Date.now() - 30 * 864e5 ? (x.review ? '<span class="warn">รอแอดมินตรวจ</span>' : `<button class="btn out sm" data-rv="${x.id}">ให้แอดมินตรวจ</button>`) : ''}</td></tr>`).join('')}</table></div></div>` : ''}
       ${footer()}</div>`);
     app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; draw(); });
     app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); draw(); });
@@ -63,7 +65,7 @@ async function plansPage() {
     const submit = async (fd, btn, errBox) => {
       btn.disabled = true;
       try { const r = await api('/pay', { method: 'POST', body: fd }); await loadMe(); if (r.approved) go(`/receipt?id=${r.id}`); else { toast('ส่งสลิปแล้ว รอแอดมินตรวจ', 'ok'); boot(); } }
-      catch (x) { errBox.textContent = x.message; btn.disabled = false; }
+      catch (x) { errBox.textContent = x.message; btn.disabled = false; if (x.data?.pay_id) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn out sm'; b.style.marginTop = '8px'; b.textContent = 'ให้แอดมินตรวจสลิปนี้'; b.onclick = () => askReview(x.data.pay_id, b); errBox.append(document.createElement('br'), b); } }
     };
     const planFd = () => { const fd = new FormData(); fd.append('plan_id', sel); fd.append('period', period); if (coupon) fd.append('coupon', coupon.code); return fd; };
     $('#wpay')?.addEventListener('click', async e => { if (!await confirmSheet(`ตัดเงิน ฿${baht(total)} จาก Wallet เพื่อเปิดแพลนนี้?`, { title: 'ยืนยันการชำระเงิน', ok: 'Pay now' })) return; const fd = planFd(); fd.append('wallet', '1'); submit(fd, e.target, $('#ce')); });
@@ -74,6 +76,8 @@ async function plansPage() {
       amt.oninput = upd; app.querySelectorAll('[data-amt]').forEach(b => b.onclick = () => { amt.value = b.dataset.amt; upd(); });
     }
     app.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => copy(b.dataset.cp, b));
+    app.querySelectorAll('[data-rv]').forEach(b => b.onclick = () => askReview(+b.dataset.rv, b));
+    $('#quote')?.addEventListener('click', () => quoteSheet(plans));
     $('#f')?.addEventListener('submit', e => {
       e.preventDefault(); const fd = tab === 'plan' ? planFd() : new FormData();
       fd.append('slip', new FormData(e.target).get('slip'));
@@ -163,3 +167,29 @@ async function pricing() {
 
 PAGES.plans = plansPage;
 PAGES.pricing = pricing;
+
+// ใบเสนอราคาองค์กร: กรอกข้อมูลบริษัท + แพลน + จำนวน แล้วเปิดหน้าพิมพ์ (บันทึกเป็น PDF จากเมนูพิมพ์ของเบราว์เซอร์) · ไม่บันทึกอะไรที่เซิร์ฟเวอร์
+function quoteSheet(plans) {
+  const paid = plans.filter(p => p.price > 0 && !p.once);
+  sheet('ใบเสนอราคา', `<form id="qf" class="sheet-form" style="display:grid;gap:8px">
+    <input name="company" placeholder="ชื่อบริษัท / หน่วยงาน" required maxlength="120"><input name="tax" placeholder="เลขประจำตัวผู้เสียภาษี (ถ้ามี)" maxlength="20">
+    <textarea name="addr" rows="2" placeholder="ที่อยู่" maxlength="300"></textarea><input name="contact" placeholder="ผู้ติดต่อ / อีเมล" maxlength="120">
+    <select name="plan">${paid.map(p => `<option value="${p.id}">${esc(p.name)}${p.seats > 1 ? ` (${p.seats} ที่นั่ง)` : ''} · ฿${baht(p.price)}/เดือน${p.price_year ? ` · ฿${baht(p.price_year)}/ปี` : ''}</option>`).join('')}</select>
+    <div class="row" style="flex-wrap:nowrap"><input name="qty" type="number" min="1" max="1000" value="1" aria-label="จำนวน" style="max-width:110px"><select name="period"><option value="month">รายเดือน</option><option value="year">รายปี</option></select><input name="n" type="number" min="1" max="36" value="1" aria-label="จำนวนรอบ" style="max-width:110px"></div>
+    <p class="muted" style="font-size:12px;margin:0">จำนวนชุด × จำนวนรอบ (เดือนหรือปี)</p><button class="btn blue">สร้างใบเสนอราคา (พิมพ์ / PDF)</button></form>`, (d, close) => {
+    d.querySelector('#qf').onsubmit = e => {
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), p = paid.find(x => x.id === +f.plan); if (!p) return;
+      const year = f.period === 'year' && p.price_year, unit = year ? p.price_year : p.price, qty = Math.max(1, +f.qty || 1), n = Math.max(1, +f.n || 1), total = unit * qty * n;
+      const no = 'Q' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase(), today = new Date(), until = new Date(Date.now() + 30 * 864e5), d8 = x => x.toLocaleDateString('th-TH', { dateStyle: 'long' });
+      const w = window.open('', '_blank'); if (!w) return toast('เบราว์เซอร์บล็อกหน้าต่างใหม่ อนุญาต pop-up ก่อน', 'bad');
+      w.document.write(`<!doctype html><meta charset="utf-8"><title>ใบเสนอราคา ${no}</title><style>body{font:14px/1.6 'Prompt',system-ui,sans-serif;color:#111;max-width:760px;margin:32px auto;padding:0 24px}h1{font-size:24px;margin:0}table{width:100%;border-collapse:collapse;margin:20px 0}td,th{border-bottom:1px solid #ddd;padding:8px;text-align:left}th:last-child,td:last-child{text-align:right}.r{display:flex;justify-content:space-between;gap:24px}.m{color:#666;font-size:12px}.t{font-size:18px;font-weight:700}@media print{body{margin:0}}</style>
+        <div class="r"><div><h1>ใบเสนอราคา</h1><div class="m">Quotation</div></div><div style="text-align:right"><b>AstraCode</b><div class="m">${esc(location.host)}</div></div></div>
+        <div class="r" style="margin-top:20px"><div><b>เสนอ</b><br>${esc(f.company)}${f.tax ? `<br>เลขผู้เสียภาษี ${esc(f.tax)}` : ''}${f.addr ? `<br>${esc(f.addr)}` : ''}${f.contact ? `<br>ติดต่อ: ${esc(f.contact)}` : ''}</div><div style="text-align:right">เลขที่ ${no}<br>วันที่ ${d8(today)}<br>ยืนราคาถึง ${d8(until)}</div></div>
+        <table><tr><th>รายการ</th><th>ราคาต่อหน่วย</th><th>จำนวน</th><th>รอบ</th><th>รวม (บาท)</th></tr><tr><td>แพลน ${esc(p.name)} ${year ? 'รายปี' : 'รายเดือน'}${p.seats > 1 ? ` (${p.seats} ที่นั่ง)` : ''}</td><td>${baht(unit)}</td><td>${qty}</td><td>${n} ${year ? 'ปี' : 'เดือน'}</td><td>${baht(total)}</td></tr>
+        <tr><td colspan="4" class="t">ยอดรวม</td><td class="t">฿${baht(total)}</td></tr></table>
+        <p class="m">ราคาตามหน้าเว็บ ณ วันที่ออกเอกสาร · ชำระโดยโอนผ่านพร้อมเพย์หรือบัญชีธนาคารที่ระบุในหน้าชำระเงิน · ออกใบเสร็จระบุชื่อบริษัทได้หลังชำระ</p>
+        <p style="margin-top:48px">ผู้เสนอราคา ____________________ &nbsp;&nbsp; ผู้อนุมัติ ____________________</p>`);
+      w.document.close(); setTimeout(() => w.print(), 300); close();
+    };
+  });
+}

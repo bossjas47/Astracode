@@ -1,5 +1,5 @@
 import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr } from './core.js';
-import { blockedText, event, getSetting, getSettings, mail, mailBox, priceOf, siteUrl, walletAdd } from './billing.js';
+import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { v1 } from './api.js';
@@ -438,6 +438,7 @@ export async function chat(req, env, u, ctx) {
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
   const overflow = offPlan ? 'wallet' : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance > 0 && !ephemeral ? 'overflow' : null) : null;
   if (!offPlan && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429);
+  if (overflow && await dayCapHit(env, u.id)) return err('ใช้ Wallet ครบเพดานต่อวันที่ตั้งไว้แล้ว ปรับได้ที่หน้าบัญชี', 429);
   if (await limited(env, 'chatmin:' + u.id, 20, 60e3)) return err('ส่งเร็วเกินไป รอสักครู่', 429);
   // ให้ตอบได้ทีละข้อความ กันยิงพร้อมกันหลายอันเพื่อเลี่ยงลิมิต (ล็อกหมดอายุเองใน 3 นาที) ยกเว้นโหมดเทียบ
   // โหมดเทียบ (ephemeral) ขนานได้สูงสุด 3 ช่อง ไม่ใช่ไม่จำกัด

@@ -263,7 +263,7 @@ function planTiles(plans, sel, period) {
   return `<div class="grid" tabindex="0" aria-label="แพลน (เลื่อนดูได้)">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
     ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}${p.price > 0 && promoOn() ? `<div class="promo-pill">${ic('sparkles', 'sm')} ใช้ได้ x${site.promo.x4h} ถึง ${promoEnd()}<small>ลิมิตสัปดาห์ x${site.promo.xweek}</small></div>` : ''}
     <div style="font:600 19px var(--display)">${esc(p.name)}</div>
-    <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') : ''}</small></div>
+    <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : p.days && p.days !== 30 ? ` / ${p.days} วัน` : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') + (p.once ? ' · ซื้อได้ครั้งเดียว' : '') : ''}</small></div>
     ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
     ${p.seats > 1 ? `<div style="font-size:12.5px;color:var(--link);font-weight:500">ทีม · สูงสุด ${p.seats} คน (${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'})</div>` : ''}<div class="muted">${esc(p.description)}</div>
     <ul class="feat-list">${p.models.map(m => `<li>${esc(m.name)} <span class="muted">~${num(m.week)} ข้อความ/สัปดาห์</span></li>`).join('')}${p.api_limit ? `<li>${ic('check', 'sm ok')} ใช้ API Key หักจากลิมิตแพลน</li>` : ''}</ul></div>`).join('')}</div>

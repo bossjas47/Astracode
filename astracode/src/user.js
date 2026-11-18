@@ -1,6 +1,6 @@
 import { BKK, DAY, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus } from './core.js';
 import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
-import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, walletAdd } from './billing.js';
+import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { monthKey } from './api.js';
@@ -41,6 +41,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       .bind(typeof b.instructions === 'string' ? b.instructions.slice(0, 3000) : null, 'wallet_overflow' in b ? (b.wallet_overflow ? 1 : 0) : null, 'auto_renew' in b ? (b.auto_renew ? 1 : 0) : null, u.id).run();
     if ('auto_compact' in b) await DB.prepare('UPDATE users SET auto_compact=? WHERE id=?').bind(b.auto_compact ? 1 : 0, u.id).run();
     if ('digest' in b) await DB.prepare('UPDATE users SET digest_off=? WHERE id=?').bind(b.digest ? 0 : 1, u.id).run();
+    if ('wallet_day_cap' in b) { const c = Math.round(+b.wallet_day_cap * 100) / 100; await DB.prepare('UPDATE users SET wallet_day_cap=? WHERE id=?').bind(c > 0 ? Math.min(c, 1e6) : null, u.id).run(); } // 0/ว่าง = ไม่จำกัด
     if ('webhook_url' in b) { // Webhook แจ้งเมื่อ API key ใช้งบถึง 80% / 100% (https เท่านั้น ห้ามที่อยู่ภายใน)
       const w = String(b.webhook_url || '').trim(), safe = w ? isSafeMcpUrl(w) : '';
       if (w && !safe) return err('Webhook ต้องเป็นลิงก์ https ที่เปิดสู่สาธารณะเท่านั้น');
@@ -88,8 +89,10 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path === '/api/gift') { // โค้ดของขวัญ: ตัดเงินจาก Wallet ของผู้ให้ คนรับกรอกโค้ดแล้วเงินเข้า Wallet
     if (M === 'GET') return json((await DB.prepare('SELECT code,amount,created_at,used_at FROM gift_codes WHERE from_user=? ORDER BY created_at DESC LIMIT 50').bind(u.id).all()).results);
     if (M !== 'POST') return err('method not allowed', 405);
-    const amount = Math.round(+(await req.json()).amount * 100) / 100;
+    const gb = await req.json(), amount = Math.round(+gb.amount * 100) / 100, to = String(gb.email || '').trim().toLowerCase(), note = String(gb.message || '').trim().slice(0, 300);
     if (!(amount >= 20 && amount <= 50000)) return err('ยอดของขวัญต้องอยู่ระหว่าง ฿20–฿50,000');
+    if (to && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return err('อีเมลผู้รับไม่ถูกต้อง');
+    if (to && await limited(env, 'giftmail:' + u.id, 10, DAY)) return err('ส่งของขวัญทางอีเมลได้วันละ 10 ครั้ง', 429);
     const took = await DB.prepare('UPDATE users SET balance=ROUND(balance-?1,4) WHERE id=?2 AND balance>=?1 RETURNING balance').bind(amount, u.id).first(); // ตัดแบบ atomic กันยอดติดลบ
     if (!took) return err('ยอดเงินใน Wallet ไม่พอ', 402);
     const code = 'GIFT-' + rand(6).toUpperCase();
@@ -97,7 +100,8 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       await DB.batch([DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, took.balance, 'gift', code, Date.now()),
         DB.prepare('INSERT INTO gift_codes (code,amount,from_user,created_at) VALUES (?,?,?,?)').bind(code, amount, u.id, Date.now())]);
     } catch (e) { await walletAdd(env, u.id, amount, 'refund', 'gift failed').catch(() => {}); throw e; } // หักเงินแล้วแต่สร้างโค้ดไม่สำเร็จ: คืนเงิน
-    return json({ code, amount });
+    if (to) await mail(env, to, `คุณได้รับของขวัญ ฿${amount} จาก AstraCode`, mailBox('คุณได้รับของขวัญ', `${esc(u.email.split('@')[0])} ส่งเครดิต AstraCode ฿${amount} ให้คุณ${note ? `<br><br>"${esc(note)}"` : ''}<br><br>โค้ดของขวัญ: <b style="font-size:20px;letter-spacing:1px">${code}</b><br>เข้าสู่ระบบแล้วกรอกโค้ดที่หน้าบัญชี → Wallet → "ใช้โค้ดของขวัญ"`, 'รับของขวัญ', siteUrl(env) + '/account')).catch(() => {});
+    return json({ code, amount, sent: !!to });
   }
   if (path === '/api/gift/redeem' && M === 'POST') {
     if (await limited(env, 'gift:' + u.id, 10, 3600e3)) return err('ลองหลายครั้งเกินไป รอสักครู่', 429);

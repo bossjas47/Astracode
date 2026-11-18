@@ -1,6 +1,6 @@
 import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus } from './core.js';
 import { SSE, callModel, chat, logUsage } from './ai.js';
-import { blockedText, event, mail, mailBox, origin, priceOf, siteUrl } from './billing.js';
+import { blockedText, dayCapHit, event, mail, mailBox, origin, priceOf, siteUrl } from './billing.js';
 import { status } from './jobs.js';
 // ---------- API สำหรับนักพัฒนา: /v1/models, /v1/chat/completions (แบบ OpenAI) คิดเงินจาก wallet ----------
 export const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 7); // เดือนตามเวลาไทย เช่น 2026-11
@@ -76,6 +76,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     } else if (!(k.balance > 0)) {
       return fail(canPlan ? `แพลน ${plan.name} ไม่รวมโมเดลนี้ และยอดเงินใน Wallet ไม่พอ` : 'ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans', 402, 'insufficient_quota');
     }
+    if (billingMode === 'wallet' && await dayCapHit(env, k.id)) return fail('Daily wallet limit reached (set on the account page).', 429, 'insufficient_quota');
     const month = monthKey(), spent = k.spent_month === month ? k.spent : 0;
     if (k.budget != null && spent >= k.budget) return fail(`key นี้ใช้ครบงบเดือนนี้แล้ว (฿${k.budget})`, 429, 'insufficient_quota');
     // พารามิเตอร์แบบ OpenAI: ตรวจแล้วส่งต่อให้โมเดล (ค่าผิดรูปแบบ = 400 ไม่ทิ้งเงียบๆ)
