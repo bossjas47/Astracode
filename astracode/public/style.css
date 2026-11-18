@@ -889,7 +889,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .vlogo svg { width: 19px; height: 19px; fill: currentColor; }
 .vlogo .ic { width: 18px; height: 18px; }
 .vlogo img { width: 21px; height: 21px; object-fit: contain; }
-.vlogo b { font: 600 15px var(--display); }
+.vlogo b { font: 700 15px 'Inter', var(--font); }
 .vlogo.xs { width: 20px; height: 20px; border-radius: 8px; border: 0; background: none; }
 .vlogo.xs svg { width: 15px; height: 15px; } .vlogo.xs img { width: 16px; height: 16px; } .vlogo.xs b { font-size: 12px; }
 .vchips button.on .vlogo { color: var(--on-porcelain); }
@@ -898,7 +898,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .vopt[hidden] { display: none; }
 .vopt.on { border-color: rgba(var(--ov), .6); background: rgba(var(--ov), .1); }
 .vtxt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.vtxt b { font: 600 15px/1.3 var(--font); }
+.vtxt b { font: 600 15px/1.3 'Inter', 'Prompt', var(--font); letter-spacing: -.015em; font-feature-settings: 'ss01', 'cv11'; } /* ชื่อโมเดล: Inter (โหลดไว้แล้ว) คมกว่า Roboto ของ Android */
 .vtxt small { color: var(--ash); font: 400 12px/1.4 var(--font); }
 .vmult { flex: none; padding: 2px 8px; border-radius: 9999px; background: rgba(var(--ov), .08); border: 1px solid var(--hair); font: 600 12px var(--font); font-variant-numeric: tabular-nums; }
 .vck { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--porcelain); color: var(--on-porcelain); }
