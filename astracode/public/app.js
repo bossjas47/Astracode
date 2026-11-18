@@ -275,7 +275,7 @@ const PLAN_TOP = 8, pmChip = (m, hide) => `<span class="pm-chip"${hide ? ' hidde
 document.addEventListener('click', e => { const b = e.target.closest?.('.pm-more'); if (!b) return; e.stopPropagation(); b.parentElement.querySelectorAll('.pm-chip[hidden]').forEach(c => c.hidden = false); b.remove(); }, true); // ก่อนตัวเลือกแพลนของการ์ด
 function planTiles(plans, sel, period) {
   return `<div class="grid" tabindex="0" aria-label="แพลน (เลื่อนดูได้)">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
-    ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}${p.price > 0 && promoOn() ? `<div class="promo-pill">${ic('sparkles', 'sm')} โปร: ใช้ได้ x${site.promo.x4h} ถึง ${promoEnd()}<small>ลิมิตสัปดาห์ x${site.promo.xweek}</small></div>` : ''}
+    ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}${p.price > 0 && !p.once && promoOn() ? `<div class="promo-pill">${ic('sparkles', 'sm')} โปร: ใช้ได้ x${site.promo.x4h} ถึง ${promoEnd()}<small>ลิมิตสัปดาห์ x${site.promo.xweek}</small></div>` : ''}
     <div style="font:600 19px var(--display)">${esc(p.name)}</div>
     <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : p.days && p.days !== 30 ? ` / ${p.days} วัน` : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') + (p.once ? ' · ซื้อได้ครั้งเดียว' : '') : ''}</small></div>
     ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}

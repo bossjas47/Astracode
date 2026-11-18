@@ -192,7 +192,7 @@ export async function limitBoost(env) {
   boostCache = { db: env.DB, exp: Date.now() + 60e3, v }; return v;
 }
 export async function planOf(env, u) {
-  const p = await planOf0(env, u), b = p?.price > 0 && await limitBoost(env);
+  const p = await planOf0(env, u), b = p?.price > 0 && !p.once && await limitBoost(env); // แพลนทดลอง (ซื้อได้ครั้งเดียว) ไม่ได้โปรเพิ่มลิมิต
   return b && b.until > Date.now() ? Object.assign(p, { limit_4h: p.limit_4h * b.x4h, limit_week: p.limit_week * b.xweek, boost: b }) : p;
 }
 async function planOf0(env, u) {

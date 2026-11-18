@@ -67,6 +67,7 @@ export async function admin(req, env, path, url, me) {
       if (b.bill && !(+b.req_cost > 0)) return err('คิดต่อ request ต้องใส่ต้นทุนต่อ request มากกว่า 0');
       if (!b.bill) { b.req_cost = null; b.req_price = null; } // โหมด token ล้างค่าต่อ request ทิ้ง ไม่ค้างปนกัน
     }
+    if (t === 'plans' && !(b.limit_4h > 0)) b.limit_4h = +b.limit_week || 0; // ปิดรอบ 4 ชม./เว้นว่าง: ใช้งบเท่ารอบสัปดาห์ (คอลัมน์ห้ามว่าง)
     const vals = cols.map(c => b[c] ?? null);
     if (t === 'posts' && !/^[a-z0-9-]{1,80}$/.test(b.slug || '')) return err('slug ใช้ได้เฉพาะ a-z 0-9 และ -');
     if (t === 'models' && b.promo_pct != null && !(b.promo_pct >= 0 && b.promo_pct <= 100)) return err('โปรลดราคาต้องอยู่ระหว่าง 0–100%');
