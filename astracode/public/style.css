@@ -1398,3 +1398,4 @@ input[type=file]::file-selector-button:hover { background: var(--graphite); }
 /* ปุ่มคัดลอกคำตอบ: อยู่หน้าสุด เห็นชัด · .copying = ซ่อนปุ่ม/หัวโค้ดตอนอ่านข้อความไปคัดลอก */
 .acts .cp-msg { color: var(--porcelain); border: 1px solid var(--steel); }
 .copying button, .copying .code-h, .copying .mfiles { display: none !important; }
+.imgp summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; } .imgp summary::-webkit-details-marker { display: none; } .imgp p { font-size: 13px; color: var(--ash); }
