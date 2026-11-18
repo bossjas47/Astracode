@@ -711,16 +711,16 @@ a.tk { color: var(--porcelain); padding: 12px 4px; border-top: 1px solid var(--s
 /* ---------- Claude-style Dark Apple Sidebar ---------- */
 .side { width: 290px; background: #0c0c0e; border-right: 1px solid var(--hair); padding: 14px 12px calc(12px + env(safe-area-inset-bottom)); gap: 6px; }
 .side-top { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 8px; }
-.side-top .logo { font-size: 20px; letter-spacing: -.2px; }
+.side-top .logo { font: 700 17px var(--font); letter-spacing: .8px; } /* แถบข้างใช้ฟอนต์เดียวกับรายการแชต */
 .icon-btn.ghost { border-color: transparent; background: transparent; color: var(--ash); }
 .icon-btn.ghost:hover { background: rgba(var(--ov), .07); color: var(--porcelain); }
 .icon-btn.xs { width: 28px; height: 28px; font-size: 16px; }
 .side-search { padding: 0 2px 6px; animation: fadeUp .15s ease-out both; }
 .side-search input { min-height: 38px; padding: 6px 12px; font-size: 14px; background: rgba(var(--ov), .05); border-color: var(--hair); }
 .side-nav { display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--hair); }
-.side-nav a { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px; color: var(--porcelain); font: 500 14px var(--font); transition: background-color .15s; }
+.side-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--porcelain); font: 400 14px var(--font); transition: background-color .15s; }
 .side-nav a:hover { background: rgba(var(--ov), .06); }
-.side-nav a .ic { width: 18px; height: 18px; color: var(--ash); }
+.side-nav a .ic { width: 16px; height: 16px; color: var(--ash); }
 .side-sec { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 2px; font-size: 12px; font-weight: 600; color: var(--ash); letter-spacing: .2px; }
 .side-foot { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--hair); margin-top: auto; }
 .side-user { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 12px; color: var(--porcelain); }
