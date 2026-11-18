@@ -132,3 +132,10 @@ test('per-hunk diff: separate changes become separate hunks; applying only some 
   assert.equal(f.pickHunks(d, new Set([1])), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].join('\n'));
   assert.equal(f.pickHunks(d, new Set()), a.join('\n'));
 });
+
+test('applyEdits: an insert-only edit (REPLACE contains SEARCH) applies once, not again on re-render', () => {
+  const body = '<<<<<<< SEARCH\nlet a = 1;\n=======\nlet a = 1;\nlet b = 2;\n>>>>>>> REPLACE';
+  const once = ctx.applyEdits('let a = 1;\nrun();\n', body).content;
+  assert.equal(once, 'let a = 1;\nlet b = 2;\nrun();\n');
+  assert.equal(ctx.applyEdits(once, body).content, once, 'second pass is a no-op');
+});

@@ -843,6 +843,7 @@ function applyEdits(cur, body) {
     const search = m[1].replace(/\r/g, ''), rep = m[2].replace(/\r/g, '');
     if (!search.trim()) { if (cur == null && n === 0) { out = rep + '\n'; n++; continue; } return { error: 'ส่วน SEARCH ว่างเปล่า (ใช้ได้เฉพาะสร้างไฟล์ใหม่)' }; }
     if (cur == null) return { error: 'ไฟล์นี้ยังไม่มี แต่ใช้ SEARCH/REPLACE (ไฟล์ใหม่ให้ส่งทั้งไฟล์)' };
+    if (rep.trim() && rep.includes(search.trim()) && out.includes(rep.trim())) continue; // แบบแทรกเพิ่ม (REPLACE มี SEARCH อยู่ในตัว) ที่ใช้ไปแล้ว: ไม่งั้นจะแทรกซ้ำทุกครั้งที่คำนวณใหม่
     const at = findBlock(out, search);
     if (at && at !== -1) { out = out.slice(0, at.from) + rep + out.slice(at.to); n++; continue; }
     if (rep.trim() && out.includes(rep.trim())) continue; // ใช้ไปแล้ว
