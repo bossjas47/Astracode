@@ -2,7 +2,7 @@ import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, credits
 import { bundleProject, chat, compact, ensureFb } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
-import { admin, adminGate, gateBlock } from './admin.js';
+import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
 import { agentApi } from './agent.js';
 import { contextApi } from './context.js';
 import { oauth, totpOk, userRoutes } from './user.js';
@@ -132,6 +132,12 @@ export async function route(req, env, ctx, url, path, M) {
         const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min', 'model_icons', 'picker_filter', 'picker_mult', 'picker_logos']);
         return json({ ...s, turnstile: env.TURNSTILE_SECRET ? await getSetting(env, 'turnstile_site') : '', google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', promo: await limitBoost(env), image: s.image_enabled === '1', mail: !!env.RESEND_KEY, cl_latest: (await env.DB.prepare('SELECT MAX(created_at) t FROM posts WHERE published=1 AND changelog=1').first().catch(() => null))?.t || 0 });
       }
+      if (path === '/api/roadmap') { // Roadmap สาธารณะ: เรียงตามโหวต · ล็อกอินอยู่ = บอกว่าโหวตข้อไหนแล้ว
+        await ensureRoadmap(env); const me0 = await getUser(req, env).catch(() => null);
+        const rows = (await env.DB.prepare("SELECT r.id,r.title,r.body,r.status,(SELECT COUNT(*) FROM roadmap_votes v WHERE v.item_id=r.id) votes FROM roadmap r ORDER BY CASE r.status WHEN 'doing' THEN 0 WHEN 'planned' THEN 1 WHEN 'idea' THEN 2 ELSE 3 END, votes DESC, r.id DESC LIMIT 100").all()).results;
+        const mine = me0 ? new Set((await env.DB.prepare('SELECT item_id FROM roadmap_votes WHERE user_id=?').bind(me0.id).all()).results.map(x => x.item_id)) : new Set();
+        return json(rows.map(r => ({ ...r, mine: mine.has(r.id) })));
+      }
       if (path === '/api/changelog') return json((await env.DB.prepare('SELECT slug,title,summary,body,created_at FROM posts WHERE published=1 AND changelog=1 ORDER BY created_at DESC LIMIT 30').all()).results);
       if (path === '/api/blog') return json((await env.DB.prepare('SELECT slug,title,summary,cover,created_at FROM posts WHERE published=1 ORDER BY created_at DESC LIMIT 100').all()).results);
       if (path.startsWith('/api/blog/')) { const p = await env.DB.prepare('SELECT slug,title,summary,body,cover,created_at FROM posts WHERE slug=? AND published=1').bind(path.slice(10)).first(); return p ? json(p) : err('ไม่พบบทความ', 404); }
@@ -233,6 +239,12 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/context' && M === 'GET') return await contextApi(req, env, u);
       if (path === '/api/agent' || path.startsWith('/api/agent/')) return await agentApi(req, env, u, path);
       if (path.startsWith('/api/push/')) return await pushApi(req, env, u, path);
+      if ((r = path.match(/^\/api\/roadmap\/(\d+)\/vote$/)) && M === 'POST') { // โหวต/ถอนโหวต 1 คน 1 เสียงต่อข้อ
+        await ensureRoadmap(env); if (!await env.DB.prepare('SELECT 1 FROM roadmap WHERE id=?').bind(+r[1]).first()) return err('ไม่พบหัวข้อ', 404);
+        const on = (await req.json().catch(() => ({}))).on !== false;
+        await env.DB.prepare(on ? 'INSERT OR IGNORE INTO roadmap_votes (item_id,user_id) VALUES (?,?)' : 'DELETE FROM roadmap_votes WHERE item_id=? AND user_id=?').bind(+r[1], u.id).run();
+        return json({ ok: true });
+      }
       if (path.startsWith('/api/passkey')) { const pr = await passkeyApi(req, env, u, path); if (pr) return pr; }
       if ((path === '/api/chats/trash' || path === '/api/chats/archived') && M === 'GET') { // ถังขยะ (เก็บ 30 วัน แล้วลบถาวร) และแชตที่เก็บถาวร
         const trash = path.endsWith('trash');

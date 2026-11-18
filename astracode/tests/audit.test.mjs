@@ -403,3 +403,17 @@ test('deploy to Vercel: token stored sealed, files sent without .env, images as 
     assert.doesNotMatch(t.DB.raw.prepare('SELECT vercel_token FROM users WHERE id=?').get(u.id).vercel_token, /vercel_token_1234567890abc/);
   } finally { globalThis.fetch = f0; }
 });
+
+test('roadmap voting (one vote per user, toggle) and SEO pages generated per public model', async () => {
+  const t = await makeEnv({ K: 'k' }), u = await t.user(), adm = await t.user({ role: 'admin' });
+  assert.equal((await t.json('/api/admin/roadmap', { method: 'POST', cookie: adm.cookie, body: { title: 'แอป Android', status: 'planned' } })).status, 200);
+  const id = (await t.json('/api/roadmap')).data[0].id;
+  for (let i = 0; i < 2; i++) await t.json(`/api/roadmap/${id}/vote`, { method: 'POST', cookie: u.cookie, body: {} });
+  let r = (await t.json('/api/roadmap', { cookie: u.cookie })).data[0]; assert.equal(r.votes, 1); assert.equal(r.mine, true);
+  await t.json(`/api/roadmap/${id}/vote`, { method: 'POST', cookie: u.cookie, body: { on: false } });
+  assert.equal((await t.json('/api/roadmap')).data[0].votes, 0);
+  addModel(t.DB, { name: 'Test Model 9', base_url: 'http://x' });
+  const s = await t.json('/api/admin/seo-models', { method: 'POST', cookie: adm.cookie }); assert.equal(s.status, 200, JSON.stringify(s.data));
+  const post = t.DB.raw.prepare("SELECT title,body,published FROM posts WHERE slug='model-test-model-9'").get();
+  assert.ok(post?.published); assert.match(post.body, /Test Model 9/);
+});

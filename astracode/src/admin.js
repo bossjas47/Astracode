@@ -1,6 +1,6 @@
 import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { ensureFb, isSafeMcpUrl, mcpSync } from './ai.js';
-import { applyPayment, audit, getSetting, mail, mailBox, notify, siteUrl as siteUrlOf, walletAdd } from './billing.js';
+import { applyPayment, audit, getSetting, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { slug } from './api.js';
 import { backup, status, verifyBackup } from './jobs.js';
@@ -14,7 +14,7 @@ export const TABLES = {
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
-  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
+  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'canned_replies', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
 
 // ---------- รหัสผ่านชั้นที่สองของหน้าแอดมิน (ตั้งครั้งแรกเอง · ปลดล็อกต่อ session 12 ชม.) ----------
 const GATE_MS = 12 * 36e5;
@@ -41,6 +41,7 @@ export async function adminGate(req, env, u) {
   await unlimit(env, 'agate:' + u.id);
   return json({ ok: true, set: true });
 }
+export const ensureRoadmap = env => env.DB.batch([env.DB.prepare("CREATE TABLE IF NOT EXISTS roadmap (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'planned', created_at INTEGER NOT NULL)"), env.DB.prepare('CREATE TABLE IF NOT EXISTS roadmap_votes (item_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (item_id, user_id))')]);
 export async function admin(req, env, path, url, me) {
   const M = req.method, DB = env.DB;
   const ctxAudit = M === 'GET' ? async () => {} : (action, detail) => audit(env, me, action, detail); // บันทึกทุกการแก้ไขของแอดมิน
@@ -415,6 +416,55 @@ export async function admin(req, env, path, url, me) {
   }
   if (path === '/api/admin/backups/verify' && M === 'POST') return json(await verifyBackup(env)); // เปิดไฟล์สำรองล่าสุด ตรวจว่าอ่านได้และนับแถวเทียบฐานข้อมูลจริง (ไม่เขียนอะไร)
   if (path === '/api/admin/audit') return json((await DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all()).results);
+  if (path === '/api/admin/seo-models' && M === 'POST') { // สร้าง/อัปเดตบทความ SEO หนึ่งหน้าต่อโมเดล (ขึ้น /blog และ sitemap)
+    const ms = (await DB.prepare("SELECT * FROM models WHERE active=1 AND public=1 AND provider NOT IN ('embedding','image') ORDER BY sort,id").all()).results;
+    let official = {}; try { official = JSON.parse(await getSetting(env, 'official_prices') || '{}') || {}; } catch { /* ไม่มีราคาทางการ */ }
+    const rate = +(await getSetting(env, 'usd_rate')) || 34.5, base = siteUrlOf(env), now = Date.now();
+    for (const m of ms) {
+      const p = await priceOf(env, m), o = official[m.id], s = 'model-' + slug(m), ctx = (m.ctx_k > 0 ? m.ctx_k : 128) >= 1000 ? Math.round((m.ctx_k || 128) / 1000 * 10) / 10 + ' ล้าน' : (m.ctx_k || 128) + 'k';
+      const cheaper = o?.out > 0 && p.out > 0 ? Math.round((1 - p.out / (o.out * rate)) * 100) : 0;
+      const title = `ใช้ ${m.name} ภาษาไทย ราคาถูก จ่ายเป็นบาท`, summary = `${m.name} บน AstraCode: แชตภาษาไทย เขียนโค้ด และเรียกผ่าน API ราคา output ฿${p.out}/1M token${cheaper > 0 ? ` ถูกกว่าซื้อตรงประมาณ ${cheaper}%` : ''} เติมเริ่มต้น ฿10`;
+      const body = `# ${m.name} ใช้ได้แล้วบน AstraCode
+
+ใช้ **${m.name}** ผ่านเว็บได้ทันที ไม่ต้องมีบัตรเครดิต จ่ายเป็นบาทผ่าน PromptPay เติมเริ่มต้นแค่ ฿10
+
+## จุดเด่น
+
+- ${m.vision ? 'อ่านรูปได้: แนบภาพ สลิป หรือหน้าจอแล้วถามได้' : 'เน้นงานข้อความและโค้ด'}
+- ${m.effort !== 'none' ? 'เลือกระดับการคิด (Thinking) ได้ตามความยากของงาน' : 'ตอบเร็ว เหมาะกับงานทั่วไป'}
+- Context ยาว ${ctx} token: แนบเอกสารยาวหรือโค้ดทั้งโปรเจกต์ได้
+- ใช้ได้ทั้งแชต โหมด Code ทีม Agent และ API แบบ OpenAI
+
+## ราคา (ต่อ 1 ล้าน token)
+
+| | AstraCode | ซื้อตรง (ราคาทางการ) |
+|---|---|---|
+| Input | ฿${p.in} | ${o?.in ? '฿' + Math.round(o.in * rate * 100) / 100 : '-'} |
+| Output | ฿${p.out} | ${o?.out ? '฿' + Math.round(o.out * rate * 100) / 100 : '-'} |
+
+${cheaper > 0 ? `ถูกกว่าซื้อ API ทางการประมาณ **${cheaper}%** (คิดที่ 1 ดอลลาร์ = ${rate} บาท)
+
+` : ''}## เริ่มใช้ใน 1 นาที
+
+1. สมัครที่ [AstraCode](${base}/login)
+2. เลือก **${m.name}** ที่ปุ่มเลือกโมเดล
+3. ถ้าโมเดลไม่อยู่ในแพลนของคุณ เติม Wallet ขั้นต่ำ ฿10 แล้วใช้ได้ทันที
+
+นักพัฒนาเรียกผ่าน API ได้ที่ [หน้า API](${base}/developers) ใช้ชื่อโมเดล \`${slug(m)}\`
+`;
+      await DB.prepare('INSERT INTO posts (slug,title,summary,body,cover,published,created_at) VALUES (?,?,?,?,?,1,?) ON CONFLICT(slug) DO UPDATE SET title=excluded.title, summary=excluded.summary, body=excluded.body').bind(s, title, summary, body, '/og.png', now).run();
+    }
+    await ctxAudit('seo pages', { n: ms.length });
+    return json({ ok: true, n: ms.length });
+  }
+  if (path.startsWith('/api/admin/roadmap')) { // Roadmap: เพิ่ม/แก้สถานะ/ลบ
+    await ensureRoadmap(env); const id = +path.split('/')[4] || 0, b = M === 'GET' ? {} : await req.json().catch(() => ({}));
+    if (M === 'GET') return json((await DB.prepare('SELECT r.*, (SELECT COUNT(*) FROM roadmap_votes v WHERE v.item_id=r.id) votes FROM roadmap r ORDER BY r.id DESC').all()).results);
+    const st = ['idea', 'planned', 'doing', 'done'].includes(b.status) ? b.status : 'planned';
+    if (M === 'POST') { const t = String(b.title || '').trim().slice(0, 120); if (!t) return err('ใส่หัวข้อ'); await DB.prepare('INSERT INTO roadmap (title,body,status,created_at) VALUES (?,?,?,?)').bind(t, String(b.body || '').slice(0, 1000), st, Date.now()).run(); return json({ ok: true }); }
+    if (M === 'PUT' && id) { await DB.prepare('UPDATE roadmap SET status=? WHERE id=?').bind(st, id).run(); return json({ ok: true }); }
+    if (M === 'DELETE' && id) { await DB.batch([DB.prepare('DELETE FROM roadmap_votes WHERE item_id=?').bind(id), DB.prepare('DELETE FROM roadmap WHERE id=?').bind(id)]); return json({ ok: true }); }
+  }
   if (path === '/api/admin/churn') { // แพลนหมดอายุใน 60 วันแล้วไม่ต่อ: จ่ายไปเท่าไหร่ ใช้ล่าสุดเมื่อไหร่ โมเดลสุดท้าย
     const now = Date.now();
     return json((await DB.prepare(`SELECT u.id,u.email,p.name plan,u.plan_expires,u.plan_period,

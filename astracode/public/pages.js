@@ -137,10 +137,12 @@ PAGES.blog = async () => {
     bindCopy(); return;
   }
   if (qs().get('c')) { // มีอะไรใหม่: โพสต์ที่ติ๊ก changelog เรียงใหม่สุดก่อน เปิดแล้วถือว่าเห็นแล้ว (ลบจุดแดง)
-    const list = await api('/changelog').catch(() => []);
+    const [list, rm] = await Promise.all([api('/changelog').catch(() => []), api('/roadmap').catch(() => [])]);
     try { localStorage.setItem('clSeen', String(list[0]?.created_at || Date.now())); } catch { /* ไม่มีที่เก็บ */ }
     page(nav() + `<div class="wrap" style="max-width:760px"><section class="hero" style="padding:48px 0 16px"><h1>มีอะไรใหม่</h1><p>ฟีเจอร์และการปรับปรุงล่าสุดของ AstraCode</p></section>
+      ${rm.length ? `<h2 style="margin:8px 0 6px">กำลังจะมา · โหวตได้</h2><p class="muted" style="margin:0 0 10px">กดโหวตฟีเจอร์ที่อยากได้ ทีมจะทำตามเสียงส่วนใหญ่ก่อน</p>${rm.map(r => `<div class="card row" style="margin-bottom:8px;justify-content:space-between;gap:10px;flex-wrap:nowrap"><span style="min-width:0"><b>${esc(r.title)}</b> <span class="pill">${{ idea: 'ไอเดีย', planned: 'วางแผนแล้ว', doing: 'กำลังทำ', done: 'เสร็จแล้ว' }[r.status] || ''}</span>${r.body ? `<br><small class="muted">${esc(r.body)}</small>` : ''}</span><button type="button" class="btn ${r.mine ? 'blue' : 'out'} sm" data-rv="${r.id}" data-on="${r.mine ? 1 : 0}" ${r.status === 'done' ? 'disabled' : ''} aria-pressed="${r.mine}">${ic('up', 'sm')} ${r.votes}</button></div>`).join('')}<h2 style="margin:24px 0 10px">อัปเดตล่าสุด</h2>` : ''}
       ${list.map(p => `<article class="card" style="margin-bottom:14px"><p class="muted" style="margin:0">${when(p.created_at)}</p><h2 style="margin:4px 0 8px">${esc(p.title)}</h2><div class="msg ai"><div class="b">${md(p.body || p.summary || '')}</div></div></article>`).join('') || '<p class="muted">ยังไม่มีอัปเดต</p>'}</div>${footer()}`);
+    app.querySelectorAll('[data-rv]').forEach(b => b.onclick = async () => { if (!me) return go('/login?next=' + encodeURIComponent(here())); try { await api(`/roadmap/${b.dataset.rv}/vote`, { method: 'POST', body: { on: b.dataset.on !== '1' } }); PAGES.blog(); } catch (x) { toast(x.message, 'bad'); } });
     bindCopy(); return;
   }
   const posts = await api('/blog');
