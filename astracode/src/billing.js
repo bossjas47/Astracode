@@ -146,7 +146,7 @@ export async function easySlip(env, s, buf, type, amount, flex = false) {
   if (!Number.isFinite(when) || Date.now() - when > SLIP_MAX_AGE || when - Date.now() > 5 * 60e3) return Number.isFinite(when) ? out('200403') : out('date_missing'); // สลิปต้องโอนภายใน 15 นาที (เผื่อนาฬิกาเร็วได้ 5 นาที) · ไม่มีวันที่ = ให้แอดมินตรวจ
   const names = String(s.easyslip_receiver_names || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean);
   const wantAcc = String(s.easyslip_receiver || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean); // ไม่ตั้ง = ใช้พร้อมเพย์ + เลขบัญชีธนาคารของร้านทั้งคู่ (สลิปโอนผ่านพร้อมเพย์โชว์เบอร์ ส่วนโอนเข้าบัญชีโชว์เลขบัญชี)
-  const dg = receiverMatches(slip, wantAcc.length ? wantAcc : [s.promptpay_id, s.bank_account].filter(Boolean)), nm = names.length ? receiverNameMatches(slip, names) : null;
+  const dg = receiverMatches(slip, [...wantAcc, s.promptpay_id, s.bank_account].filter(Boolean)) /* พร้อมเพย์และเลขบัญชีร้านนับเสมอ: ลูกค้าโอนเข้าเลขบัญชีตรงๆ ก็ต้องผ่าน */, nm = names.length ? receiverNameMatches(slip, names) : null;
   // มีรายชื่อผู้รับที่อนุญาต: ชื่อตรง (เต็มหรือเฉพาะชื่อต้นที่สำรองไว้) แล้วเลขบัญชีต้องไม่ขัดแย้ง · ชื่อไม่ตรง = ปฏิเสธ · ชื่อในสลิปเทียบไม่ได้ ใช้เลขบัญชีตัดสินแทน
   if (names.length) { if (nm === false || dg === false) return out('200401'); if (nm === true) return out('200000'); return dg === true ? out('200000') : out('receiver_unverified'); }
   if (dg === false) return out('200401');

@@ -126,3 +126,10 @@ test('the same slip (same bank reference) sent twice at the same moment is credi
   const rs = await Promise.all([topup(200), topup(200), topup(200)]);
   assert.equal(bal(), 200, JSON.stringify(rs.map(r => r.d))); assert.equal(rs.filter(r => r.d.approved).length, 1); fm.close();
 });
+
+test('EasySlip: transfer straight to the shop bank account passes even when easyslip_receiver is only the PromptPay phone', async () => {
+  const v2 = () => ({ success: true, data: { amountInSlip: 10, rawSlip: { transRef: 'BANKREF1', date: new Date(Date.now() - 60e3).toISOString(), amount: { amount: 10 }, receiver: { bank: { short: 'KBANK' }, account: { name: { th: 'นาย ณัฐภูมินทร์ จ' }, bank: { type: 'BANKAC', account: 'xxx-x-x3233-x' } } } } } });
+  const b = await setup(() => v2(), { topup_min: '10', easyslip_receiver: '0629708835', promptpay_id: '0629708835', bank_account: '193-1-13233-0', easyslip_receiver_names: 'ณัฐภูมินทร์ จูบ้ง, ณัฐภูมินทร์' });
+  const r = await b.topup(10); assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.equal(b.bal(), 10);
+  b.fm.close();
+});
