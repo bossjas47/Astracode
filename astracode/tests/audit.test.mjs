@@ -549,13 +549,13 @@ test('admin live cost page: cost per provider key, feed with flags, heavy users,
   const now = Date.now();
   t.DB.raw.prepare("INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,src,flag) VALUES (?,?,113000,1,0,2.26,2.26,?,'api','gone')").run(u.id, m.id, now - 60e3);
   t.DB.raw.prepare("INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,src) VALUES (?,?,1000,100,0,1,1,?,'chat')").run(u.id, m.id, now - 2 * 3600e3);
-  assert.equal((await t.json('/api/admin/key-funds', { method: 'PUT', cookie: a.cookie, body: { key: 'UNCEN_KEY', credits: 300, rate: 3 } })).status, 200);
+  assert.equal((await t.json('/api/admin/key-funds', { method: 'PUT', cookie: a.cookie, body: { key: 'maxplus', keys: ['UNCEN_KEY', 'KIRO_KEY'], credits: 300, rate: 3 } })).status, 200);
   t.DB.raw.prepare("INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,src) VALUES (?,?,1,1,0,10,10,?,'api')").run(u.id, m.id, Date.now() + 5);
   const { status, data } = await t.json('/api/admin/live', { cookie: a.cookie });
   assert.equal(status, 200);
   const k = data.keys.find(x => x.k === 'UNCEN_KEY');
   assert.ok(Math.abs(k.h1 - 12.26) < 1e-6 && Math.abs(k.d1 - 13.26) < 1e-6, JSON.stringify(k)); assert.equal(k.series.length, 24);
-  assert.equal(k.left, 300 - 10 * 3); // ต้นทุนหลังกรอกยอด ฿10 = 30 เครดิต
+  const acct = data.accounts.find(x => x.name === 'maxplus'); assert.equal(acct.left, 300 - 10 * 3); assert.equal(k.acct, 'maxplus'); // ต้นทุนหลังกรอกยอด ฿10 = 30 เครดิต
   assert.equal(data.feed.find(r => r.flag === 'gone').tin, 113000);
   assert.equal(data.hot[0].uid, u.id);
   assert.equal((await t.json('/api/admin/live', { cookie: u.cookie })).status, 403);

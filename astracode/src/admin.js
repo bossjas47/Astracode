@@ -292,20 +292,24 @@ export async function admin(req, env, path, url, me) {
     ]);
     const series = {}; for (const r of hourly.results) (series[r.k] ||= Array(24).fill(0))[Math.min(23, r.ago)] += r.c;
     const keyRows = keys.results.map(r => ({ ...r, series: (series[r.k] || Array(24).fill(0)).reverse(), fund: kf[r.k] || null, left: null, days: null })); // series: ชั่วโมงเก่าสุด → ล่าสุด
-    // ยอดคงเหลือที่ผู้ให้บริการ: แอดมินกรอกเครดิตที่เห็นในหน้าเจ้าของ key ล่าสุด แล้วระบบหักต้นทุนที่เกิดหลังจากนั้น
-    for (const r of keyRows) if (r.fund?.at) {
-      const after = (await DB.prepare('SELECT COALESCE(SUM(g.cost),0) c FROM usage g JOIN models m ON m.id=g.model_id WHERE m.key_name=? AND g.created_at>?').bind(r.k, r.fund.at).first()).c;
-      r.left = r.fund.credits - after * (r.fund.rate || 1); r.days = r.d3 > 0 ? r.left / (r.fund.rate || 1) / (r.d3 / 3) : null;
+    // บัญชีผู้ให้บริการ (เช่น maxplus ที่ใช้ร่วมหลาย key): แอดมินกรอกเครดิตที่เห็นล่าสุด แล้วระบบหักต้นทุนของทุก key ในบัญชีที่เกิดหลังจากนั้น
+    const accounts = [];
+    for (const [name, f] of Object.entries(kf)) {
+      const ks = f.keys?.length ? f.keys : [name], q = ks.map(() => '?').join(',');
+      const r = await DB.prepare(`SELECT COALESCE(SUM(CASE WHEN g.created_at>? THEN g.cost END),0) after, COALESCE(SUM(CASE WHEN g.created_at>? THEN g.cost END),0) d3 FROM usage g JOIN models m ON m.id=g.model_id WHERE m.key_name IN (${q})`).bind(f.at || 0, now - 72 * H, ...ks).first();
+      const rate = f.rate || 1, left = f.credits - r.after * rate;
+      accounts.push({ name, keys: ks, credits: f.credits, rate, at: f.at, low: f.low, left, days: r.d3 > 0 ? left / rate / (r.d3 / 3) : null, perDay: r.d3 / 3 });
     }
-    for (const [k, f] of Object.entries(kf)) if (!keyRows.some(r => r.k === k)) keyRows.push({ k, h1: 0, d1: 0, d3: 0, d7: 0, n: 0, flagged: 0, series: Array(24).fill(0), fund: f, left: f.credits, days: null });
+    for (const r of keyRows) r.acct = accounts.find(a => a.keys.includes(r.k))?.name || null;
     const lose = losers.results.map(x => ({ ...x, profit: x.paid - x.cost })).filter(x => x.role !== 'admin').sort((a, b) => a.profit - b.profit).slice(0, 15);
-    return json({ keys: keyRows, feed: feed.results, errs: errs.results, hot: hot.results, losers: lose, settings: await getSettings(env, ['alert_hour_cost', 'alert_user_hour', 'cost_alert_daily']) });
+    return json({ keys: keyRows, accounts, feed: feed.results, errs: errs.results, hot: hot.results, losers: lose, settings: await getSettings(env, ['alert_hour_cost', 'alert_user_hour', 'cost_alert_daily']) });
   }
   // บันทึกยอดเครดิตคงเหลือที่หน้าเจ้าของ key (เช่น maxplus) + อัตราเครดิตต่อบาท
   if (path === '/api/admin/key-funds' && M === 'PUT') {
-    const b = await req.json(), k = String(b.key || '').trim().slice(0, 60); if (!/^[\w.-]+$/.test(k)) return err('ชื่อ key ไม่ถูกต้อง');
+    const b = await req.json(), k = String(b.key || '').trim().slice(0, 60); if (!/^[\w.-]+$/.test(k)) return err('ชื่อบัญชีไม่ถูกต้อง (a-z 0-9 _ . -)');
     const kf = await getSetting(env, 'key_funds').then(v => { try { return JSON.parse(v || '{}'); } catch { return {}; } });
-    if (b.remove) delete kf[k]; else kf[k] = { credits: +b.credits || 0, rate: +b.rate > 0 ? +b.rate : 1, at: Date.now(), low: +b.low > 0 ? +b.low : null };
+    const keys = (Array.isArray(b.keys) ? b.keys : String(b.keys || '').split(',')).map(x => String(x).trim()).filter(x => /^[\w.-]{1,60}$/.test(x)).slice(0, 20);
+    if (b.remove) delete kf[k]; else kf[k] = { credits: +b.credits || 0, rate: +b.rate > 0 ? +b.rate : 1, at: Date.now(), low: +b.low > 0 ? +b.low : null, keys: keys.length ? keys : [k] };
     await DB.prepare("INSERT OR REPLACE INTO settings VALUES ('key_funds',?)").bind(JSON.stringify(kf)).run();
     await ctxAudit('key funds', { k, ...kf[k] }); return json({ ok: true });
   }

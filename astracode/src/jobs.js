@@ -67,7 +67,8 @@ export async function cron(env) {
   let kf = {}; try { kf = JSON.parse((await getSetting(env, 'key_funds')) || '{}'); } catch { /* ค่าเสีย */ }
   for (const [k, f] of Object.entries(kf)) {
     if (!f?.at) continue;
-    const r = await DB.prepare('SELECT COALESCE(SUM(CASE WHEN g.created_at>?2 THEN g.cost END),0) after, COALESCE(SUM(CASE WHEN g.created_at>?3 THEN g.cost END),0) d3 FROM usage g JOIN models m ON m.id=g.model_id WHERE m.key_name=?1').bind(k, f.at, now - 3 * DAY).first();
+    const ks = f.keys?.length ? f.keys : [k];
+    const r = await DB.prepare(`SELECT COALESCE(SUM(CASE WHEN g.created_at>? THEN g.cost END),0) after, COALESCE(SUM(CASE WHEN g.created_at>? THEN g.cost END),0) d3 FROM usage g JOIN models m ON m.id=g.model_id WHERE m.key_name IN (${ks.map(() => '?').join(',')})`).bind(f.at, now - 3 * DAY, ...ks).first();
     const rate = f.rate || 1, left = f.credits - r.after * rate, days = r.d3 > 0 ? left / rate / (r.d3 / 3) : Infinity;
     if ((left <= (f.low ?? 0) || days < 2) && !await limited(env, 'kf:' + k, 1, DAY)) await notify(env, `🪫 ${k}: เครดิตที่ผู้ให้บริการเหลือประมาณ ${left.toFixed(0)} (พอใช้ ~${isFinite(days) ? days.toFixed(1) : '-'} วัน) เติมแล้วกรอกยอดใหม่ที่ หลังบ้าน → ต้นทุนสด`);
   }

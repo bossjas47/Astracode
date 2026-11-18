@@ -265,11 +265,14 @@ const ADMIN = {
         <div class="kpi"><div class="muted">คำขอผิดปกติ (150 ล่าสุด)</div><div class="stat ${flagged ? 'bad' : ''}">${flagged}</div><div class="kd muted">ตัดกลางทาง / ประมาณ / พัง</div></div>
         <div class="kpi"><div class="muted">API error 24 ชม.</div><div class="stat">${d.errs.length}</div></div>
       </div>
-      <section class="card"><h3>ต้นทุนต่อ key ผู้ให้บริการ</h3><p class="muted" style="margin:0 0 8px;font-size:12.5px">กด "อัปเดตยอด" แล้วกรอกเครดิตที่เห็นในหน้าเจ้าของ key ตอนนี้ ระบบจะหักต้นทุนหลังจากนั้นให้เอง และเตือนเมื่อพอใช้ไม่ถึง 2 วัน</p>
-        <div class="tw"><table class="tbl"><tr><th>key</th><th>1 ชม.</th><th>24 ชม.</th><th>เฉลี่ย/วัน</th><th>7 วัน</th><th>24 ชม. ล่าสุด</th><th>เครดิตคงเหลือ</th><th></th></tr>
+      <section class="card"><h3>เครดิตคงเหลือที่ผู้ให้บริการ</h3><p class="muted" style="margin:0 0 8px;font-size:12.5px">กรอกเครดิตที่เห็นในหน้าผู้ให้บริการ "ตอนนี้" ระบบหักต้นทุนของทุก key ในบัญชีที่เกิดหลังจากนั้นให้เอง · เตือนเมื่อพอใช้ไม่ถึง 2 วัน · เติมเงินแล้วกด อัปเดต กรอกยอดใหม่</p>
+        <div class="tw"><table class="tbl"><tr><th>บัญชี</th><th>key</th><th>คงเหลือ (ประมาณ)</th><th>ใช้/วัน</th><th>พอใช้</th><th>กรอกล่าสุด</th><th></th></tr>
+        ${(d.accounts || []).map(a => `<tr><td><b>${esc(a.name)}</b></td><td><small>${a.keys.map(esc).join('<br>')}</small></td><td><b class="${a.days != null && a.days < 2 ? 'bad' : ''}">${baht(a.left)}</b> เครดิต<br><small class="muted">≈ ฿${baht(a.left / a.rate)}</small></td><td>฿${baht(a.perDay)}</td><td>${a.days != null ? '~' + a.days.toFixed(1) + ' วัน' : '-'}</td><td><small>${baht(a.credits)} เครดิต<br>${when(a.at)}</small></td><td><button type="button" class="btn out sm" data-fund="${esc(a.name)}">อัปเดต</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">ยังไม่ได้เพิ่มบัญชี</td></tr>'}</table></div>
+        <button type="button" class="btn out sm" data-fund="" style="margin-top:8px">+ เพิ่มบัญชีผู้ให้บริการ</button></section>
+      <section class="card"><h3>ต้นทุนต่อ key ผู้ให้บริการ</h3>
+        <div class="tw"><table class="tbl"><tr><th>key</th><th>1 ชม.</th><th>24 ชม.</th><th>เฉลี่ย/วัน</th><th>7 วัน</th><th>24 ชม. ล่าสุด</th><th>บัญชี</th></tr>
         ${d.keys.map(k => `<tr><td><b>${esc(k.k)}</b>${k.flagged ? ` <span class="pill warn">${k.flagged} ผิดปกติ</span>` : ''}</td><td>฿${baht(k.h1)}</td><td>฿${baht(k.d1)}</td><td>฿${baht(k.d3 / 3)}</td><td>฿${baht(k.d7)}</td><td>${bars(k.series)}</td>
-          <td>${k.left != null ? `<b class="${k.days != null && k.days < 2 ? 'bad' : ''}">${baht(k.left)}</b> เครดิต<br><small class="muted">≈ ฿${baht(k.left / (k.fund.rate || 1))}${k.days != null ? ` · ~${k.days.toFixed(1)} วัน` : ''} · กรอกเมื่อ ${when(k.fund.at)}</small>` : '<span class="muted">ยังไม่ได้กรอก</span>'}</td>
-          <td><button type="button" class="btn out sm" data-fund="${esc(k.k)}">อัปเดต</button></td></tr>`).join('')}</table></div></section>
+          <td>${k.acct ? esc(k.acct) : '<span class="muted">-</span>'}</td></tr>`).join('')}</table></div></section>
       <section class="card"><h3>ใช้หนักสุด 24 ชม.</h3><div class="tw"><table class="tbl"><tr><th>ผู้ใช้</th><th>แพลน</th><th>คำขอ</th><th>ต้นทุน 1 ชม.</th><th>ต้นทุน 24 ชม.</th><th>หัก Wallet</th><th>หักลิมิต</th><th>Wallet เหลือ</th></tr>
         ${d.hot.map(u => `<tr class="click" data-user="${u.uid}"><td>${esc(u.email || '#' + u.uid)}${u.role === 'admin' ? ' <span class="pill">แอดมิน</span>' : ''}${u.flagged ? ` <span class="pill warn">${u.flagged} ผิดปกติ</span>` : ''}</td><td>${esc(u.plan || 'Free')}</td><td>${u.n}</td><td class="${u.h1 >= 5 ? 'bad' : ''}">฿${baht(u.h1)}</td><td>฿${baht(u.d1)}</td><td>฿${baht(u.charge)}</td><td>${baht(u.units)}</td><td>฿${baht(u.balance)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">ยังไม่มีการใช้</td></tr>'}</table></div></section>
       <section class="card"><h3>ลูกค้าที่ทำให้ขาดทุน 30 วัน</h3><p class="muted" style="margin:0 0 8px;font-size:12.5px">ต้นทุนที่เราจ่าย เทียบเงินที่ลูกค้าจ่ายเข้ามา (ค่าแพลน + เติม Wallet) ใน 30 วัน</p><div class="tw"><table class="tbl"><tr><th>ผู้ใช้</th><th>แพลน</th><th>จ่ายมา</th><th>ต้นทุน</th><th>กำไร</th></tr>
@@ -288,14 +291,16 @@ const ADMIN = {
     box.querySelector('#lvr').onclick = () => ADMIN.live(box);
     box.querySelector('#lvalert').onsubmit = async e => { e.preventDefault(); await api('/admin/settings', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('บันทึกแล้ว', 'ok'); };
     box.querySelectorAll('[data-fund]').forEach(b => b.onclick = () => {
-      const k = b.dataset.fund, f = d.keys.find(x => x.k === k)?.fund || {};
-      sheet('ยอดคงเหลือ ' + k, `<form class="sheet-form" id="kff"><p class="sheet-msg">เปิดหน้าเจ้าของ key (เช่น maxplus) แล้วกรอกเครดิตที่เหลือ "ตอนนี้" ระบบจะหักต้นทุนที่เกิดหลังจากนี้ให้เอง</p>
+      const a0 = (d.accounts || []).find(x => x.name === b.dataset.fund), f = a0 || {}, allKeys = [...new Set([...d.keys.map(x => x.k), ...(f.keys || [])])];
+      sheet(a0 ? 'บัญชี ' + a0.name : 'เพิ่มบัญชีผู้ให้บริการ', `<form class="sheet-form" id="kff"><p class="sheet-msg">เปิดหน้าผู้ให้บริการ (เช่น maxplus) แล้วกรอกเครดิตที่เหลือ "ตอนนี้" ระบบจะหักต้นทุนของ key ที่เลือกที่เกิดหลังจากนี้ให้เอง</p>
+        <label>ชื่อบัญชี</label><input name="key" required pattern="[A-Za-z0-9_.\-]+" value="${esc(f.name || 'maxplus')}" ${a0 ? 'readonly' : ''}>
+        <label>key ที่ใช้เครดิตบัญชีนี้</label><div class="chips-sel">${allKeys.map(x => `<label><input type="checkbox" name="keys" value="${esc(x)}" ${(f.keys || []).includes(x) ? 'checked' : ''}><span>${esc(x)}</span></label>`).join('')}</div>
         <label>เครดิตคงเหลือตอนนี้</label><input name="credits" type="number" step="any" required value="${f.credits ?? ''}">
         <label>เครดิตต่อ 1 บาท (maxplus = 3)</label><input name="rate" type="number" step="any" min="0.0001" value="${f.rate ?? 3}">
         <label>เตือนเมื่อเหลือต่ำกว่า (เครดิต, เว้นว่าง = เตือนเมื่อพอใช้ไม่ถึง 2 วัน)</label><input name="low" type="number" step="any" min="0" value="${f.low ?? ''}">
         <div class="sheet-acts">${f.at ? '<button type="button" class="btn out" id="kfx">ลบ</button>' : ''}<button class="btn blue">บันทึก</button></div></form>`, (sd, close) => {
-        sd.querySelector('#kff').onsubmit = async e => { e.preventDefault(); await api('/admin/key-funds', { method: 'PUT', body: { key: k, ...Object.fromEntries(new FormData(e.target)) } }); close(); toast('บันทึกแล้ว', 'ok'); ADMIN.live(box); };
-        sd.querySelector('#kfx')?.addEventListener('click', async () => { await api('/admin/key-funds', { method: 'PUT', body: { key: k, remove: true } }); close(); ADMIN.live(box); });
+        sd.querySelector('#kff').onsubmit = async e => { e.preventDefault(); const fd = new FormData(e.target); if (!fd.getAll('keys').length) return toast('เลือก key อย่างน้อย 1 ตัว', 'bad'); try { await api('/admin/key-funds', { method: 'PUT', body: { ...Object.fromEntries(fd), keys: fd.getAll('keys') } }); close(); toast('บันทึกแล้ว', 'ok'); ADMIN.live(box); } catch (x) { toast(x.message, 'bad'); } };
+        sd.querySelector('#kfx')?.addEventListener('click', async () => { await api('/admin/key-funds', { method: 'PUT', body: { key: a0.name, remove: true } }); close(); ADMIN.live(box); });
       });
     });
     clearTimeout(ADMIN._lvT); ADMIN._lvT = setTimeout(() => { if (box.isConnected && !document.querySelector('.sheet-bg') && !box.querySelector('input:focus')) ADMIN.live(box).catch(() => {}); }, 30e3);
