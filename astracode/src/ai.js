@@ -1,5 +1,5 @@
 import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
-import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, priceOf, siteUrl, walletAdd } from './billing.js';
+import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { v1 } from './api.js';
@@ -401,19 +401,27 @@ export function excerptFiles(content, question) {
   });
 }
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
-export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null } = {}) {
+export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null, flag = null } = {}) {
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   let charge = 0;
   if (wallet) { const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6) * 10000) / 10000; }
-  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null).run();
+  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge,flag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null, flag || usage.flag || null).run();
   // ต้นทุน/token ต่องาน Agent · ctx_peak = input ของรอบที่ใหญ่สุด (ใช้แสดง context ของทีม)
   if (job) { const tin = usage.fresh + usage.read + usage.write; await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, tin, usage.out, tin, job).run(); }
   if (charge > 0) await walletAdd(env, uid, -charge, wallet, m.name);
+  if (cost >= 0.5) await costWatch(env, uid, m, now).catch(() => {});
   return charge; // ยอดที่ตัดจาก wallet (0 ถ้าไม่ได้ตัด)
+}
+// เตือนแอดมินทันที (ไม่รอ cron) เมื่อคำขอแพงทำให้ต้นทุน 1 ชม. ล่าสุดของผู้ใช้คนนี้ หรือของทั้งระบบ เกินที่ตั้งไว้ · แจ้งซ้ำได้ชั่วโมงละครั้ง
+export async function costWatch(env, uid, m, now = Date.now()) {
+  const s = await getSettings(env, ['alert_user_hour', 'alert_hour_cost']), userLim = s.alert_user_hour === '' || s.alert_user_hour == null ? 15 : +s.alert_user_hour, allLim = s.alert_hour_cost === '' || s.alert_hour_cost == null ? 50 : +s.alert_hour_cost;
+  const r = await env.DB.prepare("SELECT COALESCE(SUM(CASE WHEN user_id=?1 THEN cost END),0) mine, COALESCE(SUM(cost),0) total, (SELECT email FROM users WHERE id=?1) email, (SELECT role FROM users WHERE id=?1) role FROM usage WHERE created_at>=?2").bind(uid, now - 3600e3).first();
+  if (userLim > 0 && r.mine >= userLim && r.role !== 'admin' && !await limited(env, 'cw:u:' + uid, 1, 3600e3)) await notify(env, `🚨 ${r.email} ใช้ต้นทุน ฿${r.mine.toFixed(2)} ใน 1 ชม. ล่าสุด (ล่าสุด: ${m.name}) · หลังบ้าน → ต้นทุนสด`);
+  if (allLim > 0 && r.total >= allLim && !await limited(env, 'cw:all', 1, 3600e3)) await notify(env, `🚨 ต้นทุนรวมทั้งระบบ ฿${r.total.toFixed(2)} ใน 1 ชม. ล่าสุด · หลังบ้าน → ต้นทุนสด`);
 }
 export async function chat(req, env, u, ctx) {
   const b = await req.json();
@@ -643,7 +651,7 @@ export async function runChat(env, J, send, st) {
   }
   if (!usage && (st.gone || out || think)) { // กดหยุดหรือ upstream ไม่ส่ง usage จริง → ประมาณจากจำนวนตัวอักษร ÷ 2
     const chars = hist.reduce((a, x) => a + String(x.content || '').length, system.length);
-    usage = { fresh: Math.ceil(chars / 2), read: 0, write: 0, out: Math.ceil((out.length + think.length) / 2) };
+    usage = { fresh: Math.ceil(chars / 2), read: 0, write: 0, out: Math.ceil((out.length + think.length) / 2), flag: st.gone ? 'gone' : 'est' };
   }
   const tok = usage && { in: usage.fresh + usage.read + usage.write, out: usage.out };
   let mid = null;

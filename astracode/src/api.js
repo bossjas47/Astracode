@@ -142,9 +142,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     }
     let activeModel = m; lg.model = slug(m);
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read } });
-    const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2) });
-    const finish = async (u, outChars) => {
-      const finalU = u || (outChars > 0 ? estUsage(outChars) : null);
+    const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2), flag: 'est' });
+    const finish = async (u, outChars, flag = null) => { // flag: gone = ลูกค้าตัดกลางทาง · part = ผู้ให้บริการพังกลางคำตอบ (โชว์ในหลังบ้าน)
+      const f0 = u || (outChars > 0 ? estUsage(outChars) : null), finalU = f0 && flag ? { ...f0, flag: f0.flag ? flag + '+est' : flag } : f0;
       const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' ? { units: true, wallet: null, plan, src: 'api' } : { units: false, wallet: 'api', plan, src: 'api' }) : 0;
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
       if (walletKey) await unlimit(env, walletKey);
@@ -193,7 +193,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
           if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { activeModel = fb; continue; }
-          if (content || reasoning || tcs.size) await finish(usage, content.length + reasoning.length + 2); // พังกลางคำตอบ: ผู้ให้บริการคิดเงินส่วนที่ทำไปแล้ว
+          if (content || reasoning || tcs.size) await finish(usage, content.length + reasoning.length + 2, 'part'); // พังกลางคำตอบ: ผู้ให้บริการคิดเงินส่วนที่ทำไปแล้ว
           else if (walletKey) await unlimit(env, walletKey);
           return fail('โมเดลตอบไม่ได้ตอนนี้', 502, 'api_error');
         }
@@ -241,9 +241,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
           }
         }
         if (tcCount > 0 && finishReason === 'stop') finishReason = 'tool_calls';
-        const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars);
+        const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars, gone ? 'gone' : null);
         if (!gone) await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
-      } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2)).catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
+      } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2), 'part').catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
     return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors, ...rl } });

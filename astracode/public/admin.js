@@ -43,7 +43,7 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>', refunded: '<span class="pill">คืนเงินแล้ว</span>' };
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['live', 'activity', 'ต้นทุนสด'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -250,6 +250,56 @@ const ADMIN = {
   async plans(box, reload) { return editors('plans', box, reload, 'solo'); },
   async teamplans(box, reload) { return editors('plans', box, reload, 'team'); }, // แพลนที่ seats > 1: ผู้ซื้อเป็นหัวหน้าทีม เชิญสมาชิกเอง
 
+  // ต้นทุนสด: เงินที่จ่ายผู้ให้บริการต่อ key (เทียบหน้า maxplus ฯลฯ) · ทุกคำขอล่าสุด · ใครใช้หนัก/ขาดทุน · ตั้งแจ้งเตือน · รีเฟรชเองทุก 30 วิ
+  async live(box) {
+    const d = await api('/admin/live'), t = n => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n || 0);
+    const sum = k => d.keys.reduce((a, x) => a + (x[k] || 0), 0), flagged = d.feed.filter(x => x.flag).length;
+    const FLAG = { gone: ['ลูกค้าตัดกลางทาง', 'warn'], est: ['token ประมาณ', 'muted'], part: ['ผู้ให้บริการพังกลางคำตอบ', 'bad'] };
+    const flagH = f => f ? f.split('+').map(x => `<span class="pill ${FLAG[x]?.[1] || ''}" title="${esc(FLAG[x]?.[0] || x)}">${esc(FLAG[x]?.[0] || x)}</span>`).join(' ') : '';
+    const bars = arr => { const mx = Math.max(...arr, 0.0001); return `<svg class="spark" viewBox="0 0 96 24" width="96" height="24" aria-hidden="true">${arr.map((v, i) => `<rect x="${i * 4}" y="${24 - Math.max(v > 0 ? 1.5 : 0, v / mx * 24)}" width="3" height="${Math.max(v > 0 ? 1.5 : 0, v / mx * 24)}" rx="1"/>`).join('')}</svg>`; };
+    const when2 = ms => new Date(ms + 7 * 3600e3).toISOString().slice(11, 19);
+    box.innerHTML = `<p class="muted hint">ต้นทุน = เงินที่เราจ่ายผู้ให้บริการ (บาท) · รีเฟรชเองทุก 30 วินาที · <button type="button" class="btn out sm" id="lvr">รีเฟรชตอนนี้</button></p>
+      <div class="kpis">
+        <div class="kpi"><div class="muted">ต้นทุน 1 ชม.</div><div class="stat">฿${baht(sum('h1'))}</div></div>
+        <div class="kpi"><div class="muted">ต้นทุน 24 ชม.</div><div class="stat">฿${baht(sum('d1'))}</div><div class="kd muted">เฉลี่ย 3 วัน ฿${baht(sum('d3') / 3)}/วัน</div></div>
+        <div class="kpi"><div class="muted">คำขอผิดปกติ (150 ล่าสุด)</div><div class="stat ${flagged ? 'bad' : ''}">${flagged}</div><div class="kd muted">ตัดกลางทาง / ประมาณ / พัง</div></div>
+        <div class="kpi"><div class="muted">API error 24 ชม.</div><div class="stat">${d.errs.length}</div></div>
+      </div>
+      <section class="card"><h3>ต้นทุนต่อ key ผู้ให้บริการ</h3><p class="muted" style="margin:0 0 8px;font-size:12.5px">กด "อัปเดตยอด" แล้วกรอกเครดิตที่เห็นในหน้าเจ้าของ key ตอนนี้ ระบบจะหักต้นทุนหลังจากนั้นให้เอง และเตือนเมื่อพอใช้ไม่ถึง 2 วัน</p>
+        <div class="tw"><table class="tbl"><tr><th>key</th><th>1 ชม.</th><th>24 ชม.</th><th>เฉลี่ย/วัน</th><th>7 วัน</th><th>24 ชม. ล่าสุด</th><th>เครดิตคงเหลือ</th><th></th></tr>
+        ${d.keys.map(k => `<tr><td><b>${esc(k.k)}</b>${k.flagged ? ` <span class="pill warn">${k.flagged} ผิดปกติ</span>` : ''}</td><td>฿${baht(k.h1)}</td><td>฿${baht(k.d1)}</td><td>฿${baht(k.d3 / 3)}</td><td>฿${baht(k.d7)}</td><td>${bars(k.series)}</td>
+          <td>${k.left != null ? `<b class="${k.days != null && k.days < 2 ? 'bad' : ''}">${baht(k.left)}</b> เครดิต<br><small class="muted">≈ ฿${baht(k.left / (k.fund.rate || 1))}${k.days != null ? ` · ~${k.days.toFixed(1)} วัน` : ''} · กรอกเมื่อ ${when(k.fund.at)}</small>` : '<span class="muted">ยังไม่ได้กรอก</span>'}</td>
+          <td><button type="button" class="btn out sm" data-fund="${esc(k.k)}">อัปเดต</button></td></tr>`).join('')}</table></div></section>
+      <section class="card"><h3>ใช้หนักสุด 24 ชม.</h3><div class="tw"><table class="tbl"><tr><th>ผู้ใช้</th><th>แพลน</th><th>คำขอ</th><th>ต้นทุน 1 ชม.</th><th>ต้นทุน 24 ชม.</th><th>หัก Wallet</th><th>หักลิมิต</th><th>Wallet เหลือ</th></tr>
+        ${d.hot.map(u => `<tr class="click" data-user="${u.uid}"><td>${esc(u.email || '#' + u.uid)}${u.role === 'admin' ? ' <span class="pill">แอดมิน</span>' : ''}${u.flagged ? ` <span class="pill warn">${u.flagged} ผิดปกติ</span>` : ''}</td><td>${esc(u.plan || 'Free')}</td><td>${u.n}</td><td class="${u.h1 >= 5 ? 'bad' : ''}">฿${baht(u.h1)}</td><td>฿${baht(u.d1)}</td><td>฿${baht(u.charge)}</td><td>${baht(u.units)}</td><td>฿${baht(u.balance)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">ยังไม่มีการใช้</td></tr>'}</table></div></section>
+      <section class="card"><h3>ลูกค้าที่ทำให้ขาดทุน 30 วัน</h3><p class="muted" style="margin:0 0 8px;font-size:12.5px">ต้นทุนที่เราจ่าย เทียบเงินที่ลูกค้าจ่ายเข้ามา (ค่าแพลน + เติม Wallet) ใน 30 วัน</p><div class="tw"><table class="tbl"><tr><th>ผู้ใช้</th><th>แพลน</th><th>จ่ายมา</th><th>ต้นทุน</th><th>กำไร</th></tr>
+        ${d.losers.map(u => `<tr class="click" data-user="${u.uid}"><td>${esc(u.email)}</td><td>${esc(u.plan || 'Free')}</td><td>฿${baht(u.paid)}</td><td>฿${baht(u.cost)}</td><td class="${u.profit < 0 ? 'bad' : 'ok'}">฿${baht(u.profit)}</td></tr>`).join('')}</table></div></section>
+      <section class="card"><h3>ทุกคำขอล่าสุด</h3><div class="seg" role="group"><button data-ff="" class="on">ทั้งหมด</button><button data-ff="flag">เฉพาะผิดปกติ</button><button data-ff="api">API</button><button data-ff="chat">แชต</button></div>
+        <div class="tw"><table class="tbl" id="lvfeed"><tr><th>เวลา</th><th>ผู้ใช้</th><th>โมเดล · key</th><th>ที่มา</th><th>เข้า / ออก / แคช</th><th>ต้นทุน</th><th>หัก Wallet</th><th>หักลิมิต</th><th>หมายเหตุ</th></tr>
+        ${d.feed.map(r => `<tr class="click" data-user="${r.uid}" data-src="${esc(r.src || '')}" data-flag="${r.flag ? 1 : ''}"><td>${when2(r.t)}</td><td>${esc((r.email || '#' + r.uid).split('@')[0])}</td><td>${esc(r.model || '-')}<br><small class="muted">${esc(r.k || '')}</small></td><td>${esc(r.src || '-')}</td><td>${t(r.tin)} / ${t(r.tout)} / ${t(r.tc)}</td><td class="${r.cost >= 1 ? 'bad' : ''}">฿${(r.cost || 0).toFixed(r.cost < 0.01 ? 4 : 2)}</td><td>${r.charge ? '฿' + r.charge.toFixed(2) : '-'}</td><td>${r.units ? r.units.toFixed(2) : '-'}</td><td>${flagH(r.flag)}</td></tr>`).join('')}</table></div></section>
+      <details class="card"><summary><b>API error 24 ชม. (${d.errs.length})</b></summary><div class="tw"><table class="tbl"><tr><th>เวลา</th><th>ผู้ใช้</th><th>สถานะ</th><th>โมเดล / path</th><th>ข้อความ</th></tr>
+        ${d.errs.map(e => `<tr class="click" data-user="${e.uid}"><td>${when2(e.t)}</td><td>${esc((e.email || '').split('@')[0])}</td><td>${e.status}</td><td>${esc(e.model || e.path || '-')}</td><td><small>${esc(e.err || '')}</small></td></tr>`).join('')}</table></div></details>
+      <section class="card"><h3>แจ้งเตือน</h3><p class="muted" style="margin:0 0 8px;font-size:12.5px">ส่งเข้า Push แอดมิน / Discord / LINE ตามที่ตั้งไว้ในหน้าตั้งค่า · เช็กทันทีที่มีคำขอราคา ฿0.5 ขึ้นไป · 0 = ปิด</p>
+        <form id="lvalert" class="form2"><div><label>ลูกค้าคนเดียว ต้นทุนใน 1 ชม. เกิน (บาท)</label><input name="alert_user_hour" type="number" min="0" step="any" value="${esc(d.settings.alert_user_hour ?? '15')}" placeholder="15"></div>
+        <div><label>ทั้งระบบ ต้นทุนใน 1 ชม. เกิน (บาท)</label><input name="alert_hour_cost" type="number" min="0" step="any" value="${esc(d.settings.alert_hour_cost ?? '50')}" placeholder="50"></div>
+        <div><label>ทั้งระบบ ต้นทุนต่อวันเกิน (บาท)</label><input name="cost_alert_daily" type="number" min="0" step="any" value="${esc(d.settings.cost_alert_daily || '0')}"></div><div style="align-self:end"><button class="btn blue sm">บันทึก</button></div></form></section>`;
+    box.querySelectorAll('[data-user]').forEach(r => r.onclick = () => userDrawer(+r.dataset.user));
+    box.querySelectorAll('[data-ff]').forEach(b => b.onclick = () => { box.querySelectorAll('[data-ff]').forEach(x => x.classList.toggle('on', x === b)); const f = b.dataset.ff; box.querySelectorAll('#lvfeed tr[data-src]').forEach(tr => tr.hidden = f === 'flag' ? !tr.dataset.flag : f ? tr.dataset.src !== f : false); });
+    box.querySelector('#lvr').onclick = () => ADMIN.live(box);
+    box.querySelector('#lvalert').onsubmit = async e => { e.preventDefault(); await api('/admin/settings', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('บันทึกแล้ว', 'ok'); };
+    box.querySelectorAll('[data-fund]').forEach(b => b.onclick = () => {
+      const k = b.dataset.fund, f = d.keys.find(x => x.k === k)?.fund || {};
+      sheet('ยอดคงเหลือ ' + k, `<form class="sheet-form" id="kff"><p class="sheet-msg">เปิดหน้าเจ้าของ key (เช่น maxplus) แล้วกรอกเครดิตที่เหลือ "ตอนนี้" ระบบจะหักต้นทุนที่เกิดหลังจากนี้ให้เอง</p>
+        <label>เครดิตคงเหลือตอนนี้</label><input name="credits" type="number" step="any" required value="${f.credits ?? ''}">
+        <label>เครดิตต่อ 1 บาท (maxplus = 3)</label><input name="rate" type="number" step="any" min="0.0001" value="${f.rate ?? 3}">
+        <label>เตือนเมื่อเหลือต่ำกว่า (เครดิต, เว้นว่าง = เตือนเมื่อพอใช้ไม่ถึง 2 วัน)</label><input name="low" type="number" step="any" min="0" value="${f.low ?? ''}">
+        <div class="sheet-acts">${f.at ? '<button type="button" class="btn out" id="kfx">ลบ</button>' : ''}<button class="btn blue">บันทึก</button></div></form>`, (sd, close) => {
+        sd.querySelector('#kff').onsubmit = async e => { e.preventDefault(); await api('/admin/key-funds', { method: 'PUT', body: { key: k, ...Object.fromEntries(new FormData(e.target)) } }); close(); toast('บันทึกแล้ว', 'ok'); ADMIN.live(box); };
+        sd.querySelector('#kfx')?.addEventListener('click', async () => { await api('/admin/key-funds', { method: 'PUT', body: { key: k, remove: true } }); close(); ADMIN.live(box); });
+      });
+    });
+    clearTimeout(ADMIN._lvT); ADMIN._lvT = setTimeout(() => { if (box.isConnected && !document.querySelector('.sheet-bg') && !box.querySelector('input:focus')) ADMIN.live(box).catch(() => {}); }, 30e3);
+  },
   async profit(box) {
     const days = +(localStorage.getItem('adm-pdays') || 30), d = await api('/admin/profit?days=' + days), t = d.total, w = d.wallet;
     const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '-', cls = v => v < -0.005 ? 'bad' : v > 0.005 ? 'ok' : 'muted';

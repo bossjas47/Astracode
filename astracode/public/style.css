@@ -1416,3 +1416,6 @@ a.contact-l { color: var(--link) !important; border: 1px solid color-mix(in srgb
 .msg.user.pcres details { max-width: 85%; border: 1px dashed var(--steel); border-radius: 14px; padding: 6px 12px; font-size: 13px; color: var(--ash); }
 .msg.user.pcres summary { cursor: pointer; display: flex; gap: 6px; align-items: center; }
 .msg.user.pcres pre { white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; margin: 6px 0 0; font-size: 12px; }
+/* หลังบ้าน → ต้นทุนสด */
+svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
+.pill.muted { opacity: .7; }

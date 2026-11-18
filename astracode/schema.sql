@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS usage (
   , ttft INTEGER                            -- เวลาจนได้ตัวอักษรแรก
   , src TEXT                                -- chat/api/agent/task/complete/image/system
   , charge REAL                             -- บาทที่หักจาก Wallet
+  , flag TEXT                               -- gone = ลูกค้าตัดกลางทาง · est = token ประมาณ (ผู้ให้บริการไม่ส่ง usage) · part = ผู้ให้บริการ error กลางคำตอบ
 );
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, created_at);
 
@@ -368,6 +369,7 @@ CREATE TABLE IF NOT EXISTS usage (
   , ttft INTEGER                            -- เวลาจนได้ตัวอักษรแรก
   , src TEXT                                -- chat/api/agent/task/complete/image/system
   , charge REAL                             -- บาทที่หักจาก Wallet
+  , flag TEXT                               -- gone = ลูกค้าตัดกลางทาง · est = token ประมาณ (ผู้ให้บริการไม่ส่ง usage) · part = ผู้ให้บริการ error กลางคำตอบ
 );
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, created_at);
 

@@ -254,6 +254,7 @@ test('api: a client that disconnects mid-stream is still billed (the provider al
   const row = t.DB.raw.prepare("SELECT tokens_in, charge FROM usage WHERE user_id=? AND src='api'").get(u.id);
   assert.ok(row, 'no usage row: the request was not billed'); assert.equal(row.tokens_in, 5000, 'not billed by the real token count'); assert.ok(row.charge > 0);
   assert.ok(t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance < 100);
+  assert.equal(t.DB.raw.prepare("SELECT flag FROM usage WHERE user_id=? AND src='api'").get(u.id).flag, 'gone'); // หลังบ้านเห็นว่าลูกค้าตัดกลางทาง
   void m; fm.close();
 });
 

@@ -12,7 +12,7 @@ export const TABLES = {
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published', 'changelog'],
 };
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
-  'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
+  'alert_discord', 'alert_line_to', 'cost_alert_daily', 'alert_hour_cost', 'alert_user_hour', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
   'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'batch_discount_pct', 'line_oa_id', 'line_bot_model', 'canned_replies', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'checkslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
 
@@ -271,6 +271,43 @@ export async function admin(req, env, path, url, me) {
       return json({ ok: true });
     }
     return json({ ...t, msgs: (await DB.prepare('SELECT * FROM ticket_msgs WHERE ticket_id=? ORDER BY id').bind(t.id).all()).results });
+  }
+  // ต้นทุนสด: ต้นทุนต่อ key ผู้ให้บริการ (เทียบหน้า dashboard ของเจ้าของ key ได้) · ฟีดทุกคำขอ · ลูกค้าที่ใช้หนัก/ขาดทุน
+  if (path === '/api/admin/live') {
+    const now = Date.now(), H = 3600e3;
+    const kf = await getSetting(env, 'key_funds').then(v => { try { return JSON.parse(v || '{}'); } catch { return {}; } });
+    const [keys, hourly, feed, errs, hot, losers] = await Promise.all([
+      DB.prepare(`SELECT m.key_name k, COALESCE(SUM(CASE WHEN g.created_at>=?1 THEN g.cost END),0) h1, COALESCE(SUM(CASE WHEN g.created_at>=?2 THEN g.cost END),0) d1,
+        COALESCE(SUM(CASE WHEN g.created_at>=?3 THEN g.cost END),0) d3, COALESCE(SUM(g.cost),0) d7, COUNT(*) n, SUM(g.flag IS NOT NULL) flagged
+        FROM usage g JOIN models m ON m.id=g.model_id WHERE g.created_at>=?4 GROUP BY m.key_name ORDER BY d1 DESC`).bind(now - H, now - 24 * H, now - 72 * H, now - 7 * DAY).all(),
+      DB.prepare(`SELECT m.key_name k, CAST((?1-g.created_at)/${H} AS INTEGER) ago, SUM(g.cost) c FROM usage g JOIN models m ON m.id=g.model_id WHERE g.created_at>=?2 GROUP BY 1,2`).bind(now, now - 24 * H).all(),
+      DB.prepare(`SELECT g.id, g.created_at t, g.user_id uid, u.email, m.name model, m.key_name k, g.src, g.tokens_in tin, g.tokens_out tout, g.tokens_cache tc, g.cost, g.charge, g.units, g.ms, g.flag
+        FROM usage g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN models m ON m.id=g.model_id ORDER BY g.id DESC LIMIT 150`).all(),
+      DB.prepare(`SELECT l.created_at t, l.user_id uid, u.email, l.model, l.path, l.status, l.err FROM api_log l LEFT JOIN users u ON u.id=l.user_id WHERE l.status>=400 AND l.created_at>=? ORDER BY l.id DESC LIMIT 60`).bind(now - 24 * H).all().catch(() => ({ results: [] })),
+      DB.prepare(`SELECT g.user_id uid, u.email, u.role, pl.name plan, u.balance, COUNT(*) n, SUM(CASE WHEN g.created_at>=?1 THEN g.cost ELSE 0 END) h1, SUM(g.cost) d1, SUM(COALESCE(g.charge,0)) charge, SUM(g.units) units, SUM(g.flag IS NOT NULL) flagged
+        FROM usage g JOIN users u ON u.id=g.user_id LEFT JOIN plans pl ON pl.id=u.plan_id AND u.plan_expires>?3 WHERE g.created_at>=?2 GROUP BY g.user_id ORDER BY d1 DESC LIMIT 20`).bind(now - H, now - 24 * H, now).all(),
+      DB.prepare(`SELECT u.id uid, u.email, u.role, pl.name plan, COALESCE((SELECT SUM(cost) FROM usage WHERE user_id=u.id AND created_at>=?1),0) cost,
+        COALESCE((SELECT SUM(amount) FROM payments WHERE user_id=u.id AND status='approved' AND COALESCE(approved_at,created_at)>=?1),0) paid
+        FROM users u LEFT JOIN plans pl ON pl.id=u.plan_id AND u.plan_expires>?2 WHERE EXISTS (SELECT 1 FROM usage WHERE user_id=u.id AND created_at>=?1)`).bind(now - 30 * DAY, now).all(),
+    ]);
+    const series = {}; for (const r of hourly.results) (series[r.k] ||= Array(24).fill(0))[Math.min(23, r.ago)] += r.c;
+    const keyRows = keys.results.map(r => ({ ...r, series: (series[r.k] || Array(24).fill(0)).reverse(), fund: kf[r.k] || null, left: null, days: null })); // series: ชั่วโมงเก่าสุด → ล่าสุด
+    // ยอดคงเหลือที่ผู้ให้บริการ: แอดมินกรอกเครดิตที่เห็นในหน้าเจ้าของ key ล่าสุด แล้วระบบหักต้นทุนที่เกิดหลังจากนั้น
+    for (const r of keyRows) if (r.fund?.at) {
+      const after = (await DB.prepare('SELECT COALESCE(SUM(g.cost),0) c FROM usage g JOIN models m ON m.id=g.model_id WHERE m.key_name=? AND g.created_at>?').bind(r.k, r.fund.at).first()).c;
+      r.left = r.fund.credits - after * (r.fund.rate || 1); r.days = r.d3 > 0 ? r.left / (r.fund.rate || 1) / (r.d3 / 3) : null;
+    }
+    for (const [k, f] of Object.entries(kf)) if (!keyRows.some(r => r.k === k)) keyRows.push({ k, h1: 0, d1: 0, d3: 0, d7: 0, n: 0, flagged: 0, series: Array(24).fill(0), fund: f, left: f.credits, days: null });
+    const lose = losers.results.map(x => ({ ...x, profit: x.paid - x.cost })).filter(x => x.role !== 'admin').sort((a, b) => a.profit - b.profit).slice(0, 15);
+    return json({ keys: keyRows, feed: feed.results, errs: errs.results, hot: hot.results, losers: lose, settings: await getSettings(env, ['alert_hour_cost', 'alert_user_hour', 'cost_alert_daily']) });
+  }
+  // บันทึกยอดเครดิตคงเหลือที่หน้าเจ้าของ key (เช่น maxplus) + อัตราเครดิตต่อบาท
+  if (path === '/api/admin/key-funds' && M === 'PUT') {
+    const b = await req.json(), k = String(b.key || '').trim().slice(0, 60); if (!/^[\w.-]+$/.test(k)) return err('ชื่อ key ไม่ถูกต้อง');
+    const kf = await getSetting(env, 'key_funds').then(v => { try { return JSON.parse(v || '{}'); } catch { return {}; } });
+    if (b.remove) delete kf[k]; else kf[k] = { credits: +b.credits || 0, rate: +b.rate > 0 ? +b.rate : 1, at: Date.now(), low: +b.low > 0 ? +b.low : null };
+    await DB.prepare("INSERT OR REPLACE INTO settings VALUES ('key_funds',?)").bind(JSON.stringify(kf)).run();
+    await ctxAudit('key funds', { k, ...kf[k] }); return json({ ok: true });
   }
   if (path === '/api/admin/profit') { // กำไรแยกตามแพลนและผู้ใช้
     // shortcut: ต้นทุนนับตามแพลน "ปัจจุบัน" ของผู้ใช้ ถ้าผู้ใช้เปลี่ยนแพลนกลางช่วง ตัวเลขรายแพลนจะคลาดเล็กน้อย

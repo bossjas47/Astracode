@@ -63,6 +63,14 @@ export async function cron(env) {
     const c = (await DB.prepare('SELECT COALESCE(SUM(cost),0) c FROM usage WHERE created_at>=?').bind(dayStart).first()).c;
     if (c > lim) { await notify(env, `💸 ต้นทุน API วันนี้ ฿${c.toFixed(2)} เกินที่ตั้งไว้ ฿${lim}`); await DB.prepare("INSERT OR REPLACE INTO settings VALUES ('cost_alert_day',?)").bind(String(dayStart)).run(); }
   }
+  // 3.2) เครดิตที่ผู้ให้บริการใกล้หมด (จากยอดที่แอดมินกรอกในหน้าต้นทุนสด): เหลือต่ำกว่าที่ตั้ง หรือพอใช้ไม่ถึง 2 วัน → แจ้งวันละครั้งต่อ key
+  let kf = {}; try { kf = JSON.parse((await getSetting(env, 'key_funds')) || '{}'); } catch { /* ค่าเสีย */ }
+  for (const [k, f] of Object.entries(kf)) {
+    if (!f?.at) continue;
+    const r = await DB.prepare('SELECT COALESCE(SUM(CASE WHEN g.created_at>?2 THEN g.cost END),0) after, COALESCE(SUM(CASE WHEN g.created_at>?3 THEN g.cost END),0) d3 FROM usage g JOIN models m ON m.id=g.model_id WHERE m.key_name=?1').bind(k, f.at, now - 3 * DAY).first();
+    const rate = f.rate || 1, left = f.credits - r.after * rate, days = r.d3 > 0 ? left / rate / (r.d3 / 3) : Infinity;
+    if ((left <= (f.low ?? 0) || days < 2) && !await limited(env, 'kf:' + k, 1, DAY)) await notify(env, `🪫 ${k}: เครดิตที่ผู้ให้บริการเหลือประมาณ ${left.toFixed(0)} (พอใช้ ~${isFinite(days) ? days.toFixed(1) : '-'} วัน) เติมแล้วกรอกยอดใหม่ที่ หลังบ้าน → ต้นทุนสด`);
+  }
   // 3.5) โมเดลที่ error ตั้งแต่ 10 ครั้งในชั่วโมงที่ผ่านมา: สรุปแจ้งแอดมิน (cron รายชั่วโมง = แจ้งไม่เกินชั่วโมงละครั้ง)
   const spike = (await DB.prepare("SELECT e.model_id, md.name, COUNT(*) n FROM events e LEFT JOIN models md ON md.id=e.model_id WHERE e.kind='error' AND e.created_at>? GROUP BY e.model_id HAVING n>=10 ORDER BY n DESC").bind(now - 3600e3).all()).results;
   if (spike.length) await notify(env, '🔥 error พุ่งในชั่วโมงที่ผ่านมา: ' + spike.map(s => `${s.name || 'ระบบ'} ${s.n} ครั้ง`).join(' · ') + ' (เช็คคีย์/เครดิต upstream)');
