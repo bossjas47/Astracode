@@ -46,6 +46,16 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id)));
     if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
     if (path.startsWith('/v1/models/')) { const m = models.find(x => slug(x) === decodeURIComponent(path.slice(11))); return m ? out({ id: slug(m), object: 'model', created: 0, owned_by: m.provider }) : fail(`ไม่พบโมเดล "${decodeURIComponent(path.slice(11)).slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404); }
+    // สั่ง Agent จากมือถือ: แอป Desktop ส่งความคืบหน้า/คำถามขออนุญาตของแชตนี้ขึ้นมา แล้วรับคำตอบ/ข้อความที่พิมพ์จากมือถือกลับไป
+    if (path === '/v1/remote/push' && req.method === 'POST') {
+      const b = await req.json().catch(() => ({})), cid = +b.chat_id;
+      if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, k.id).first()) return fail('ไม่พบแชต', 404);
+      await ensureRemote(env);
+      const row = await env.DB.prepare('SELECT events,answer,inbox FROM agent_remote WHERE chat_id=?').bind(cid).first();
+      const ev = [...(row ? JSON.parse(row.events || '[]') : []), ...(Array.isArray(b.events) ? b.events.slice(0, 200) : [])].slice(-300);
+      await env.DB.prepare('INSERT OR REPLACE INTO agent_remote (chat_id,user_id,events,ask,answer,inbox,running,updated_at) VALUES (?,?,?,?,NULL,NULL,?,?)').bind(cid, k.id, JSON.stringify(ev).slice(-400000), b.ask ? JSON.stringify(b.ask).slice(0, 5000) : null, b.running ? 1 : 0, Date.now()).run();
+      return out({ answer: row?.answer ? JSON.parse(row.answer) : null, inbox: row?.inbox ? JSON.parse(row.inbox) : [] });
+    }
     // ค้นเว็บให้ agent ในแอป Desktop (ไม่คิดเงิน จำกัด 60 ครั้ง/ชม. ต่อ key)
     if (path === '/v1/web_search' && req.method === 'POST') {
       if (await limited(env, 'vws:' + k.kid, 60, 3600e3)) return fail('ค้นเว็บบ่อยเกินไป (60 ครั้ง/ชม.)', 429, 'rate_limit_error');
@@ -147,11 +157,12 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (!walletKey) return fail('Too many wallet-billed requests at once (max 4). Wait for one to finish.', 429, 'rate_limit_error', { 'retry-after': '5' });
     }
     let activeModel = m; lg.model = slug(m);
-    const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read } });
+    const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read }, ...(u.astra ? { astra: u.astra } : {}) });
     const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2), flag: 'est' });
     const finish = async (u, outChars, flag = null) => { // flag: gone = ลูกค้าตัดกลางทาง · part = ผู้ให้บริการพังกลางคำตอบ (โชว์ในหลังบ้าน)
       const f0 = u || (outChars > 0 ? estUsage(outChars) : null), finalU = f0 && flag ? { ...f0, flag: f0.flag ? flag + '+est' : flag } : f0;
       const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' ? { units: true, wallet: null, plan, src: 'api' } : { units: false, wallet: 'api', plan, src: 'api' }) : 0;
+      if (finalU) finalU.astra = { charge_thb: charge, week_pct: plan?.limit_week > 0 && finalU._units ? +(finalU._units / plan.limit_week * 100).toFixed(4) : 0 }; // ค่าใช้จ่ายคำขอนี้: บาทจาก Wallet / % ลิมิตสัปดาห์ (แอป Desktop ใช้คุมเพดานต่องาน)
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
       if (walletKey) await unlimit(env, walletKey);
       lg.model = slug(activeModel); lg.tin = finalU ? finalU.fresh + finalU.read + finalU.write : 0; lg.tout = finalU?.out || 0; lg.charge = charge; lg.logged = true;
@@ -257,6 +268,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
 }
 
 // ---------- ตัวช่วย /v1: บันทึกคำขอ, IP allowlist, ตัวห่อและตัวแปลง Anthropic Messages / OpenAI Responses ----------
+// ตารางสั่ง Agent จากมือถือ (สร้างเองครั้งแรก) · events = ความคืบหน้าล่าสุด 300 รายการ, ask = คำถามขออนุญาตที่รอ, answer/inbox = จากมือถือ รอแอปมารับ
+export const ensureRemote = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_remote (chat_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, events TEXT, ask TEXT, answer TEXT, inbox TEXT, running INTEGER, updated_at INTEGER)').run();
 export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
   .bind(lg.kid, lg.uid, lg.path, lg.model || null, status, lg.tin || 0, lg.tout || 0, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
 export const v4 = x => { const p = String(x).split('.'); return p.length === 4 && p.every(n => /^\d{1,3}$/.test(n) && +n < 256) ? p.reduce((a, n) => a * 256 + +n, 0) : null; };

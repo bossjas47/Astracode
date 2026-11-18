@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld('astraDesktop', {
     preview: port => inv('desk:preview', port),
   },
   // Agent แบบ Claude Code: run({ sid, text, model, mode, maxRounds, slot, history }) · เหตุการณ์มาทาง onEvent
-  agent: { needKey: () => inv('desk:agentNeedKey'), setKey: k => inv('desk:agentSetKey', String(k)), run: o => inv('desk:agentRun', o), stop: sid => inv('desk:agentStop', sid), undo: sid => inv('desk:agentUndo', sid), reset: sid => inv('desk:agentReset', sid), onEvent: f => on(subs.agent, f) },
+  agent: { needKey: () => inv('desk:agentNeedKey'), setKey: k => inv('desk:agentSetKey', String(k)), run: o => inv('desk:agentRun', o), stop: sid => inv('desk:agentStop', sid), steer: (sid, t) => inv('desk:agentSteer', sid, String(t)), undo: (sid, step) => inv('desk:agentUndo', sid, step ?? null), reset: sid => inv('desk:agentReset', sid), commands: k => inv('desk:agentCommands', k), git: (k, action, msg) => inv('desk:agentGit', k, action, msg), onEvent: f => on(subs.agent, f) },
   screen: { on: () => inv('desk:screenOn'), off: () => inv('desk:screenOff'), state: () => inv('desk:screenState'), batch: acts => inv('desk:screenBatch', acts) },
   mcp: { get: () => inv('desk:mcpGet'), set: t => inv('desk:mcpSet', String(t ?? '')), tools: () => inv('desk:mcpTools'), call: (n, a) => inv('desk:mcpCall', n, a) },
 });

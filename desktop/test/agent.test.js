@@ -67,3 +67,31 @@ test('agent: compacts a long conversation before the next round', async () => {
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, callTool: async () => '', fetchImpl, compactAt: 20000 });
   assert.equal(calls[0].stream, false); assert.match(messages[1].content, /สรุป: แก้ a.js แล้ว/); assert.ok(JSON.stringify(messages).length < 60000);
 });
+
+test('agent v2: interjected messages go in before the next round; several task calls run in parallel', async () => {
+  const f = fakeFetch([
+    { choices: [{ message: { content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'task', arguments: '{"description":"หา A","prompt":"a"}' } }, { id: 'b', type: 'function', function: { name: 'task', arguments: '{"description":"หา B","prompt":"b"}' } }] } }] },
+    { choices: [{ message: { content: 'เสร็จ' } }] },
+  ]);
+  const inbox = [], started = [], messages = [{ role: 'user', content: 'go' }];
+  let live = 0, peak = 0;
+  const callTool = async (n, a) => { started.push(a.description); live++; peak = Math.max(peak, live); await new Promise(r => setTimeout(r, 50)); live--; if (a.description === 'หา A') inbox.push('ใช้ yarn'); return 'ok ' + a.description; };
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, callTool, fetchImpl: f.fetch, inbox: () => inbox.splice(0), effort: 'high' });
+  assert.equal(peak, 2); // ทำพร้อมกัน
+  assert.deepEqual(messages.filter(m => m.role === 'tool').map(m => m.content), ['ok หา A', 'ok หา B']);
+  assert.equal(f.seen[1].messages.at(-1).content, 'ใช้ yarn'); assert.equal(f.seen[0].reasoning_effort, 'high');
+});
+
+test('workspace v2: diff shown with edits, undo back to a chosen step, hooks run after edits', async () => {
+  const { diffLines } = require('../agenttools');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'astra-ag2-'));
+  fs.writeFileSync(path.join(root, 'a.txt'), 'one\ntwo\nthree\n');
+  const ws = new Workspace(root, { hooks: { after_edit: process.platform === 'win32' ? 'echo hooked' : 'echo hooked {file}' } });
+  ws.step = 1; const r1 = await ws.call('edit_file', { path: 'a.txt', old_string: 'two', new_string: 'TWO' });
+  assert.match(r1, /- two\n\+ TWO/); assert.match(r1, /\[hook after_edit exit 0\]\nhooked/);
+  ws.step = 2; await ws.call('edit_file', { path: 'a.txt', old_string: 'three', new_string: 'THREE' });
+  ws.step = 3; await ws.call('write_file', { path: 'b.txt', content: 'new' });
+  assert.deepEqual((await ws.undoTo(2)).sort(), ['a.txt', 'b.txt']);
+  assert.equal(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'one\nTWO\nthree\n'); assert.ok(!fs.existsSync(path.join(root, 'b.txt')));
+  assert.equal(diffLines('x', 'x'), '(ไม่มีอะไรเปลี่ยน)');
+});

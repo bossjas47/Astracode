@@ -570,3 +570,21 @@ test('desktop agent: chats/append saves a turn to a new or own chat only; /v1/we
   assert.equal((await t.json('/api/chats/append', { method: 'POST', cookie: other.cookie, body: { chat_id: id, messages: [{ role: 'user', content: 'แทรก' }] } })).status, 404);
   assert.equal((await t.json('/v1/web_search', { method: 'POST', body: { query: 'x' } })).status, 401);
 });
+
+test('desktop agent remote: the app pushes progress and a question, the phone answers and types, the app picks them up', async () => {
+  const t = await makeEnv(), u = await t.user({ balance: 10 }), other = await t.user({ balance: 10 });
+  const { data: k } = await t.json('/api/keys', { method: 'POST', cookie: u.cookie, body: { name: 'Desktop Agent' } });
+  const chatId = (await t.json('/api/chats/append', { method: 'POST', cookie: u.cookie, body: { messages: [{ role: 'user', content: 'งาน' }] } })).data.chat_id;
+  const push = body => t.json('/v1/remote/push', { method: 'POST', headers: { authorization: 'Bearer ' + k.key }, body: { chat_id: chatId, ...body } });
+  assert.equal((await push({ events: [{ type: 'tool', name: 'bash', args: { command: 'npm test' } }], ask: { id: 1, title: 'ขอรันคำสั่ง', detail: 'npm test', allowAll: true }, running: true })).status, 200);
+  const view = (await t.json('/api/remote/' + chatId, { cookie: u.cookie })).data;
+  assert.equal(view.ask.id, 1); assert.equal(view.events[0].name, 'bash'); assert.ok(view.running && view.live);
+  assert.equal((await t.json('/api/remote/' + chatId, { cookie: other.cookie })).data, null); // คนอื่นดูไม่ได้
+  await t.json(`/api/remote/${chatId}/answer`, { method: 'POST', cookie: u.cookie, body: { id: 1, v: 'yes' } });
+  await t.json(`/api/remote/${chatId}/say`, { method: 'POST', cookie: u.cookie, body: { text: 'ใช้ yarn แทน' } });
+  const got = (await push({ events: [], running: true })).data;
+  assert.deepEqual(got.answer, { id: 1, v: 'yes' }); assert.deepEqual(got.inbox, ['ใช้ yarn แทน']);
+  const again = (await push({ events: [], running: false })).data; assert.equal(again.answer, null); assert.deepEqual(again.inbox, []); // รับแล้วไม่ซ้ำ
+  const { data: k2 } = await t.json('/api/keys', { method: 'POST', cookie: other.cookie, body: { name: 'x' } });
+  assert.equal((await t.json('/v1/remote/push', { method: 'POST', headers: { authorization: 'Bearer ' + k2.key }, body: { chat_id: chatId, events: [] } })).status, 404); // key คนอื่นยิงเข้าแชตเราไม่ได้
+});

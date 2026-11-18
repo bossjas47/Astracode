@@ -3,7 +3,7 @@ import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putIm
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
-import { monthKey } from './api.js';
+import { ensureRemote, monthKey } from './api.js';
 import { status } from './jobs.js';
 export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
@@ -233,6 +233,17 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       "UPDATE users SET email='deleted-'||id||'@deleted.local', pass_hash='x', banned=1, gh_token=NULL, totp_secret=NULL, google_id=NULL, line_id=NULL, fb_uid=NULL, instructions='' WHERE id=?1", // เก็บแถวผู้ใช้ไว้เพราะประวัติการเงินต้องเก็บตามกฎหมาย
     ].map(q => DB.prepare(q).bind(u.id)));
     return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
+  }
+  // มือถือ/เครื่องอื่น: ดูความคืบหน้า Agent ที่ทำงานบนคอม · ตอบคำขออนุญาต · พิมพ์แทรก (แอปมารับทุก 3 วินาที)
+  if ((r = path.match(/^\/api\/remote\/(\d+)(\/answer|\/say)?$/))) {
+    await ensureRemote(env);
+    const row = await DB.prepare('SELECT * FROM agent_remote WHERE chat_id=? AND user_id=?').bind(+r[1], u.id).first();
+    if (!row) return json(null);
+    if (M === 'GET') return json({ events: JSON.parse(row.events || '[]').slice(-120), ask: row.ask ? JSON.parse(row.ask) : null, running: !!row.running, updated_at: row.updated_at, live: Date.now() - row.updated_at < 20e3 });
+    const b = await req.json().catch(() => ({}));
+    if (r[2] === '/answer') { if (!['yes', 'all', 'no'].includes(b.v)) return err('คำตอบไม่ถูกต้อง'); await DB.prepare('UPDATE agent_remote SET answer=?, ask=NULL WHERE chat_id=?').bind(JSON.stringify({ id: +b.id, v: b.v }), +r[1]).run(); return json({ ok: true }); }
+    if (r[2] === '/say') { const t = String(b.text || '').trim().slice(0, 20000); if (!t) return err('ข้อความว่าง'); const inbox = [...JSON.parse(row.inbox || '[]'), t].slice(-10); await DB.prepare('UPDATE agent_remote SET inbox=? WHERE chat_id=?').bind(JSON.stringify(inbox), +r[1]).run(); return json({ ok: true }); }
+    return err('not found', 404);
   }
   // แอป Desktop โหมด Agent: บันทึกคำสั่งและคำตอบลงแชต (โมเดลทำงานผ่าน /v1 ซึ่งคิดเงินแยกแล้ว ตรงนี้เก็บประวัติเท่านั้น) · เปิดดูจากมือถือได้
   if (path === '/api/chats/append' && M === 'POST') {

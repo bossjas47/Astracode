@@ -182,7 +182,7 @@ async function chatView(id) {
     const isCode = b.dataset.cv === 'code';
     $('#cv-f').hidden = isCode; $('#cv-c').hidden = !isCode;
   });
-  pcInit();
+  pcInit(); setTimeout(remoteWatch, 400);
   const t = $('#t');
   t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
   const skTok = qs().get('skill'); // เปิดจากลิงก์แชร์ Skill: นำเข้าแล้วเปิดใช้ทันที
@@ -842,14 +842,14 @@ async function imgWake() {
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') imgWake(); });
 async function send({ regenerate = false, resume = false, edit_id = null, edit_text = '' } = {}) {
-  if (chat.busy) return;
+  if (chat.busy) { if (chat.agentBusy && !regenerate && !resume && !edit_id) agentSteer(); return; } // Agent กำลังทำ: Enter = พิมพ์แทรก (ปุ่มส่ง = หยุด)
   if (!regenerate && !resume && !edit_id && isImgMode() && $('#t').value.trim() !== chat.enhanced && (chat.images.length || localStorage.getItem('imgAuto') !== '0')) { // โหมดสร้างภาพ: ปรับ prompt ก่อนส่ง (แนบรูป = ต้องปรับ เพราะใช้รูปเป็นแรงบันดาลใจ)
     setBusy(true); const ok = await enhancePrompt(true); setBusy(false);
     if (ok === 'net') { chat.imgWake = 'send'; if (document.visibilityState === 'visible') imgWake(); return; } // เน็ตหลุดตอนปิดจอ: กลับมาแล้วส่งต่อให้เอง
     if (!ok) return;
   }
   if (chat.compare && !regenerate && !resume) return compareSend();
-  if (!regenerate && !resume && !edit_id && agentOn()) { const tx = $('#t').value.trim(); if (chat.images.length || chat.files.length) toast('โหมด Agent ยังไม่รับไฟล์แนบ ให้ Agent อ่านไฟล์จากโฟลเดอร์แทน'); return tx ? agentSend(tx) : undefined; }
+  if (!regenerate && !resume && !edit_id && agentOn()) { const tx = $('#t').value.trim(); if (chat.files.length) toast('โหมด Agent: ไฟล์แนบใช้ไม่ได้ พิมพ์ @พาธ เพื่ออ้างไฟล์ในโฟลเดอร์แทน (แนบรูปได้)'); return tx ? agentSend(tx) : undefined; }
   const quiet = regenerate || resume || !!edit_id, t = $('#t'), text = edit_id ? edit_text : quiet ? '' : t.value.trim(), imgs = quiet ? [] : chat.images, m = curModel();
   const files = quiet ? [] : chat.files;
   if (!m) return showErr('ยังโหลดรายการโมเดลไม่เสร็จ ลองรีเฟรชหน้าแล้วส่งอีกครั้ง');
@@ -939,11 +939,16 @@ function pcSheet() {
     <p style="margin:0">${chat.pc ? `โฟลเดอร์: <b>${esc(chat.pc.path)}</b>${chat.pc.auto ? '<br>รันคำสั่งอัตโนมัติ: <b>เปิด</b> (ยกเว้นคำสั่งอันตราย) <button type="button" class="btn out sm" id="pcauto">ปิด</button>' : ''}` : 'ยังไม่ได้เลือกโฟลเดอร์'}</p>
     <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button></div>
     ${chat.pc && PCD.agent ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="pcag" ${localStorage.getItem('pcAgent') === '1' ? 'checked' : ''}><span></span></span> <span><b>โหมด Agent</b> · ทำงานเองต่อเนื่องแบบ Claude Code (อ่าน/แก้ไฟล์ รันคำสั่ง ค้นเว็บ จนเสร็จ) · ใช้ลิมิต/Wallet ผ่าน API</span></label>
-      <div class="row" id="pcagopt" ${localStorage.getItem('pcAgent') === '1' ? '' : 'hidden'}><select id="pcagm" style="width:auto">${AG_MODES.map(([k, l]) => `<option value="${k}" ${agMode() === k ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="pcagr" style="width:auto">${[30, 80, 150].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentMax') || 80) === n ? 'selected' : ''}>สูงสุด ${n} รอบ</option>`).join('')}</select></div>` : ''}
+      <div id="pcagopt" style="display:grid;gap:8px" ${localStorage.getItem('pcAgent') === '1' ? '' : 'hidden'}><div class="row"><select id="pcagm" style="width:auto">${AG_MODES.map(([k, l]) => `<option value="${k}" ${agMode() === k ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="pcagr" style="width:auto">${[30, 80, 150].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentMax') || 80) === n ? 'selected' : ''}>สูงสุด ${n} รอบ</option>`).join('')}</select>
+        <select id="pcagb" style="width:auto">${[0, 5, 20, 50, 100].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentBudget') || 0) === n ? 'selected' : ''}>${n ? `เพดาน ฿${n}/งาน` : 'ไม่จำกัดเงินต่องาน'}</option>`).join('')}</select></div>
+        <label class="sw-row"><span class="sw"><input type="checkbox" id="pcagrem" ${localStorage.getItem('pcAgentRemote') === '1' ? 'checked' : ''}><span></span></span> สั่งงานและกดอนุญาตจากมือถือได้ (เปิดแชตเดียวกันในมือถือ)</label>
+        <p class="muted" style="margin:0;font-size:12.5px">คำสั่งลัด: ${AG_CMDS.map(c => `<code>/${c[0]}</code>`).join(' ')} · ของโปรเจกต์เอง: ไฟล์ <code>.astra/commands/ชื่อ.md</code> · อ้างไฟล์ด้วย <code>@src/app.js</code> · แปะรูปหน้าจอได้ · พิมพ์แทรกระหว่าง Agent ทำงานได้ (กด Enter) · hook หลังแก้ไฟล์: <code>.astra/hooks.json</code> เช่น <code>{"after_edit":"npx prettier --write {file}"}</code></p></div>` : ''}
     ${chat.pc ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="pcscr" ${chat.screen ? 'checked' : ''}><span></span></span> ให้ AI ดูหน้าจอและคุมเมาส์/คีย์บอร์ด (Windows · ต้องใช้โมเดลที่อ่านรูปได้ · หยุดทันที Ctrl+Alt+Esc)</label>` : ''}</div>`, (d, close) => {
     d.querySelector('#pcag')?.addEventListener('change', e => { localStorage.setItem('pcAgent', e.target.checked ? '1' : '0'); d.querySelector('#pcagopt').hidden = !e.target.checked; if (e.target.checked) localStorage.setItem('pc', '1'); modelUI(); });
     d.querySelector('#pcagm')?.addEventListener('change', e => { localStorage.setItem('pcAgentMode', e.target.value); modelUI(); });
     d.querySelector('#pcagr')?.addEventListener('change', e => localStorage.setItem('pcAgentMax', e.target.value));
+    d.querySelector('#pcagb')?.addEventListener('change', e => localStorage.setItem('pcAgentBudget', e.target.value));
+    d.querySelector('#pcagrem')?.addEventListener('change', e => localStorage.setItem('pcAgentRemote', e.target.checked ? '1' : '0'));
     d.querySelector('#pcscr')?.addEventListener('change', async e => { try { chat.screen = e.target.checked ? await PCD.screen.on() : !await PCD.screen.off(); } catch (x) { chat.screen = false; toast(x.message, 'bad'); } e.target.checked = !!chat.screen; if (chat.screen && !curModel()?.vision) toast('โมเดลที่เลือกอ่านรูปไม่ได้ เปลี่ยนเป็นโมเดลที่มีไอคอนตาก่อนใช้', 'bad'); });
     d.querySelector('#pcpick').onclick = async () => { const l = await PCD.fs.link('chat').catch(x => { toast(x.message, 'bad'); return null; }); if (!l) return; chat.pc = l; localStorage.setItem('pc', '1'); close(); pcTools(); modelUI(); toast(`AI ใช้โฟลเดอร์ ${l.name} ได้แล้ว`, 'ok'); };
     d.querySelector('#pctog')?.addEventListener('click', () => { localStorage.setItem('pc', pcOn() ? '0' : '1'); close(); pcTools(); modelUI(); });
@@ -1008,62 +1013,110 @@ async function pcAct(ai) {
 }
 
 // ---------- โหมด Agent แบบ Claude Code (แอป Desktop): แอปวนทำงานเองในเครื่องด้วย tool calling ผ่าน /v1 · หน้านี้แสดงขั้นตอนสด และบันทึกคำสั่ง+คำตอบลงแชต ----------
-const AG_MODES = [['ask', 'ถามก่อนทุกครั้ง', 'ถามก่อน'], ['edits', 'แก้ไฟล์เอง · ถามก่อนรันคำสั่ง', 'แก้ไฟล์เอง'], ['auto', 'ทำเองทั้งหมด (คำสั่งอันตรายยังถาม)', 'ทำเองทั้งหมด']];
+const AG_MODES = [['plan', 'วางแผนก่อน (ยังไม่แก้อะไร)', 'วางแผน'], ['ask', 'ถามก่อนทุกครั้ง', 'ถามก่อน'], ['edits', 'แก้ไฟล์เอง · ถามก่อนรันคำสั่ง', 'แก้ไฟล์เอง'], ['auto', 'ทำเองทั้งหมด (คำสั่งอันตรายยังถาม)', 'ทำเองทั้งหมด']];
+const AG_CMDS = [['review', 'รีวิวโค้ดที่เพิ่งเปลี่ยน (git diff) หาบั๊ก ช่องโหว่ และจุดที่ช้า เรียงตามความรุนแรง พร้อมวิธีแก้ ยังไม่ต้องแก้ไฟล์ $ARGUMENTS'], ['test', 'รันเทสต์ของโปรเจกต์ ถ้าไม่ผ่านให้หาสาเหตุจริงแล้วแก้โค้ดจนผ่าน (ห้ามแก้เทสต์ให้ผ่านเฉยๆ) $ARGUMENTS'], ['fix', 'หาสาเหตุและแก้ปัญหานี้ แล้วตรวจว่าหายจริง: $ARGUMENTS'], ['explain', 'อธิบายโปรเจกต์/โค้ดนี้แบบเข้าใจง่าย: โครงสร้าง ไฟล์สำคัญ และการทำงานหลัก $ARGUMENTS'], ['commit', 'ดู git diff แล้วเขียนข้อความ commit ที่ดี แล้ว commit ให้ $ARGUMENTS'], ['init', 'สำรวจโปรเจกต์แล้วเขียนไฟล์ ASTRA.md สรุปวิธี build/test โครงสร้าง และกติกาโค้ด ให้ Agent รอบหน้าอ่าน $ARGUMENTS']];
 const agentOn = () => pcOn() && !!PCD?.agent && localStorage.getItem('pcAgent') === '1';
 const agMode = () => AG_MODES.some(x => x[0] === localStorage.getItem('pcAgentMode')) ? localStorage.getItem('pcAgentMode') : 'ask';
 const vslug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, ''); // ชื่อโมเดลใน /v1 (ตรงกับ slug ฝั่งเซิร์ฟเวอร์)
-const AG_ICON = { read_file: 'filetext', write_file: 'pen', edit_file: 'pen', list_dir: 'folder', glob: 'search', grep: 'search', bash: 'terminal', bash_output: 'terminal', kill_bash: 'stop', web_fetch: 'globe', web_search: 'globe', todo_write: 'check' };
-const agArg = s => { const a = s.args || {}; return a.command || a.path || a.pattern || a.url || a.query || a.id || ''; };
+const AG_ICON = { read_file: 'filetext', write_file: 'pen', edit_file: 'pen', list_dir: 'folder', glob: 'search', grep: 'search', bash: 'terminal', bash_output: 'terminal', kill_bash: 'stop', web_fetch: 'globe', web_search: 'globe', screenshot_url: 'camera', task: 'users', todo_write: 'check', sub: 'users' };
+const agArg = s => { const a = s.args || {}; return a.command || a.path || a.pattern || a.url || a.query || a.description || a.id || ''; };
+const diffPre = t => esc(t).split('\n').map(l => /^\+ /.test(l) ? `<span class="dadd">${l}</span>` : /^- /.test(l) ? `<span class="ddel">${l}</span>` : l).join('\n');
 function agentHTML(m, i) {
   const st = s => s.st === 'run' ? '<span class="agsp" aria-label="กำลังทำ"></span>' : s.st === 'bad' ? '<b class="bad">✕</b>' : '<b class="ok">✓</b>';
-  const steps = (m.steps || []).map(s => s.name === 'info' ? `<div class="agstep muted">${esc(s.text)}</div>` : `<details class="agstep"><summary>${st(s)} ${ic(AG_ICON[s.name] || 'server', 'sm')} <b>${esc(s.name)}</b> <code>${esc(String(agArg(s)).slice(0, 140))}</code></summary>${s.preview ? `<pre>${esc(s.preview)}</pre>` : ''}</details>`).join('');
+  const done = !m.streaming, last = i === chat.msgs.length - 1;
+  const steps = (m.steps || []).map(s => s.name === 'info' ? `<div class="agstep muted">${esc(s.text)}</div>` : s.name === 'sub' ? `<div class="agstep sub">↳ ${ic(AG_ICON[s.tool] || 'search', 'sm')} <small>${esc(s.title)}</small> ${esc(s.tool)} <code>${esc(String(agArg(s)).slice(0, 100))}</code></div>`
+    : `<details class="agstep"><summary>${st(s)} ${ic(AG_ICON[s.name] || 'server', 'sm')} <b>${esc(s.name)}</b> <code>${esc(String(agArg(s)).slice(0, 140))}</code>${done && last && s.step && ['edit_file', 'write_file'].includes(s.name) && s.st === 'ok' && m.changed?.length ? `<button type="button" class="agback" data-agstep="${s.step}" title="ย้อนไฟล์กลับไปก่อนขั้นนี้">${ic('undo', 'sm')}</button>` : ''}</summary>${s.preview ? `<pre>${diffPre(s.preview)}</pre>` : ''}</details>`).join('');
   const todos = m.todos?.length ? `<div class="agtodo">${m.todos.map(t => `<div class="${t.status}">${t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '▶' : '☐'} ${esc(t.content)}</div>`).join('')}</div>` : '';
-  const last = i === chat.msgs.length - 1;
-  return `<div class="agent">${todos}${steps ? `<details class="agsteps" ${m.streaming ? 'open' : ''}><summary>${ic('sparkles', 'sm')} Agent ${m.steps.filter(s => s.name !== 'info').length} ขั้นตอน${m.tin ? ` · ↑${kTok(m.tin)} ↓${kTok(m.tout)} token` : ''}</summary>${steps}</details>` : m.streaming ? `<div class="agstep muted"><span class="agsp"></span> Agent กำลังเริ่ม…</div>` : ''}
-    ${m.error ? `<p class="bad" style="margin:6px 0">${esc(m.error)}</p>` : ''}${!m.streaming && last && m.changed?.length ? `<div class="acts"><span class="muted">แก้ ${m.changed.length} ไฟล์: ${m.changed.slice(0, 6).map(esc).join(', ')}${m.changed.length > 6 ? '…' : ''}</span><button data-agundo="${i}">${ic('undo', 'sm')} ย้อนไฟล์ที่ Agent แก้รอบนี้</button></div>` : ''}</div>`;
+  const n = (m.steps || []).filter(s => !['info', 'sub'].includes(s.name)).length, cost = m.cost ? ` · ${m.cost.charge ? '฿' + m.cost.charge.toFixed(2) : ''}${m.cost.charge && m.cost.pct ? ' + ' : ''}${m.cost.pct ? 'ลิมิต ' + m.cost.pct.toFixed(2) + '%' : ''}` : '';
+  return `<div class="agent">${todos}${steps ? `<details class="agsteps" ${m.streaming ? 'open' : ''}><summary>${ic('sparkles', 'sm')} Agent ${n} ขั้นตอน${m.tin ? ` · ↑${kTok(m.tin)} ↓${kTok(m.tout)} token` : ''}${cost}</summary>${steps}</details>` : m.streaming ? `<div class="agstep muted"><span class="agsp"></span> Agent กำลังเริ่ม…</div>` : ''}
+    ${m.error ? `<p class="bad" style="margin:6px 0">${esc(m.error)}</p>` : ''}
+    ${done && last ? `<div class="acts">${m.mode === 'plan' && !m.error ? `<button class="btn blue sm" data-agplan>${ic('play', 'sm')} อนุมัติแผน ลงมือเลย</button>` : ''}${m.changed?.length ? `<span class="muted">แก้ ${m.changed.length} ไฟล์: ${m.changed.slice(0, 6).map(esc).join(', ')}${m.changed.length > 6 ? '…' : ''}</span><button data-agundo="${i}">${ic('undo', 'sm')} ย้อนทั้งรอบ</button>` : ''}<button data-aggit="status">${ic('branch', 'sm')} Git</button></div>` : ''}</div>`;
 }
 let agSub = null;
-async function agentSend(text) {
+const agSid = () => 'c' + chat.id; // ผูกกับแชต: ปิดแอปแล้วเปิดแชตเดิม Agent จำงานเดิม (ไฟล์ session ในเครื่อง)
+async function agentExpand(text) { // คำสั่งลัด /review /test … และของโปรเจกต์ (.astra/commands/*.md)
+  const m = /^\/([\w-]+)\s*([\s\S]*)$/.exec(text); if (!m) return text;
+  const custom = await PCD.agent.commands('chat').catch(() => []), c = custom.find(x => x.name === m[1])?.text || AG_CMDS.find(x => x[0] === m[1])?.[1];
+  return c ? c.replace(/\$ARGUMENTS/g, m[2]).trim() : text;
+}
+function agentSteer() {
+  const t = $('#t'), text = t.value.trim(); if (!text || !chat.agentBusy) return;
+  PCD.agent.steer(agSid(), text).then(ok => { if (!ok) return toast('Agent จบงานแล้ว ส่งเป็นคำสั่งใหม่ได้เลย'); t.value = ''; t.style.height = 'auto'; const u = { role: 'user', content: text, steer: true }; chat.msgs.splice(chat.msgs.length - 1, 0, u); renderAll(); api('/chats/append', { method: 'POST', body: { chat_id: chat.id, messages: [{ role: 'user', content: text }] } }).catch(() => {}); toast('ส่งถึง Agent แล้ว จะเห็นก่อนขั้นถัดไป', 'ok'); });
+}
+async function agentSend(text0, { mode = agMode() } = {}) {
   const chatModels = me.models.filter(x => !['image', 'embedding'].includes(x.provider) && !x.locked);
   const m = curModel()?.id === 'auto' ? chatModels.find(x => /sonnet.*eco|sonnet/i.test(x.name)) || chatModels[0] : curModel(); // อัตโนมัติ: Agent ใช้ Sonnet (ใช้ tool เก่ง ราคากลาง)
   if (!m || ['image', 'embedding'].includes(m.provider)) return showErr('เลือกโมเดลแชตก่อน (แนะนำ Claude Sonnet / Opus Eco หรือ ChatGPT 6.2)');
+  const cheap = [...chatModels].sort((a, b) => a.multiplier - b.multiplier).find(x => !/uncen/i.test(x.name)); // ผู้ช่วยค้น (subagent) ใช้โมเดลถูกสุด
   try { if (await PCD.agent.needKey()) await PCD.agent.setKey((await api('/keys', { method: 'POST', body: { name: 'Desktop Agent' } })).key); } // ครั้งแรก: สร้าง API key ของบัญชีนี้ให้แอป (คิดเงินผ่าน /v1 ตามจริง)
   catch (x) { return showErr('สร้าง API key ให้แอปไม่ได้: ' + x.message); }
-  chat.agSid ||= 'a' + Math.random().toString(36).slice(2, 10);
-  const t = $('#t'), history = chat.msgs.filter(x => typeof x.content === 'string' && x.content).map(x => ({ role: x.role, content: x.content }));
-  t.value = ''; t.style.height = 'auto'; $('#e').textContent = '';
-  const user = { role: 'user', content: text }; chat.msgs.push(user); appendMsg(user);
-  const ai = { role: 'assistant', content: '', model: m.name + ' · Agent', streaming: true, agent: true, steps: [], todos: null, tin: 0, tout: 0 }; chat.msgs.push(ai); appendMsg(ai);
-  const sid = chat.agSid, t0 = Date.now(); let raf = 0;
-  setBusy(true); chat.ctrl = { abort: () => PCD.agent.stop(sid) }; // ปุ่มหยุดเดิม = หยุด Agent
+  const t = $('#t'), images = chat.images.slice(0, 4), history = chat.msgs.filter(x => typeof x.content === 'string' && x.content).map(x => ({ role: x.role, content: x.content }));
+  if (t.value.trim() === text0) { t.value = ''; t.style.height = 'auto'; } chat.images = []; drawThumbs(); $('#e').textContent = '';
+  const user = { role: 'user', content: text0, imgs: images.length ? images : null }; chat.msgs.push(user); appendMsg(user);
+  try { const r = await api('/chats/append', { method: 'POST', body: { chat_id: chat.id, title: text0, messages: [{ role: 'user', content: text0 }] } }); if (!chat.id) { chat.id = r.chat_id; setUrl('/chat?id=' + r.chat_id, true); loadSide(); } }
+  catch (x) { chat.msgs.pop(); renderAll(); t.value = text0; return showErr('บันทึกแชตไม่ได้: ' + x.message); }
+  const text = await agentExpand(text0);
+  const ai = { role: 'assistant', content: '', thinking: '', model: m.name + ' · Agent', streaming: true, agent: true, mode, steps: [], todos: null, tin: 0, tout: 0 }; chat.msgs.push(ai); appendMsg(ai);
+  const sid = agSid(), t0 = Date.now(); let raf = 0;
+  setBusy(true); chat.agentBusy = true; chat.ctrl = { abort: () => PCD.agent.stop(sid) }; // ปุ่มหยุดเดิม = หยุด Agent · Enter = พิมพ์แทรก
   const paint = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; const box = $('#msgs'), el = box?.lastElementChild, stick = box && nearBottom(box); if (el) el.outerHTML = msgHTML(ai, chat.msgs.length - 1); if (stick) box.scrollTop = box.scrollHeight; }); };
   agSub?.(); agSub = PCD.agent.onEvent(d => {
     if (d.sid !== sid) return;
     if (d.type === 'delta') ai.content += d.text;
-    if (d.type === 'tool') ai.steps.push({ id: d.id, name: d.name, args: d.args, st: 'run' });
+    if (d.type === 'think') ai.thinking += d.text;
+    if (d.type === 'tool') ai.steps.push({ id: d.id, name: d.name, args: d.args, step: d.step, st: 'run' });
+    if (d.type === 'sub') ai.steps.push({ name: 'sub', title: d.title, tool: d.name, args: d.args });
     if (d.type === 'tool_result') { const s = ai.steps.findLast(x => x.id === d.id) || ai.steps.findLast(x => x.st === 'run'); if (s) { s.st = d.ok ? 'ok' : 'bad'; s.preview = d.preview; } }
     if (d.type === 'todos') ai.todos = d.todos;
     if (d.type === 'usage') { ai.tin += d.usage.prompt_tokens || 0; ai.tout += d.usage.completion_tokens || 0; }
+    if (d.type === 'cost') ai.cost = { charge: d.charge, pct: d.pct };
     if (d.type === 'info') ai.steps.push({ name: 'info', text: d.text });
     if (d.type === 'text_end' && ai.content && !/\n$/.test(ai.content)) ai.content += '\n\n';
     if (d.type === 'done' || d.type === 'error') { ai.changed = d.changed; if (d.type === 'error') ai.error = d.text; }
     paint();
   });
-  try { await PCD.agent.run({ sid, text, model: vslug(m), mode: agMode(), maxRounds: +localStorage.getItem('pcAgentMax') || 80, slot: 'chat', history }); }
+  try { await PCD.agent.run({ sid, chatId: chat.id, text, images, model: vslug(m), subModel: cheap ? vslug(cheap) : null, mode, effort: m.effort !== 'none' ? $('#effort')?.value || null : null, budget: +localStorage.getItem('pcAgentBudget') || 0, remote: localStorage.getItem('pcAgentRemote') === '1', maxRounds: +localStorage.getItem('pcAgentMax') || 80, slot: 'chat', history }); }
   catch (x) { ai.error = String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
-  agSub?.(); agSub = null; cancelAnimationFrame(raf); ai.streaming = false; ai.content = ai.content.trim(); setBusy(false); chat.ctrl = null;
+  agSub?.(); agSub = null; cancelAnimationFrame(raf); ai.streaming = false; ai.content = ai.content.trim(); setBusy(false); chat.agentBusy = false; chat.ctrl = null;
   for (const s of ai.steps) if (s.st === 'run') s.st = 'bad';
-  const did = ai.steps.filter(s => s.name !== 'info'), sum = did.length ? `> Agent ${did.length} ขั้นตอน: ${[...new Set(did.map(s => s.name))].join(', ')}${ai.changed?.length ? ' · แก้ ' + ai.changed.slice(0, 10).join(', ') : ''}\n\n` : '';
-  try { const r = await api('/chats/append', { method: 'POST', body: { chat_id: chat.id, title: text, messages: [{ role: 'user', content: text }, { role: 'assistant', content: sum + (ai.content || ai.error || '(ไม่มีข้อความ)') }] } }); if (!chat.id) { chat.id = r.chat_id; setUrl('/chat?id=' + r.chat_id, true); } loadSide(); } catch { /* บันทึกประวัติไม่ได้: งานในเครื่องเสร็จแล้ว ไม่ต้องแจ้ง */ }
+  const did = ai.steps.filter(s => !['info', 'sub'].includes(s.name)), sum = did.length ? `> Agent ${did.length} ขั้นตอน: ${[...new Set(did.map(s => s.name))].join(', ')}${ai.changed?.length ? ' · แก้ ' + ai.changed.slice(0, 10).join(', ') : ''}\n\n` : '';
+  api('/chats/append', { method: 'POST', body: { chat_id: chat.id, messages: [{ role: 'assistant', content: sum + (ai.content || ai.error || '(ไม่มีข้อความ)') }] } }).then(() => loadSide()).catch(() => {});
   renderAll(); api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {});
   if (Date.now() - t0 > 15000) PCD.notify('Agent ทำงานเสร็จแล้ว', (ai.content || ai.error || '').replace(/[#*`>]/g, '').slice(0, 140));
 }
 document.addEventListener('click', async e => {
-  const b = e.target.closest?.('[data-agundo]'); if (!b || !PCD?.agent) return;
-  if (!await confirmSheet('ย้อนไฟล์ทุกไฟล์ที่ Agent แก้/สร้างในรอบล่าสุดกลับเป็นแบบเดิม?', { title: 'ย้อนไฟล์', ok: 'ย้อนเลย' })) return;
-  const done = await PCD.agent.undo(chat.agSid).catch(x => { toast(x.message, 'bad'); return null; }); if (!done) return;
-  const m = chat.msgs[+b.dataset.agundo]; if (m) m.changed = []; renderAll(); toast(done.length ? `ย้อน ${done.length} ไฟล์แล้ว` : 'ไม่มีไฟล์ให้ย้อน', 'ok');
+  const b = e.target.closest?.('[data-agundo], [data-agstep], [data-agplan], [data-aggit]'); if (!b || !PCD?.agent || !chat.id) return;
+  e.preventDefault(); e.stopPropagation();
+  if (b.dataset.agplan != null) { const nx = localStorage.getItem('pcAgentExec') || 'edits'; return agentSend('อนุมัติแผนแล้ว ลงมือทำตามแผนได้เลย', { mode: nx }); }
+  if (b.dataset.aggit != null) {
+    const show = async (action, title) => { const r = await PCD.agent.git('chat', action).catch(x => ({ code: 1, out: x.message })); sheet(title, `<pre class="gitout">${diffPre(r.out.replace(/^\+(?!\+)/gm, '+ ').replace(/^-(?!-)/gm, '- ') || '(ไม่มีอะไร)')}</pre><div class="row"><button class="btn out sm" data-g="diff">ดู diff</button><button class="btn blue sm" data-g="commit">Commit ทั้งหมด</button></div>`, (d, close) => d.querySelectorAll('[data-g]').forEach(x => x.onclick = async () => {
+      if (x.dataset.g === 'diff') { close(); return show('diff', 'git diff'); }
+      const msg = await promptSheet('ข้อความ commit', (chat.msgs.findLast(m => m.role === 'user')?.content || 'AstraCode Agent').split('\n')[0].slice(0, 70), { title: 'Commit', ok: 'Commit' }); if (!msg) return;
+      const r2 = await PCD.agent.git('chat', 'commit', msg); toast(r2.code ? 'commit ไม่สำเร็จ: ' + r2.out.slice(0, 120) : 'commit แล้ว', r2.code ? 'bad' : 'ok'); close();
+    })); };
+    return show('status', 'Git ของโฟลเดอร์');
+  }
+  const step = b.dataset.agstep != null ? +b.dataset.agstep : null;
+  if (!await confirmSheet(step != null ? 'ย้อนไฟล์ที่ Agent แก้ตั้งแต่ขั้นนี้เป็นต้นไปกลับเป็นแบบเดิม?' : 'ย้อนไฟล์ทุกไฟล์ที่ Agent แก้/สร้างในรอบล่าสุดกลับเป็นแบบเดิม?', { title: 'ย้อนไฟล์', ok: 'ย้อนเลย' })) return;
+  const done = await PCD.agent.undo(agSid(), step).catch(x => { toast(x.message, 'bad'); return null; }); if (!done) return;
+  const m = chat.msgs.findLast(x => x.agent); if (m) { if (step == null) m.changed = []; else m.steps.forEach(s => { if (s.step >= step && ['edit_file', 'write_file'].includes(s.name)) s.st = 'bad'; }); } renderAll(); toast(done.length ? `ย้อน ${done.length} ไฟล์แล้ว` : 'ไม่มีไฟล์ให้ย้อน', 'ok');
 });
+// ---------- มือถือ/เครื่องอื่น: ดูและสั่ง Agent ที่ทำงานบนคอม (เปิดแชตเดียวกัน) ----------
+let remoteT = null;
+async function remoteWatch() {
+  clearTimeout(remoteT); const id = chat.id; if (!id || chat.agentBusy) return $('#rmt')?.remove();
+  const d = await api('/remote/' + id).catch(() => null); if (chat.id !== id) return;
+  if (!d || !Array.isArray(d.events) || (!d.running && !d.ask && Date.now() - d.updated_at > 10 * 60e3)) return $('#rmt')?.remove();
+  let box = $('#rmt'); if (!box) { box = document.createElement('div'); box.id = 'rmt'; box.className = 'rmt'; $('#msgs')?.before(box); }
+  const evs = d.events.filter(x => ['tool', 'sub', 'info', 'done', 'error', 'tool_result'].includes(x.type)).slice(-14);
+  box.innerHTML = `<div class="rmt-h">${ic('server', 'sm')} <b>Agent บนคอม</b> <span class="muted">${d.running ? (d.live ? 'กำลังทำงาน' : 'ขาดการติดต่อ') : 'หยุดแล้ว'}</span></div>
+    <div class="rmt-ev">${evs.map(x => x.type === 'tool' ? `<div>${ic(AG_ICON[x.name] || 'server', 'sm')} ${esc(x.name)} <code>${esc(String(agArg(x)).slice(0, 80))}</code></div>` : x.type === 'tool_result' ? '' : x.type === 'sub' ? `<div class="muted">↳ ${esc(x.name)} <code>${esc(String(agArg(x)).slice(0, 60))}</code></div>` : x.type === 'done' ? `<div><b>เสร็จ:</b> ${esc((x.final || '').slice(0, 300))}</div>` : `<div class="${x.type === 'error' ? 'bad' : 'muted'}">${esc(x.text || '')}</div>`).join('')}</div>
+    ${d.ask ? `<div class="rmt-ask"><b>${esc(d.ask.title)}</b><pre>${diffPre(d.ask.detail || '')}</pre><div class="row"><button class="btn blue sm" data-rv="yes">อนุญาต</button>${d.ask.allowAll ? '<button class="btn out sm" data-rv="all">อนุญาตทั้งงาน</button>' : ''}<button class="btn red sm" data-rv="no">ไม่อนุญาต</button></div></div>` : ''}
+    ${d.running ? `<form class="row rmt-say"><input placeholder="พิมพ์แทรกถึง Agent…" maxlength="2000"><button class="btn out sm">ส่ง</button></form>` : ''}`;
+  box.querySelectorAll('[data-rv]').forEach(b => b.onclick = async () => { await api(`/remote/${id}/answer`, { method: 'POST', body: { id: d.ask.id, v: b.dataset.rv } }).catch(x => toast(x.message, 'bad')); toast('ส่งคำตอบแล้ว', 'ok'); remoteWatch(); });
+  box.querySelector('.rmt-say')?.addEventListener('submit', async e => { e.preventDefault(); const i = e.target.querySelector('input'); if (!i.value.trim()) return; await api(`/remote/${id}/say`, { method: 'POST', body: { text: i.value } }).catch(x => toast(x.message, 'bad')); i.value = ''; toast('ส่งถึง Agent แล้ว', 'ok'); });
+  if (!box.contains(document.activeElement)) remoteT = setTimeout(remoteWatch, d.running || d.ask ? 3000 : 15000); else remoteT = setTimeout(remoteWatch, 6000);
+}
 
 // กันเหนียว: error ที่หลุดมานอก try ต้องเห็นบนจอ ไม่ใช่เงียบหายไปเลย
 addEventListener('error', e => { try { if (e.message) showErr('ผิดพลาด: ' + e.message); } catch {} });

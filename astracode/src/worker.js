@@ -86,6 +86,7 @@ export default {
       }
       return new Response(null, { status: 303, headers: { location: '/chat?' + q } });
     }
+    if (path === '/download/cli' && M === 'GET') return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/astra-cli.zip', 302); // Agent ในเทอร์มินัล (workflow desktop.yml)
     if (path === '/download/desktop' && M === 'GET') { // ตัวติดตั้ง AstraCode Desktop (workflow desktop.yml อัปขึ้น R2)
       const os = new URL(req.url).searchParams.get('os'), f = { mac: 'AstraCode-Desktop-mac.dmg', linux: 'AstraCode-Desktop-linux.AppImage' }[os];
       if (f) return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/' + f, 302);

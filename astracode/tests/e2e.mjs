@@ -138,7 +138,7 @@ const FLOWS = [
     const init = () => { try { localStorage.setItem('pc', '1'); localStorage.setItem('pcAgent', '1'); localStorage.setItem('pcAgentMode', 'edits'); } catch { return; } const subs = new Set(), log = window.__desk = [];
       window.astraDesktop = { notify: async () => false, fs: { linked: async k => k === 'chat' ? { name: 'proj', path: 'C:/proj' } : null }, mcp: { tools: async () => [] }, screen: { state: async () => false },
         agent: { needKey: async () => true, setKey: async k => (log.push(['key', k]), true), onEvent: f => (subs.add(f), () => subs.delete(f)), stop: async () => true, undo: async () => ['src/a.js'],
-          run: async o => { log.push(['run', o.model, o.mode, o.text]); const ev = d => subs.forEach(f => f({ sid: o.sid, ...d }));
+          run: async o => { log.push(['run', o.model, o.mode, o.text, o.sid]); const ev = d => subs.forEach(f => f({ sid: o.sid, ...d }));
             ev({ type: 'todos', todos: [{ content: 'อ่านโค้ด', status: 'completed' }, { content: 'แก้บั๊ก', status: 'in_progress' }] });
             ev({ type: 'tool', id: 't1', name: 'read_file', args: { path: 'src/a.js' } }); ev({ type: 'tool_result', id: 't1', ok: true, preview: '1\tconst x' });
             ev({ type: 'tool', id: 't2', name: 'edit_file', args: { path: 'src/a.js' } }); ev({ type: 'tool_result', id: 't2', ok: true, preview: 'แก้แล้ว' });
@@ -148,7 +148,18 @@ const FLOWS = [
     const log = await page.evaluate(() => window.__desk.slice()), text = await page.locator('#msgs').innerText(), app = calls.find(c => c.p === '/api/chats/append');
     return [!errs.length || errs.join(' | '), log.some(x => x[0] === 'key' && x[1] === 'sk-astra-abc123') || 'no API key handed to the app', log.some(x => x[0] === 'run' && x[1] === 'sonnet' && x[2] === 'edits') || 'agent not run with model slug + mode: ' + JSON.stringify(log),
       !calls.some(c => c.p === '/api/chat') || 'went through the normal chat instead of the agent', /Agent 2 ขั้นตอน/.test(text) && /แก้บั๊ก/.test(text) || 'steps/todos not shown: ' + text.slice(0, 300),
-      /ย้อนไฟล์ที่ Agent แก้/.test(text) || 'undo button missing', !!app && /แก้ src\/a.js เรียบร้อย/.test(app.body) || 'turn not saved to chat'];
+      /ย้อนทั้งรอบ/.test(text) || 'undo button missing', calls.some(c => c.p === '/api/chats/append' && /แก้ src\/a.js เรียบร้อย/.test(c.body)) || 'answer not saved to chat', calls.some(c => c.p === '/api/chats/append' && /แก้บั๊กในโปรเจกต์/.test(c.body)) || 'prompt not saved first',
+      log.some(x => x[0] === 'run' && x[4] === 'c55') || 'session not tied to the chat id'];
+  }],
+  ['phone: a chat with an agent running on the computer shows progress and lets you approve and type', async () => {
+    const remote = { events: [{ type: 'tool', name: 'edit_file', args: { path: 'src/a.js' } }, { type: 'info', text: 'กำลังทำ' }], ask: { id: 3, title: 'ขอรันคำสั่ง', detail: 'npm test', allowAll: true }, running: true, live: true, updated_at: Date.now() };
+    const { page, errs, calls } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'งานบนคอม' }], '/api/chats/81': [{ id: 1, role: 'user', content: 'แก้บั๊ก' }], '/api/remote/81': remote, '/api/remote/81/answer': { ok: true }, '/api/remote/81/say': { ok: true } });
+    await page.waitForTimeout(900);
+    const panel = await page.locator('#rmt').innerText().catch(() => '');
+    await page.click('#rmt [data-rv="yes"]'); await page.waitForTimeout(300);
+    await page.fill('#rmt .rmt-say input', 'ใช้ yarn'); await page.click('#rmt .rmt-say button'); await page.waitForTimeout(300);
+    const ans = calls.find(c => c.p === '/api/remote/81/answer'), say = calls.find(c => c.p === '/api/remote/81/say');
+    return [!errs.length || errs.join(' | '), /Agent บนคอม/.test(panel) && /edit_file/.test(panel) && /ขอรันคำสั่ง/.test(panel) || 'panel missing: ' + panel, /"v":"yes"/.test(ans?.body || '') || 'answer not sent', /ใช้ yarn/.test(say?.body || '') || 'message not sent'];
   }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });

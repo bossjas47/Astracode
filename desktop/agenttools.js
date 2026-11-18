@@ -20,25 +20,50 @@ const AGENT_TOOLS = [
   fn('kill_bash', 'Stop a background command.', { id: S('Background command id') }, ['id']),
   fn('web_fetch', 'Download a web page or file as text (HTML is converted to text). Max 40,000 characters.', { url: S('http(s) URL') }, ['url']),
   fn('web_search', 'Search the web. Returns titles, URLs and snippets.', { query: S('Search query') }, ['query']),
+  fn('screenshot_url', 'Open a web page (e.g. your dev server http://localhost:5173) in a hidden browser and look at a screenshot of it, to check the UI visually.', { url: S('http(s) URL'), width: N('Viewport width, default 1280') }, ['url']),
+  fn('task', 'Hand a self-contained research sub-task to a helper agent that can only read files and search (no edits, no commands). Several task calls in one reply run in parallel. Returns the helper\'s report.', { description: S('3-6 word title'), prompt: S('Full instructions: what to find and what to report back') }, ['description', 'prompt']),
   fn('todo_write', 'Keep a short task list for multi-step work; the user sees it live. Send the whole list each time.', { todos: { type: 'array', items: { type: 'object', properties: { content: S('Task'), status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] } }, required: ['content', 'status'] } } }, ['todos']),
 ];
-const KIND = { read_file: 'read', list_dir: 'read', glob: 'read', grep: 'read', web_fetch: 'net', web_search: 'net', todo_write: 'none', bash_output: 'none', kill_bash: 'none', write_file: 'edit', edit_file: 'edit', bash: 'bash' };
+const KIND = { read_file: 'read', list_dir: 'read', glob: 'read', grep: 'read', web_fetch: 'net', web_search: 'net', screenshot_url: 'net', task: 'none', todo_write: 'none', bash_output: 'none', kill_bash: 'none', write_file: 'edit', edit_file: 'edit', bash: 'bash' };
+const READ_ONLY = new Set(['read_file', 'list_dir', 'glob', 'grep', 'web_fetch', 'web_search', 'screenshot_url', 'todo_write', 'task']); // โหมดวางแผน
+const SUB_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'web_fetch', 'web_search']); // ผู้ช่วยค้น (subagent)
+
+// diff บรรทัด (LCS) สำหรับแสดงก่อนอนุญาต/ในแชต: บรรทัดขึ้นต้น "- " = ลบ, "+ " = เพิ่ม, "  " = บรรทัดรอบๆ (ไฟล์ใหญ่มาก: สรุปจำนวนบรรทัดแทน)
+function diffLines(a, b, ctx = 2, max = 160) {
+  const A = String(a ?? '').split(/\r?\n/), B = String(b ?? '').split(/\r?\n/);
+  if (A.length * B.length > 4e6) return `(ไฟล์ใหญ่: ${A.length} → ${B.length} บรรทัด)`;
+  const n = A.length, m = B.length, L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const ops = []; let i = 0, j = 0;
+  while (i < n || j < m) { if (i < n && j < m && A[i] === B[j]) { ops.push(['  ', A[i]]); i++; j++; } else if (i < n && (j >= m || L[i + 1][j] >= L[i][j + 1])) { ops.push(['- ', A[i]]); i++; } else { ops.push(['+ ', B[j]]); j++; } }
+  if (ops.every(o => o[0] === '  ')) return '(ไม่มีอะไรเปลี่ยน)';
+  const keep = ops.map((o, k) => o[0] !== '  ' || ops.slice(Math.max(0, k - ctx), k + ctx + 1).some(x => x[0] !== '  '));
+  const out = []; let gap = false;
+  ops.forEach((o, k) => { if (keep[k]) { out.push(o[0] + o[1]); gap = false; } else if (!gap) { out.push('  …'); gap = true; } });
+  return out.length > max ? out.slice(0, max).join('\n') + `\n…(อีก ${out.length - max} บรรทัด)` : out.join('\n');
+}
 
 // glob → regex: ** = หลายชั้นโฟลเดอร์, * = ในชั้นเดียว, ? = ตัวเดียว, {a,b} = ตัวเลือก
 const globRe = g => new RegExp('^' + String(g).replace(/\\/g, '/').replace(/[.+^$()|[\]]/g, '\\$&').replace(/\{([^}]+)\}/g, (_, x) => '(' + x.split(',').join('|') + ')').replace(/\*\*\/?/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\u0000/g, '(?:.*/)?') + '$', 'i');
 
 class Workspace {
-  constructor(root, { ask = async () => true, fetchImpl = fetch, search = async () => [], onTodos = () => {} } = {}) {
+  constructor(root, { ask = async () => true, fetchImpl = fetch, search = async () => [], onTodos = () => {}, shot = null, subagent = null, hooks = null } = {}) {
     this.root = path.resolve(root); this.cwd = this.root; this.ask = ask; this.fetchImpl = fetchImpl; this.search = search; this.onTodos = onTodos;
-    this.snap = new Map(); this.bg = new Map(); this.n = 0;
+    this.shot = shot; this.subagent = subagent; this.hooks = hooks; // hooks: { after_edit: "npx prettier --write {file}" } (ผู้ใช้ยืนยันแล้วใน main)
+    this.hist = []; this.step = 0; this.runFrom = 0; this.bg = new Map(); this.n = 0;
   }
   abs(p) { return path.resolve(this.cwd, String(p ?? '.')); }
   inside(a) { return a === this.root || a.startsWith(this.root + path.sep); }
   rel(a) { return this.inside(a) ? path.relative(this.root, a).split(path.sep).join('/') || '.' : a; }
-  // ก่อนแก้ไฟล์: เก็บเนื้อหาเดิมไว้ย้อนกลับ (null = ไฟล์ใหม่ ย้อน = ลบทิ้ง)
-  async keep(a) { if (!this.snap.has(a)) this.snap.set(a, await fs.readFile(a).catch(() => null)); }
-  async undo() { const done = []; for (const [a, buf] of this.snap) { if (buf === null) await fs.rm(a, { force: true }); else { await fs.mkdir(path.dirname(a), { recursive: true }); await fs.writeFile(a, buf); } done.push(this.rel(a)); } this.snap.clear(); return done; }
-  changed() { return [...this.snap.keys()].map(a => this.rel(a)); }
+  // ก่อนแก้ไฟล์ทุกครั้ง: เก็บเนื้อหาเดิมพร้อมเลขขั้นตอน (null = ไฟล์ใหม่ ย้อน = ลบทิ้ง) → ย้อนไปขั้นไหนก็ได้
+  async keep(a) { this.hist.push({ step: this.step, a, buf: await fs.readFile(a).catch(() => null) }); }
+  async undoTo(step = this.runFrom) {
+    const done = new Set();
+    for (const h of this.hist.filter(x => x.step >= step).reverse()) { if (h.buf === null) await fs.rm(h.a, { force: true }); else { await fs.mkdir(path.dirname(h.a), { recursive: true }); await fs.writeFile(h.a, h.buf); } done.add(this.rel(h.a)); }
+    this.hist = this.hist.filter(x => x.step < step); return [...done];
+  }
+  undo() { return this.undoTo(this.runFrom); }
+  changed() { return [...new Set(this.hist.filter(x => x.step >= this.runFrom).map(x => this.rel(x.a)))]; }
   async walk(dir, fnv, depth = 0) {
     if (depth > 25) return; let items; try { items = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const it of items) { const a = path.join(dir, it.name); if (it.isDirectory()) { if (!SKIP.test(it.name) && !it.name.startsWith('.')) { if (await fnv(a, true) === false) return false; if (await this.walk(a, fnv, depth + 1) === false) return false; } } else if (it.isFile() && await fnv(a, false) === false) return false; }
@@ -47,8 +72,14 @@ class Workspace {
   async call(name, a = {}) {
     const kind = KIND[name]; if (!kind) throw new Error('ไม่รู้จักเครื่องมือ ' + name);
     const target = ['read_file', 'write_file', 'edit_file', 'list_dir', 'glob', 'grep'].includes(name) ? this.abs(a.path ?? '.') : null;
-    if (!await this.ask({ name, kind, args: a, outside: target ? !this.inside(target) : false, danger: name === 'bash' && isDanger(a.command), cwd: this.cwd })) return 'Error: ผู้ใช้ไม่อนุญาต';
-    return this[name](a, target);
+    const diff = name === 'edit_file' ? diffLines(a.old_string, a.new_string) : name === 'write_file' ? diffLines(await fs.readFile(target, 'utf8').catch(() => ''), a.content) : null;
+    if (!await this.ask({ name, kind, args: a, outside: target ? !this.inside(target) : false, danger: name === 'bash' && isDanger(a.command), cwd: this.cwd, diff })) return 'Error: ผู้ใช้ไม่อนุญาต';
+    let out = await this[name](a, target);
+    if (diff && !String(out).startsWith('Error')) {
+      out += '\n' + diff;
+      if (this.hooks?.after_edit) { const r = await runCmd(this.root, this.hooks.after_edit.replace(/\{file\}/g, JSON.stringify(target)), { timeout: 60e3, signal: this.signal }); out += `\n[hook after_edit exit ${r.code}]${(r.stdout + r.stderr).trim() ? '\n' + (r.stdout + r.stderr).trim().slice(-1500) : ''}`; }
+    }
+    return out;
   }
   async read_file(a, f) {
     const st = await fs.stat(f); if (st.isDirectory()) return this.list_dir(a, f);
@@ -113,6 +144,11 @@ class Workspace {
     return `HTTP ${r.status}\n${t.trim().slice(0, 40000)}`;
   }
   async web_search(a) { const rs = await this.search(String(a.query || '')); return rs.length ? rs.map((x, i) => `[${i + 1}] ${x.title}\n${x.url}\n${x.content}`).join('\n\n') : 'ไม่พบผลลัพธ์'; }
+  async screenshot_url(a) {
+    if (!this.shot) return 'Error: จับภาพหน้าเว็บใช้ได้เฉพาะในแอป'; const u = String(a.url || ''); if (!/^https?:\/\//i.test(u)) return 'Error: ต้องเป็นลิงก์ http(s)';
+    const img = await this.shot(u, Math.min(1920, Math.max(360, +a.width || 1280))); return { text: `ภาพหน้าจอของ ${u} (แนบด้านล่าง)`, images: [img] };
+  }
+  async task(a) { if (!this.subagent) return 'Error: ไม่มีผู้ช่วย'; return await this.subagent(String(a.description || 'งานย่อย').slice(0, 60), String(a.prompt || '')); }
   async todo_write(a) { const t = (Array.isArray(a.todos) ? a.todos : []).slice(0, 30).map(x => ({ content: String(x.content || '').slice(0, 200), status: ['pending', 'in_progress', 'completed'].includes(x.status) ? x.status : 'pending' })); this.onTodos(t); return 'บันทึกรายการงานแล้ว'; }
 }
 
@@ -135,4 +171,8 @@ async function projectRules(root) {
   return '';
 }
 
-module.exports = { AGENT_TOOLS, KIND, Workspace, globRe, agentSystem, projectRules };
+async function projectHooks(root) { try { const h = JSON.parse(await fs.readFile(path.join(root, '.astra', 'hooks.json'), 'utf8')); return h && typeof h.after_edit === 'string' && h.after_edit.trim() ? { after_edit: h.after_edit.trim().slice(0, 300) } : null; } catch { return null; } }
+// คำสั่งลัดของโปรเจกต์: .astra/commands/<ชื่อ>.md → /ชื่อ ($ARGUMENTS = ข้อความหลังคำสั่ง)
+async function projectCommands(root) { const dir = path.join(root, '.astra', 'commands'), out = []; for (const f of await fs.readdir(dir).catch(() => [])) if (/^[\w-]{1,30}\.md$/.test(f)) out.push({ name: f.slice(0, -3), text: (await fs.readFile(path.join(dir, f), 'utf8').catch(() => '')).slice(0, 8000) }); return out.slice(0, 50); }
+
+module.exports = { AGENT_TOOLS, KIND, READ_ONLY, SUB_TOOLS, Workspace, globRe, diffLines, agentSystem, projectRules, projectHooks, projectCommands };

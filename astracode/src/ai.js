@@ -404,6 +404,7 @@ export function excerptFiles(content, question) {
 export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null, flag = null } = {}) {
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
+  usage._units = un; // ให้ /v1 บอกลูกค้าว่าคำขอนี้ใช้ลิมิตไปกี่ % (ไม่เปิดเผยต้นทุน)
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   let charge = 0;

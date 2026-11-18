@@ -3,29 +3,35 @@
 const TOOL_OUT_MAX = 60000;
 const COMPACT_AT = 350000; // ตัวอักษรรวมของบทสนทนา (~100k token) เกินนี้ → ย่อส่วนเก่าก่อนรอบถัดไป
 
-async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT }) {
+// inbox(): ข้อความที่ผู้ใช้พิมพ์แทรกระหว่างทำงาน (เข้าไปก่อนรอบถัดไป) · effort: ระดับการคิด (โชว์ Thinking ในแชต) · onStep(n): เลขขั้นตอนก่อนเรียกเครื่องมือ (ใช้ย้อนไฟล์)
+async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {} }) {
   const post = (body) => fetchImpl(base.replace(/\/$/, '') + '/chat/completions', { method: 'POST', signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
   for (let round = 0; round < maxRounds; round++) {
     if (signal?.aborted) throw new Error('หยุดแล้ว');
+    for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
     if (JSON.stringify(messages).length > compactAt) await compact({ post, model, messages, onEvent });
-    const r = await post({ model, messages, stream: true, ...(tools.length ? { tools } : {}) });
+    const r = await post({ model, messages, stream: true, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) });
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error?.message_th || d.error?.message || 'HTTP ' + r.status); }
     const msg = await readStream(r, onEvent); // สตรีม: ตัวหนังสือขึ้นทีละส่วนเหมือนเว็บ
     messages.push({ role: 'assistant', content: msg.content || null, ...(msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
     if (msg.content) onEvent({ type: 'text_end' });
     if (!msg.tool_calls.length) return messages;
     const images = [];
-    for (const tc of msg.tool_calls) {
+    const run1 = async tc => {
       if (signal?.aborted) throw new Error('หยุดแล้ว');
       let args = {}; try { args = JSON.parse(tc.function?.arguments || '{}'); } catch { /* อาร์กิวเมนต์เสีย: ส่งค่าว่าง ให้เครื่องมือแจ้ง error เอง */ }
-      onEvent({ type: 'tool', id: tc.id, name: tc.function?.name, args });
+      const step = onStep(tc) ?? null;
+      onEvent({ type: 'tool', id: tc.id, name: tc.function?.name, args, step });
       let out;
-      try { out = await callTool(tc.function?.name, args); } catch (e) { out = 'Error: ' + e.message; }
-      if (out && typeof out === 'object') { images.push(...(out.images || [])); out = out.text ?? ''; } // MCP ที่ส่งรูปมา (เช่นภาพหน้าจอ Blender)
+      try { out = await callTool(tc.function?.name, args, tc); } catch (e) { out = 'Error: ' + e.message; }
+      if (out && typeof out === 'object') { images.push(...(out.images || [])); out = out.text ?? ''; } // MCP / ภาพหน้าเว็บ ที่ส่งรูปมา
       out = String(out ?? ''); if (out.length > TOOL_OUT_MAX) out = out.slice(0, TOOL_OUT_MAX / 2) + '\n…(ตัดกลาง เหลือ ' + TOOL_OUT_MAX + ' ตัวอักษร)…\n' + out.slice(-TOOL_OUT_MAX / 2);
-      onEvent({ type: 'tool_result', id: tc.id, name: tc.function?.name, ok: !out.startsWith('Error'), preview: out.slice(0, 600) });
-      messages.push({ role: 'tool', tool_call_id: tc.id, content: out || '(ไม่มีผลลัพธ์)' });
-    }
+      onEvent({ type: 'tool_result', id: tc.id, name: tc.function?.name, ok: !out.startsWith('Error'), preview: out.slice(0, 3000) });
+      return { role: 'tool', tool_call_id: tc.id, content: out || '(ไม่มีผลลัพธ์)' };
+    };
+    // ผู้ช่วยค้น (task) หลายตัวในรอบเดียว = ทำพร้อมกัน · เครื่องมืออื่นทำทีละตัวตามลำดับ
+    if (msg.tool_calls.length > 1 && msg.tool_calls.every(tc => tc.function?.name === 'task')) messages.push(...await Promise.all(msg.tool_calls.map(run1)));
+    else for (const tc of msg.tool_calls) messages.push(await run1(tc));
     if (images.length) messages.push({ role: 'user', content: [{ type: 'text', text: 'ภาพจากเครื่องมือด้านบน' }, ...images.slice(0, 4).map(url => ({ type: 'image_url', image_url: { url } }))] }); // tool message ส่งรูปไม่ได้ จึงแนบเป็นข้อความถัดไป
   }
   onEvent({ type: 'delta', text: `\n\n(หยุด: ทำงานครบ ${maxRounds} รอบแล้ว สั่ง "ทำต่อ" ได้)` });

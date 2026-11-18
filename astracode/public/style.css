@@ -1432,3 +1432,13 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .agtodo { border: 1px solid var(--steel); border-radius: 10px; padding: 8px 10px; margin: 0 0 8px; display: grid; gap: 3px; }
 .agtodo .completed { opacity: .55; text-decoration: line-through; } .agtodo .in_progress { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .agsp { animation: none; } }
+.agstep.sub { border-left-style: dashed; color: var(--ash); font-size: 12px; }
+.agstep .agback { margin-left: auto; background: none; border: 0; color: var(--ash); cursor: pointer; padding: 0 4px; }
+.agstep pre .dadd, .gitout .dadd, .rmt pre .dadd { color: var(--green); } .agstep pre .ddel, .gitout .ddel, .rmt pre .ddel { color: var(--red); }
+.gitout { white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto; font-size: 12px; background: var(--carbon); padding: 10px; border-radius: 10px; }
+/* มือถือ: แผงสั่ง Agent ที่ทำงานบนคอม */
+.rmt { margin: 8px auto; max-width: 760px; border: 1px solid var(--steel); border-radius: 14px; padding: 10px 12px; font-size: 13px; display: grid; gap: 8px; }
+.rmt-h { display: flex; gap: 6px; align-items: center; } .rmt-ev { display: grid; gap: 2px; max-height: 220px; overflow: auto; }
+.rmt-ev code { opacity: .8; } .rmt-ask { border: 1px solid var(--yellow, #e0af68); border-radius: 10px; padding: 8px; }
+.rmt-ask pre { white-space: pre-wrap; max-height: 200px; overflow: auto; font-size: 12px; margin: 6px 0; }
+.rmt-say input { flex: 1; }
