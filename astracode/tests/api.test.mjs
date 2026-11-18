@@ -225,3 +225,16 @@ test('wallet: up to 4 requests can run at once; a 5th waits; the balance never g
   assert.ok(bal() >= 0, 'balance ' + bal());
   fm.close();
 });
+
+test('api: OpenRouter-style /v1/credits and /v1/key answer instead of 404; /v1/models/<id> works', async () => {
+  const t = await makeEnv(), m = addModel(t.DB, { name: 'Flash X', provider: 'openai', base_url: 'http://x' }), u = await t.user();
+  t.DB.raw.prepare('UPDATE users SET balance=50 WHERE id=?').run(u.id);
+  const { data: k } = await t.json('/api/keys', { method: 'POST', cookie: u.cookie, body: { name: 'cline' } });
+  const h = { authorization: 'Bearer ' + k.key };
+  const c = await t.json('/v1/credits', { headers: h }); assert.equal(c.status, 200); assert.equal(c.data.data.total_credits - c.data.data.total_usage, 50);
+  const kk = await t.json('/v1/key', { headers: h }); assert.equal(kk.data.data.label, 'cline');
+  const list = await t.json('/v1/models', { headers: h }), id = list.data.data[0].id;
+  assert.equal((await t.json('/v1/models/' + id, { headers: h })).data.id, id);
+  assert.equal((await t.json('/v1/models/nope', { headers: h })).status, 404);
+  void m;
+});

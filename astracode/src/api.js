@@ -45,6 +45,12 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const planIds = canPlan ? new Set((await env.DB.prepare('SELECT model_id FROM plan_models WHERE plan_id=?').bind(plan.id).all()).results.map(x => x.model_id)) : null;
     const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id)));
     if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
+    if (path.startsWith('/v1/models/')) { const m = models.find(x => slug(x) === decodeURIComponent(path.slice(11))); return m ? out({ id: slug(m), object: 'model', created: 0, owned_by: m.provider }) : fail(`ไม่พบโมเดล "${decodeURIComponent(path.slice(11)).slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404); }
+    // แบบ OpenRouter: Cline / Kilo / Roo เรียกดูเครดิตที่เหลือทุกไม่กี่วินาที (เดิมตอบ 404 เต็มหน้าแอดมิน) · หน่วยเป็นบาทของ Wallet
+    if (path === '/v1/credits' || path === '/v1/key' || path === '/v1/auth/key') {
+      const used = k.spent_month === monthKey() ? +k.spent || 0 : 0, bal = Math.max(0, +k.balance || 0);
+      return out(path === '/v1/credits' ? { data: { total_credits: +(bal + used).toFixed(4), total_usage: +used.toFixed(4) } } : { data: { label: k.kname || 'key', usage: +used.toFixed(4), limit: k.budget || null, limit_remaining: k.budget ? +Math.max(0, k.budget - used).toFixed(4) : null, is_free_tier: !(plan?.price > 0), balance: bal } });
+    }
     if (path === '/v1/usage' && req.method === 'GET') {
       const st = await usageStatus(env, k, plan);
       const month = monthKey(), keySpent = k.spent_month === month ? k.spent : 0;
