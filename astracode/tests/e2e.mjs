@@ -74,6 +74,13 @@ const FLOWS = [
     const clip = await page.evaluate(() => window.__clip), label = await page.locator('.msg.ai .cp-msg').innerText();
     return [!errs.length || errs.join(' | '), /ตัวหนา/.test(clip) || 'nothing copied: ' + clip, !/[*#`]/.test(clip) || 'markdown left: ' + clip, /คัดลอกแล้ว/.test(label) || 'no copied feedback'];
   }],
+  ['selecting text after opening chats several times shows one selection bar', async () => {
+    const { page, errs } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'x' }], '/api/chats/81': [{ id: 1, role: 'user', content: 'ถาม' }, { id: 2, role: 'assistant', content: 'คำตอบยาวพอสำหรับเลือก' }] });
+    for (let i = 0; i < 3; i++) { await page.evaluate(() => chatView(81)); await page.waitForTimeout(300); }
+    await page.evaluate(() => { const r = document.createRange(); r.selectNodeContents(document.querySelector('.msg.ai .b p')); getSelection().removeAllRanges(); getSelection().addRange(r); }); await page.waitForTimeout(500);
+    const n = await page.locator('.selbar').count();
+    return [!errs.length || errs.join(' | '), n === 1 || `${n} selection bars`];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);

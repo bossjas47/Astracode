@@ -196,8 +196,9 @@ async function chatView(id) {
   $('#f').onsubmit = e => { e.preventDefault(); chat.busy ? stopRun() : send(); };
   $('#file').onchange = async e => { await addFiles([...e.target.files]); e.target.value = ''; };
   // เลือกข้อความในคำตอบ → แถบลอย "อธิบาย / แปล / ถามต่อ" เหนือช่องพิมพ์ (มือถือ: เมนูคัดลอกของระบบบังบริเวณข้อความ จึงไม่วางติดข้อความ)
-  let selBar = null, selT = null;
-  document.addEventListener('selectionchange', () => { clearTimeout(selT); selT = setTimeout(() => {
+  let selT = null;
+  document.onselectionchange = () => { clearTimeout(selT); selT = setTimeout(() => { // ตั้งแทนที่ (ไม่ใช่ addEventListener): เปิดแชตใหม่กี่ครั้งก็มีตัวฟังตัวเดียว แถบเดียว
+    let selBar = document.querySelector('.selbar');
     const sel = getSelection(), txt = sel?.toString().trim() || '', node = sel?.anchorNode?.parentElement;
     if (!txt || txt.length < 2 || !node?.closest('#msgs .msg')) { selBar?.remove(); selBar = null; return; }
     if (!selBar) { selBar = document.createElement('div'); selBar.className = 'selbar'; $('#f').before(selBar); }
@@ -205,7 +206,7 @@ async function chatView(id) {
     selBar.innerHTML = [['explain', 'อธิบายตรงนี้', 'อธิบายส่วนนี้ให้ละเอียดและเข้าใจง่ายขึ้น'], ['tr', 'แปล', 'แปลส่วนนี้ (ไทย↔อังกฤษ)'], ['ask', 'ถามต่อ', '']].map(([k, l]) => `<button type="button" data-sel="${k}">${l}</button>`).join('');
     selBar.querySelectorAll('[data-sel]').forEach((b, i) => b.onpointerdown = e => { e.preventDefault(); const p = ['อธิบายส่วนนี้ให้ละเอียดและเข้าใจง่ายขึ้น', 'แปลส่วนนี้ (ไทย↔อังกฤษ)', ''][i];
       t.value = `> ${q}\n\n${p}`; selBar.remove(); selBar = null; getSelection().removeAllRanges(); t.focus(); t.setSelectionRange(t.value.length, t.value.length); t.oninput(); if (p) $('#f').requestSubmit(); });
-  }, 250); });
+  }, 250); };
   const comp = $('.compose'); // ลากไฟล์มาวาง / วางรูปจากคลิปบอร์ด
   comp.ondragover = e => { e.preventDefault(); comp.classList.add('drop'); };
   comp.ondragleave = () => comp.classList.remove('drop');
