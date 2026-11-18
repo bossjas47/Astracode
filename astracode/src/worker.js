@@ -88,7 +88,7 @@ export default {
     }
     if (path === '/download/desktop' && M === 'GET') { // ตัวติดตั้ง AstraCode Desktop (workflow desktop.yml อัปขึ้น R2)
       const o = env.SLIPS && await env.SLIPS.get('dl/AstraCode-Desktop-Setup.exe');
-      if (!o) return new Response('ยังไม่มีไฟล์ติดตั้ง ลองใหม่ภายหลัง', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      if (!o) return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/AstraCode-Desktop-Setup.exe', 302); // ไฟล์อยู่ที่ GitHub Release (workflow desktop.yml)
       return new Response(o.body, { headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="AstraCode-Desktop-Setup.exe"', 'content-length': String(o.size), 'cache-control': 'public, max-age=300' } });
     }
     if (!path.startsWith('/api/')) { // URL สะอาด: ไม่มี .html, หน้าแรกอยู่ที่ / (ไฟล์ home.html)

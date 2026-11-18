@@ -31,16 +31,19 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: AstraCode-Desktop-Setup
           path: out
-      # ลิงก์ดาวน์โหลดบนเว็บ (/download/desktop) อ่านไฟล์นี้จาก R2
-      - name: Upload to R2
+      # ลิงก์ดาวน์โหลดบนเว็บ (/download/desktop) ชี้มาที่ไฟล์นี้ใน GitHub Release แท็ก desktop-latest (ชื่อไฟล์คงที่ ทับของเดิมทุกครั้ง)
+      - name: Publish to GitHub Release
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          f=$(ls out/*.exe | head -1); echo "$f"
-          npx --yes wrangler@4.162.0 r2 object put astracode/dl/AstraCode-Desktop-Setup.exe --file "$f" --content-type application/octet-stream --remote
+          f=$(ls out/*.exe | head -1); cp "$f" AstraCode-Desktop-Setup.exe
+          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "AstraCode Desktop" --notes "ตัวติดตั้ง Windows ล่าสุด" --target "${{ github.sha }}"
+          gh release upload desktop-latest AstraCode-Desktop-Setup.exe --clobber
