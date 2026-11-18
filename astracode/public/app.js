@@ -228,6 +228,13 @@ let a11yT = 0;
 if (typeof MutationObserver !== 'undefined') new MutationObserver(() => { clearTimeout(a11yT); a11yT = setTimeout(() => a11yFix(), 120); }).observe(document.documentElement, { childList: true, subtree: true });
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
+// เปิดในแอป AstraCode Desktop: ปุ่มเปิดหน้าต่าง "ทำงานในเครื่อง" (ครั้งแรกสร้าง API key ชื่อ Desktop จากบัญชีที่ล็อกอินอยู่ให้แอป)
+const deskLink = (cls = '') => window.astraDesktop && me ? `<a class="${cls}" href="#" data-desk>${ic('code')}<span>💻 ทำงานในเครื่อง</span></a>` : '';
+document.addEventListener('click', async e => {
+  const b = e.target.closest?.('[data-desk]'); if (!b || !window.astraDesktop) return; e.preventDefault();
+  try { let k = ''; if (await window.astraDesktop.needKey()) k = (await api('/keys', { method: 'POST', body: { name: 'Desktop' } })).key; await window.astraDesktop.openAgent(k); }
+  catch (x) { toast(x.message, 'bad'); }
+});
 const navL = (h, t, i) => `<a class="l${curl().pathname === h ? ' on' : ''}" href="${h}">${ic(i)}<span>${t}</span></a>`;
 // มุมขวาบน: ล็อกอินแล้ว = วงแหวนลิมิต (กดเปิดรายละเอียด) + ยอด Wallet + ปุ่มบัญชี · ยังไม่ล็อกอิน = Log in + Get started free
 const navRight = () => me
@@ -256,7 +263,7 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-la
 const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<a class="l" href="/blog?c=1" id="clnav">${ic('sparkles')}<span>มีอะไรใหม่</span></a>${navL('/support', 'ติดต่อเรา / แจ้งปัญหา', 'mail').replace('class="l', 'class="l contact-l')}${['admin', 'support', 'viewer'].includes(me.role) ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
+  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${deskLink('l')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<a class="l" href="/blog?c=1" id="clnav">${ic('sparkles')}<span>มีอะไรใหม่</span></a>${navL('/support', 'ติดต่อเรา / แจ้งปัญหา', 'mail').replace('class="l', 'class="l contact-l')}${['admin', 'support', 'viewer'].includes(me.role) ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
        : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {

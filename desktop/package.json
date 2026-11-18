@@ -1,6 +1,6 @@
 {
   "name": "astracode-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AstraCode Desktop: AI agent that works on files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "AstraCode",
@@ -21,7 +21,7 @@
   "build": {
     "appId": "xyz.panderx.astracode.desktop",
     "productName": "AstraCode Desktop",
-    "files": ["main.js", "preload.js", "agent.js", "tools.js", "mcp.js", "renderer/**"],
+    "files": ["main.js", "preload.js", "preload-web.js", "agent.js", "tools.js", "mcp.js", "renderer/**"],
     "win": { "target": "nsis", "icon": "build/icon.png" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "artifactName": "AstraCode-Desktop-Setup-${version}.exe" }
   }

@@ -27,9 +27,23 @@ astra.onApprove(a => {
   const done = ok => { $('#ask').close(); astra.reply(a.id, ok); };
   $('#yes').onclick = () => done(true); $('#no').onclick = () => done(false); $('#ask').showModal();
 });
+// markdown แบบย่อ: escape ก่อนทั้งหมด แล้วค่อยใส่แท็ก (กล่องโค้ด, `โค้ด`, **ตัวหนา**, หัวข้อ, รายการ) ข้อความจาก AI จึงรันสคริปต์ไม่ได้
+const escH = t => t.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const inline = t => t.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+function md(src) {
+  return String(src).split(/```/).map((part, i) => {
+    if (i % 2) { const nl = part.indexOf('\n'), lang = nl > 0 ? part.slice(0, nl).trim() : '', code = nl >= 0 ? part.slice(nl + 1) : part; return `<div class="code"><div class="code-h"><span>${escH(lang || 'code')}</span><button class="cp">Copy</button></div><pre>${escH(code.replace(/\n$/, ''))}</pre></div>`; }
+    return escH(part).split('\n').map(l => /^#{1,3} /.test(l) ? `<h4>${inline(l.replace(/^#+ /, ''))}</h4>` : /^\s*[-*] /.test(l) ? `<li>${inline(l.replace(/^\s*[-*] /, ''))}</li>` : inline(l)).join('\n');
+  }).join('');
+}
+log.addEventListener('click', e => { const b = e.target.closest('.cp'); if (b) { navigator.clipboard.writeText(b.closest('.code').querySelector('pre').textContent); b.textContent = 'คัดลอกแล้ว'; setTimeout(() => b.textContent = 'Copy', 1200); } });
+let cur = null, raw = '';
 astra.onEvent(e => {
-  if (e.type === 'text') add('ai', e.text);
-  else if (e.type === 'tool') add('tool', '▶ ' + e.name + ' ' + short(e.args));
+  if (e.type === 'delta') { if (!cur) { cur = add('ai', ''); raw = ''; } raw += e.text; cur.textContent = raw; log.scrollTop = log.scrollHeight; }
+  else if (e.type === 'text_end') { if (cur) { cur.innerHTML = md(raw); cur.classList.add('md'); } cur = null; }
+  else if (e.type === 'usage') { const u = e.usage; $('#usage').textContent = `${(u.prompt_tokens || 0).toLocaleString()} in · ${(u.completion_tokens || 0).toLocaleString()} out`; }
+  else if (e.type === 'text') add('ai', e.text);
+  else if (e.type === 'tool') { cur = null; add('tool', '▶ ' + e.name + ' ' + short(e.args)); }
   else if (e.type === 'tool_result') add('tool ' + (e.ok ? 'ok' : 'bad'), (e.ok ? '✓ ' : '✗ ') + e.preview);
   else if (e.type === 'info') add('info', e.text);
   else if (e.type === 'done') setBusy(false);

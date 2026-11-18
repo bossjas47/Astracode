@@ -5,7 +5,14 @@ const os = require('os'), fs = require('fs'), path = require('path');
 const { runAgent } = require('../agent');
 const { localTool, safePath } = require('../tools');
 
-const fakeFetch = replies => { const seen = []; return { seen, fetch: async (url, init) => { seen.push(JSON.parse(init.body)); const r = replies.shift(); return { ok: !r.error, status: r.error ? 402 : 200, json: async () => r }; } }; };
+// ตอบเป็นสตรีม SSE แบบเดียวกับ /v1/chat/completions (ข้อความแบ่ง 2 ชิ้น, tool_calls แบ่ง id/name กับ arguments)
+const sse = r => { const m = r.choices[0].message, ev = [];
+  if (m.content) { const h = Math.ceil(m.content.length / 2); ev.push({ choices: [{ delta: { content: m.content.slice(0, h) } }] }, { choices: [{ delta: { content: m.content.slice(h) } }] }); }
+  (m.tool_calls || []).forEach((tc, i) => ev.push({ choices: [{ delta: { tool_calls: [{ index: i, id: tc.id, type: 'function', function: { name: tc.function.name, arguments: '' } }] } }] }, { choices: [{ delta: { tool_calls: [{ index: i, function: { arguments: tc.function.arguments } }] } }] }));
+  if (r.usage) ev.push({ choices: [], usage: r.usage });
+  const body = ev.map(e => 'data: ' + JSON.stringify(e) + '\n\n').join('') + 'data: [DONE]\n\n';
+  return (async function* () { yield new TextEncoder().encode(body.slice(0, 40)); yield new TextEncoder().encode(body.slice(40)); })(); };
+const fakeFetch = replies => { const seen = []; return { seen, fetch: async (url, init) => { seen.push(JSON.parse(init.body)); const r = replies.shift(); return { ok: !r.error, status: r.error ? 402 : 200, json: async () => r, body: r.error ? null : sse(r) }; } }; };
 
 test('agent: calls a tool, sends the result back, stops when the model answers', async () => {
   const f = fakeFetch([
@@ -16,7 +23,7 @@ test('agent: calls a tool, sends the result back, stops when the model answers',
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools: [{}], callTool: async (n, a) => (n === 'read_file' && a.path === 'a.txt' ? 'hi' : 'Error: ?'), onEvent: e => ev.push(e), fetchImpl: f.fetch });
   assert.equal(f.seen.length, 2);
   assert.deepEqual(f.seen[1].messages.at(-1), { role: 'tool', tool_call_id: 'c1', content: 'hi' });
-  assert.ok(ev.some(e => e.type === 'text' && /hi/.test(e.text)));
+  assert.equal(ev.filter(e => e.type === 'delta').map(e => e.text).join(''), 'ไฟล์เขียนว่า hi'); assert.equal(f.seen[0].stream, true);
 });
 
 test('agent: API errors surface in Thai; tool images are attached as a user message', async () => {

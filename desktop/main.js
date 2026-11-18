@@ -73,11 +73,27 @@ ipcMain.handle('run', async (_, text) => {
   return true;
 });
 
-app.whenReady().then(() => {
-  settings = load();
-  win = new BrowserWindow({ width: 1100, height: 760, title: 'AstraCode Desktop', backgroundColor: '#111111', webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+// หน้าต่างหลัก = เว็บ AstraCode ตัวจริง (แชต สตรีม ประวัติ ลิมิต เหมือนเว็บทุกอย่าง อัปเดตตามเว็บเอง) · หน้าต่าง agent = ทำงานในเครื่อง
+const AUTH_HOSTS = /^(astracode\.panderx\.xyz|accounts\.google\.com|[\w-]+\.firebaseapp\.com|access\.line\.me|challenges\.cloudflare\.com)$/; // หน้าเว็บ + หน้าล็อกอินที่ต้องเปิดในหน้าต่างแอป
+let web;
+function openWeb() {
+  web = new BrowserWindow({ width: 1200, height: 820, title: 'AstraCode', backgroundColor: '#111111', webPreferences: { preload: path.join(__dirname, 'preload-web.js'), partition: 'persist:astra', contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  web.setMenuBarVisibility(false);
+  const inApp = u => { try { const x = new URL(u); return x.protocol === 'https:' && AUTH_HOSTS.test(x.hostname); } catch { return false; } };
+  web.webContents.on('will-navigate', (e, u) => { if (!inApp(u)) { e.preventDefault(); if (/^https?:\/\//.test(u)) shell.openExternal(u); } });
+  web.webContents.setWindowOpenHandler(({ url }) => { if (inApp(url)) return { action: 'allow' }; if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; }); // ป๊อปอัปล็อกอิน Google ให้เปิดในแอป
+  web.loadURL(SITE + '/chat');
+}
+function openAgent() {
+  if (win && !win.isDestroyed()) return win.focus();
+  win = new BrowserWindow({ width: 1000, height: 740, title: 'AstraCode · ทำงานในเครื่อง', backgroundColor: '#111111', webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   win.setMenuBarVisibility(false);
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-});
+}
+// เว็บเรียก: ยังไม่มี key ไหม · เปิดหน้าต่าง agent (เว็บที่ล็อกอินอยู่สร้าง key ชื่อ Desktop ส่งมาให้ครั้งแรก)
+ipcMain.handle('desk:needKey', () => !settings.key);
+ipcMain.handle('desk:openAgent', (_, key) => { if (key && /^sk-astra-[0-9a-f]+$/.test(key) && !settings.key) { settings.key = key; save(); } openAgent(); return true; });
+
+app.whenReady().then(() => { settings = load(); openWeb(); });
 app.on('window-all-closed', async () => { await mcp?.close(); app.quit(); });
