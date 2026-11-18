@@ -125,9 +125,14 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (billingMode === 'wallet') { // ตัดเงินหลังตอบ: จำกัดผลลัพธ์ไม่ให้เกินยอดที่เหลือ และให้ใช้ Wallet ทีละคำขอต่อผู้ใช้ กันยิงขนานจนยอดติดลบ
       const pr = await priceOf(env, m), need = Math.ceil((JSON.stringify(hist).length + system.length) / 2) * pr.in / 1e6, room = k.balance - need;
       if (pr.req > 0 ? k.balance < pr.req : (!(room > 0) || (isImg && room < pr.out))) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
-      if (!(pr.req > 0)) maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * 1e6 / Math.max(pr.out, 1e-9)))); // คิดเหมาต่อ request ไม่ต้องจำกัดความยาวตามยอดที่เหลือ
-      walletKey = 'walletlock:' + k.id; // shortcut: ถ้า Worker ถูกตัดกลางคัน ล็อกหมดอายุเอง 3 นาที (ทางออกปกติปลดล็อกทุกทาง), ถ้าต้องการให้ยิงขนานได้ให้จองยอดล่วงหน้าแบบ atomic
-      if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(walletKey, Date.now() + 180e3, Date.now()).first()) return fail('มีคำขอที่ใช้ Wallet ค้างอยู่ รอให้เสร็จก่อน', 429, 'rate_limit_error');
+      // ยิงพร้อมกันได้ 4 คำขอต่อบัญชี (เครื่องมือเขียนโค้ดยิงขนาน) · ช่องที่ k ได้งบ 1/2^(k+1) ของยอดที่เหลือ รวมทุกช่องไม่เกินยอดจริง Wallet จึงไม่ติดลบ
+      for (let slot = 0; slot < 4 && !walletKey; slot++) {
+        const kk = 'walletlock:' + k.id + (slot ? ':' + slot : '');
+        if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(kk, Date.now() + 180e3, Date.now()).first()) continue;
+        walletKey = kk;
+        if (!(pr.req > 0)) maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room / 2 ** (slot + 1) * 1e6 / Math.max(pr.out, 1e-9)))); // คิดเหมาต่อ request ไม่ต้องจำกัดความยาวตามยอดที่เหลือ
+      }
+      if (!walletKey) return fail('Too many wallet-billed requests at once (max 4). Wait for one to finish.', 429, 'rate_limit_error', { 'retry-after': '5' });
     }
     let activeModel = m; lg.model = slug(m);
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read } });

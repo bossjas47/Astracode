@@ -7,20 +7,35 @@ PAGES.developers = async () => {
   const [pr, keys, kstats] = await Promise.all([api('/pricing'), me ? api('/keys') : null, me ? api('/keys/stats').catch(() => []) : []]);
   const base = location.origin + '/v1', slug = n => n.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
   const first = pr.models[0] ? slug(pr.models[0].name) : 'model-name';
+  let tab = me ? 'keys' : 'connect', ctool = 'Cline / Roo', cmodel = first;
+  const canUse = !!me && (me.plan.paid || me.balance >= 1);
+  const fld = (label, val, id = '') => `<label>${label}</label><div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(val)}" ${id ? `id="${id}"` : ''} onclick="this.select()"><button type="button" class="btn out sm" data-cp="${esc(val)}">Copy</button></div>`;
+  const TOOLS = { // วิธีใส่ค่าในแต่ละโปรแกรม: k = key (หรือ placeholder), m = model id
+    'Cline / Roo': (k, m) => ['ตั้งค่าใน VS Code', `API Provider: OpenAI Compatible\nBase URL: ${base}\nAPI Key: ${k}\nModel ID: ${m}`],
+    'Cursor': (k, m) => ['Settings → Models', `เปิด "Override OpenAI Base URL" ใส่: ${base}\nOpenAI API Key: ${k}\nกด "+ Add model" ใส่: ${m}`],
+    'Claude Code': (k, m) => ['terminal', `export ANTHROPIC_BASE_URL=${location.origin}\nexport ANTHROPIC_AUTH_TOKEN=${k}\nexport ANTHROPIC_MODEL=${m}\nclaude`],
+    'Codex': (k, m) => ['~/.codex/config.toml (แล้ว export ASTRA_KEY=' + k + ')', `model = "${m}"\nmodel_provider = "astra"\n\n[model_providers.astra]\nname = "AstraCode"\nbase_url = "${base}"\nenv_key = "ASTRA_KEY"\nwire_api = "responses"`],
+    'OpenCode': (k, m) => ['opencode.json', `{\n  "provider": {\n    "astra": {\n      "npm": "@ai-sdk/openai-compatible",\n      "options": { "baseURL": "${base}", "apiKey": "${k}" },\n      "models": { "${m}": {} }\n    }\n  }\n}`],
+    'Python': (k, m) => ['python (pip install openai)', `from openai import OpenAI\n\nclient = OpenAI(base_url="${base}", api_key="${k}")\nr = client.chat.completions.create(\n    model="${m}",\n    messages=[{"role": "user", "content": "สวัสดี"}],\n)\nprint(r.choices[0].message.content)`],
+    'JavaScript': (k, m) => ['node (npm i openai)', `import OpenAI from "openai";\n\nconst client = new OpenAI({ baseURL: "${base}", apiKey: "${k}" });\nconst r = await client.chat.completions.create({\n  model: "${m}",\n  messages: [{ role: "user", content: "สวัสดี" }],\n});\nconsole.log(r.choices[0].message.content);`],
+    'curl': (k, m) => ['curl', `curl ${base}/chat/completions \\\n  -H "Authorization: Bearer ${k}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"${m}","messages":[{"role":"user","content":"สวัสดี"}]}'`],
+  };
   const draw = (newKey = '') => {
     page(nav() + `<div class="wrap" style="max-width:820px"><section class="hero" style="padding:56px 0 24px"><div class="name">AstraCode API</div><h1>API สำหรับนักพัฒนา</h1>
       <p>เรียกทุกโมเดลผ่าน API แบบ OpenAI ใช้กับ SDK และเครื่องมือที่รองรับ OpenAI ได้ทันที จ่ายตามจริงจาก Wallet</p></section>
-      ${me ? `<div class="card">${h3k('API key')}${me.plan.api_limit ? `<div class="notice" style="margin:0 0 12px"><span>แพลน <b>${esc(me.plan.name)}</b> ใช้ API Key หักจากลิมิตแพลนได้โดยไม่ต้องเติม Wallet · 4 ชม. <b>${me.usage.pct4h}%</b> · สัปดาห์ <b>${me.usage.pctWeek}%</b></span></div>` : `<p class="muted">แพลนปัจจุบัน (${esc(me.plan.name)}) คิดค่า API จาก Wallet ฿${baht(me.balance)} · <a href="/plans?topup=1">เติมเงิน</a> หรือ <a href="/plans">อัปเกรดแพลนที่รองรับ API Limit</a></p>`}
-        ${newKey ? `<div class="notice hi">คัดลอกเก็บไว้ตอนนี้ จะไม่แสดงอีก<div class="row" style="flex-wrap:nowrap;margin-top:8px"><input readonly value="${esc(newKey)}" id="nk"><button class="btn out sm" id="cpk">Copy</button></div></div>` : ''}
-        ${keys.length ? keys.map(k => `<details class="ed key"><summary><b>${esc(k.name)}</b><span class="muted"><code>${esc(k.prefix)}…</code> · เดือนนี้ ฿${money(k.spent)}${k.budget != null ? ` / ฿${baht(k.budget)}` : ''}${k.models ? ` · ${k.models.split(',').length} โมเดล` : ''} · ใช้ล่าสุด ${when(k.last_used)}</span></summary>
-          <form class="kset" data-k="${k.id}"><label>งบต่อเดือน (บาท) เว้นว่าง = ไม่จำกัด</label><input name="budget" type="number" min="0" step="any" value="${k.budget ?? ''}" placeholder="ไม่จำกัด">
-            <label class="sw-row"><span class="sw"><input type="checkbox" name="use_plan" ${k.use_plan !== 0 ? 'checked' : ''}><span></span></span>หักจากลิมิตแพลนก่อน (ถ้าแพลนรองรับ)</label>
-            <label>IP ที่อนุญาต (เว้นว่าง = ทุก IP) คั่นด้วยจุลภาค รองรับ CIDR เช่น 203.0.113.0/24</label><input name="ip_allow" value="${esc(k.ip_allow || '')}" placeholder="203.0.113.7, 198.51.100.0/24">
-            <label>โมเดลที่ key นี้ใช้ได้ (ไม่เลือก = ทุกโมเดล)</label><div class="chips-sel">${pr.models.map(m => `<label><input type="checkbox" name="m" value="${slug(m.name)}" ${k.models?.split(',').includes(slug(m.name)) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div>
-            <div class="row" style="margin-top:12px"><button class="btn blue sm">Save</button><button type="button" class="btn out sm" data-lg="${k.id}">Recent requests</button><button type="button" class="btn out sm danger" data-rk="${k.id}">Revoke key</button><span class="ok sv"></span></div><div class="klog muted" style="font-size:12.5px;margin-top:10px"></div></form></details>`).join('') : '<p class="muted">ยังไม่มี key</p>'}
-        ${me.plan.paid || me.balance >= 1 ? `<form id="kf" class="row stack-m" style="flex-wrap:nowrap"><input name="name" placeholder="ชื่อ key เช่น my-app" maxlength="40"> <select name="days" aria-label="อายุ key" style="width:auto"><option value="0">ไม่หมดอายุ</option><option value="7">7 วัน</option><option value="30">30 วัน</option><option value="90">90 วัน</option></select><button class="btn blue sm">Create key</button></form><div class="err" id="ke"></div>
-        <form id="whf" class="row stack-m" style="flex-wrap:nowrap;margin-top:10px"><input name="webhook_url" type="url" value="${esc(me.webhook_url || '')}" placeholder="Webhook https://... (งบ key 80% / 100%)" title="แจ้งเมื่อ API key ใช้งบถึง 80% และ 100% · ว่าง = ปิด"><button class="btn out sm">Save</button></form>` : `<div class="notice" style="margin:12px 0 0"><span>เติม Wallet ขั้นต่ำ ฿${+site.topup_min || 10} ก็ใช้ API ได้ทุกโมเดล (ตัดเงินตามราคาขายต่อ token) หรือใช้แพลนที่ชำระเงิน</span><a class="btn blue sm" href="/plans?topup=1">เติมเงิน</a></div>`}</div>`
-      : `<div class="card" style="text-align:center"><p>เข้าสู่ระบบเพื่อสร้าง API key</p><a class="btn blue" href="/login?next=/developers">Log in</a></div>`}
+      <div class="seg devtabs" role="tablist">${[['keys', 'API Key ของฉัน'], ['connect', 'เชื่อมต่อโปรแกรม'], ['docs', 'คู่มือและราคา']].map(([k, l]) => `<button type="button" role="tab" data-dt="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div data-pane="keys" ${tab === 'keys' ? '' : 'hidden'}>${me ? `
+        <div class="card dv-status ${canUse ? 'ok' : 'warn'}">${h3k(canUse ? '✓ พร้อมใช้ API' : 'ยังใช้ API ไม่ได้')}
+          <p style="margin:0">${me.plan.api_limit ? `หักจาก<b>ลิมิตแพลน ${esc(me.plan.name)}</b> ก่อน (4 ชม. ${me.usage.pct4h}% · สัปดาห์ ${me.usage.pctWeek}%) ลิมิตเต็มแล้วตัดจาก Wallet` : `ตัดเงินจาก <b>Wallet</b> ตามที่ใช้จริง`} · Wallet คงเหลือ <b>฿${baht(me.balance)}</b></p>
+          ${canUse ? '' : '<p style="margin:8px 0 0">เติม Wallet อย่างน้อย ฿1 หรือสมัครแพลนที่รองรับ API ก่อน</p>'}<div class="row" style="margin-top:10px"><a class="btn out sm" href="/plans?topup=1">เติม Wallet</a></div></div>
+        ${newKey ? `<div class="card dv-new">${h3k('🔑 API Key ใหม่ของคุณ')}<p class="warn" style="margin:0 0 8px">คัดลอกเก็บไว้ตอนนี้ ระบบจะไม่แสดงอีก</p>
+          ${fld('API Key', newKey, 'nk')}${fld('Base URL', base)}<p class="muted" style="font-size:13px;margin:6px 0 0">ใส่ 2 ค่านี้ในโปรแกรมที่ใช้ แล้วเลือกโมเดล · ดูวิธีใส่ในแต่ละโปรแกรมที่แท็บ <a href="#" data-goto="connect">เชื่อมต่อโปรแกรม</a></p></div>` : ''}
+        <div class="card">${h3k('API Key ของฉัน')}
+          ${canUse ? `<form id="kf" class="row stack-m" style="flex-wrap:nowrap;margin-bottom:6px"><input name="name" placeholder="ตั้งชื่อ key เช่น cline, my-app" maxlength="40"><button class="btn blue">+ สร้าง API Key</button></form>
+            <details class="muted" style="font-size:13px;margin-bottom:10px"><summary>ตัวเลือกเพิ่ม</summary><label style="margin-top:6px">อายุ key</label><select name="days" form="kf" style="width:auto"><option value="0">ไม่หมดอายุ</option><option value="7">7 วัน</option><option value="30">30 วัน</option><option value="90">90 วัน</option></select></details><div class="err" id="ke"></div>` : ''}
+          ${keys.length ? `<div class="klist">${keys.map(k => `<div class="krow"><div class="kinfo"><b>${esc(k.name)}</b><code>${esc(k.prefix)}…</code><span class="muted">เดือนนี้ ฿${money(k.spent)}${k.budget != null ? ` / งบ ฿${baht(k.budget)}` : ''} · ใช้ล่าสุด ${k.last_used ? when(k.last_used) : 'ยังไม่เคยใช้'}</span></div>
+            <div class="kbtn"><button type="button" class="btn out sm" data-ks="${k.id}">ตั้งค่า</button><button type="button" class="btn out sm" data-lg="${k.id}">ประวัติ</button><button type="button" class="btn out sm danger" data-rk="${k.id}" aria-label="ลบ key ${esc(k.name)}">ลบ</button></div></div>`).join('')}</div>` : '<p class="muted">ยังไม่มี key กดสร้างด้านบนได้เลย</p>'}
+        </div>
             ${me ? `<div class="card">${h3k('ทดสอบ API (Playground)')}
         <form id="pg" class="form2">
           <div><label>API Key</label><input id="pgk" placeholder="sk-astra-..." value="${esc(newKey)}" required></div>
@@ -29,6 +44,14 @@ PAGES.developers = async () => {
         <label for="pgt">ข้อความทดสอบ</label><div class="row" style="flex-wrap:nowrap"><input id="pgt" value="สวัสดี ตอบสั้นๆ 1 ประโยค"><button type="button" class="btn blue sm" id="pgrun">Test</button></div>
         <div id="pgo" class="muted" style="margin-top:10px;font-size:13px"></div></div>` : ''}
       ${me && kstats.length ? `<div class="card">${h3k('ยอดใช้ API 14 วันล่าสุด')}<div class="ubars">${kstats.map(r => { const mx = Math.max(...kstats.map(x => x.n), 1); return `<div class="ubar" title="${r.d}: ${r.n} ครั้ง · ฿${baht(r.spent)}"><i style="height:${Math.max(4, Math.round(r.n / mx * 100))}%"></i><span>${r.d.slice(8)}</span></div>`; }).join('')}</div></div>` : ''}
+        <details class="card"><summary>${h3k('แจ้งเตือนผ่าน Webhook (ไม่บังคับ)')}</summary><form id="whf" class="row stack-m" style="flex-wrap:nowrap;margin-top:10px"><input name="webhook_url" type="url" value="${esc(me.webhook_url || '')}" placeholder="https://... แจ้งเมื่อ key ใช้งบถึง 80% และ 100%"><button class="btn out sm">Save</button></form></details>`
+        : `<div class="card" style="text-align:center"><p>เข้าสู่ระบบเพื่อสร้าง API key</p><a class="btn blue" href="/login?next=/developers">Log in</a></div>`}</div>
+      <div data-pane="connect" ${tab === 'connect' ? '' : 'hidden'}><div class="card">${h3k('ใส่ 3 ค่านี้ในโปรแกรม')}
+        ${fld('Base URL', base)}${fld('API Key', newKey || 'sk-astra-... (สร้างที่แท็บ API Key)')}
+        <label>โมเดล</label><select id="cm">${pr.models.map(m => `<option value="${esc(slug(m.name))}" ${slug(m.name) === cmodel ? 'selected' : ''}>${esc(m.name)} · ${esc(slug(m.name))}</option>`).join('')}</select>
+        <label style="margin-top:14px">โปรแกรมที่ใช้</label><div class="vchips" id="ctools">${Object.keys(TOOLS).map(t => `<button type="button" data-ct="${t}" class="${t === ctool ? 'on' : ''}">${t}</button>`).join('')}</div>
+        <div id="csnip"></div></div></div>
+      <div data-pane="docs" ${tab === 'docs' ? '' : 'hidden'}>
       <div class="band"><h2>เริ่มใช้</h2>
         <p class="muted">Base URL: <code>${esc(base)}</code> · ส่ง key ใน header <code>Authorization: Bearer sk-astra-...</code></p>
         ${pre(['curl', `curl ${base}/chat/completions \\\n  -H "Authorization: Bearer $ASTRA_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"${first}","messages":[{"role":"user","content":"สวัสดี"}]}'`])}
@@ -73,6 +96,7 @@ PAGES.developers = async () => {
         <p class="muted">ทุกคำตอบของ <code>/v1/chat/completions</code> / <code>/v1/images/generations</code> : <code>x-ratelimit-limit-requests</code>, <code>x-ratelimit-remaining-requests</code>, <code>x-ratelimit-reset-requests</code>, <code>x-astracode-billing</code> (plan / wallet)</p>
       </div>
       <div class="band"><h2>ข้อจำกัด</h2><ul class="muted"><li>60 คำขอต่อนาทีต่อ key</li><li>Wallet ต้องมียอดมากกว่า 0 ก่อนเรียก (คำขอสุดท้ายอาจทำให้ยอดติดลบเล็กน้อย)</li><li>ตั้งงบต่อเดือนและจำกัดโมเดลแยกแต่ละ key ได้ (เกินงบ = ตอบ 429)</li><li>รองรับ <code>/v1/models</code>, <code>/v1/usage</code> (เช็ก % ลิมิตและยอด Wallet), <code>/v1/chat/completions</code> (ข้อความ, รูปภาพ, tools, stream), <code>/v1/images/generations</code></li></ul></div>
+      </div>
       ${footer()}</div>`);
     bindCopy();
     $('#pgrun')?.addEventListener('click', async () => {
@@ -94,17 +118,29 @@ PAGES.developers = async () => {
       try { const r = await api('/keys', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); keys.splice(0, keys.length, ...await api('/keys')); draw(r.key); }
       catch (x) { $('#ke').textContent = x.message; }
     });
-    app.querySelectorAll('.kset').forEach(f => f.onsubmit = async e => {
-      e.preventDefault(); const fd = new FormData(f);
-      try { await api('/keys/' + f.dataset.k, { method: 'PUT', body: { budget: fd.get('budget'), models: fd.getAll('m'), use_plan: fd.get('use_plan') ? 1 : 0, ip_allow: fd.get('ip_allow') } }); keys.splice(0, keys.length, ...await api('/keys')); draw(); }
-      catch (x) { toast(x.message, 'bad'); }
+    const setTab = t => { tab = t; app.querySelectorAll('[data-dt]').forEach(x => x.classList.toggle('on', x.dataset.dt === t)); app.querySelectorAll('[data-pane]').forEach(x => x.hidden = x.dataset.pane !== t); };
+    app.querySelectorAll('[data-dt]').forEach(b => b.onclick = () => setTab(b.dataset.dt));
+    app.querySelectorAll('[data-goto]').forEach(b => b.onclick = e => { e.preventDefault(); setTab(b.dataset.goto); scrollTo(0, 0); });
+    app.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => copy(b.dataset.cp, b));
+    const snip = () => { const [t, code] = TOOLS[ctool](newKey || 'sk-astra-...', cmodel); const box = $('#csnip'); if (!box) return; box.innerHTML = `<div style="margin-top:12px">${pre([t, code])}</div>`; bindCopy(); };
+    $('#cm')?.addEventListener('change', e => { cmodel = e.target.value; snip(); });
+    app.querySelectorAll('[data-ct]').forEach(b => b.onclick = () => { ctool = b.dataset.ct; app.querySelectorAll('[data-ct]').forEach(x => x.classList.toggle('on', x === b)); snip(); });
+    snip();
+    app.querySelectorAll('[data-ks]').forEach(b => b.onclick = () => { // ตั้งค่า key (งบ / โมเดล / IP) ในหน้าต่างแยก ไม่รกหน้าหลัก
+      const k = keys.find(x => x.id === +b.dataset.ks); if (!k) return;
+      sheet('ตั้งค่า ' + esc(k.name), `<form class="kset sheet-form"><label>งบต่อเดือน (บาท) เว้นว่าง = ไม่จำกัด</label><input name="budget" type="number" min="0" step="any" value="${k.budget ?? ''}" placeholder="ไม่จำกัด">
+        <label class="sw-row"><span class="sw"><input type="checkbox" name="use_plan" ${k.use_plan !== 0 ? 'checked' : ''}><span></span></span>หักจากลิมิตแพลนก่อน (ถ้าแพลนรองรับ)</label>
+        <label>โมเดลที่ key นี้ใช้ได้ (ไม่เลือก = ทุกโมเดล)</label><div class="chips-sel">${pr.models.map(m => `<label><input type="checkbox" name="m" value="${slug(m.name)}" ${k.models?.split(',').includes(slug(m.name)) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div>
+        <details style="margin-top:10px"><summary class="muted">จำกัด IP (สำหรับเซิร์ฟเวอร์)</summary><input name="ip_allow" value="${esc(k.ip_allow || '')}" placeholder="203.0.113.7, 198.51.100.0/24" style="margin-top:6px"></details>
+        <button class="btn blue" style="margin-top:14px">บันทึก</button></form>`, (d, close) => d.querySelector('form').onsubmit = async e => {
+        e.preventDefault(); const fd = new FormData(e.target);
+        try { await api('/keys/' + k.id, { method: 'PUT', body: { budget: fd.get('budget'), models: fd.getAll('m'), use_plan: fd.get('use_plan') ? 1 : 0, ip_allow: fd.get('ip_allow') } }); keys.splice(0, keys.length, ...await api('/keys')); close(); toast('บันทึกแล้ว', 'ok'); draw(); }
+        catch (x) { toast(x.message, 'bad'); }
+      });
     });
     app.querySelectorAll('[data-lg]').forEach(b => b.onclick = async () => { // คำขอล่าสุดของ key
-      const box = b.closest('form').querySelector('.klog'); box.textContent = 'Loading…';
-      try {
-        const rows = await api('/keys/' + b.dataset.lg + '/log');
-        box.innerHTML = rows.length ? `<div class="tw"><table class="tbl"><tr><th>เวลา</th><th>endpoint</th><th>model</th><th>status</th><th>in/out</th><th>฿</th><th>ms</th></tr>${rows.map(r => `<tr><td>${new Date(r.created_at).toLocaleString(LOC)}</td><td><code>${esc(r.path)}</code></td><td>${esc(r.model || '-')}</td><td class="${r.status < 400 ? 'ok' : 'bad'}" title="${esc(r.err || '')}">${r.status}</td><td>${r.tin}/${r.tout}</td><td>${r.charge}</td><td>${r.ms}</td></tr>`).join('')}</table></div>` : 'ยังไม่มีคำขอ (เก็บ 30 วัน)';
-      } catch (x) { box.textContent = x.message; }
+      try { const rows = await api('/keys/' + b.dataset.lg + '/log'); sheet('ประวัติคำขอล่าสุด', rows.length ? `<div class="tw"><table class="tbl"><tr><th>เวลา</th><th>endpoint</th><th>model</th><th>status</th><th>in/out</th><th>฿</th><th>ms</th></tr>${rows.map(r => `<tr><td>${new Date(r.created_at).toLocaleString(LOC)}</td><td><code>${esc(r.path)}</code></td><td>${esc(r.model || '-')}</td><td class="${r.status < 400 ? 'ok' : 'bad'}" title="${esc(r.err || '')}">${r.status}</td><td>${r.tin}/${r.tout}</td><td>${r.charge}</td><td>${r.ms}</td></tr>`).join('')}</table></div>` : 'ยังไม่มีคำขอ (เก็บ 30 วัน)'); }
+      catch (x) { toast(x.message, 'bad'); }
     });
     app.querySelectorAll('[data-rk]').forEach(b => b.onclick = async () => {
       if (!await confirmSheet('ยกเลิก API key นี้? แอปที่ใช้อยู่จะเรียกไม่ได้ทันที', { title: 'ยกเลิก API key', ok: 'Revoke key', danger: true })) return;

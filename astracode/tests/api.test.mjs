@@ -213,3 +213,15 @@ test('batch API: queued, processed by the cron runner, 20% cheaper, results retu
   assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM usage WHERE src='batch'").get().n, 2);
   fm.close();
 });
+
+test('wallet: up to 4 requests can run at once; a 5th waits; the balance never goes below zero', async () => {
+  const { t, fm, key, bal } = await setup({ balance: 1 });
+  for (let i = 0; i < 4; i++) t.DB.raw.prepare('INSERT INTO rate (key,n,reset) VALUES (?,1,?)').run('walletlock:' + t.DB.raw.prepare('SELECT user_id FROM api_keys LIMIT 1').get().user_id + (i ? ':' + i : ''), Date.now() + 60e3);
+  const busy = await t.call('/v1/chat/completions', { method: 'POST', body: msg, headers: { authorization: 'Bearer ' + key } });
+  assert.equal(busy.status, 429, 'all 4 slots busy'); assert.ok(busy.headers.get('retry-after'));
+  t.DB.raw.exec("DELETE FROM rate WHERE key LIKE 'walletlock:%'");
+  const rs = await Promise.all([0, 1, 2].map(() => t.call('/v1/chat/completions', { method: 'POST', body: msg, headers: { authorization: 'Bearer ' + key } })));
+  assert.deepEqual(rs.map(r => r.status), [200, 200, 200], 'parallel requests are not refused'); await Promise.all(t.ctx.pending);
+  assert.ok(bal() >= 0, 'balance ' + bal());
+  fm.close();
+});

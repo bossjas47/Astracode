@@ -1404,3 +1404,11 @@ input[type=file]::file-selector-button:hover { background: var(--graphite); }
 /* ลิงก์ติดต่อเราในเมนู: เด่นกว่ารายการอื่น หาเจอง่าย */
 a.contact-l { color: var(--link) !important; border: 1px solid color-mix(in srgb, var(--link) 45%, transparent); border-radius: 12px; font-weight: 600; }
 .zipbar { margin: 10px 0 2px; }
+/* หน้า API: แท็บ + รายการ key แบบแถวเดียว ปุ่มชัด */
+.devtabs { display: flex; width: max-content; max-width: 100%; margin: 0 auto 16px; overflow-x: auto; }
+.klist { display: flex; flex-direction: column; gap: 8px; }
+.krow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border: 1px solid var(--steel); border-radius: 14px; }
+.krow .kinfo { display: flex; flex-direction: column; gap: 2px; min-width: 0; } .krow .kinfo code { font-size: 12.5px; } .krow .kinfo .muted { font-size: 12.5px; }
+.krow .kbtn { display: flex; gap: 6px; flex-wrap: wrap; }
+.dv-status.ok { border-color: color-mix(in srgb, var(--green, #30d158) 45%, transparent); } .dv-status.warn { border-color: color-mix(in srgb, #f5b74e 60%, transparent); }
+.dv-new { border-color: color-mix(in srgb, var(--link) 55%, transparent); }

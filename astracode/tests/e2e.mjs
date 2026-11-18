@@ -81,6 +81,14 @@ const FLOWS = [
     const n = await page.locator('.selbar').count();
     return [!errs.length || errs.join(' | '), n === 1 || `${n} selection bars`];
   }],
+  ['developers: create an API key, see it once, and the connect tab fills it into the setup', async () => {
+    const { page, errs, calls } = await open('/developers', { '/api/keys': q => q.method() === 'POST' ? { key: 'sk-astra-newkey123' } : [], '/api/keys/stats': [] });
+    await page.fill('#kf [name=name]', 'cline'); await page.click('#kf button'); await page.waitForTimeout(500);
+    const shown = await page.locator('#nk').inputValue().catch(() => '');
+    await page.click('[data-dt="connect"]'); await page.click('[data-ct="curl"]'); await page.waitForTimeout(200);
+    const snip = await page.locator('#csnip').innerText();
+    return [!errs.length || errs.join(' | '), calls.some(c => c.m === 'POST' && c.p === '/api/keys') || 'no POST /api/keys', shown === 'sk-astra-newkey123' || 'new key not shown: ' + shown, snip.includes('sk-astra-newkey123') || 'snippet has no key'];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);
