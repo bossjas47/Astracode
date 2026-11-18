@@ -220,7 +220,7 @@ async function chatView(id) {
     if (answer(e)) return;
     const b = e.target.closest('button'); if (!b) return;
     if (b.classList.contains('cp-code')) copy(b.closest('.code').querySelector('code').textContent, b);
-    if (b.dataset.zip) zipFiles(chat.msgs[+b.dataset.zip].content, b).catch(x => toast('ทำ zip ไม่ได้: ' + x.message, 'bad'));
+    if (b.dataset.zip) zipFiles(+b.dataset.zip, b).catch(x => toast('ทำ zip ไม่ได้: ' + x.message, 'bad'));
     if (b.classList.contains('run-code')) openCanvas(b.closest('.code').querySelector('code').textContent);
     if (b.classList.contains('run-py')) runPyChat(b.closest('.code'));
     if (b.dataset.edit != null) editMsg(+b.dataset.edit);
@@ -670,14 +670,35 @@ function drawThumbs() {
   box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { chat.images.splice(+b.dataset.rm, 1); drawThumbs(); });
   box.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => { chat.files.splice(+b.dataset.rmf, 1); drawThumbs(); });
 }
-// ไฟล์ที่ AI เขียน (```lang file=path): 2 ไฟล์ขึ้นไป = ปุ่มดาวน์โหลดรวมเป็น .zip
+// ไฟล์ที่ AI เขียน (```lang file=path) → ปุ่มดาวน์โหลด .zip
+// ถ้าก่อนหน้านี้แนบ zip โปรเจกต์มา: เอาไฟล์ข้อความทั้งหมดจาก zip นั้นเป็นฐาน แล้วทับด้วยไฟล์ที่ AI แก้ = ได้โปรเจกต์ครบทั้งก้อน
 const fileBlocks = s => [...String(s || '').matchAll(/```[^\n]*?\bfile=(\S+)[^\n]*\n([\s\S]*?)```/g)].map(x => ({ path: x[1].replace(/^\/+|\.\.\//g, ''), text: x[2] }));
-async function zipFiles(content, btn) {
-  const fs = fileBlocks(content); if (!fs.length) return;
-  await lib('jszip'); const z = new JSZip(); for (const f of fs) z.file(f.path, f.text);
-  const roots = new Set(fs.map(f => f.path.split('/')[0])), name = (roots.size === 1 && fs[0].path.includes('/') ? [...roots][0] : 'astracode-files') + '.zip';
+function baseZip(i) { // zip ล่าสุดที่ผู้ใช้แนบไว้ก่อนคำตอบ i: { name, files: Map(path → text) }
+  for (let k = i - 1; k >= 0; k--) {
+    const m = chat.msgs[k]; if (m.role !== 'user') continue;
+    for (const f of [...String(m.content).matchAll(FILE_RE)].reverse()) {
+      if (!/\.zip$/i.test(f[1]) || !f[2].startsWith('[zip:')) continue;
+      const parts = f[2].split(/(?:^|\n\n)===== (.+?) =====\n/), files = new Map(), cut = /\n…\(ไฟล์ยาวเกิน ตัดเหลือ/.test(f[2]);
+      for (let j = 1; j < parts.length; j += 2) files.set(parts[j], parts[j + 1] ?? '');
+      if (cut && parts.length > 2) files.delete(parts[parts.length - 2]); // ไฟล์สุดท้ายถูกตัดกลางไฟล์: ไม่ใส่ ไม่งั้นทับของจริงด้วยไฟล์ครึ่งเดียว
+      if (files.size) return { name: f[1], files, cut, bin: /ไฟล์อื่น \d+ ไฟล์/.test(parts[0]) };
+    }
+  }
+  return null;
+}
+const zipBtn = (m, i) => { const n = fileBlocks(m.content).length, base = n && baseZip(i); return n > 1 || base ? `<button type="button" class="btn out sm zipbar" data-zip="${i}">${ic('download', 'sm')} ${base ? `ดาวน์โหลดโปรเจกต์ที่แก้แล้ว (.zip) · แก้ ${n} ไฟล์` : `ดาวน์โหลดทั้งหมดเป็น .zip · ${n} ไฟล์`}</button>` : ''; };
+async function zipFiles(i, btn) {
+  const fs = fileBlocks(chat.msgs[i].content), base = baseZip(i); if (!fs.length) return;
+  await lib('jszip'); const z = new JSZip(), all = new Map(base?.files || []);
+  for (const f of fs) { // AI อาจเขียน path มีหรือไม่มีโฟลเดอร์ครอบของ zip: จับคู่กับไฟล์เดิมที่ path ลงท้ายเหมือนกัน
+    const hit = [...all.keys()].find(p => p === f.path || p.endsWith('/' + f.path) || f.path.endsWith('/' + p));
+    all.set(hit || f.path, f.text);
+  }
+  for (const [p, t] of all) z.file(p, t);
+  const roots = new Set([...all.keys()].map(p => p.split('/')[0])), name = base ? base.name.replace(/\.zip$/i, '') + '_edited.zip' : (roots.size === 1 && [...all.keys()][0].includes('/') ? [...roots][0] : 'astracode-files') + '.zip';
   const a = document.createElement('a'); a.href = URL.createObjectURL(await z.generateAsync({ type: 'blob' })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   const o = btn.innerHTML; btn.innerHTML = ic('check', 'sm') + ' ดาวน์โหลดแล้ว'; setTimeout(() => btn.innerHTML = o, 1500);
+  if (base?.cut || base?.bin) toast((base.cut ? 'zip เดิมใหญ่เกินที่แนบได้ บางไฟล์ไม่อยู่ใน zip นี้ · ' : '') + (base.bin ? 'รูปและไฟล์ที่ไม่ใช่ข้อความไม่อยู่ใน zip นี้ คัดลอกจาก zip เดิมมาใส่' : ''), 'warn');
 }
 // ข้อความที่ผู้ใช้เห็นในฟองแชต (ไม่มี markdown ดิบ/แท็กภายใน/ปุ่ม) + html สำหรับวางในเอกสาร
 function bubbleText(el) {
@@ -697,7 +718,7 @@ function msgHTML(m, i, isNew) {
   const { text: t00, mem } = parseMem(m.content, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text, asks } = parseAsk(t0, m.streaming);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
-    ${!m.streaming && i >= 0 && fileBlocks(m.content).length > 1 ? `<button type="button" class="btn out sm zipbar" data-zip="${i}">${ic('download', 'sm')} ดาวน์โหลดทั้งหมดเป็น .zip · ${fileBlocks(m.content).length} ไฟล์</button>` : ''}
+    ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-star="${i}" class="${m.starred ? 'on' : ''}" aria-label="${m.starred ? 'เลิกบุ๊กมาร์ก' : 'บุ๊กมาร์กคำตอบนี้'}" aria-pressed="${!!m.starred}">${ic('star')}</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
