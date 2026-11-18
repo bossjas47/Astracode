@@ -103,7 +103,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const text = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text).join('\n') : '';
     const hasImg = c => Array.isArray(c) && c.some(x => x?.type === 'image_url');
     const normContent = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text' || x?.type === 'image_url') : '';
-    let system = msgs.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content)).filter(Boolean).join('\n\n');
+    let system = [m.sys_prompt?.trim(), ...msgs.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content))].filter(Boolean).join('\n\n'); // sys_prompt = บุคลิกประจำโมเดล (เช่นโมเดลการเงิน) มาก่อนคำสั่งของผู้เรียก
     const hist = msgs.filter(x => ['user', 'assistant', 'tool'].includes(x.role)).map(x => x.role === 'tool'
       ? { role: 'tool', tool_call_id: String(x.tool_call_id || ''), content: typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '') }
       : x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.length

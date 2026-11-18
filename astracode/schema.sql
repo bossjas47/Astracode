@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS models (
   use_mult REAL, promo_mult REAL,           -- ตัวคูณหน่วยลิมิต (ว่าง = 1) / ช่วงโปร
   first_token_s REAL, idle_s REAL,          -- นาฬิกาเฝ้าโมเดล: รอข้อความแรก / เงียบกลางทาง (วินาที ว่าง = ค่าเริ่มต้น 90/60)
   code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
+  sys_prompt TEXT,                          -- คำสั่งระบบประจำโมเดล (แชตและ API) เช่นโมเดลเฉพาะทาง
   effort TEXT NOT NULL DEFAULT 'none',      -- none | openai | anthropic | deepseek | kimi
   effort_levels TEXT,                       -- คั่นด้วย , เช่น none,low,medium,high,max (ว่าง = ค่าเริ่มต้นค่าย)
   sort INTEGER NOT NULL DEFAULT 0,
@@ -304,6 +305,7 @@ CREATE TABLE IF NOT EXISTS models (
   use_mult REAL, promo_mult REAL,           -- ตัวคูณหน่วยลิมิต (ว่าง = 1) / ช่วงโปร
   first_token_s REAL, idle_s REAL,          -- นาฬิกาเฝ้าโมเดล: รอข้อความแรก / เงียบกลางทาง (วินาที ว่าง = ค่าเริ่มต้น 90/60)
   code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
+  sys_prompt TEXT,                          -- คำสั่งระบบประจำโมเดล (แชตและ API) เช่นโมเดลเฉพาะทาง
   effort TEXT NOT NULL DEFAULT 'none',      -- none | openai | anthropic | deepseek | kimi
   effort_levels TEXT,                       -- คั่นด้วย , เช่น none,low,medium,high,max (ว่าง = ค่าเริ่มต้นค่าย)
   sort INTEGER NOT NULL DEFAULT 0,

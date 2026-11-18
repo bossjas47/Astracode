@@ -5,6 +5,7 @@ import { makeEnv, addModel, addPlan, fakeModel, sha } from './helpers.mjs';
 
 async function setup(opt = {}) {
   const fm = await fakeModel((q, res, body) => {
+    globalThis.__lastBody = body;
     if (q.url.endsWith('/embeddings')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }], usage: { prompt_tokens: 7, total_tokens: 7 } })); }
     if (body.tools) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'get_time', arguments: '' } }] } }] }) + '\n\n'); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"tz":"UTC"}' } }] } }] }) + '\n\n'); res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 12, completion_tokens: 6 } }) + '\n\n'); res.write('data: [DONE]\n\n'); return res.end(); }
     if (q.url.endsWith('/images/generations')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ b64_json: Buffer.from('PIXELS').toString('base64') }] })); }
@@ -187,4 +188,14 @@ test('IP allowlist supports IPv4 and IPv6 CIDR; token estimate counts Thai dense
   assert.ok(a.ipAllowed('10.0.0.0/8, 1.2.3.4', '1.2.3.4')); assert.ok(!a.ipAllowed('10.0.0.0/8', '11.0.0.1'));
   assert.ok(a.ipAllowed('::1', '::1')); assert.ok(!a.ipAllowed('2001:db8::/200', '2001:db8::1'));
   const { estTokens } = await import('../src/core.js'); assert.ok(estTokens('สวัสดีครับ') > estTokens('hello now'));
+});
+
+test('model sys_prompt is sent before the caller system message (specialist models like a finance model)', async () => {
+  const { t, fm, m, v1 } = await setup();
+  t.DB.raw.prepare('UPDATE models SET sys_prompt=? WHERE id=?').run('You are a finance assistant.', m.id);
+  const r = await v1('/v1/chat/completions', { model: 'chat-one', messages: [{ role: 'system', content: 'Be brief.' }, { role: 'user', content: 'hi' }] });
+  assert.equal(r.status, 200);
+  const sys = globalThis.__lastBody.messages.filter(x => x.role === 'system').map(x => typeof x.content === 'string' ? x.content : x.content.map(c => c.text).join('')).join('\n');
+  assert.match(sys, /You are a finance assistant\.\s+Be brief\./);
+  fm.close();
 });
