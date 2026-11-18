@@ -477,3 +477,22 @@ test('chat: an OpenAI refusal field is shown; a blank answer reports the provide
   assert.match(ev.find(e => e.error)?.error || '', /could not complete this stream/);
   fm.close();
 });
+
+test('chat: Claude at Max effort gets room to answer, and running out while thinking says so', async () => {
+  const { fakeModel, readSSE } = await import('./helpers.mjs'); const seen = [];
+  const fm = await fakeModel((q, res, body) => {
+    seen.push(body); res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const ev = (type, o) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...o })}\n\n`);
+    ev('message_start', { message: { usage: { input_tokens: 10 } } });
+    ev('content_block_start', { index: 0, content_block: { type: 'thinking', thinking: '' } });
+    ev('content_block_delta', { index: 0, delta: { type: 'thinking_delta', thinking: 'คิดยาวมาก' } });
+    ev('message_delta', { delta: { stop_reason: 'max_tokens' }, usage: { output_tokens: 16000 } });
+    ev('message_stop', {}); res.end();
+  });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'C', provider: 'anthropic', base_url: fm.url, effort: 'anthropic' });
+  const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'x', effort: 'max' } }));
+  assert.equal(seen[0].max_tokens, 64000);
+  assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /เต็มความยาวสูงสุด/);
+  fm.close();
+});

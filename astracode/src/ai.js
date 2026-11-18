@@ -69,7 +69,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       last.content = [...imgParts, ...baseParts];
       if (last.content.length) last.content[last.content.length - 1] = { ...last.content.at(-1), cache_control: { type: 'ephemeral' } };
     }
-    const body = { model: m.api_model, max_tokens: maxTokens || 16000, stream: true, messages };
+    const body = { model: m.api_model, max_tokens: maxTokens || (m.effort === 'anthropic' && ['high', 'xhigh', 'max'].includes(effort) ? 64000 : 16000), stream: true, messages }; // คิดระดับสูง: 16k หมดไปกับการคิดจนไม่เหลือคำตอบ
     if (system) body.system = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
     if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
       body.tools = tools.map(t => ({ name: t.function?.name || t.name, description: t.function?.description || t.description || '', input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));
@@ -99,7 +99,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       else if (e.type === 'content_block_delta' && e.delta?.type === 'input_json_delta') yield { tc_delta: { index: e.index, args: e.delta.partial_json || '' } };
       else if (e.type === 'message_delta') {
         if (e.usage) u.out = e.usage.output_tokens || 0;
-        if (e.delta?.stop_reason) yield { stop_reason: e.delta.stop_reason === 'tool_use' ? 'tool_calls' : 'stop' };
+        if (e.delta?.stop_reason) yield { stop_reason: { tool_use: 'tool_calls', max_tokens: 'length' }[e.delta.stop_reason] || 'stop' };
       }
       else if (e.type === 'error') throw new Error(e.error?.message || 'upstream error');
     }
@@ -577,6 +577,7 @@ export async function runChat(env, J, send, st) {
           if (e.raw) rawT = e.raw;
         }
         clearTimeout(wd);
+        if (!out.trim() && think && stopR === 'length' && !st.gone) { const t = 'โมเดลคิดจนเต็มความยาวสูงสุดก่อนจะตอบ ลองลดระดับความคิด หรือแบ่งคำถามให้เล็กลง'; out += t; part += t; await send({ t }); }
         if (!out.trim() && !think && !tcs.size && !st.gone) throw new Error('โมเดลส่งคำตอบว่างกลับมา' + (stopR && stopR !== 'stop' ? ` (เหตุผลจากผู้ให้บริการ: ${stopR})` : '')); // ตอบว่าง = ถือเป็นข้อผิดพลาด (นับเข้าตัวตัดวงจร และลองโมเดลสำรอง)
         break;
       } catch (e0) {
