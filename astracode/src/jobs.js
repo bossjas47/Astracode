@@ -2,10 +2,19 @@ import { BKK, DAY, SYSTEM, allowedModels, ensureCols, err, esc, json, limited, p
 import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
 import { sendPush } from './push.js';
-import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl } from './billing.js';
+import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl, walletAdd } from './billing.js';
 import { admin } from './admin.js';
 import { slug } from './api.js';
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
+// KPI ของวันก่อนหน้า (ตามเวลาไทย) สำหรับแจ้งแอดมิน
+export async function kpiYesterday(env, now = Date.now()) {
+  const day = Math.floor((now + BKK) / DAY) - 1, a = day * DAY - BKK, b = a + DAY, q = (sql, ...x) => env.DB.prepare(sql).bind(...x).first();
+  const [su, rev, cost, top, act] = await Promise.all([q('SELECT COUNT(*) n FROM users WHERE created_at>=? AND created_at<?', a, b), q("SELECT COALESCE(SUM(amount),0) n FROM payments WHERE status='approved' AND slip_key NOT IN ('wallet','coupon') AND COALESCE(approved_at,created_at)>=? AND COALESCE(approved_at,created_at)<?", a, b),
+    q('SELECT COALESCE(SUM(cost),0) n FROM usage WHERE created_at>=? AND created_at<?', a, b), q('SELECT m.name, COUNT(*) n FROM usage s JOIN models m ON m.id=s.model_id WHERE s.created_at>=? AND s.created_at<? GROUP BY s.model_id ORDER BY n DESC LIMIT 1', a, b), q('SELECT COUNT(DISTINCT user_id) n FROM usage WHERE created_at>=? AND created_at<?', a, b)]);
+  const r = { day, signups: su.n, revenue: rev.n, cost: cost.n, active: act.n, top: top?.name || '-' };
+  r.text = `📊 สรุปเมื่อวาน: สมัครใหม่ ${r.signups} · ผู้ใช้ที่ใช้งาน ${r.active} · รายได้ ฿${r.revenue.toFixed(0)} · ต้นทุน ฿${r.cost.toFixed(2)} · กำไรขั้นต้น ฿${(r.revenue - r.cost).toFixed(0)} · ใช้มากสุด ${r.top}`;
+  return r;
+}
 export async function cron(env) {
   const DB = env.DB, now = Date.now(), log = [];
   await ensureCols(env).catch(() => {}); // cron ไม่ผ่านเส้นทาง /api จึงต้องให้คอลัมน์ใหม่มีก่อนใช้
@@ -26,6 +35,18 @@ export async function cron(env) {
     const rows = (await DB.prepare(`SELECT u.id, u.email, SUM(CASE WHEN s.created_at>?1 THEN s.cost END) today, SUM(CASE WHEN s.created_at<=?1 THEN s.cost END) / 7.0 avg
       FROM usage s JOIN users u ON u.id=s.user_id WHERE s.created_at>?2 AND u.role<>'admin' GROUP BY u.id HAVING today > 20 AND today > 5 * COALESCE(avg, 0)`).bind(now - DAY, now - 8 * DAY).all()).results;
     for (const r of rows) if (!await limited(env, 'anom:' + r.id, 1, DAY)) await notify(env, `⚠️ ค่าใช้จ่ายผิดปกติ: ${r.email} ใช้ต้นทุน ฿${r.today.toFixed(2)} ใน 24 ชม. (เฉลี่ยเดิม ฿${(r.avg || 0).toFixed(2)}/วัน) ตรวจ API key หรือบัญชีที่หลังบ้าน`);
+  });
+  // สรุป KPI เมื่อวานให้แอดมิน (8 โมงเช้าไทย): สมัครใหม่, รายได้, ต้นทุน, กำไร, โมเดลยอดนิยม
+  if (new Date(now + BKK).getUTCHours() === 8) await step('kpi', async () => { const k = await kpiYesterday(env, now); if (!await limited(env, 'kpi:' + k.day, 1, 2 * DAY)) await notify(env, k.text); });
+  // ดึงคนกลับ (10 โมงเช้าไทย): ผู้ใช้ที่เคยใช้งานแต่หายไป 14 วัน → อีเมลบอกของใหม่ + เครดิต (winback_credit บาท, 0 = ไม่แจก) · คนละครั้งต่อ 60 วัน
+  if (new Date(now + BKK).getUTCHours() === 10) await step('winback', async () => {
+    const credit = +(await getSetting(env, 'winback_credit')) || 0;
+    const rows = (await DB.prepare("SELECT u.id,u.email FROM users u WHERE u.banned=0 AND u.email_verified=1 AND COALESCE(u.digest_off,0)=0 AND (SELECT MAX(created_at) FROM usage s WHERE s.user_id=u.id) BETWEEN ?1 AND ?2 LIMIT 50").bind(now - 15 * DAY, now - 14 * DAY).all()).results;
+    for (const r of rows) {
+      if (await limited(env, 'winback:' + r.id, 1, 60 * DAY)) continue;
+      if (credit > 0) await walletAdd(env, r.id, credit, 'winback', 'ดึงกลับ');
+      await mail(env, r.email, 'AstraCode: คิดถึงนะ มีของใหม่รออยู่', mailBox('กลับมาลองของใหม่กัน', `ช่วงที่ผ่านมาเราเพิ่มโมเดลใหม่ ระบบทีม Agent ในโหมด Code และโหมดสร้างภาพที่ AI ช่วยเขียน prompt${credit > 0 ? `<br><br>เราเติมเครดิต <b>฿${credit}</b> เข้า Wallet ให้แล้ว ใช้กับโมเดลไหนก็ได้` : ''}`, 'เปิด AstraCode', siteUrl(env) + '/chat')).catch(() => {});
+    }
   });
   // 2) เตือนแพลนใกล้หมด (3 วัน) ครั้งเดียวต่อรอบ
   await step('remind', async () => { for (const u of (await DB.prepare('SELECT u.id,u.email,u.plan_expires,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.banned=0 AND u.plan_expires BETWEEN ? AND ? AND (u.reminded_at IS NULL OR u.reminded_at<>u.plan_expires)').bind(now, now + 3 * DAY).all()).results) {

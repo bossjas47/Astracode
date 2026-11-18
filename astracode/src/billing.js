@@ -194,8 +194,16 @@ export function carryMs(oldPlan, oldPeriod, remainingMs, newPlan, newPeriod) {
 }
 export async function applyPayment(env, p) {
   const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(p.user_id).first();
-  if (p.kind === 'topup') await walletAdd(env, u.id, p.amount, 'topup', 'payment#' + p.id);
-  else {
+  const real = !['wallet', 'coupon'].includes(p.slip_key); // จ่ายเงินจริง (สลิป) ไม่ใช่ตัดจาก Wallet/คูปอง
+  if (p.kind === 'topup') {
+    await walletAdd(env, u.id, p.amount, 'topup', 'payment#' + p.id);
+    // โบนัสเติมเงินครั้งแรก: % ของยอด (มีเพดาน) ครั้งเดียวต่อบัญชี · first_topup_pct ว่าง/0 = ปิด (แอดมินเปิดในหลังบ้าน)
+    const s = await getSettings(env, ['first_topup_pct', 'first_topup_max']), pct = +s.first_topup_pct || 0, cap = s.first_topup_max === '' ? 100 : +s.first_topup_max;
+    if (real && pct > 0 && !await env.DB.prepare("SELECT 1 FROM wallet_tx WHERE user_id=? AND kind='first_bonus'").bind(u.id).first()) {
+      const bonus = Math.round(Math.min(p.amount * pct / 100, cap) * 100) / 100;
+      if (bonus > 0) await walletAdd(env, u.id, bonus, 'first_bonus', 'payment#' + p.id);
+    }
+  } else {
     const days = p.period === 'year' ? 365 : 30, now = Date.now();
     const pl = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(p.plan_id).first();
     if (pl && pl.seats > 1) {
@@ -217,6 +225,11 @@ export async function applyPayment(env, p) {
     }
   }
   await useCoupon(env, p.coupon, u.id);
+  // Affiliate: คนที่ชวนมาจ่ายเงินจริง → ผู้ชวนได้ค่าคอม % เข้า Wallet ภายใน aff_months เดือนแรกของบัญชีนั้น · aff_pct = 0 (ค่าเริ่มต้น) = ปิด
+  if (u.referred_by && real) {
+    const s = await getSettings(env, ['aff_pct', 'aff_months']), pct = +s.aff_pct || 0, months = +s.aff_months || 12;
+    if (pct > 0 && Date.now() - u.created_at < months * 30 * DAY) { const c = Math.round(p.amount * pct) / 100; if (c > 0) await walletAdd(env, u.referred_by, c, 'affiliate', 'user#' + u.id + ' payment#' + p.id); }
+  }
   if (u.referred_by && !u.ref_rewarded && !['wallet', 'coupon'].includes(p.slip_key)) { // คนที่ถูกชวนจ่ายเงินจริงครั้งแรก: ได้เครดิตทั้งคู่
     const bonus = +(await getSetting(env, 'referral_bonus')) || 0;
     await env.DB.prepare('UPDATE users SET ref_rewarded=1 WHERE id=?').bind(u.id).run();

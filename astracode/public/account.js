@@ -51,6 +51,7 @@ PAGES.account = async function account() {
       <div class="acc-big"><span class="muted">Wallet</span><b>฿${baht(w.balance)}</b><a class="btn blue sm" href="/plans?topup=1">Top up</a></div>
       <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span></div>
     </div>
+    ${me.upsell_year ? `<div class="card acc-c" style="border-color:var(--blue)"><b>เปลี่ยนเป็นรายปี ประหยัด ฿${me.upsell_year.save.toLocaleString()}</b><p class="muted" style="margin:4px 0 10px">คุณต่อ ${esc(me.plan.name)} รายเดือนมาแล้วหลายเดือน จ่ายรายปี ฿${me.upsell_year.price_year.toLocaleString()} ถูกกว่าจ่ายรายเดือน 12 ครั้ง</p><a class="btn blue sm" href="/plans?plan=${me.upsell_year.plan_id}&period=year">ดูแพลนรายปี</a></div>` : ''}
     <div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
       ${u.use4h === false ? '' : meterRow('รอบ 4 ชม.', u.pct4h, u.reset4h ? 'รีเซ็ต ' + when(u.reset4h) : 'เริ่มนับเมื่อส่งข้อความแรก')}
       ${meterRow('รอบสัปดาห์', u.pctWeek, 'รีเซ็ต ' + when(u.resetWeek))}</div>
@@ -96,9 +97,9 @@ PAGES.account = async function account() {
       ${w.tx.length ? `<details class="faq" style="margin-top:8px"><summary>ประวัติ Wallet</summary><div class="tw"><table class="tbl"><tr><th>วันที่</th><th>รายการ</th><th>จำนวน</th><th>คงเหลือ</th></tr>
         ${w.tx.map(t => `<tr><td>${when(t.created_at)}</td><td>${TX_KIND[t.kind] || esc(t.kind)}${t.ref ? ` <span class="muted">${esc(t.ref)}</span>` : ''}</td><td class="${t.amount < 0 ? 'bad' : 'ok'}">${t.amount < 0 ? '-' : '+'}฿${money(Math.abs(t.amount))}</td><td>฿${baht(t.balance_after)}</td></tr>`).join('')}</table></div></details>` : ''}</div>
 
-    ${w.bonus > 0 ? `<div class="card acc-c" id="sec-ref">${h3('ชวนเพื่อน')}<p class="muted">เพื่อนสมัครผ่านลิงก์นี้ แล้วจ่ายเงินครั้งแรก รับเครดิตคนละ ฿${baht(w.bonus)}</p>
+    ${w.bonus > 0 || w.aff_pct > 0 ? `<div class="card acc-c" id="sec-ref">${h3('ชวนเพื่อน')}<p class="muted">${w.bonus > 0 ? `เพื่อนสมัครผ่านลิงก์นี้ แล้วจ่ายเงินครั้งแรก รับเครดิตคนละ ฿${baht(w.bonus)}` : ''}${w.aff_pct > 0 ? `${w.bonus > 0 ? ' · ' : ''}Affiliate: รับค่าคอม ${w.aff_pct}% ทุกครั้งที่คนที่คุณชวนจ่ายเงิน เข้า Wallet อัตโนมัติ` : ''}</p>
       <div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(refLink)}" id="ref" aria-label="ลิงก์ชวนเพื่อน"><button class="btn out sm" id="cpref">Copy</button></div>
-      <p class="muted" style="margin:8px 0 0">ชวนแล้ว ${w.referred} คน · จ่ายแล้ว ${w.referred_paid} คน</p></div>` : ''}
+      <p class="muted" style="margin:8px 0 0">ชวนแล้ว ${w.referred} คน · จ่ายแล้ว ${w.referred_paid} คน${w.aff_total > 0 ? ` · ค่าคอมสะสม ฿${baht(w.aff_total)}` : ''}</p>${w.aff_total >= 100 ? '<button class="btn out sm" id="affout" style="margin-top:8px">ขอถอนค่าคอมเป็นเงินสด</button>' : ''}</div>` : ''}
 
     <div class="card acc-c" id="sec-look">${h3('การแสดงผล')}
       <label>แจ้งเตือนเข้ามือถือ</label><p class="muted" style="margin:0 0 6px">Agent, Deep research และงานตั้งเวลาเสร็จแล้วแจ้งทันทีแม้ปิดแอป (แยกต่ออุปกรณ์)</p><div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn out sm" id="pushbtn">กำลังตรวจ…</button><button type="button" class="btn out sm" id="pushtest" hidden>ทดสอบ</button></div>
@@ -143,6 +144,7 @@ PAGES.account = async function account() {
       m.textContent = ''; toast(`นำเข้าแล้ว ${done} แชต (อยู่ในรายการแชต ไอคอนกล่องจดหมาย)`, 'ok');
     } catch (x) { m.textContent = ''; toast(x.message, 'bad'); }
   };
+  $('#affout')?.addEventListener('click', async () => { const acc = await promptSheet('ใส่ธนาคาร เลขบัญชี และชื่อบัญชี สำหรับรับเงิน', '', { title: 'ขอถอนค่าคอม', ok: 'ส่งคำขอ' }); if (!acc?.trim()) return; try { await api('/tickets', { method: 'POST', body: { subject: 'ขอถอนค่าคอม Affiliate', body: `ค่าคอมสะสม ฿${baht(w.aff_total)} · ยอดใน Wallet ฿${baht(w.balance)}\nบัญชีรับเงิน: ${acc}` } }); toast('ส่งคำขอแล้ว แอดมินจะโอนและหักจาก Wallet ให้', 'ok'); } catch (x) { toast(x.message, 'bad'); } });
   const pkDraw = async () => { const l = await api('/passkeys').catch(() => []); $('#pks').innerHTML = l.length ? l.map(k => `<div class="row" style="justify-content:space-between;padding:6px 0"><span>${esc(k.name)} <small class="muted">· เพิ่ม ${when(k.created_at)}${k.used_at ? ' · ใช้ล่าสุด ' + when(k.used_at) : ''}</small></span><button type="button" class="btn red sm" data-pkdel="${k.id}">ลบ</button></div>`).join('') : 'ยังไม่มี Passkey'; $('#pks').querySelectorAll('[data-pkdel]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบ Passkey นี้? เครื่องนั้นจะล็อกอินด้วย Passkey ไม่ได้อีก', { title: 'ลบ Passkey', ok: 'ลบ', danger: true })) { await api('/passkeys/' + b.dataset.pkdel, { method: 'DELETE' }); pkDraw(); } }); };
   pkDraw(); $('#pkadd').onclick = async e => { e.target.disabled = true; try { await passkeyAdd(); toast('เพิ่ม Passkey แล้ว', 'ok'); pkDraw(); } catch (x) { if (x.name !== 'NotAllowedError') toast(x.message, 'bad'); } e.target.disabled = false; };
   const pb = $('#pushbtn'), pt = $('#pushtest'), pdraw = on => { pb.textContent = on ? 'ปิดแจ้งเตือนในเครื่องนี้' : 'เปิดแจ้งเตือน'; pt.hidden = !on; };

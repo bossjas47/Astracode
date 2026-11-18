@@ -122,7 +122,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   }
   if (path === '/api/wallet') {
     const ref = await DB.prepare('SELECT COUNT(*) n, SUM(ref_rewarded) paid FROM users WHERE referred_by=?').bind(u.id).first();
-    return json({ balance: u.balance, ref_code: u.ref_code, referred: ref.n, referred_paid: ref.paid || 0, bonus: +(await getSetting(env, 'referral_bonus')) || 0,
+    return json({ balance: u.balance, ref_code: u.ref_code, referred: ref.n, referred_paid: ref.paid || 0, bonus: +(await getSetting(env, 'referral_bonus')) || 0, aff_pct: +(await getSetting(env, 'aff_pct')) || 0, aff_total: (await DB.prepare("SELECT COALESCE(SUM(amount),0) n FROM wallet_tx WHERE user_id=? AND kind='affiliate'").bind(u.id).first()).n,
       tx: (await DB.prepare('SELECT amount,balance_after,kind,ref,created_at FROM wallet_tx WHERE user_id=? ORDER BY id DESC LIMIT 50').bind(u.id).all()).results });
   }
   if (path === '/api/coupon/check' && M === 'POST') {

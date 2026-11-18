@@ -351,3 +351,18 @@ test('agent page screenshot: off without Cloudflare settings, sends the bundled 
   try { const s = await pageShot({ ...t.env, CF_ACCOUNT_ID: 'acc', CF_BR_TOKEN: 'tok' }, p.id); assert.equal(s, 'data:image/jpeg;base64,AQID'); assert.match(sent.url, /accounts\/acc\/browser-rendering\/screenshot/); assert.match(sent.body.html, /<html/i); }
   finally { globalThis.fetch = f0; }
 });
+
+test('first top-up bonus once (capped), affiliate commission to the referrer, KPI and churn report', async () => {
+  const { applyPayment } = await import('../src/billing.js'), { kpiYesterday } = await import('../src/jobs.js');
+  const t = await makeEnv(), ref = await t.user(), u = await t.user(), adm = await t.user({ role: 'admin' });
+  t.DB.raw.prepare('UPDATE users SET referred_by=? WHERE id=?').run(ref.id, u.id);
+  for (const [k, v] of [['aff_pct', '10'], ['first_topup_pct', '20'], ['referral_bonus', '0']]) t.DB.raw.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(k, v);
+  const pay = (amount, slip = 'slip/a') => ({ id: Math.floor(Math.random() * 1e6), user_id: u.id, kind: 'topup', amount, slip_key: slip });
+  const bal = id => t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(id).balance;
+  await applyPayment(t.env, pay(1000)); assert.equal(bal(u.id), 1100, '20% capped at 100');
+  await applyPayment(t.env, pay(50)); assert.equal(bal(u.id), 1150, 'bonus only once');
+  assert.equal(bal(ref.id), 105, 'referrer earns 10% of real payments');
+  await applyPayment(t.env, pay(30, 'wallet')); assert.equal(bal(ref.id), 105, 'no commission on wallet-paid');
+  const k = await kpiYesterday(t.env); assert.match(k.text, /สมัครใหม่/);
+  assert.equal((await t.json('/api/admin/churn', { cookie: adm.cookie })).status, 200);
+});

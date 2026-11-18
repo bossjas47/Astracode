@@ -14,7 +14,7 @@ export const TABLES = {
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
-  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
+  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
 
 // ---------- รหัสผ่านชั้นที่สองของหน้าแอดมิน (ตั้งครั้งแรกเอง · ปลดล็อกต่อ session 12 ชม.) ----------
 const GATE_MS = 12 * 36e5;
@@ -415,6 +415,15 @@ export async function admin(req, env, path, url, me) {
   }
   if (path === '/api/admin/backups/verify' && M === 'POST') return json(await verifyBackup(env)); // เปิดไฟล์สำรองล่าสุด ตรวจว่าอ่านได้และนับแถวเทียบฐานข้อมูลจริง (ไม่เขียนอะไร)
   if (path === '/api/admin/audit') return json((await DB.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all()).results);
+  if (path === '/api/admin/churn') { // แพลนหมดอายุใน 60 วันแล้วไม่ต่อ: จ่ายไปเท่าไหร่ ใช้ล่าสุดเมื่อไหร่ โมเดลสุดท้าย
+    const now = Date.now();
+    return json((await DB.prepare(`SELECT u.id,u.email,p.name plan,u.plan_expires,u.plan_period,
+      (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.user_id=u.id AND x.status='approved' AND x.slip_key NOT IN ('wallet','coupon')) paid,
+      (SELECT MAX(created_at) FROM usage s WHERE s.user_id=u.id) last_use,
+      (SELECT m.name FROM usage s JOIN models m ON m.id=s.model_id WHERE s.user_id=u.id ORDER BY s.id DESC LIMIT 1) last_model,
+      (SELECT COUNT(*) FROM usage s WHERE s.user_id=u.id AND s.created_at>u.plan_expires-30*86400000 AND s.created_at<=u.plan_expires) msgs_last30
+      FROM users u JOIN plans p ON p.id=u.plan_id WHERE p.price>0 AND u.plan_expires BETWEEN ?1 AND ?2 ORDER BY u.plan_expires DESC LIMIT 200`).bind(now - 60 * 864e5, now).all()).results);
+  }
   if (path === '/api/admin/model-health') { // สุขภาพโมเดล 24 ชม.: ตอบสำเร็จ (จาก usage) เทียบ error (จาก events)
     const since = Date.now() - 864e5;
     const ok = (await DB.prepare('SELECT model_id, COUNT(*) n, AVG(ttft) ttft, AVG(ms) ms FROM usage WHERE created_at>? AND model_id>0 GROUP BY model_id').bind(since).all()).results;
