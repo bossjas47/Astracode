@@ -87,6 +87,7 @@ PAGES.account = async function account() {
       <div id="tklist" style="margin-top:8px"></div></div>
     <div class="card acc-c" id="sec-wallet">${h3('Wallet')}
       ${sw('overflow', me.wallet_overflow, 'ใช้ Wallet เมื่อลิมิตเต็ม', 'แชตต่อได้ คิดตามราคาต่อ token จริง')}
+      <div class="row" style="margin-top:10px"><button type="button" class="btn out sm" id="lineoa">${ic('msg', 'sm')} คุยกับ AI ผ่าน LINE</button></div>
       <form id="dcap" class="row" style="flex-wrap:nowrap;margin-top:10px"><input name="cap" type="number" min="0" step="1" inputmode="decimal" placeholder="เพดานใช้ Wallet ต่อวัน (บาท) ว่าง = ไม่จำกัด" value="${me.wallet_day_cap || ''}" aria-label="เพดานใช้ Wallet ต่อวัน"><button class="btn out sm">บันทึก</button></form>
       ${me.plan.paid ? sw('digest', me.digest !== false, 'สรุปการใช้รายเดือนทางอีเมล', 'ต้นเดือนส่งสรุปว่าใช้ไปเท่าไร โมเดลไหน และคุ้มกว่าจ่ายตามใช้แค่ไหน') : ''}
       ${me.plan.expires ? sw('renew', me.auto_renew, 'ต่ออายุแพลนอัตโนมัติ', 'ตัดเงินจาก Wallet ก่อนหมดอายุ 1 วัน ถ้ายอดพอ') : ''}
@@ -154,6 +155,7 @@ PAGES.account = async function account() {
   pt.onclick = () => api('/push/test', { method: 'POST' }).then(() => toast('ส่งแล้ว ดูที่แถบแจ้งเตือน', 'ok')).catch(x => toast(x.message, 'bad'));
   pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize'); pickSeg('#seg-fx', 'x', 'fx');
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
+  $('#lineoa')?.addEventListener('click', async () => { try { const r = await api('/line/link', { method: 'POST' }); if (!r.ready) return toast('ระบบ LINE ยังไม่เปิดใช้งาน', 'bad'); sheet('คุยกับ AI ผ่าน LINE', `<ol style="padding-left:20px;line-height:1.8"><li>เพิ่มเพื่อน LINE ${r.oa ? `<a href="https://line.me/R/ti/p/${encodeURIComponent(r.oa)}" target="_blank" rel="noopener"><b>${esc(r.oa)}</b></a>` : 'ของเรา'}</li><li>ส่งรหัสนี้ในแชต LINE: <b style="font-size:22px;letter-spacing:2px">${r.code}</b> (หมดอายุใน 10 นาที)</li><li>ถามได้เลย หักลิมิตแพลนเดียวกับเว็บ · พิมพ์ "ใหม่" เพื่อเริ่มเรื่องใหม่</li></ol>`); } catch (x) { toast(x.message, 'bad'); } });
   $('#dcap')?.addEventListener('submit', async e => { e.preventDefault(); try { await api('/me', { method: 'PUT', body: { wallet_day_cap: +new FormData(e.target).get('cap') || 0 } }); await loadMe(); toast('บันทึกเพดานแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew'); toggle('#digest', 'digest');
   const tasks = async () => { const ts = await api('/tasks').catch(() => []); const el = $('#tklist'); if (el) el.innerHTML = ts.map(x => `<div class="mem tm"><span>${String(x.hour).padStart(2, '0')}:00 · ${esc(x.prompt)}</span><button type="button" data-deltk="${x.id}" aria-label="ลบงาน">${ic('x')}</button></div>`).join(''); };

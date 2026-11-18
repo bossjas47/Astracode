@@ -74,7 +74,7 @@ async function chatView(id) {
         <a href="/pricing">${ic('tag')}<span>Pricing</span></a>
         <a href="/developers">${ic('braces')}<span>Developer API</span></a>
         <a href="/support">${ic('mail')}<span>Contact us</span></a>
-        ${me.role === 'admin' ? `<a href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
+        ${['admin', 'support', 'viewer'].includes(me.role) ? `<a href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
       </nav>
       <div class="side-sec"><span>Folders &amp; recent</span><span><button type="button" class="icon-btn xs ghost" id="bmk" aria-label="บุ๊กมาร์ก" title="บุ๊กมาร์ก">${ic('star', 'sm')}</button><button type="button" class="icon-btn xs ghost" id="bin" aria-label="เก็บถาวรและถังขยะ" title="เก็บถาวร / ถังขยะ">${ic('trash')}</button><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></span></div>
       <div class="list" id="list"></div>

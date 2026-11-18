@@ -2,6 +2,7 @@ import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, credits
 import { bundleProject, callModel, chat, compact, ensureFb, logUsage } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
+import { lineLinkCode, lineWebhook } from './linebot.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
 import { agentApi } from './agent.js';
 import { contextApi } from './context.js';
@@ -71,6 +72,7 @@ export default {
     if (path === '/robots.txt' || path === '/api/robots') return robots(req, env);
     if (path === '/sitemap.xml' || path === '/api/sitemap') return secure(await sitemap(req, env));
     if ((r = path.match(/^(?:\/api\/page)?\/blog\/([\w-]+)$/))) return secure(await blogPage(req, env, r[1])); // บทความ: ใส่ meta ให้ Google/social
+    if (path === '/line/webhook' && M === 'POST') return await lineWebhook(req, env, ctx); // LINE OA: คุยกับ AI ผ่าน LINE
     if (path === '/share-in' && M === 'POST') { // แชร์ไฟล์/ข้อความจากแอปอื่นบนมือถือ (manifest share_target) · เก็บชั่วคราวด้วยโทเคนสุ่ม แล้วให้หน้าแชตดึงไปแนบ
       const fd = await req.formData().catch(() => null), q = new URLSearchParams();
       for (const k of ['title', 'text', 'url']) { const v = String(fd?.get(k) || '').slice(0, 5000); if (v) q.set(k, v); }
@@ -176,6 +178,12 @@ export async function route(req, env, ctx, url, path, M) {
         return json({ per1, month: per1 * n * 30, plans: pls.map(x => ({ id: x.id, pct: weekUnits / x.limit_week * 100 })) });
       }
       if (path === '/api/status') return json(await status(env));
+      if (path === '/api/leaderboard') { // อันดับความพอใจจากผู้ใช้จริง (กดถูกใจ/ไม่ถูกใจใต้คำตอบ) 90 วัน · โมเดลที่มีอย่างน้อย 5 คะแนน · เรียงด้วย Wilson lower bound กันโมเดลที่มีคะแนนน้อยขึ้นนำ
+        await ensureFb(env);
+        const rows = (await env.DB.prepare('SELECT m.id, m.name, SUM(f.vote>0) up, SUM(f.vote<0) down FROM feedback f JOIN models m ON m.id=f.model_id WHERE f.created_at>? AND f.vote<>0 AND m.active=1 AND m.public=1 GROUP BY m.id HAVING COUNT(*)>=5').bind(Date.now() - 90 * DAY).all()).results;
+        const wilson = (u, n) => { const z = 1.96, p = u / n; return (p + z * z / (2 * n) - z * Math.sqrt((p * (1 - p) + z * z / (4 * n)) / n)) / (1 + z * z / n); };
+        return json(rows.map(x => ({ name: x.name, votes: x.up + x.down, pct: Math.round(x.up / (x.up + x.down) * 100), score: wilson(x.up, x.up + x.down) })).sort((a, b) => b.score - a.score).map(({ score, ...x }) => x), 200, { 'cache-control': 'public, max-age=300' });
+      }
       if (path === '/api/gallery') { await seedShowcase(env).catch(() => {}); return await projects(req, env, null, path, url); } // ผลงานเด่น: เปิดดูได้โดยไม่ต้องล็อกอิน
       if ((r = path.match(/^\/api\/share\/([a-f0-9]{12,48})$/))) {
         const c = await env.DB.prepare('SELECT id,title,created_at FROM chats WHERE share_token=? AND deleted_at IS NULL').bind(r[1]).first();
@@ -378,6 +386,7 @@ export async function route(req, env, ctx, url, path, M) {
         ctx.waitUntil(env.SLIPS.delete(k));
         return new Response(o.body, { headers: { 'content-type': o.httpMetadata?.contentType || 'application/octet-stream', 'x-name': encodeURIComponent(o.customMetadata?.name || 'file'), 'cache-control': 'no-store' } });
       }
+      if (path === '/api/line/link' && M === 'POST') return await lineLinkCode(env, u);
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if ((r = path.match(/^\/api\/pay\/(\d+)\/review$/)) && M === 'POST') { // สลิปถูกปฏิเสธ: ลูกค้าขอให้แอดมินตรวจเอง (ครั้งเดียวต่อรายการ)
         const p = await env.DB.prepare("UPDATE payments SET review=1 WHERE id=? AND user_id=? AND status='rejected' AND review IS NULL RETURNING id,amount").bind(+r[1], u.id).first();
@@ -387,9 +396,9 @@ export async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/pay') return json((await env.DB.prepare('SELECT p.id,p.amount,p.status,p.created_at,p.kind,p.period,p.discount,p.review,pl.name plan_name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE user_id=? ORDER BY p.id DESC LIMIT 20').bind(u.id).all()).results);
 
-      if (path === '/api/admin-gate') return u.role === 'admin' ? await adminGate(req, env, u) : err('forbidden', 403);
+      if (path === '/api/admin-gate') return STAFF.includes(u.role) ? await adminGate(req, env, u) : err('forbidden', 403);
       if (path.startsWith('/api/admin/')) {
-        if (u.role !== 'admin') return err('forbidden', 403);
+        if (!staffMay(u.role, M, path)) return err(STAFF.includes(u.role) ? 'สิทธิ์ของคุณทำรายการนี้ไม่ได้ (ติดต่อแอดมินหลัก)' : 'forbidden', 403);
         return (await gateBlock(env, u)) || await admin(req, env, path, url, u); // ต้องผ่านรหัสผ่านชั้นที่สองก่อน
       }
       return err('not found', 404);
@@ -426,4 +435,13 @@ async function sourceView(env, link) {
 <nav>${files.map(f => `<a href="#${id(f.path)}">${e(f.path)}</a>`).join('')}</nav>
 ${files.map(f => `<section id="${id(f.path)}"><h2>${e(f.path)}</h2><pre>${e(f.content.slice(0, 200000))}</pre></section>`).join('')}</html>`;
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60', 'x-robots-tag': 'noindex' } });
+}
+
+// สิทธิ์หลังบ้าน: admin = ทุกอย่าง · support = ดูแลลูกค้า (ชำระเงิน, ติดต่อ, รายงาน, ดูผู้ใช้) · viewer = ดูอย่างเดียว ไม่ดาวน์โหลดข้อมูลดิบ
+export const STAFF = ['admin', 'support', 'viewer'];
+export function staffMay(role, M, path) {
+  if (role === 'admin') return true;
+  if (!STAFF.includes(role) || /^\/api\/admin\/(export|backups|audit)/.test(path)) return false;
+  if (M === 'GET') return role === 'viewer' || /^\/api\/admin\/(stats|payments|slip|tickets|users|quality|reports|fraud|churn)/.test(path);
+  return role === 'support' && (/^\/api\/admin\/payments\/\d+\/(approve|reject)$/.test(path) || /^\/api\/admin\/tickets\/\d+$/.test(path) || /^\/api\/admin\/reports\/\d+$/.test(path));
 }

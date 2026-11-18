@@ -1,5 +1,5 @@
 import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
-import { ensureFb, isSafeMcpUrl, mcpSync } from './ai.js';
+import { callModel, ensureFb, isSafeMcpUrl, logUsage, mcpSync } from './ai.js';
 import { applyPayment, audit, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { slug } from './api.js';
@@ -14,7 +14,7 @@ export const TABLES = {
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
-  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'batch_discount_pct', 'canned_replies', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
+  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'batch_discount_pct', 'line_oa_id', 'line_bot_model', 'canned_replies', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
 
 // ---------- รหัสผ่านชั้นที่สองของหน้าแอดมิน (ตั้งครั้งแรกเอง · ปลดล็อกต่อ session 12 ชม.) ----------
 const GATE_MS = 12 * 36e5;
@@ -32,6 +32,7 @@ export async function adminGate(req, env, u) {
   const [salt, h] = saved.split(':');
   if (saved && !same(await gateHash(pw, salt), h || '')) return err('รหัสผ่านไม่ถูกต้อง', 403);
   const fresh = !saved ? pw : next; // ยังไม่ตั้ง = รหัสที่ส่งมาคือรหัสใหม่ · ตั้งแล้ว = ส่ง new เพื่อเปลี่ยน
+  if (fresh && u.role !== 'admin') return err('เฉพาะแอดมินหลักตั้งหรือเปลี่ยนรหัสหลังบ้านได้', 403);
   if (fresh) {
     if (fresh.length < 8) return err('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');
     const s = hex(crypto.getRandomValues(new Uint8Array(12)));
@@ -118,6 +119,13 @@ export async function admin(req, env, path, url, me) {
     return json({ ok: true });
   }
   if (path === '/api/admin/margin') return json(await lossModels(env));
+  if ((r = path.match(/^\/api\/admin\/reports\/(\d+)\/context$/))) { // แชตรอบข้อความที่ถูกรายงาน (เปิดดูได้เฉพาะแชตที่มีคนรายงาน) · บันทึกว่าแอดมินคนไหนเปิดดู
+    const rp = await DB.prepare('SELECT r.message_id, m.chat_id FROM reports r JOIN messages m ON m.id=r.message_id WHERE r.id=?').bind(+r[1]).first();
+    if (!rp) return err('ไม่พบข้อความที่ถูกรายงาน (อาจถูกลบแล้ว)', 404);
+    await audit(env, me, 'view reported chat', { report: +r[1], chat: rp.chat_id });
+    const msgs = (await DB.prepare('SELECT id,role,content,created_at FROM messages WHERE chat_id=? AND id BETWEEN ?-12 AND ?+4 ORDER BY id').bind(rp.chat_id, rp.message_id, rp.message_id).all()).results;
+    return json(msgs.map(x => ({ ...x, content: x.content.replace(/\[\[file:([^\]]+)\]\][\s\S]*?\[\[\/file\]\]/g, '[ไฟล์ $1]').slice(0, 4000), reported: x.id === rp.message_id })));
+  }
   if (path === '/api/admin/fraud') { // บัญชีที่น่าสงสัย: หลายบัญชีจาก IP เดียว · ผู้ชวนกับผู้ถูกชวนใช้ IP เดียวกัน (โกงโบนัส/ค่าคอม)
     const since = Date.now() - 60 * DAY;
     const [ips, refs] = await Promise.all([
@@ -153,10 +161,10 @@ export async function admin(req, env, path, url, me) {
       scopedRows = n;
     }
     if ('role' in b) { // ตั้ง/ถอดแอดมิน · ถอดตัวเองไม่ได้ (กันหลังบ้านไม่มีใครเข้าได้) · ถอดแล้วต้องใส่รหัสหลังบ้านใหม่
-      if (!['admin', 'user'].includes(b.role)) return err('role ไม่ถูกต้อง');
+      if (!['admin', 'support', 'viewer', 'user'].includes(b.role)) return err('role ไม่ถูกต้อง');
       if (+r[1] === me.id) return err('เปลี่ยนสิทธิ์ของตัวเองไม่ได้');
       const t = await DB.prepare('SELECT banned FROM users WHERE id=?').bind(r[1]).first(); if (!t) return err('ไม่พบผู้ใช้', 404);
-      if (b.role === 'admin' && t.banned) return err('ผู้ใช้นี้ถูกแบนอยู่');
+      if (b.role !== 'user' && t.banned) return err('ผู้ใช้นี้ถูกแบนอยู่');
       await DB.batch([DB.prepare('UPDATE users SET role=? WHERE id=?').bind(b.role, r[1]), DB.prepare('UPDATE sessions SET admin_ok=NULL WHERE user_id=?').bind(r[1])]);
     }
     if ('banned' in b) { if (b.banned && +r[1] === me.id) return err('แบนตัวเองไม่ได้'); await DB.prepare('UPDATE users SET banned=? WHERE id=?').bind(b.banned ? 1 : 0, r[1]).run(); }
@@ -184,7 +192,8 @@ export async function admin(req, env, path, url, me) {
       const d = today - days + 1 + i, u = U.get(d) || {};
       return { day: d * DAY, tin: u.tin || 0, tout: u.tout || 0, tc: u.tc || 0, cost: u.cost || 0, msgs: u.msgs || 0, au: u.au || 0, rev: P.get(d) || 0, reg: R.get(d) || 0 };
     });
-    return json({ days, cur, prev: old, daily, models: models.results, top: top.results, users, pending: pending.n });
+    const bySrc = (await DB.prepare("SELECT COALESCE(src,'-') src, COUNT(*) n, COALESCE(SUM(cost),0) cost, COALESCE(SUM(charge),0) charge FROM usage WHERE created_at>=? GROUP BY src ORDER BY cost DESC").bind(from).all()).results; // charge = เงินที่หักจาก Wallet จริง (ใช้ในลิมิตแพลน = 0)
+    return json({ days, cur, prev: old, daily, models: models.results, top: top.results, users, pending: pending.n, by_src: bySrc });
   }
   if ((r = path.match(/^\/api\/admin\/users\/(\d+)$/)) && M === 'GET') { // รายละเอียดผู้ใช้ 30 วันล่าสุด
     const u = await DB.prepare('SELECT u.id,u.email,u.role,u.plan_id,u.plan_expires,u.banned,u.created_at,u.usage_reset_at,u.sess_start,u.week_start,u.balance,u.email_verified,u.totp_on,u.google_id,u.line_id,u.plan_period,p.name plan_name FROM users u LEFT JOIN plans p ON p.id=u.plan_id WHERE u.id=?').bind(r[1]).first();
@@ -426,6 +435,19 @@ export async function admin(req, env, path, url, me) {
     const users = Object.values(jobs.reduce((a, j) => { const x = a[j.email] ||= { email: j.email, jobs: 0, teams: 0, cost: 0 }; x.jobs++; if (j.role === 'lead') x.teams++; x.cost += j.cost; return a; }, {})).sort((a, b) => b.cost - a.cost).slice(0, 20);
     return json({ jobs, users, total: jobs.reduce((a, j) => a + j.cost, 0) });
   }
+  if (path === '/api/admin/bench' && M === 'POST') { // ชุดทดสอบโมเดล: ตอบโจทย์ที่มีคำตอบตายตัว วัดถูก/ผิด เวลา และต้นทุนจริง (เสียค่า API จริง ต้นทุนของเรา)
+    const m = await DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(+(await req.json()).model_id).first(); if (!m) return err('ไม่พบโมเดล', 404);
+    if (await limited(env, 'bench:' + me.id, 60, 3600e3)) return err('ทดสอบบ่อยเกินไป รอสักครู่', 429);
+    await ctxAudit('bench model', { model: m.id });
+    const res = await Promise.all(BENCH.map(async ([cat, q, ok]) => {
+      const t0 = Date.now(); let out = '', usage = null, er = null;
+      try { for await (const e of callModel(env, m, [{ role: 'user', content: q }], { effort: null, maxTokens: 900, signal: AbortSignal.timeout(90e3) })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; } } catch (e) { er = e.message; }
+      if (usage) await logUsage(env, me.id, m, usage, { units: false, src: 'system' });
+      const cost = usage ? (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6 : 0;
+      return { cat, q, pass: !er && ok.test(out), ms: Date.now() - t0, cost, answer: (er ? 'ERROR: ' + er : out).slice(0, 600) };
+    }));
+    return json({ model: m.name, score: res.filter(x => x.pass).length, total: res.length, ms: Math.round(res.reduce((s, x) => s + x.ms, 0) / res.length), cost: res.reduce((s, x) => s + x.cost, 0), items: res });
+  }
   if (path === '/api/admin/agent-test' && M === 'POST') { // ทดสอบทีม Agent / Deep research กับโมเดลจริงในบัญชีแอดมิน (เสียต้นทุนจริงเล็กน้อย ใช้โมเดลลูกทีมทั้งหมด)
     await ensureAgentTable(env); const b = await req.json().catch(() => ({})), research = b.kind === 'research', plan = await planOf(env, me);
     if (!(plan?.price > 0)) return err('บัญชีแอดมินต้องมีแพลนเสียเงินก่อน (ให้แพลนตัวเองได้ที่แท็บผู้ใช้)');
@@ -535,3 +557,15 @@ ${cheaper > 0 ? `ถูกกว่าซื้อ API ทางการปร�
   }
   return err('not found', 404);
 }
+
+// โจทย์มาตรฐานของปุ่มทดสอบโมเดล: [หมวด, คำถาม, regex ของคำตอบที่ถูก] · ตรวจแบบตายตัว จึงเทียบข้ามโมเดลได้ยุติธรรม
+export const BENCH = [
+  ['การเงิน', 'กู้ 100,000 บาท ดอกเบี้ย 12% ต่อปี ผ่อนรายเดือนเท่ากัน 12 งวด (ลดต้นลดดอก) ผ่อนงวดละกี่บาท ตอบตัวเลขปัดเป็นจำนวนเต็มในบรรทัดสุดท้าย', /8,?88[45]/],
+  ['การเงิน', 'ลงทุนเดือนละ 1,000 บาท 12 เดือน ไม่มีผลตอบแทน รวมได้เท่าไร และถ้าได้ผลตอบแทนรวม 6% ของเงินต้นเมื่อครบปี จะมีเงินทั้งหมดเท่าไร ตอบตัวเลขสุดท้าย', /12,?720/],
+  ['คณิต', 'ถ้า 3x + 7 = 31 แล้ว x^2 - x เท่ากับเท่าไร ตอบเฉพาะตัวเลข', /\b56\b/],
+  ['โค้ด', 'JavaScript: [3,1,2].sort().map(x => x * 2).join("-") ได้ผลลัพธ์เป็นอะไร ตอบเฉพาะผลลัพธ์', /2-4-6/],
+  ['โค้ด', 'Python: print(len(set("banana"))) ได้ผลลัพธ์อะไร ตอบเฉพาะตัวเลข', /\b3\b/],
+  ['ภาษาไทย', 'ประเทศไทยมีกี่จังหวัด (นับรวมกรุงเทพมหานคร) ตอบเฉพาะตัวเลข', /\b77\b/],
+  ['ทำตามคำสั่ง', 'ตอบเป็น JSON เท่านั้น ไม่มีข้อความอื่น ไม่มี code fence: {"fruit": ชื่อผลไม้สีเหลืองภาษาอังกฤษตัวพิมพ์เล็ก 1 คำ}', /^\s*\{\s*"fruit"\s*:\s*"(banana|lemon|mango|pineapple)"\s*\}\s*$/],
+  ['เหตุผล', 'นาย A สูงกว่า B, B สูงกว่า C, D เตี้ยกว่า C ใครเตี้ยที่สุด ตอบตัวอักษรเดียว', /\bD\b/],
+];

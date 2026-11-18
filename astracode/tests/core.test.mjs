@@ -530,3 +530,70 @@ test('admin can promote/demote others but not self; demote clears admin gate', a
   assert.equal((await t.json('/api/admin/stats', { cookie: u.cookie })).status, 403);
   assert.equal((await t.env.DB.prepare('SELECT admin_ok FROM sessions s JOIN users x ON x.id=s.user_id WHERE x.id=?').bind(u.id).first()).admin_ok, null);
 });
+
+test('leaderboard ranks models by real votes (min 5); admin sees the chat around a reported answer and usage by source', async () => {
+  const t = await makeEnv(), adm = await t.user({ role: 'admin' }), u = await t.user();
+  const a = addModel(t.DB, { name: 'Alpha', base_url: 'http://x' }), b = addModel(t.DB, { name: 'Beta', base_url: 'http://x' }), c = addModel(t.DB, { name: 'Few', base_url: 'http://x' });
+  await t.call('/api/leaderboard'); const now = Date.now(); let mid = 1000;
+  const vote = (m, v, n) => { for (let i = 0; i < n; i++) t.DB.raw.prepare('INSERT INTO feedback VALUES (?,?,?,?,?)').run(mid++, u.id, m.id, v, now); };
+  vote(a, 1, 9); vote(a, -1, 1); vote(b, 1, 5); vote(b, -1, 5); vote(c, 1, 3);
+  const lb = (await t.json('/api/leaderboard')).data; assert.deepEqual(lb.map(x => x.name), ['Alpha', 'Beta']); assert.equal(lb[0].pct, 90);
+  const ch = t.DB.raw.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').get(u.id, 'c', now).id;
+  const m1 = t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,'user','ถามอะไร',?) RETURNING id").get(ch, now).id;
+  const m2 = t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,'assistant','คำตอบแย่',?) RETURNING id").get(ch, now).id;
+  const rp = t.DB.raw.prepare("INSERT INTO reports (message_id,user_id,model_id,reason,snippet,created_at) VALUES (?,?,?,?,?,?) RETURNING id").get(m2, u.id, a.id, 'bad', 'x', now).id;
+  const ctx = (await t.json(`/api/admin/reports/${rp}/context`, { cookie: adm.cookie })).data;
+  assert.deepEqual(ctx.map(x => x.id), [m1, m2]); assert.ok(ctx[1].reported);
+  assert.equal((await t.json(`/api/admin/reports/${rp}/context`, { cookie: u.cookie })).status, 403);
+  t.DB.raw.prepare("INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,src,charge) VALUES (?,?,1,1,0,0,0.5,?,'api',0.9)").run(u.id, a.id, now);
+  const st = (await t.json('/api/admin/stats', { cookie: adm.cookie })).data; assert.equal(st.by_src.find(x => x.src === 'api').charge, 0.9);
+});
+
+test('staff roles: support handles payments and tickets only, viewer reads only, neither changes roles or the gate password', async () => {
+  const { staffMay } = await import('../src/worker.js');
+  assert.equal(staffMay('support', 'POST', '/api/admin/payments/3/approve'), true);
+  assert.equal(staffMay('support', 'PUT', '/api/admin/users/3'), false);
+  assert.equal(staffMay('support', 'GET', '/api/admin/settings'), false);
+  assert.equal(staffMay('viewer', 'GET', '/api/admin/settings'), true);
+  assert.equal(staffMay('viewer', 'POST', '/api/admin/payments/3/approve'), false);
+  assert.equal(staffMay('viewer', 'GET', '/api/admin/export'), false);
+  assert.equal(staffMay('user', 'GET', '/api/admin/stats'), false);
+  const t = await makeEnv(), adm = await t.user({ role: 'admin' }), s = await t.user({ role: 'support' });
+  t.DB.raw.prepare('UPDATE sessions SET admin_ok=?').run(Date.now() + 36e5);
+  assert.equal((await t.json('/api/admin/payments', { cookie: s.cookie })).status, 200);
+  assert.equal((await t.json('/api/admin/users/' + adm.id, { method: 'PUT', cookie: s.cookie, body: { role: 'user' } })).status, 403);
+  assert.equal((await t.json('/api/admin-gate', { method: 'POST', cookie: s.cookie, body: { password: 'x', new: 'newpassword123' } })).status >= 400, true);
+  assert.equal((await t.json('/api/admin/users/' + s.id, { method: 'PUT', cookie: adm.cookie, body: { role: 'viewer' } })).status, 200);
+});
+
+test('model bench: fixed questions graded by regex, time and cost reported', async () => {
+  const { BENCH } = await import('../src/admin.js');
+  const fm = await fakeModel((q, res, body) => { const u = JSON.stringify(body); fm.sse(res, /3x \+ 7/.test(u) ? 'x = 8 ดังนั้น 56' : /จังหวัด/.test(u) ? '77' : 'ไม่ทราบ'); });
+  const t = await makeEnv({ K: 'k' }), adm = await t.user({ role: 'admin' }), m = addModel(t.DB, { name: 'B', base_url: fm.url });
+  const r = await t.json('/api/admin/bench', { method: 'POST', cookie: adm.cookie, body: { model_id: m.id } });
+  assert.equal(r.status, 200); assert.equal(r.data.total, BENCH.length); assert.equal(r.data.score, 2);
+  assert.ok(r.data.items.find(x => x.cat === 'คณิต').pass);
+  fm.close();
+});
+
+test('LINE OA bot: signature checked, link by 6-digit code, answers from the plan model and logs usage as line', async () => {
+  const fm = await fakeModel((q, res) => fm.sse(res, '**สวัสดี** ครับ'));
+  const t = await makeEnv({ K: 'k', LINE_BOT_SECRET: 'sec', LINE_BOT_TOKEN: 'tok' }), m = addModel(t.DB, { name: 'L', base_url: fm.url });
+  const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const sent = [], realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, o) => { if (String(url).startsWith('https://api.line.me/')) { sent.push(JSON.parse(o.body)); return new Response('{}'); } return realFetch(url, o); };
+  try {
+    const { lineSigOk } = await import('../src/linebot.js');
+    const hook = async text => { const body = JSON.stringify({ events: [{ type: 'message', replyToken: 'r', source: { userId: 'U1' }, message: { type: 'text', text } }] });
+      const k = await crypto.subtle.importKey('raw', new TextEncoder().encode('sec'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+      const sig = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(body)))));
+      assert.ok(await lineSigOk('sec', body, sig));
+      const r = await t.worker.default.fetch(new Request('https://t.test/line/webhook', { method: 'POST', headers: { 'x-line-signature': sig }, body }), t.env, t.ctx); await Promise.all(t.ctx.pending); return r; };
+    assert.equal((await t.worker.default.fetch(new Request('https://t.test/line/webhook', { method: 'POST', headers: { 'x-line-signature': 'bad' }, body: '{}' }), t.env, t.ctx)).status, 401);
+    await hook('สวัสดี'); assert.match(sent.at(-1).messages[0].text, /ยังไม่ได้เชื่อมบัญชี/);
+    const { code } = (await t.json('/api/line/link', { method: 'POST', cookie: u.cookie })).data;
+    await hook(code); assert.match(sent.at(-1).messages[0].text, /เชื่อมบัญชีแล้ว/);
+    await hook('ช่วยด้วย'); assert.equal(sent.at(-1).messages[0].text, 'สวัสดี ครับ', 'markdown bold stripped for LINE');
+    assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM usage WHERE src='line' AND user_id=?").get(u.id).n, 1);
+  } finally { globalThis.fetch = realFetch; fm.close(); }
+});

@@ -91,7 +91,7 @@ async function plansPage() {
 
 // ---------- หน้าราคาต่อ token (ตั้งค่าในหลังบ้าน → โมเดล / ตั้งค่า) ----------
 async function pricing() {
-  const d = await api('/pricing');
+  const [d, lb] = await Promise.all([api('/pricing'), api('/leaderboard').catch(() => [])]);
   let per = localStorage.getItem('per') || 'M';
   const unit = () => per === 'M' ? 'ต่อ 1M token' : 'ต่อ 1K token', u1 = () => per === 'M' ? '1M token' : '1K token', f = v => money(toCur(per === 'M' ? v : v / 1000));
   const planName = id => d.plans.find(p => p.id === id)?.name;
@@ -139,6 +139,7 @@ async function pricing() {
         ['Cache คืออะไร', 'ส่วนที่ AI เคยอ่านแล้วในแชตเดียวกัน เช่น ประวัติแชต ระบบจำไว้ จึงคิดราคาถูกกว่า Input ปกติมาก Cache write คือครั้งแรกที่บันทึกลง cache'],
         ['จ่ายตามนี้จริงไหม', 'ในแพลนรายเดือน คุณจ่ายราคาแพลนคงที่ ตัวเลขในหน้านี้ใช้ดูว่าแต่ละโมเดลกินลิมิตมากน้อยแค่ไหน'],
       ].map(([q, a]) => `<details class="faq"><summary>${q}</summary><p>${a}</p></details>`).join('')}</div>
+      ${lb.length ? `<div class="band" id="rank"><h2>ความพอใจจากผู้ใช้จริง</h2><p class="muted" style="text-align:center">จากการกดถูกใจ/ไม่ถูกใจใต้คำตอบ 90 วันล่าสุด (โมเดลที่มีอย่างน้อย 5 คะแนน)</p><div class="tw"><table class="tbl"><tr><th>#</th><th>โมเดล</th><th>พอใจ</th><th>คะแนน</th></tr>${lb.map((x, i) => `<tr><td>${i + 1}</td><td>${esc(x.name)}</td><td>${x.pct}%</td><td class="muted">${num(x.votes)}</td></tr>`).join('')}</table></div></div>` : ''}
       ${footer()}</div>`);
     app.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { per = b.dataset.per; localStorage.setItem('per', per); draw(); });
     app.querySelectorAll('[data-off]').forEach(b => b.onclick = () => { localStorage.setItem('offcmp', b.dataset.off); draw(); });
