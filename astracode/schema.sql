@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS chats (
   , summary TEXT, summary_upto INTEGER
   , pinned INTEGER NOT NULL DEFAULT 0, share_token TEXT       -- สรุปข้อความเก่า (ย่อแชตยาว) ถึงข้อความ id นี้
   , deleted_at INTEGER, archived INTEGER   -- ถังขยะ (ลบจริงหลัง 30 วัน) และเก็บถาวร
+  , instructions TEXT                       -- คำสั่งเฉพาะแชตนี้
 );
 CREATE INDEX IF NOT EXISTS chats_user ON chats(user_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS chats_share ON chats(share_token);
@@ -108,6 +109,7 @@ CREATE TABLE IF NOT EXISTS messages (
   thinking TEXT                             -- เหตุผลที่ AI คิดก่อนตอบ
   , sources TEXT                            -- แหล่งข้อมูลจากการค้นเว็บ (JSON)
   , tin INTEGER, tout INTEGER               -- token ที่ใช้ตอบข้อความนี้
+  , starred INTEGER                         -- บุ๊กมาร์ก
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 
@@ -333,6 +335,7 @@ CREATE TABLE IF NOT EXISTS messages (
   thinking TEXT                             -- เหตุผลที่ AI คิดก่อนตอบ
   , sources TEXT                            -- แหล่งข้อมูลจากการค้นเว็บ (JSON)
   , tin INTEGER, tout INTEGER               -- token ที่ใช้ตอบข้อความนี้
+  , starred INTEGER                         -- บุ๊กมาร์ก
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 

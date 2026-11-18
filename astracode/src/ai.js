@@ -324,6 +324,20 @@ export function bundleProject(files, page = null) { // page = หน้า .html
   if (deferred.length) html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, deferred.join('\n') + '\n</body>') : html + deferred.join('\n');
   return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + STORAGE_SHIM) : STORAGE_SHIM + html;
 }
+// อ่านลิงก์ในข้อความล่าสุด (สูงสุด 2 ลิงก์): ดึงหน้าเว็บแล้วตัดเหลือข้อความ ให้ AI สรุป/ตอบจากเนื้อหาจริง
+// กันยิงเข้าเครือข่ายภายใน: รับแค่ http(s) โดเมนปกติ ไม่รับ IP ตรงๆ / localhost / .local
+export async function readLinks(text) {
+  const urls = [...new Set(String(text || '').replace(/\[\[file:[\s\S]*?\[\[\/file\]\]/g, '').match(/https?:\/\/[^\s<>"'`)\]]+/g) || [])].slice(0, 2);
+  return (await Promise.all(urls.map(async url => {
+    let u; try { u = new URL(url); } catch { return null; }
+    if (!/^https?:$/.test(u.protocol) || /^(localhost|.*\.local|.*\.internal|\d+\.\d+\.\d+\.\d+|\[.*\])$/i.test(u.hostname) || u.port) return null;
+    const r = await fetch(u, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; AstraCodeReader/1.0)', accept: 'text/html,text/plain,application/json' }, redirect: 'follow', signal: AbortSignal.timeout(8000) }).catch(() => null);
+    if (!r?.ok || !/text\/|json/.test(r.headers.get('content-type') || '')) return null;
+    const raw = (await r.text()).slice(0, 600000), title = /<title[^>]*>([^<]{1,200})/i.exec(raw)?.[1]?.trim() || '';
+    const body = raw.replace(/<(script|style|noscript|svg|nav|footer|header)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr)>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+    return body.length > 80 ? { url, title, text: body.slice(0, 20000) } : null;
+  }))).filter(Boolean);
+}
 export async function webSearch(env, q) { // Tavily
   if (!env.TAVILY_KEY || (await getSetting(env, 'search_enabled')) === '0') return [];
   try {
@@ -463,7 +477,7 @@ export async function chat(req, env, u, ctx) {
       if (!cid) cid = (await env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,?) RETURNING id').bind(u.id, text.slice(0, 40), Date.now(), pid, b.folder_id || null).first()).id;
       await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(cid, 'user', saved, m.id, Date.now()).run();
     }
-    chatRow = await env.DB.prepare('SELECT summary,summary_upto FROM chats WHERE id=?').bind(cid).first();
+    chatRow = await env.DB.prepare('SELECT summary,summary_upto,instructions FROM chats WHERE id=?').bind(cid).first();
     const hmax = pid ? HISTORY_CODE : HISTORY, after = chatRow?.summary_upto || 0;
     const hn = (await env.DB.prepare('SELECT COUNT(*) n FROM messages WHERE chat_id=? AND id>?').bind(cid, after).first()).n;
     hist = (await env.DB.prepare('SELECT role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id LIMIT -1 OFFSET ?').bind(cid, after, histStart(hn, hmax)).all()).results.map(x => ({ ...x, content: String(x.content || '').replace(/\u2063/g, '') })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
@@ -473,7 +487,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid };
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -498,7 +512,7 @@ export async function runChat(env, J, send, st) {
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
   const projFile = pid ? (await env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid).first())?.content?.trim() : ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์กับ GitHub ไปด้วย)
   const projIns = pid ? [(await env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid).first())?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : ''].filter(Boolean).join('\n\n') : '';
-  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (await imagePrompt(env, !!pid)); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM, J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + (await imagePrompt(env, !!pid)); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
   const mcpTools = [], mcpMap = new Map();
   if (J.mcp_ids?.length) {
     const srvs = (await env.DB.prepare(`SELECT * FROM mcp_servers WHERE id IN (${J.mcp_ids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...J.mcp_ids, u.id).all().catch(() => ({ results: [] }))).results;
@@ -518,7 +532,10 @@ export async function runChat(env, J, send, st) {
     if (fb && !await modelDown(env, fb.id)) { model = fb; await send({ fallback: fb.name }); }
   }
   const kb = J.kb ? await kbBlock(env, u.id, hist.at(-1).content) : '';
-  let msgs = sources.length || kb ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: (kb ? kb + '\n\n' : '') + withSources(x.content, sources) } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
+  const links = !pid ? await readLinks(hist.at(-1).content).catch(() => []) : [];
+  if (links.length) await send({ sources: [...sources, ...links].map(({ title, url }) => ({ title, url })) });
+  const linkCtx = links.map(l => `[เนื้อหาจากลิงก์ ${l.url}${l.title ? ' · ' + l.title : ''}]\n${l.text}`).join('\n\n');
+  let msgs = sources.length || kb || linkCtx ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: (kb ? kb + '\n\n' : '') + withSources(x.content, sources) + (linkCtx ? '\n\n' + linkCtx : '') } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
   const maxRounds = J.agent ? AGENT_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า

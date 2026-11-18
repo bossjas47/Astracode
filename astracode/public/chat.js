@@ -76,7 +76,7 @@ async function chatView(id) {
         <a href="/support">${ic('mail')}<span>Contact us</span></a>
         ${me.role === 'admin' ? `<a href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
       </nav>
-      <div class="side-sec"><span>Folders &amp; recent</span><span><button type="button" class="icon-btn xs ghost" id="bin" aria-label="เก็บถาวรและถังขยะ" title="เก็บถาวร / ถังขยะ">${ic('trash')}</button><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></span></div>
+      <div class="side-sec"><span>Folders &amp; recent</span><span><button type="button" class="icon-btn xs ghost" id="bmk" aria-label="บุ๊กมาร์ก" title="บุ๊กมาร์ก">${ic('star', 'sm')}</button><button type="button" class="icon-btn xs ghost" id="bin" aria-label="เก็บถาวรและถังขยะ" title="เก็บถาวร / ถังขยะ">${ic('trash')}</button><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></span></div>
       <div class="list" id="list"></div>
       <div class="side-foot">
         <a class="side-user" href="/account" title="${esc(me.email)}">
@@ -152,7 +152,7 @@ async function chatView(id) {
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#bin').onclick = binSheet;
+  $('#bin').onclick = binSheet; $('#bmk').onclick = bookmarksSheet;
   $('#newf').onclick = async () => { const name = await promptSheet('ตั้งชื่อโฟลเดอร์ใหม่', '', { title: 'สร้างโฟลเดอร์', ok: 'Create' }); if (name?.trim()) { await api('/folders', { method: 'POST', body: { name } }); Promise.all([loadSkills(), loadMcps()]).then(() => modelUI()); loadSide(); toast('สร้างโฟลเดอร์แล้ว', 'ok'); } };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
@@ -202,7 +202,9 @@ async function chatView(id) {
     const b = e.target.closest('button'); if (!b) return;
     if (b.classList.contains('cp-code')) copy(b.closest('.code').querySelector('code').textContent, b);
     if (b.classList.contains('run-code')) openCanvas(b.closest('.code').querySelector('code').textContent);
+    if (b.classList.contains('run-py')) runPyChat(b.closest('.code'));
     if (b.dataset.edit != null) editMsg(+b.dataset.edit);
+    if (b.dataset.star != null) { const m = chat.msgs[+b.dataset.star], on = !m.starred; api(`/messages/${m.id}/star`, { method: 'POST', body: { on } }).then(() => { m.starred = on ? 1 : 0; renderAll(); toast(on ? 'บุ๊กมาร์กแล้ว ดูได้ที่เมนูแชต → บุ๊กมาร์ก' : 'เลิกบุ๊กมาร์กแล้ว', on ? 'ok' : ''); }).catch(x => toast(x.message, 'bad')); }
     if (b.dataset.branch != null && chat.id) api(`/chats/${chat.id}/branch`, { method: 'POST', body: { message_id: chat.msgs[+b.dataset.branch]?.id } }).then(r => { toast('แตกกิ่งเป็นแชตใหม่แล้ว', 'ok'); go('/chat?id=' + r.id); }).catch(x => toast(x.message, 'bad'));
     if (b.dataset.say != null) { // อ่านออกเสียงด้วยเสียงของเครื่อง (กดซ้ำ = หยุด)
       const sy = speechSynthesis; if (sy.speaking) return sy.cancel();
@@ -221,6 +223,36 @@ async function chatView(id) {
   if (chat.id && chat.msgs.at(-1)?.role === 'user') send({ resume: true }); // ข้อความล่าสุดยังไม่มีคำตอบ: ต่อสตรีมที่ AI ยังทำอยู่
 }
 
+// วิเคราะห์ข้อมูลในแชต: รันบล็อก Python ด้วย Pyodide ในเบราว์เซอร์ · ไฟล์ที่แนบในแชตนี้อยู่ในโฟลเดอร์เดียวกัน (เปิดด้วยชื่อไฟล์ได้เลย) · กราฟ matplotlib แสดงเป็นรูป
+let pyChat = null;
+function runPyChat(block) {
+  const code = block.querySelector('code').textContent, files = new Map();
+  for (const m of chat.msgs) if (m.role === 'user') for (const f of String(m.content || '').matchAll(FILE_RE)) {
+    const name = f[1].replace(/[^\w.\-ก-๙]/g, '_'), sheets = f[2].split(/^--- ชีต (.+) ---$/m);
+    if (sheets.length > 1) for (let i = 1; i < sheets.length; i += 2) files.set(name.replace(/\.\w+$/, '') + '__' + sheets[i].replace(/[^\w\-ก-๙]/g, '_') + '.csv', sheets[i + 1].trim()); // Excel: แยกชีตละไฟล์ CSV
+    else files.set(name, f[2]);
+  }
+  let out = block.querySelector('.pyout'); if (!out) { out = document.createElement('div'); out.className = 'pyout'; block.append(out); }
+  out.innerHTML = '<pre class="muted">กำลังเตรียม Python…</pre>'; const pre = out.querySelector('pre'); let txt = '';
+  pyChat?.terminate(); const w = pyChat = new Worker('/pyworker.js'), kill = setTimeout(() => { w.terminate(); pre.textContent = (txt + '\n(หยุด: รันนานเกิน 90 วินาที)').trim(); }, 90e3);
+  w.onmessage = e => { const d = e.data;
+    if (d.status && !txt) pre.textContent = d.status;
+    if (d.out != null || d.err) { txt += (d.out ?? d.err) + '\n'; pre.textContent = txt.slice(-20000); pre.classList.toggle('muted', false); }
+    if (d.img) out.insertAdjacentHTML('beforeend', `<img src="data:image/png;base64,${d.img}" alt="กราฟ">`);
+    if (d.done) { clearTimeout(kill); if (!txt && !out.querySelector('img')) pre.textContent = 'รันเสร็จ (ไม่มีผลลัพธ์ ลองใส่ print())'; }
+  };
+  w.postMessage({ files: [...[...files].map(([path, content]) => ({ path, content })), { path: '__main__.py', content: code }], main: '__main__.py' });
+}
+function chatInsSheet(id, cur) {
+  sheet('คำสั่งเฉพาะแชตนี้', `<form class="sheet-form" id="cif"><p class="muted" style="margin:0">AI จะทำตามคำสั่งนี้ทุกข้อความในแชตนี้เท่านั้น (เว้นว่าง = ไม่มี)</p><textarea name="v" rows="5" maxlength="2000" placeholder="เช่น ตอบสั้นๆ เป็นข้อๆ และใช้ภาษาอังกฤษ">${esc(cur || '')}</textarea><button class="btn blue">บันทึก</button></form>`, (d, close) => {
+    d.querySelector('#cif').onsubmit = async e => { e.preventDefault(); const v = new FormData(e.target).get('v'); try { await api('/chats/' + id, { method: 'PUT', body: { instructions: v } }); const c = chat.chats.find(x => x.id === id); if (c) c.instructions = v; close(); toast('บันทึกแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); } };
+  });
+}
+async function bookmarksSheet() {
+  const draw = async (d, q = '') => { const list = await api('/bookmarks' + (q ? '?q=' + encodeURIComponent(q) : '')).catch(() => []);
+    d.querySelector('#bml').innerHTML = list.map(b => `<a class="mem tm" style="display:block;color:inherit" href="/chat?id=${b.chat_id}#m${b.id}"><small class="muted">${esc(b.title)} · ${when(b.created_at)}</small><br>${esc(b.content.replace(/[#*`>]/g, '').slice(0, 220))}</a>`).join('') || '<p class="muted">ยังไม่มีบุ๊กมาร์ก กดไอคอนดาวใต้คำตอบเพื่อเก็บไว้</p>'; };
+  sheet('บุ๊กมาร์ก', '<div class="sheet-form"><input id="bmq" type="search" placeholder="ค้นหาในบุ๊กมาร์ก" aria-label="ค้นหาในบุ๊กมาร์ก"><div id="bml"><p class="muted">กำลังโหลด...</p></div></div>', d => { draw(d); let t; d.querySelector('#bmq').oninput = e => { clearTimeout(t); t = setTimeout(() => draw(d, e.target.value.trim()), 300); }; });
+}
 function openCanvas(code) {
   const cv = $('#canvas'); if (!cv) return showPreview(code);
   chat.cvCode = code;
@@ -457,6 +489,7 @@ function drawSide() {
       sheet(c.title, optHTML('pin', ic('pin') + (c.pinned ? 'เลิกปักหมุด' : 'ปักหมุดแชต'), 'แสดงไว้ด้านบนสุดของรายการ')
         + optHTML('shr', ic('share') + 'แชร์ลิงก์แชต', c.share_token ? 'คัดลอกหรือยกเลิกลิงก์แชร์' : 'สร้างลิงก์อ่านอย่างเดียวให้เพื่อนดูได้')
         + optHTML('ren', ic('pen') + 'เปลี่ยนชื่อแชต', 'แก้ไขชื่อที่แสดงในแถบด้านข้าง')
+        + optHTML('ins', ic('settings') + 'คำสั่งเฉพาะแชตนี้', 'เช่น "ตอบเป็นภาษาอังกฤษ" หรือ "เป็นครูสอนคณิต" ใช้แค่ในแชตนี้')
         + optHTML('mv', ic('folder') + 'ย้ายไปโฟลเดอร์', c.folder_id ? 'เปลี่ยนหรือเอาออกจากโฟลเดอร์' : 'จัดเก็บเข้าโฟลเดอร์')
         + optHTML('cst', ic('dash') + 'ดูต้นทุนแชตนี้', 'โทเคนที่ใช้และค่าใช้จ่ายโดยประมาณถ้าจ่ายตามใช้')
         + optHTML('arc', ic('inbox') + 'เก็บถาวร', 'ซ่อนจากรายการ ค้นหาและกู้คืนได้ที่ไอคอนถังขยะ')
@@ -471,6 +504,7 @@ function drawSide() {
             d2.querySelector('[data-rev]').onclick = async () => { await api(`/chats/${c.id}/share`, { method: 'DELETE' }); c2(); loadSide(); toast('ยกเลิกลิงก์แชร์แล้ว'); };
           });
         };
+        sd.querySelector('[data-v=ins]').onclick = () => { close(); chatInsSheet(c.id, c.instructions || ''); };
         sd.querySelector('[data-v=ren]').onclick = async () => { close(); const title = await promptSheet('ชื่อแชตใหม่', c.title, { title: 'เปลี่ยนชื่อแชต' }); if (title?.trim()) { await api('/chats/' + c.id, { method: 'PUT', body: { title } }); loadSide(); } };
         sd.querySelector('[data-v=mv]').onclick = () => {
           close();
@@ -611,7 +645,7 @@ function msgHTML(m, i, isNew) {
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : waitHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
-    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">Copy</button>${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
+    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}">Copy</button>${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-star="${i}" class="${m.starred ? 'on' : ''}" aria-label="${m.starred ? 'เลิกบุ๊กมาร์ก' : 'บุ๊กมาร์กคำตอบนี้'}" aria-pressed="${!!m.starred}">${ic('star')}</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
 // token ที่ใช้ตอบ + ลิมิตที่ใช้ไป (เฉพาะข้อความที่เพิ่งตอบ)
 const tokHTML = m => m.tin || m.tout ? `<span class="tok" title="Input ${num(m.tin)} · Output ${num(m.tout)} token">↑${kTok(m.tin || 0)} ↓${kTok(m.tout || 0)}${m.pct != null ? ` · ลิมิต +${m.pct < 0.1 ? '<0.1' : m.pct.toFixed(1)}%` : ''}</span>` : '';

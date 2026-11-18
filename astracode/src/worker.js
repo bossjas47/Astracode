@@ -255,7 +255,7 @@ export async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/chats') {
         const pj = url.searchParams.get('project');
-        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
+        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,instructions,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
       }
       if (path === '/api/gallery' || path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
       if (path === '/api/github') { // เชื่อม GitHub ด้วย Personal Access Token
@@ -303,6 +303,14 @@ export async function route(req, env, ctx, url, path, M) {
           return json({ share_token: row.share_token });
         }
       }
+      if (path === '/api/bookmarks') { // คำตอบที่บุ๊กมาร์กไว้ (ล่าสุดก่อน) · ?q= ค้นหา
+        const q = (url.searchParams.get('q') || '').trim();
+        return json((await env.DB.prepare(`SELECT m.id,m.chat_id,substr(m.content,1,400) content,m.created_at,c.title FROM messages m JOIN chats c ON c.id=m.chat_id WHERE c.user_id=? AND m.starred=1 AND c.deleted_at IS NULL ${q ? 'AND m.content LIKE ?' : ''} ORDER BY m.id DESC LIMIT 100`).bind(...(q ? [u.id, '%' + q + '%'] : [u.id])).all()).results);
+      }
+      if ((r = path.match(/^\/api\/messages\/(\d+)\/star$/)) && M === 'POST') {
+        const b = await req.json().catch(() => ({})), ok = await env.DB.prepare('UPDATE messages SET starred=? WHERE id=? AND chat_id IN (SELECT id FROM chats WHERE user_id=?)').bind(b.on ? 1 : 0, +r[1], u.id).run();
+        return ok.meta.changes ? json({ ok: true }) : err('ไม่พบข้อความ', 404);
+      }
       if ((r = path.match(/^\/api\/chats\/(\d+)$/))) {
         const own = await env.DB.prepare('SELECT deleted_at FROM chats WHERE id=? AND user_id=?').bind(r[1], u.id).first();
         if (!own || (own.deleted_at && M !== 'DELETE')) return err('ไม่พบแชต', 404);
@@ -316,6 +324,7 @@ export async function route(req, env, ctx, url, path, M) {
           if ('title' in b) { const title = String(b.title || '').trim().slice(0, 80); if (!title) return err('ชื่อว่าง'); await env.DB.prepare('UPDATE chats SET title=? WHERE id=?').bind(title, r[1]).run(); }
           if ('pinned' in b) await env.DB.prepare('UPDATE chats SET pinned=? WHERE id=?').bind(b.pinned ? 1 : 0, r[1]).run();
           if ('archived' in b) await env.DB.prepare('UPDATE chats SET archived=? WHERE id=?').bind(b.archived ? 1 : 0, r[1]).run();
+          if ('instructions' in b) await env.DB.prepare('UPDATE chats SET instructions=? WHERE id=?').bind(String(b.instructions || '').trim().slice(0, 2000) || null, r[1]).run(); // คำสั่งเฉพาะแชตนี้
           if ('folder_id' in b) {
             if (b.folder_id && !await env.DB.prepare('SELECT 1 FROM folders WHERE id=? AND user_id=?').bind(b.folder_id, u.id).first()) return err('ไม่พบโฟลเดอร์', 404);
             await env.DB.prepare('UPDATE chats SET folder_id=? WHERE id=?').bind(b.folder_id || null, r[1]).run();
@@ -323,7 +332,7 @@ export async function route(req, env, ctx, url, path, M) {
           return json({ ok: true });
         }
         await ensureFb(env);
-        return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,md.name model,(SELECT vote FROM feedback f WHERE f.message_id=m.id AND f.user_id=?2) vote FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=?1 ORDER BY m.id').bind(r[1], u.id).all()).results);
+        return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,m.starred,md.name model,(SELECT vote FROM feedback f WHERE f.message_id=m.id AND f.user_id=?2) vote FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=?1 ORDER BY m.id').bind(r[1], u.id).all()).results);
       }
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if (path === '/api/pay') return json((await env.DB.prepare('SELECT p.id,p.amount,p.status,p.created_at,p.kind,p.period,p.discount,pl.name plan_name FROM payments p LEFT JOIN plans pl ON pl.id=p.plan_id WHERE user_id=? ORDER BY p.id DESC LIMIT 20').bind(u.id).all()).results);

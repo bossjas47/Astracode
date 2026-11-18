@@ -19,7 +19,12 @@ onmessage = async e => {
     py.runPython(`import os, sys\nos.chdir(${JSON.stringify(root)})\nif ${JSON.stringify(root)} not in sys.path: sys.path.insert(0, ${JSON.stringify(root)})`);
     postMessage({ status: 'กำลังรัน ' + main });
     await py.loadPackagesFromImports(code);
+    if (/matplotlib|pandas.*\.plot|seaborn/.test(code)) py.runPython("import matplotlib\nmatplotlib.use('AGG')");
     await py.runPythonAsync(code, { filename: main });
+    if (/matplotlib|seaborn|\.plot\(/.test(code)) { // กราฟ: ส่งเป็นรูป PNG (base64) ให้หน้าเว็บแสดง
+      const imgs = py.runPython("import base64, io, sys\nout=[]\nif 'matplotlib.pyplot' in sys.modules:\n  import matplotlib.pyplot as plt\n  for n in plt.get_fignums():\n    b=io.BytesIO(); plt.figure(n).savefig(b, format='png', dpi=110, bbox_inches='tight'); out.append(base64.b64encode(b.getvalue()).decode())\n  plt.close('all')\nout").toJs();
+      for (const img of imgs) postMessage({ img });
+    }
     postMessage({ done: true });
   } catch (x) { postMessage({ err: String(x.message || x), done: true }); }
 };

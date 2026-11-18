@@ -366,3 +366,25 @@ test('first top-up bonus once (capped), affiliate commission to the referrer, KP
   const k = await kpiYesterday(t.env); assert.match(k.text, /สมัครใหม่/);
   assert.equal((await t.json('/api/admin/churn', { cookie: adm.cookie })).status, 200);
 });
+
+test('link reader: fetches http(s) pages as text, skips private hosts and attached file text', async () => {
+  const { readLinks } = await import('../src/ai.js');
+  const f0 = globalThis.fetch; const hit = [];
+  globalThis.fetch = async u => { hit.push(String(u)); return new Response('<html><title>ข่าว</title><script>x()</script><body><p>' + 'เนื้อหาจริงของบทความ '.repeat(10) + '</p></body></html>', { headers: { 'content-type': 'text/html' } }); };
+  try {
+    const r = await readLinks('สรุปให้หน่อย https://example.com/news และ http://127.0.0.1/x http://localhost/y\n\n[[file:a.txt]]\nhttps://in-file.example\n[[/file]]');
+    assert.equal(r.length, 1); assert.equal(r[0].title, 'ข่าว'); assert.doesNotMatch(r[0].text, /x\(\)/); assert.deepEqual(hit, ['https://example.com/news']);
+  } finally { globalThis.fetch = f0; }
+});
+
+test('bookmarks: star a message, list and search it; per-chat instructions are saved', async () => {
+  const t = await makeEnv(), u = await t.user(), o = await t.user();
+  const c = t.DB.raw.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').get(u.id, 'แชต', Date.now());
+  const m = t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,'assistant','สูตรต้มยำกุ้ง',?) RETURNING id").get(c.id, Date.now());
+  assert.equal((await t.json(`/api/messages/${m.id}/star`, { method: 'POST', cookie: o.cookie, body: { on: true } })).status, 404);
+  assert.equal((await t.json(`/api/messages/${m.id}/star`, { method: 'POST', cookie: u.cookie, body: { on: true } })).status, 200);
+  assert.equal((await t.json('/api/bookmarks?q=' + encodeURIComponent('ต้มยำ'), { cookie: u.cookie })).data.length, 1);
+  assert.equal((await t.json('/api/bookmarks?q=zzz', { cookie: u.cookie })).data.length, 0);
+  await t.json('/api/chats/' + c.id, { method: 'PUT', cookie: u.cookie, body: { instructions: 'ตอบเป็นภาษาอังกฤษ' } });
+  assert.equal(t.DB.raw.prepare('SELECT instructions FROM chats WHERE id=?').get(c.id).instructions, 'ตอบเป็นภาษาอังกฤษ');
+});
