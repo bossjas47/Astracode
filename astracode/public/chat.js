@@ -619,6 +619,15 @@ async function readFile(f) {
     }
     text = pages.join('\n');
     if (!text.replace(/--- หน้า \d+ ---/g, '').trim()) throw new Error('PDF นี้เป็นภาพสแกน ไม่มีข้อความให้อ่าน ลองแคปหน้าจอแล้วแนบเป็นรูปแทน');
+  } else if (n.endsWith('.zip')) { // zip: แตกในเบราว์เซอร์ รวมไฟล์ข้อความ/โค้ดทุกไฟล์เป็นข้อความเดียว (มีชื่อไฟล์คั่น) ไฟล์ไบนารีบอกแค่ชื่อ
+    await lib('jszip'); const z = await JSZip.loadAsync(f), parts = [], bin = [];
+    for (const e of Object.values(z.files)) {
+      if (e.dir || /(^|\/)(__MACOSX|node_modules|\.git|dist|build|\.next|vendor)\/|\.DS_Store$/.test(e.name)) continue;
+      const t = TEXT_EXT.test(e.name) || !/\.[a-z0-9]+$/i.test(e.name.split('/').pop()) ? await e.async('string') : null;
+      if (t == null || t.includes('\u0000')) bin.push(e.name); else parts.push(`===== ${e.name} =====\n${t}`);
+    }
+    if (!parts.length) throw new Error('ไม่พบไฟล์ข้อความหรือโค้ดใน zip');
+    text = `[zip: ${parts.length} ไฟล์ข้อความ${bin.length ? `, ไฟล์อื่น ${bin.length} ไฟล์ (ไม่ได้อ่าน): ${bin.slice(0, 30).join(', ')}` : ''}]\n\n` + parts.join('\n\n');
   } else if (n.endsWith('.docx')) {
     await lib('mammoth'); text = (await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() })).value;
   } else if (/\.(xlsx|xlsm|xls|ods)$/.test(n)) {
@@ -627,7 +636,7 @@ async function readFile(f) {
   } else if (TEXT_EXT.test(n) || f.type.startsWith('text/') || /json|xml|javascript/.test(f.type) || !n.includes('.') || /^(dockerfile|makefile|\.\w+)$/.test(n)) {
     text = await f.text();
     if (text.includes('\u0000')) throw new Error('ไฟล์นี้ไม่ใช่ข้อความ');
-  } else throw new Error('ยังไม่รองรับไฟล์ชนิดนี้ (รองรับ โค้ด/ข้อความ, PDF, Word, Excel, รูป)');
+  } else throw new Error('ยังไม่รองรับไฟล์ชนิดนี้ (รองรับ โค้ด/ข้อความ, PDF, Word, Excel, zip, รูป)');
   if (text.length > FILE_MAX) text = text.slice(0, FILE_MAX) + `\n…(ไฟล์ยาวเกิน ตัดเหลือ ${FILE_MAX.toLocaleString()} ตัวอักษรแรก)`;
   return text;
 }
