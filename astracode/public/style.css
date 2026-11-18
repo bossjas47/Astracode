@@ -179,7 +179,7 @@ input[type=checkbox] { width: auto; min-height: 0; }
 .bad { color: var(--red); }
 
 /* ---------- v2: motion ---------- */
-.view { animation: fadeUp .28s ease-out backwards; }
+.view { animation: fadeUp .18s ease-out backwards; }
 .msg.new { animation: fadeUp .22s ease-out both; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .btn, .tabs button, .chips button, .icon-btn, .tile.plan { transition: transform .15s ease, background-color .2s, color .2s, box-shadow .2s, opacity .2s; }
@@ -1376,3 +1376,11 @@ input[type=file]::file-selector-button:hover { background: var(--graphite); }
 .pyout { border-top: 1px solid var(--hair); padding: 8px 12px; } .pyout pre { margin: 0; white-space: pre-wrap; font: 12.5px/1.5 ui-monospace, monospace; max-height: 320px; overflow: auto; background: none; } .pyout img { display: block; max-width: 100%; margin-top: 8px; border-radius: 8px; background: #fff; }
 
 .diff-b .hunk { display: flex; align-items: center; gap: 6px; margin: 10px 0 2px; padding: 4px 8px; font: 600 12px var(--font); color: var(--porcelain); background: rgba(var(--ov), .06); border-radius: 6px; cursor: pointer; }
+
+/* เปลี่ยนหน้าแบบจางเข้า (View Transitions ข้ามหน้า: Chrome/Android 126+, Safari 18.2+ · เบราว์เซอร์อื่นเปลี่ยนหน้าแบบเดิม) */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: vtOut .12s ease-in both; }
+::view-transition-new(root) { animation: vtIn .2s ease-out both; }
+@keyframes vtOut { to { opacity: 0; } }
+@keyframes vtIn { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; } }

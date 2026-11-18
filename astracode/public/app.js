@@ -1016,6 +1016,13 @@ addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = 
 const domReady = new Promise(r => document.readyState === 'loading' ? addEventListener('DOMContentLoaded', r) : r());
 const loadSite = async () => { site = await api('/settings/public').catch(() => ({})); };
 Promise.all([loadMe(), loadSite(), domReady]).then(boot);
+// เริ่มโหลดหน้าถัดไปตั้งแต่นิ้วแตะลิงก์ (prerender) และโหลด HTML ล่วงหน้าเมื่อชี้/ใกล้แตะ · ไม่แตะ /api (ดาวน์โหลด, OAuth) และลิงก์ที่เปิดแท็บใหม่
+if (!window.DEMO && HTMLScriptElement.supports?.('speculationrules')) {
+  const where = { and: [{ href_matches: '/*' }, { not: { href_matches: ['/api/*', '/v1/*', '/p/*', '/share*'] } }, { not: { selector_matches: '[download], [target=_blank], [data-new], [data-chat]' } }] };
+  const sr = document.createElement('script'); sr.type = 'speculationrules';
+  sr.textContent = JSON.stringify({ prerender: [{ where, eagerness: 'conservative' }], prefetch: [{ where, eagerness: 'moderate' }] });
+  document.head.append(sr);
+}
 // service worker retired: remove any copy a visitor still has (sw.js also clears its caches)
 if ('serviceWorker' in navigator && !window.DEMO) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => { if (!/push-sw\.js$/.test(r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || '')) r.unregister(); })).catch(() => {});
 // Passkey (WebAuthn): ข้อมูลไบนารีส่งเป็น base64url
