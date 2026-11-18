@@ -228,8 +228,8 @@ let a11yT = 0;
 if (typeof MutationObserver !== 'undefined') new MutationObserver(() => { clearTimeout(a11yT); a11yT = setTimeout(() => a11yFix(), 120); }).observe(document.documentElement, { childList: true, subtree: true });
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
-// เปิดในแอป AstraCode Desktop: ปุ่มเปิดหน้าต่าง "ทำงานในเครื่อง" (ครั้งแรกสร้าง API key ชื่อ Desktop จากบัญชีที่ล็อกอินอยู่ให้แอป)
-const deskLink = (cls = '') => window.astraDesktop && me ? `<a class="${cls}" href="#" data-desk>${ic('code')}<span>💻 ทำงานในเครื่อง</span></a>` : '';
+// แอป AstraCode Desktop รุ่นเก่า (0.2.x): ปุ่มเปิดหน้าต่าง "ทำงานในเครื่อง" (ครั้งแรกสร้าง API key ชื่อ Desktop) · รุ่นใหม่ (มี .fs) ทำงานในเครื่องจากแชต/Code ได้เลย จึงไม่ต้องมีปุ่มนี้
+const deskLink = (cls = '') => window.astraDesktop && !window.astraDesktop.fs && me ? `<a class="${cls}" href="#" data-desk>${ic('code')}<span>💻 ทำงานในเครื่อง</span></a>` : '';
 document.addEventListener('click', async e => {
   const b = e.target.closest?.('[data-desk]'); if (!b || !window.astraDesktop) return; e.preventDefault();
   try { let k = ''; if (await window.astraDesktop.needKey()) k = (await api('/keys', { method: 'POST', body: { name: 'Desktop' } })).key; await window.astraDesktop.openAgent(k); }

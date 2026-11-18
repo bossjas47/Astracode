@@ -26,7 +26,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: AstraCode-Desktop-Setup
-          path: desktop/dist/*.exe
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.blockmap
+            desktop/dist/latest.yml
           if-no-files-found: error
   publish:
     needs: build
@@ -39,11 +42,11 @@ jobs:
           name: AstraCode-Desktop-Setup
           path: out
       # ลิงก์ดาวน์โหลดบนเว็บ (/download/desktop) ชี้มาที่ไฟล์นี้ใน GitHub Release แท็ก desktop-latest (ชื่อไฟล์คงที่ ทับของเดิมทุกครั้ง)
+      # latest.yml + blockmap = ให้แอปที่ติดตั้งแล้วอัปเดตตัวเอง (electron-updater อ่านจาก release เดียวกัน) · ต้องเพิ่ม version ใน package.json ทุกครั้งที่อยากให้เครื่องผู้ใช้อัปเดต
       - name: Publish to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          f=$(ls out/*.exe | head -1); cp "$f" AstraCode-Desktop-Setup.exe
           gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "AstraCode Desktop" --notes "ตัวติดตั้ง Windows ล่าสุด" --target "${{ github.sha }}"
-          gh release upload desktop-latest AstraCode-Desktop-Setup.exe --clobber
+          gh release upload desktop-latest out/AstraCode-Desktop-Setup.exe out/*.blockmap out/latest.yml --clobber

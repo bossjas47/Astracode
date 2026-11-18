@@ -46,10 +46,12 @@ async function open(url, extra = {}) {
   const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], calls = [], api = { ...API(0, 1), ...extra };
   page.on('pageerror', e => errs.push(e.message));
   await page.addInitScript(() => { try { localStorage.setItem('onb', '1'); localStorage.setItem('whatsnew:2026-11', '1'); } catch {} });
+  if (extra.init) await page.addInitScript(extra.init); // เช่น จำลองแอป Desktop (window.astraDesktop)
   await page.route('**/*', r => {
     const q = r.request(), u = new URL(q.url()); if (u.hostname !== 't.test') return r.abort();
     if (u.pathname.startsWith('/api/')) {
       calls.push({ m: q.method(), p: u.pathname, body: q.postData() || '' });
+      if (u.pathname === '/api/chat' && extra.chat) return r.fulfill({ status: 200, contentType: 'text/event-stream', body: extra.chat(q).map(x => 'data: ' + JSON.stringify(x) + '\n\n').join('') });
       if (u.pathname === '/api/chat') return r.fulfill({ status: 200, contentType: 'text/event-stream', body: ['{"chat_id":7}', '{"t":"สวัสดีครับ ทดสอบ"}', '{"done":true,"pct4h":12,"pctWeek":34,"mid":99}'].map(x => 'data: ' + x + '\n\n').join('') });
       const d = typeof api[u.pathname] === 'function' ? api[u.pathname](q) : api[u.pathname];
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d ?? []) });
@@ -94,6 +96,36 @@ const FLOWS = [
     const [req] = await Promise.all([page.waitForRequest(r => r.url().startsWith('http://127.0.0.1:5555/cb'), { timeout: 3000 }).catch(() => null), page.click('#dok')]);
     const bad = await open('/desktop-auth?port=80&state=x'), badText = await bad.page.locator('#app').innerText();
     return [!errs.length || errs.join(' | '), calls.some(c => c.m === 'POST' && c.p === '/api/keys' && /Desktop/.test(c.body)) || 'no Desktop key created', req?.url().includes('key=sk-astra-0123abcd&state=' + st) || 'no redirect to app: ' + req?.url(), /ไม่ถูกต้อง/.test(badText) || 'bad link not refused'];
+  }],
+  ['desktop app: Code project linked to a local folder syncs files both ways and RUN uses the real terminal', async () => {
+    const init = () => { const log = window.__desk = []; window.astraDesktop = { fs: {
+      linked: async k => (log.push(['linked', k]), k === 'p:1' ? { name: 'site', path: 'C:/site' } : null),
+      scan: async () => ({ files: [{ path: 'index.html', content: '<h1>disk</h1>' }, { path: 'new.js', content: 'let n = 1' }], skipped: [] }),
+      write: async (k, f) => (log.push(['write', k, f.map(x => x.path).join(',')]), 1), remove: async (k, p) => log.push(['remove', k, p]),
+      run: async (k, cmd, on) => { log.push(['run', k, cmd]); on({ out: 'tests ok\n' }); return { code: 0, stdout: 'tests ok\n', stderr: '' }; }, kill() {},
+    }, mcp: { tools: async () => [] }, notify: async () => false }; };
+    const { page, errs, calls } = await open('/code?p=1', { init, '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }, { path: 'old.css', content: 'b{}' }] } });
+    await page.waitForTimeout(600);
+    const imp = calls.find(c => c.m === 'POST' && c.p === '/api/projects/1/import'), log1 = await page.evaluate(() => window.__desk.slice());
+    await page.evaluate(() => { showRun(true); runTab('term'); }); await page.fill('#term-i', 'npm test'); await page.press('#term-i', 'Enter'); await page.waitForTimeout(700);
+    const log2 = await page.evaluate(() => window.__desk.slice()), term = await page.locator('#term-o').innerText().catch(() => ''), btn = await page.locator('#localb').innerText().catch(() => '');
+    return [!errs.length || errs.join(' | '), /<h1>disk<\/h1>/.test(imp?.body || '') && /new\.js/.test(imp?.body || '') || 'disk files not uploaded: ' + imp?.body?.slice(0, 120),
+      log1.some(x => x[0] === 'write' && x[2].includes('old.css')) || 'project-only file not written to disk: ' + JSON.stringify(log1), !log1.some(x => x[0] === 'write' && x[2].includes('new.js')) || 'disk file written back to disk',
+      log2.some(x => x[0] === 'run' && x[1] === 'p:1' && x[2] === 'npm test') || 'RUN did not use the local terminal', term.includes('tests ok') || 'no output: ' + term, btn.includes('site') || 'header does not show the folder: ' + btn];
+  }],
+  ['desktop app: chat with "use this computer" runs the AI tool lines locally and sends the results back', async () => {
+    const init = () => { try { localStorage.setItem('pc', '1'); } catch { return; } const log = window.__desk = []; window.astraDesktop = { fs: {
+      linked: async k => k === 'chat' ? { name: 'work', path: 'C:/work' } : null, list: async (k, p) => (log.push(['list', k, p]), 'a.txt\nb.txt'),
+      read: async (k, p) => (log.push(['read', k, p]), 'hello from a'), run: async () => ({ code: 0, stdout: '', stderr: '' }), write: async () => 1, kill() {},
+    }, mcp: { tools: async () => [{ name: 'mcp_blender_get_scene', description: 'scene', parameters: { properties: {} } }] }, notify: async () => false }; };
+    let n = 0; const chat = () => ++n === 1 ? [{ chat_id: 7 }, { t: 'ขอดูไฟล์ก่อน\nLIST .\nREAD a.txt' }, { done: true, pct4h: 1, pctWeek: 1 }] : [{ t: 'ไฟล์ a.txt เขียนว่า hello' }, { done: true, pct4h: 1, pctWeek: 1 }];
+    const { page, errs, calls } = await open('/chat', { init, chat });
+    await page.fill('#t', 'ดูไฟล์ในโฟลเดอร์'); await page.press('#t', 'Enter'); await page.waitForTimeout(1500);
+    const sent = calls.filter(c => c.p === '/api/chat').map(c => JSON.parse(c.body)), log = await page.evaluate(() => window.__desk.slice()), text = await page.locator('#msgs').innerText();
+    return [!errs.length || errs.join(' | '), sent[0]?.local?.folder === 'work' && sent[0].local.mcp?.[0]?.name === 'mcp_blender_get_scene' || 'local info not sent: ' + JSON.stringify(sent[0]?.local),
+      log.some(x => x[0] === 'list') && log.some(x => x[0] === 'read' && x[2] === 'a.txt') || 'tools not run: ' + JSON.stringify(log),
+      sent.length === 2 && sent[1].text.startsWith('[ผลจากเครื่อง]') && sent[1].text.includes('hello from a') || 'results not sent back: ' + JSON.stringify(sent[1]?.text),
+      text.includes('ไฟล์ a.txt เขียนว่า hello') || 'final answer missing', text.includes('ผลจากเครื่อง') || 'result bubble missing', /⚙ LIST/.test(text) || 'tool line not shown as a step'];
   }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });

@@ -1,79 +1,18 @@
-// AstraCode Desktop: หน้าต่างแอป + ตั้งค่า + ล็อกอินผ่านเบราว์เซอร์ + สั่งงาน agent
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+// AstraCode Desktop: เปิดเว็บ AstraCode ตัวจริงในหน้าต่างแอป + สะพานให้เว็บทำงานกับไฟล์ คำสั่ง และ MCP ในเครื่อง
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const http = require('http');
-const crypto = require('crypto');
-const { runAgent } = require('./agent');
-const { LOCAL_TOOLS, NEEDS_OK, localTool } = require('./tools');
+const { localTool, runCmd } = require('./tools');
+const { scanFolder, writeRel, removeRel, renameRel } = require('./localfs');
 const { startMcp } = require('./mcp');
 
 const SITE = 'https://astracode.panderx.xyz';
-const SYS = 'You are AstraCode Desktop, an AI agent working on the user\'s computer. Reply in the user\'s language. Use the tools to look at files and run commands instead of guessing. Work inside the chosen workspace folder. Before risky or destructive commands, explain what they do. When finished, summarize what you changed.';
-let win, settings, history = [], ctrl = null, mcp = null;
+let settings, mcp = null;
 const setFile = () => path.join(app.getPath('userData'), 'settings.json');
 const load = () => { try { return JSON.parse(fs.readFileSync(setFile(), 'utf8')); } catch { return {}; } };
 const save = () => fs.writeFileSync(setFile(), JSON.stringify(settings, null, 2));
-const send = (ch, d) => win?.webContents.send(ch, d);
 
-const pending = new Map(); // คำขออนุญาตที่รอผู้ใช้ตอบ
-const askOk = (name, args) => new Promise(ok => { const id = crypto.randomUUID(); pending.set(id, ok); send('approve', { id, name, args }); });
-ipcMain.on('approve:reply', (_, { id, ok }) => { pending.get(id)?.(!!ok); pending.delete(id); });
-
-ipcMain.handle('settings:get', () => ({ ...settings, key: settings.key ? settings.key.slice(0, 14) + '…' : '' }));
-ipcMain.handle('settings:set', async (_, s) => {
-  for (const k of ['model', 'autoWrite', 'autoRun']) if (k in s) settings[k] = s[k];
-  if ('mcp' in s) { JSON.parse(s.mcp || '{}'); settings.mcp = s.mcp; await mcp?.close(); mcp = null; } // JSON ผิด = โยน error กลับหน้าแอป
-  if ('key' in s) settings.key = String(s.key).trim();
-  save(); return true;
-});
-ipcMain.handle('folder:pick', async () => {
-  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
-  if (!r.canceled && r.filePaths[0]) { settings.workspace = r.filePaths[0]; save(); }
-  return settings.workspace || '';
-});
-ipcMain.handle('models', async () => {
-  if (!settings.key) return [];
-  const r = await fetch(SITE + '/v1/models', { headers: { authorization: 'Bearer ' + settings.key } });
-  const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error?.message_th || d.error?.message || 'HTTP ' + r.status);
-  return (d.data || []).map(m => m.id);
-});
-// ล็อกอิน: เปิดเว็บหน้าอนุญาต เว็บส่ง key กลับมาที่ 127.0.0.1 ของเครื่องนี้ (state กันคำตอบปลอม)
-ipcMain.handle('login', () => new Promise((ok, no) => {
-  const state = crypto.randomBytes(16).toString('hex');
-  const srv = http.createServer((req, res) => {
-    const u = new URL(req.url, 'http://127.0.0.1');
-    if (u.pathname !== '/cb') { res.writeHead(404); return res.end(); }
-    const good = u.searchParams.get('state') === state && /^sk-astra-[0-9a-f]+$/.test(u.searchParams.get('key') || '');
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(good ? '<h2 style="font-family:sans-serif">เชื่อมต่อแล้ว กลับไปที่แอป AstraCode Desktop ได้เลย</h2>' : '<h2>ข้อมูลไม่ถูกต้อง ลองใหม่จากในแอป</h2>');
-    if (!good) return;
-    settings.key = u.searchParams.get('key'); save(); srv.close(); clearTimeout(t); ok(true);
-  });
-  const t = setTimeout(() => { srv.close(); no(new Error('หมดเวลา ลองกดเข้าสู่ระบบใหม่')); }, 5 * 60e3);
-  srv.listen(0, '127.0.0.1', () => shell.openExternal(`${SITE}/desktop-auth?port=${srv.address().port}&state=${state}`));
-}));
-ipcMain.handle('new', () => { history = []; return true; });
-ipcMain.handle('stop', () => { ctrl?.abort(); return true; });
-ipcMain.handle('run', async (_, text) => {
-  if (!settings.key) throw new Error('เข้าสู่ระบบก่อน');
-  if (!settings.workspace) throw new Error('เลือกโฟลเดอร์งานก่อน');
-  if (!mcp && settings.mcp) mcp = await startMcp(JSON.parse(settings.mcp), m => send('event', { type: 'info', text: m }));
-  if (!history.length) history.push({ role: 'system', content: SYS + `\nWorkspace folder: ${settings.workspace}\nOS: ${process.platform}` });
-  history.push({ role: 'user', content: String(text) });
-  ctrl = new AbortController();
-  const callTool = async (name, args) => {
-    if (mcp?.has(name)) return await mcp.call(name, args);
-    if (NEEDS_OK.has(name) && !(name === 'write_file' ? settings.autoWrite : settings.autoRun) && !await askOk(name, args)) return 'Error: ผู้ใช้ไม่อนุญาต';
-    return await localTool(settings.workspace, name, args);
-  };
-  try {
-    await runAgent({ base: SITE + '/v1', key: settings.key, model: settings.model || 'claude-sonnet-5.5-eco', messages: history, tools: [...LOCAL_TOOLS, ...(mcp?.tools || [])], callTool, onEvent: e => send('event', e), signal: ctrl.signal });
-  } finally { ctrl = null; send('event', { type: 'done' }); }
-  return true;
-});
-
-// หน้าต่างหลัก = เว็บ AstraCode ตัวจริง (แชต สตรีม ประวัติ ลิมิต เหมือนเว็บทุกอย่าง อัปเดตตามเว็บเอง) · หน้าต่าง agent = ทำงานในเครื่อง
+// หน้าต่างแอป = เว็บ AstraCode ตัวจริง (แชต สตรีม ประวัติ ลิมิต เหมือนเว็บทุกอย่าง อัปเดตตามเว็บเอง)
 const AUTH_HOSTS = /^(astracode\.panderx\.xyz|accounts\.google\.com|[\w-]+\.firebaseapp\.com|access\.line\.me|challenges\.cloudflare\.com)$/; // หน้าเว็บ + หน้าล็อกอินที่ต้องเปิดในหน้าต่างแอป
 let web;
 function openWeb() {
@@ -84,16 +23,70 @@ function openWeb() {
   web.webContents.setWindowOpenHandler(({ url }) => { if (inApp(url)) return { action: 'allow' }; if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; }); // ป๊อปอัปล็อกอิน Google ให้เปิดในแอป
   web.loadURL(SITE + '/chat');
 }
-function openAgent() {
-  if (win && !win.isDestroyed()) return win.focus();
-  win = new BrowserWindow({ width: 1000, height: 740, title: 'AstraCode · ทำงานในเครื่อง', backgroundColor: '#111111', webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
-  win.setMenuBarVisibility(false);
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-}
-// เว็บเรียก: ยังไม่มี key ไหม · เปิดหน้าต่าง agent (เว็บที่ล็อกอินอยู่สร้าง key ชื่อ Desktop ส่งมาให้ครั้งแรก)
-ipcMain.handle('desk:needKey', () => !settings.key);
-ipcMain.handle('desk:openAgent', (_, key) => { if (key && /^sk-astra-[0-9a-f]+$/.test(key) && !settings.key) { settings.key = key; save(); } openAgent(); return true; });
+// ทุกช่องทางที่หน้าเว็บเรียกได้ต้องมาจาก astracode.panderx.xyz เท่านั้น (หน้าล็อกอิน Google/LINE ที่เปิดในหน้าต่างเดียวกันเรียกไม่ได้)
+const fromSite = e => { try { return new URL(e.senderFrame?.url || '').origin === SITE; } catch { return false; } };
+const h = (ch, fn) => ipcMain.handle(ch, (e, ...a) => { if (!fromSite(e)) throw new Error('ไม่อนุญาต'); return fn(e, ...a); });
 
-app.whenReady().then(() => { settings = load(); openWeb(); });
+// โฟลเดอร์ในเครื่อง: เว็บอ้างถึงด้วยชื่อช่อง (p:<id โปรเจกต์> หรือ chat) ไม่เคยส่งพาธเต็มมาเอง · ผู้ใช้เลือกโฟลเดอร์ผ่านหน้าต่างของ Windows เท่านั้น
+const slot = k => { if (!/^(p:\d{1,12}|chat)$/.test(String(k))) throw new Error('ช่องโฟลเดอร์ไม่ถูกต้อง'); return String(k); };
+const rootOf = k => { const r = (settings.links || {})[slot(k)]; if (!r || !fs.existsSync(r)) throw new Error('ยังไม่ได้เชื่อมโฟลเดอร์ในเครื่อง หรือโฟลเดอร์ถูกย้าย/ลบไปแล้ว'); return r; };
+const info = r => ({ name: path.basename(r), path: r });
+h('desk:link', async (_, k) => {
+  const r = await dialog.showOpenDialog(web, { title: 'เลือกโฟลเดอร์ที่ให้ AstraCode ทำงาน', properties: ['openDirectory', 'createDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const dir = r.filePaths[0];
+  if (path.dirname(dir) === dir || dir === app.getPath('home')) { await dialog.showMessageBox(web, { type: 'warning', message: 'เลือกทั้งไดรฟ์หรือโฟลเดอร์ผู้ใช้ทั้งหมดไม่ได้', detail: 'สร้างหรือเลือกโฟลเดอร์ของงานนี้โดยเฉพาะ' }); return null; }
+  settings.links = { ...settings.links, [slot(k)]: dir }; save(); return info(dir);
+});
+h('desk:linked', (_, k) => { const r = (settings.links || {})[slot(k)]; return r && fs.existsSync(r) ? info(r) : null; });
+h('desk:unlink', (_, k) => { if (settings.links) { delete settings.links[slot(k)]; save(); } return true; });
+h('desk:scan', (_, k) => scanFolder(rootOf(k)));
+h('desk:write', async (_, k, files) => { const r = rootOf(k); let n = 0; for (const f of [].concat(files).slice(0, 300)) if (await writeRel(r, f.path, f.content)) n++; return n; });
+h('desk:remove', (_, k, p) => removeRel(rootOf(k), p));
+h('desk:rename', (_, k, a, b) => renameRel(rootOf(k), a, b));
+h('desk:read', (_, k, p) => localTool(rootOf(k), 'read_file', { path: p }));
+h('desk:list', (_, k, p) => localTool(rootOf(k), 'list_dir', { path: p || '.' }));
+h('desk:open', (_, k) => shell.openPath(rootOf(k)));
+
+// รันคำสั่ง: ถามด้วยหน้าต่างของ Windows ทุกครั้ง (หน้าเว็บกดแทนไม่ได้) · เลือก "อนุญาตทุกคำสั่ง" ได้ต่อโฟลเดอร์จนปิดแอป
+const runOk = new Set(), jobs = new Map();
+h('desk:run', async (e, k, cmd, id) => {
+  const r = rootOf(k); cmd = String(cmd || '').trim(); if (!cmd) throw new Error('คำสั่งว่าง');
+  if (!runOk.has(r)) {
+    const a = await dialog.showMessageBox(web, { type: 'question', title: 'อนุญาตให้รันคำสั่ง?', message: 'AstraCode ขอรันคำสั่งนี้ในเครื่องของคุณ', detail: `โฟลเดอร์: ${r}\n\n${cmd.slice(0, 1500)}`, buttons: ['อนุญาต', 'อนุญาตทุกคำสั่งในโฟลเดอร์นี้ (จนปิดแอป)', 'ไม่อนุญาต'], defaultId: 0, cancelId: 2, noLink: true });
+    if (a.response === 2) return { code: 1, stdout: '', stderr: 'ผู้ใช้ไม่อนุญาตให้รันคำสั่งนี้', denied: true };
+    if (a.response === 1) runOk.add(r);
+  }
+  const ac = new AbortController(); jobs.set(String(id), ac);
+  try { return await runCmd(r, cmd, { signal: ac.signal, onOut: (t, s) => { if (!e.sender.isDestroyed()) e.sender.send('desk:out', { id, [t]: s }); } }); }
+  finally { jobs.delete(String(id)); }
+});
+h('desk:kill', (_, id) => { jobs.get(String(id))?.abort(); return true; });
+
+// MCP ในเครื่อง (Blender ฯลฯ): หน้าเว็บตั้งค่าได้ แต่ต้องยืนยันด้วยหน้าต่างของ Windows เพราะค่า MCP คือคำสั่งที่จะรันในเครื่อง
+const mcpLog = [];
+const mcpUp = async () => mcp ||= await startMcp(JSON.parse(settings.mcp || '{}'), m => { mcpLog.push(m); mcpLog.splice(0, mcpLog.length - 20); });
+h('desk:mcpGet', () => ({ config: settings.mcp || '', log: mcpLog }));
+h('desk:mcpSet', async (_, text) => {
+  const cfg = JSON.parse(text || '{}'), list = Object.entries(cfg.mcpServers || {}).map(([n, c]) => `• ${n}: ${c.command} ${(c.args || []).join(' ')}`).join('\n');
+  if (list) { const a = await dialog.showMessageBox(web, { type: 'warning', title: 'ยืนยันการตั้งค่า MCP', message: 'แอปจะรันโปรแกรมเหล่านี้ในเครื่องของคุณ', detail: list.slice(0, 2000), buttons: ['บันทึก', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true }); if (a.response !== 0) return false; }
+  settings.mcp = text ? JSON.stringify(cfg, null, 2) : ''; save(); await mcp?.close(); mcp = null; mcpLog.length = 0; return true;
+});
+h('desk:mcpTools', async () => settings.mcp ? (await mcpUp()).tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: t.function.parameters })) : []);
+h('desk:mcpCall', async (_, name, args) => (await mcpUp()).call(String(name), args && typeof args === 'object' ? args : {}));
+
+h('desk:notify', (_, title, body) => {
+  if (web.isFocused()) return false;
+  const n = new Notification({ title: String(title).slice(0, 80), body: String(body || '').slice(0, 200) }); n.on('click', () => { web.show(); web.focus(); }); n.show(); web.flashFrame(true); return true;
+});
+h('desk:version', () => app.getVersion());
+
+// อัปเดตอัตโนมัติจาก GitHub Release (desktop-latest): โหลดเบื้องหลัง ติดตั้งตอนปิดแอปครั้งถัดไป
+function autoUpdate() {
+  if (!app.isPackaged) return;
+  try { const { autoUpdater } = require('electron-updater'); autoUpdater.checkForUpdatesAndNotify().catch(() => {}); setInterval(() => autoUpdater.checkForUpdatesAndNotify().catch(() => {}), 6 * 3600e3); } catch { /* ไม่มีโมดูล: ข้าม */ }
+}
+
+app.setAppUserModelId('xyz.panderx.astracode.desktop'); // Windows: ให้แจ้งเตือนขึ้นในชื่อแอป
+app.whenReady().then(() => { settings = load(); openWeb(); autoUpdate(); });
 app.on('window-all-closed', async () => { await mcp?.close(); app.quit(); });

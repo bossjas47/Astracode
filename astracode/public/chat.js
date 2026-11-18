@@ -149,7 +149,7 @@ async function chatView(id) {
     try { rec.start(); } catch { chat.rec = null; btn.classList.remove('rec'); toast('เริ่มพิมพ์ด้วยเสียงไม่ได้ ลองใหม่อีกครั้ง', 'err'); }
   });
   $('#lim').onclick = limitSheet;
-  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
+  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
   $('#bin').onclick = binSheet; $('#bmk').onclick = bookmarksSheet;
@@ -182,6 +182,7 @@ async function chatView(id) {
     const isCode = b.dataset.cv === 'code';
     $('#cv-f').hidden = isCode; $('#cv-c').hidden = !isCode;
   });
+  pcInit();
   const t = $('#t');
   t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
   const skTok = qs().get('skill'); // เปิดจากลิงก์แชร์ Skill: นำเข้าแล้วเปิดใช้ทันที
@@ -304,6 +305,7 @@ function modelUI() {
   const img = isImgMode(); $('#t').placeholder = img ? 'บรรยายภาพที่อยากได้ · แนบรูปเป็นตัวอย่างได้' : 'ถามอะไรก็ได้ · พิมพ์ / เลือก Skill';
   $('#flags').innerHTML = (img ? `<button type="button" class="flag on" data-flag="img" aria-label="ออกจากโหมดสร้างภาพ">${ic('palette', 'sm')}สร้างภาพ${ic('x', 'sm')}</button><button type="button" class="flag" data-flag="enh">${ic('sparkles', 'sm')}ปรับ prompt</button><button type="button" class="flag ${localStorage.getItem('imgAuto') !== '0' ? 'on' : ''}" data-flag="enhauto" aria-pressed="${localStorage.getItem('imgAuto') !== '0'}">ปรับอัตโนมัติ: ${localStorage.getItem('imgAuto') !== '0' ? 'เปิด' : 'ปิด'}</button>` : '')
     + (localStorage.getItem('web') === '1' && site.search ? `<button type="button" class="flag" data-flag="web" aria-label="ปิดค้นเว็บ">${ic('globe', 'sm')}ค้นเว็บ${ic('x', 'sm')}</button>` : '')
+    + (pcOn() ? `<button type="button" class="flag" data-flag="pc" aria-label="ปิดใช้คอมเครื่องนี้">${ic('folder', 'sm')}${esc(chat.pc.name)}${ic('x', 'sm')}</button>` : '')
     + (chat.compare ? `<button type="button" class="flag" data-flag="cmp" aria-label="ปิดโหมดเทียบ">${ic('compare', 'sm')}เทียบ${ic('x', 'sm')}</button>` : '')
     + (localStorage.getItem('kb') === '1' ? `<button type="button" class="flag" data-flag="kb">${ic('book', 'sm')}คลังความรู้</button>` : '') + (chat.voice ? `<button type="button" class="flag" data-flag="voice">${ic('mic', 'sm')}โหมดเสียง</button>` : '')
     + (chat.skills.length && _skillsCache ? chat.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
@@ -381,11 +383,12 @@ function toggleVoice() {
   modelUI();
 }
 // เมนู + : เรียงตามความนิยมโดยรวม แล้วดันอันที่ผู้ใช้คนนี้กดบ่อย (ตั้งแต่ 3 ครั้ง) ขึ้นบนสุด 3 อัน · ที่เหลือหลัง 6 อันแรกอยู่ใต้หัวข้อ "เพิ่มเติม"
-const TOOL_ORDER = ['img', 'web', 'rsch', 'prm', 'voice', 'cmp', 'kb', 'skl', 'mcp', 'exp'];
+const TOOL_ORDER = ['pc', 'img', 'web', 'rsch', 'prm', 'voice', 'cmp', 'kb', 'skl', 'mcp', 'exp'];
 const toolUse = () => { try { return JSON.parse(localStorage.getItem('toolUse') || '{}'); } catch { return {}; } };
 const toolUsed = v => { try { const u = toolUse(); u[v] = (u[v] || 0) + 1; localStorage.setItem('toolUse', JSON.stringify(u)); } catch { /* ไม่มีที่เก็บ */ } };
 function toolRows(web) {
   const defs = {
+    pc: PCD && ['folder', 'ใช้คอมเครื่องนี้', chat.pc ? `${pcOn() ? 'เปิดอยู่' : 'ปิดอยู่'} · โฟลเดอร์ ${esc(chat.pc.name)}` : 'AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP (เช่น Blender) ในเครื่องนี้', pcOn()],
     img: (me.models.some(m => m.provider === 'image') || site.image) && ['palette', 'สร้างภาพ', me.models.some(m => m.provider === 'image') ? 'สลับเป็นโมเดลสร้างภาพ พิมพ์สิ่งที่อยากได้ AI ช่วยปรับ prompt ให้' : 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้', isImgMode()],
     web: site.search && ['globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web],
     rsch: site.search && ['search', 'Deep research' + newPill('rsch'), 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)'],
@@ -443,7 +446,7 @@ function toolSheet() {
     <div class="tlist">${toolRows(web)}</div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); toolUsed(b.dataset.v); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: enterImageMode, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: enterImageMode, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 // Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล
@@ -721,13 +724,14 @@ function bubbleText(el) {
 }
 // รูปแบบเดียวกับที่เซิร์ฟเวอร์บันทึก: [[file:ชื่อ]] ... [[/file]]
 function msgHTML(m, i, isNew) {
+  if (m.role === 'user' && m.content.startsWith(PC_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('folder', 'sm')} ผลจากเครื่อง</summary>${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}<pre>${esc(m.content.slice(PC_RES.length).trim())}</pre></details></div>`;
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
     return `<div class="msg user ${isNew ? 'new' : ''}"><div class="b">${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}${m.content.startsWith('🎨 ') ? ic('image') + ' ' : ''}${esc(m.content.replace(FILE_RE, '').replace(/^🎨 /, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${ic('filetext')}<span>${esc(f[1])}</span><small>${tok(f[2].length)}</small></span>`).join('')}</div>` : ''}</div>
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts"><button data-copy="${i}" aria-label="คัดลอกข้อความ">${ic('copy', 'sm')}</button>${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}" class="${MEM_RE.test(m.content) ? 'memhint' : ''}">${MEM_RE.test(m.content) ? ic('bulb') + ' ให้ AI จำเรื่องนี้?' : 'Remember'}</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  const { text: t00, mem } = parseMem(m.content, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text, asks } = parseAsk(t0, m.streaming);
+  const { text: t00, mem } = parseMem(m.content, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
@@ -853,7 +857,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   if (edit_id) { /* already sliced */ } else if (resume) { if (chat.msgs.at(-1)?.role !== 'user') return; } // ต่อคำตอบ: ต้องมีคำถามค้างอยู่
   else if (regenerate) { if (chat.msgs.at(-1)?.role === 'assistant') chat.msgs.pop(); }
   else {
-    autoRetry = 0;
+    autoRetry = 0; if (!chat.pcAuto) chat.pcRound = 0; chat.pcAuto = false;
     t.value = ''; t.style.height = 'auto'; chat.images = []; chat.files = []; drawThumbs();
     chat.msgs.push({ role: 'user', content: withFiles(text || (files.length ? 'อ่านไฟล์นี้' : 'อธิบายรูปนี้'), files), imgs: imgs.length ? imgs : null });
     appendMsg(chat.msgs.at(-1));
@@ -862,9 +866,10 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   chat.msgs.push(ai);
   if (quiet) renderAll(); else appendMsg(ai);
   setBusy(true); chat.ctrl = new AbortController(); if (chat.voice) { voiceReset(); vstate('think'); }
+  const t0 = Date.now();
   let started = false, streamErr = null, aborted = false, raf = 0;
   try {
-    await stream({ chat_id: chat.id, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps,
+    await stream({ chat_id: chat.id, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps, local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [] } : undefined,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
       started = true;
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
@@ -913,6 +918,73 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
     showErr('ไม่ได้คำตอบจากโมเดล ลองอีกครั้ง', true);
   }
   loadSide();
+  if (!streamErr && !aborted && !empty && !chat.compare && pcOn() && (pcCalls(ai.content).length || fileBlocks(ai.content).length)) return pcAct(ai);
+  if (!streamErr && !aborted && Date.now() - t0 > 15000) PCD?.notify('AstraCode ตอบเสร็จแล้ว', ai.content.replace(/[#*`>\[\]]/g, '').slice(0, 140)); // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่นระหว่างรอ
+}
+
+// ---------- ใช้คอมเครื่องนี้ (แอป AstraCode Desktop) ----------
+// AI เขียนบรรทัด LIST / READ / RUN / MCP หรือบล็อก file=… → หน้าเว็บในแอปทำในเครื่อง (เฉพาะโฟลเดอร์ที่ผู้ใช้เลือก) แล้วส่งผลกลับเป็นข้อความถัดไปให้ AI ทำต่อ
+// RUN และการตั้งค่า MCP ถามอนุญาตด้วยหน้าต่างของ Windows (แอปเป็นคนถาม หน้าเว็บกดแทนไม่ได้) · เขียนไฟล์ถามในหน้านี้ก่อน
+const PCD = window.astraDesktop?.fs ? window.astraDesktop : null;
+const PC_LINE = /^[ \t]*(LIST|READ|RUN|MCP)\b[ \t]*(.*)$/gm, PC_RES = '[ผลจากเครื่อง]', PC_MAX = 15;
+const pcOn = () => !!(PCD && chat.pc && localStorage.getItem('pc') === '1');
+const pcCalls = text => [...String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(PC_LINE)].map(m => [m[1], m[2].trim()]).slice(0, 5);
+const pcFmt = text => PCD ? String(text).split(/(```[\s\S]*?(?:```|$))/).map((p, i) => i % 2 ? p : p.replace(PC_LINE, (_, k, a) => '`⚙ ' + k + ' ' + a.replace(/`/g, "'").slice(0, 200) + '`')).join('') : text;
+const pcTools = () => { if (pcOn()) PCD.mcp.tools().then(t => { chat.pcTools = t; }).catch(x => { chat.pcTools = []; toast('MCP ในเครื่อง: ' + x.message, 'bad'); }); };
+async function pcInit() { if (!PCD) return; chat.pc = await PCD.fs.linked('chat').catch(() => null); pcTools(); modelUI(); }
+function pcSheet() {
+  sheet('ใช้คอมเครื่องนี้', `<div class="sheet-form"><p class="sheet-msg">AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP ในเครื่องนี้ได้ <b>เฉพาะในโฟลเดอร์ที่เลือก</b> · รันคำสั่งต้องกดอนุญาตในหน้าต่างของ Windows ทุกครั้ง · เขียนไฟล์ถามก่อนทุกครั้ง</p>
+    <p style="margin:0">${chat.pc ? `โฟลเดอร์: <b>${esc(chat.pc.path)}</b>` : 'ยังไม่ได้เลือกโฟลเดอร์'}</p>
+    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button></div></div>`, (d, close) => {
+    d.querySelector('#pcpick').onclick = async () => { const l = await PCD.fs.link('chat').catch(x => { toast(x.message, 'bad'); return null; }); if (!l) return; chat.pc = l; localStorage.setItem('pc', '1'); close(); pcTools(); modelUI(); toast(`AI ใช้โฟลเดอร์ ${l.name} ได้แล้ว`, 'ok'); };
+    d.querySelector('#pctog')?.addEventListener('click', () => { localStorage.setItem('pc', pcOn() ? '0' : '1'); close(); pcTools(); modelUI(); });
+    d.querySelector('#pcopen')?.addEventListener('click', () => PCD.fs.open('chat'));
+    d.querySelector('#pcmcp').onclick = () => { close(); mcpLocalSheet(); };
+  });
+}
+// ตั้งค่า MCP ในเครื่องแบบกดเลือก (ไม่ต้องพิมพ์ JSON) · บันทึกแล้วแอปถามยืนยันด้วยหน้าต่าง Windows เพราะเป็นโปรแกรมที่จะรันในเครื่อง
+const MCP_PRESETS = [['blender', 'Blender', 'uvx', 'blender-mcp', 'ต้องมี uv และติดตั้ง addon ใน Blender ก่อน'], ['browser', 'เปิดเว็บ / กดหน้าเว็บ (Playwright)', 'npx', '-y @playwright/mcp@latest', 'ต้องมี Node.js'], ['memory', 'ความจำถาวร', 'npx', '-y @modelcontextprotocol/server-memory', 'ต้องมี Node.js']];
+async function mcpLocalSheet() {
+  const cur = await PCD.mcp.get(); let cfg = {}; try { cfg = JSON.parse(cur.config || '{}'); } catch { cfg = {}; }
+  const srv = cfg.mcpServers ||= {};
+  const draw = () => `<div class="sheet-form"><p class="sheet-msg">MCP = ปลั๊กอินให้ AI คุมโปรแกรมในเครื่อง ใช้ได้เมื่อเปิด "ใช้คอมเครื่องนี้"</p>
+    ${Object.entries(srv).map(([n, c]) => `<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span>${ic('server', 'sm')} <b>${esc(n)}</b> <code>${esc(c.command + ' ' + (c.args || []).join(' '))}</code></span><button type="button" class="icon-btn xs ghost" data-rm="${esc(n)}" aria-label="ลบ ${esc(n)}">${ic('x')}</button></div>`).join('') || '<p class="muted" style="margin:0">ยังไม่มี MCP</p>'}
+    <b>เพิ่มแบบสำเร็จรูป</b><div class="row">${MCP_PRESETS.filter(p => !srv[p[0]]).map(p => `<button type="button" class="btn out sm" data-pre="${p[0]}" title="${esc(p[4])}">+ ${esc(p[1])}</button>`).join('')}</div>
+    <b>เพิ่มเอง</b><div class="row" style="flex-wrap:nowrap"><input id="mcn" placeholder="ชื่อ" style="width:90px"><input id="mcc" placeholder="คำสั่ง เช่น npx -y some-mcp" style="flex:1"><button type="button" class="btn out sm" id="mca">เพิ่ม</button></div>
+    ${cur.log?.length ? `<small class="muted">${cur.log.map(esc).join('<br>')}</small>` : ''}
+    <button type="button" class="btn blue" id="mcs">บันทึก</button></div>`;
+  sheet('MCP ในเครื่อง', draw(), function bind(d, close) {
+    const redo = () => { d.querySelector('.sheet-b').innerHTML = draw(); bind(d, close); };
+    d.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { delete srv[b.dataset.rm]; redo(); });
+    d.querySelectorAll('[data-pre]').forEach(b => b.onclick = () => { const p = MCP_PRESETS.find(x => x[0] === b.dataset.pre); srv[p[0]] = { command: p[2], args: p[3].split(' ') }; toast(p[4]); redo(); });
+    d.querySelector('#mca').onclick = () => { const n = d.querySelector('#mcn').value.trim().replace(/[^\w-]/g, ''), c = d.querySelector('#mcc').value.trim().split(/\s+/); if (!n || !c[0]) return toast('ใส่ชื่อและคำสั่ง', 'bad'); srv[n] = { command: c[0], args: c.slice(1) }; redo(); };
+    d.querySelector('#mcs').onclick = async () => { try { if (await PCD.mcp.set(Object.keys(srv).length ? JSON.stringify(cfg) : '')) { close(); chat.pcTools = null; pcTools(); toast('บันทึก MCP แล้ว', 'ok'); } } catch (x) { toast(x.message, 'bad'); } };
+  });
+}
+async function pcAct(ai) {
+  chat.pcRound = (chat.pcRound || 0) + 1; if (chat.pcRound > PC_MAX) return showErr(`AI ใช้เครื่องมือในเครื่องครบ ${PC_MAX} รอบแล้ว พิมพ์สั่งต่อได้`);
+  const calls = pcCalls(ai.content), writes = fileBlocks(ai.content), cut = s => s.length > 8000 ? s.slice(0, 2500) + '\n…(ตัดกลาง)…\n' + s.slice(-5000) : s;
+  let out = PC_RES; const imgs = [];
+  if (writes.length) {
+    const ok = await confirmSheet(`AI ขอเขียน ${writes.length} ไฟล์ลงโฟลเดอร์ ${chat.pc.name} (ไฟล์ชื่อเดียวกันจะถูกทับ):\n${writes.map(f => '• ' + f.path).join('\n')}`, { title: 'เขียนไฟล์ลงเครื่อง', ok: 'เขียนไฟล์' });
+    if (!ok) out += '\n\nผู้ใช้ไม่อนุญาตให้เขียนไฟล์';
+    else try { await PCD.fs.write('chat', writes.map(f => ({ path: f.path, content: f.text }))); out += '\n\nเขียนไฟล์แล้ว: ' + writes.map(f => f.path).join(', '); } catch (x) { out += '\n\nเขียนไฟล์ไม่สำเร็จ: ' + x.message; }
+  }
+  for (const [k, a] of calls) {
+    let r;
+    try {
+      const arg = a.replace(/^path=/, '').replace(/^[`'"]|[`'"]$/g, '');
+      if (k === 'LIST') r = await PCD.fs.list('chat', arg || '.');
+      if (k === 'READ') r = await PCD.fs.read('chat', arg);
+      if (k === 'RUN') { toast('รอคุณกดอนุญาตในหน้าต่างของ Windows'); const d = await PCD.fs.run('chat', a); r = `(exit ${d.code})\n${d.stdout}${d.stderr ? '\n[stderr]\n' + d.stderr : ''}`; }
+      if (k === 'MCP') { const sp = a.indexOf(' '), name = sp < 0 ? a : a.slice(0, sp); let args = {}; if (sp >= 0) try { args = JSON.parse(a.slice(sp + 1)); } catch { throw new Error('JSON arguments ไม่ถูกต้อง'); } const d = await PCD.mcp.call(name, args); r = d.text; imgs.push(...(d.images || [])); }
+    } catch (x) { r = 'Error: ' + x.message; }
+    out += `\n\n$ ${k} ${a}\n${cut(String(r || '(ไม่มีผลลัพธ์)'))}`;
+  }
+  if (imgs.length && !curModel()?.vision) out += '\n\n(เครื่องมือส่งรูปมา แต่โมเดลนี้อ่านรูปไม่ได้)';
+  const t = $('#t'), keep = [t.value, chat.files, chat.images];
+  t.value = out; chat.files = []; chat.images = curModel()?.vision ? imgs.slice(0, 4) : []; chat.pcAuto = true;
+  const p = send(); [t.value, chat.files, chat.images] = keep; drawThumbs(); return p; // ส่งผลกลับให้ AI ทำต่อ (ข้อความที่ผู้ใช้พิมพ์ค้างไว้ยังอยู่)
 }
 
 // กันเหนียว: error ที่หลุดมานอก try ต้องเห็นบนจอ ไม่ใช่เงียบหายไปเลย

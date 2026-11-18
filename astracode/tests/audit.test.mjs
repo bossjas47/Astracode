@@ -527,3 +527,18 @@ test('admin: model usage detail lists who used a model', async () => {
   assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.by_user[0].id, u.id); assert.equal(r.data.recent.length, 1); assert.equal(r.data.by_src[0].src, 'chat');
   assert.equal((await t.json(`/api/admin/model-usage/${m.id}`, { cookie: u.cookie })).status, 403);
 });
+
+test('desktop app: chat with local tools gets the tool instructions in the system prompt; junk input is trimmed', async () => {
+  const { fakeModel, readSSE } = await import('./helpers.mjs'); const seen = [];
+  const fm = await fakeModel((q, res, body) => { seen.push(body); res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end('data: ' + JSON.stringify({ choices: [{ delta: { content: 'ok' } }] }) + '\n\ndata: [DONE]\n\n'); });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'G', provider: 'openai', base_url: fm.url });
+  const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'x', local: { os: 'Win32', folder: 'work', mcp: [{ name: 'mcp_blender_get_scene', description: 'scene', parameters: { properties: { a: {} } } }, { bad: 1 }] } } }));
+  const sys = seen[0].messages[0].content;
+  assert.match(sys, /folder "work"/); assert.match(sys, /RUN <shell command/); assert.match(sys, /mcp_blender_get_scene/);
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'y' } }));
+  assert.doesNotMatch(seen[1].messages[0].content, /AstraCode Desktop/);
+  const { localOf } = await import('../src/ai.js');
+  assert.equal(localOf('x'), null); assert.equal(localOf({ folder: 'f'.repeat(500), mcp: Array(99).fill({ name: 'n' }) }).mcp.length, 40);
+  fm.close();
+});

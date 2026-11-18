@@ -496,7 +496,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid };
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid, local: localOf(b.local) };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -540,7 +540,7 @@ export async function runChat(env, J, send, st) {
   let zipCache = null;
   const zipLoad = async () => zipCache ||= Object.assign({}, ...await Promise.all(zipIds.map(async id => { const o = await env.SLIPS.get(`zip/${u.id}/${id}.json`); return o ? await o.json().catch(() => ({})) : {}; })));
   const zipTools = zipIds.length ? ZIP_TOOLS : [];
-  const sysZ = zipIds.length ? system + ZIP_SYS : system;
+  const sysZ = (zipIds.length ? system + ZIP_SYS : system) + localSys(J.local, !!pid);
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำต่อหน้าผู้ใช้
   if (model.fallback_id && await modelDown(env, model.id)) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
@@ -764,6 +764,13 @@ export async function mcpCall(url, token, name, args) {
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
 export const AGENT_ROUNDS = 20, AGENT_IN_MAX = 1.2e6; // โหมด Agent ในหน้า Code (แพลนชำระเงิน)
 // ---------- zip ที่แนบในแชต: เครื่องมืออ่านไฟล์ให้ AI ----------
+// แอป AstraCode Desktop: แชต/โหมด Code ใช้ไฟล์ คำสั่ง และ MCP ในเครื่องผู้ใช้ได้ (หน้าเว็บในแอปเป็นคนทำตามบรรทัดคำสั่ง แล้วส่งผลกลับเป็นข้อความถัดไป)
+export const localOf = l => l && typeof l === 'object' ? { os: String(l.os || '').slice(0, 20), folder: String(l.folder || '').slice(0, 80), mcp: Array.isArray(l.mcp) ? l.mcp.slice(0, 40).map(t => ({ name: String(t?.name || '').slice(0, 64), description: String(t?.description || '').slice(0, 300), args: JSON.stringify(t?.parameters?.properties || {}).slice(0, 500) })).filter(t => t.name) : [] } : null;
+export function localSys(l, code) {
+  if (!l) return '';
+  if (code) return `\n\nThis project is linked to a real folder on the user's computer (${l.os || 'unknown OS'}) through the AstraCode Desktop app: the project files ARE the files in that folder. RUN lines execute in a real shell in that folder on the user's machine (not the browser emulator described above), with whatever the user has installed (node, npm, python, pip, git…). The user approves each command. Commands time out after 10 minutes, so do not start servers that never exit (dev servers, watchers); prefer builds, tests and scripts that finish.`;
+  return `\n\nThis chat runs inside the AstraCode Desktop app, which gives you tools on the user's computer (${l.os || 'unknown OS'}), limited to the folder "${l.folder}". This overrides "You have no tools" above. To use a tool, write each call on its own line outside code blocks, then STOP and wait; the results come back in the next message:\nLIST <relative folder, . for the root>\nREAD <relative file path>\nRUN <shell command, runs in that folder; the user approves each command; 10 minute timeout>\n${l.mcp.length ? 'MCP <tool name> <JSON arguments on one line>\n' : ''}To create or overwrite a file in that folder, put the FULL content in a code block whose info string is the language then file=<relative path>; the app writes it after the user approves. Use at most 5 tool lines per reply. Look before you change things (LIST/READ), never claim a command ran or a file changed before you see the result, and summarize what you did when finished.${l.mcp.length ? '\nLocal MCP tools:\n' + l.mcp.map(t => `- ${t.name}: ${t.description} args ${t.args}`).join('\n').slice(0, 8000) : ''}`;
+}
 export const ZIP_SYS = '\n\nThe user attached a project archive; its file list is in their message. Call read_file to open the files you need (and grep_files to find where something is) before answering. Never guess file contents. To change files, output each changed file in FULL in its own code block with file=<the same path as in the archive>; the page merges them back into the archive for download.';
 export const ZIP_TOOLS = [
   { type: 'function', function: { name: 'read_file', description: 'Read a text file from the attached archive. Large files: pass from_line/to_line (1-based).', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Path as listed in the archive' }, from_line: { type: 'integer' }, to_line: { type: 'integer' } }, required: ['path'] } } },

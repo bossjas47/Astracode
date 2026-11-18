@@ -1412,3 +1412,7 @@ a.contact-l { color: var(--link) !important; border: 1px solid color-mix(in srgb
 .krow .kbtn { display: flex; gap: 6px; flex-wrap: wrap; }
 .dv-status.ok { border-color: color-mix(in srgb, var(--green, #30d158) 45%, transparent); } .dv-status.warn { border-color: color-mix(in srgb, #f5b74e 60%, transparent); }
 .dv-new { border-color: color-mix(in srgb, var(--link) 55%, transparent); }
+/* แอป Desktop: ผลจากเครื่องที่ส่งกลับให้ AI (ย่อไว้) */
+.msg.user.pcres details { max-width: 85%; border: 1px dashed var(--steel); border-radius: 14px; padding: 6px 12px; font-size: 13px; color: var(--ash); }
+.msg.user.pcres summary { cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.msg.user.pcres pre { white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; margin: 6px 0 0; font-size: 12px; }

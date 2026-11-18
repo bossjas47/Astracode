@@ -1,18 +1,19 @@
 {
   "name": "astracode-desktop",
-  "version": "0.2.1",
-  "description": "AstraCode Desktop: AI agent that works on files, commands and MCP tools on your computer",
+  "version": "0.3.0",
+  "description": "AstraCode Desktop: the AstraCode website in an app window, with access to files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "AstraCode",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test --test-force-exit test/agent.test.js",
+    "test": "node --test --test-force-exit test/localfs.test.js",
     "dist": "electron-builder --win nsis --publish never"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.0.4"
+    "@modelcontextprotocol/sdk": "1.0.4",
+    "electron-updater": "6.3.9"
   },
   "devDependencies": {
     "electron": "33.2.1",
@@ -21,8 +22,27 @@
   "build": {
     "appId": "xyz.panderx.astracode.desktop",
     "productName": "AstraCode Desktop",
-    "files": ["main.js", "preload.js", "preload-web.js", "agent.js", "tools.js", "mcp.js", "renderer/**"],
-    "win": { "target": "nsis", "icon": "build/icon.png" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "artifactName": "AstraCode-Desktop-Setup-${version}.exe" }
+    "files": [
+      "main.js",
+      "preload-web.js",
+      "tools.js",
+      "mcp.js",
+      "localfs.js"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "AstraCode-Desktop-Setup.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/bossjas47/Astracode/releases/download/desktop-latest"
+      }
+    ]
   }
 }
