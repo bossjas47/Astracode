@@ -691,6 +691,10 @@ function vendorLogo(name, cls = '') {
   return `<span class="vlogo ${cls}">${inner}</span>`;
 }
 const vOpt = (v, logo, title, tags, mult, on, vk = '') => `<button class="vopt ${on ? 'on' : ''} ${me?.models.find(m => String(m.id) === String(v))?.locked ? 'lock' : ''}" data-v="${esc(v)}" data-vk="${esc(vk)}">${logo}<span class="vtxt"><b>${title}</b><small>${tags}</small></span>${mult}${on ? `<i class="vck">${ic('check')}</i>` : ''}</button>`;
+// โมเดลใหม่ (new_until ยังไม่หมด) ขึ้นบนสุดจนผู้ใช้เปิดหน้าเลือกโมเดลเห็นครั้งหนึ่ง แล้วกลับไปตามลำดับปกติ (ป้าย "ใหม่" ยังอยู่จนหมดเวลา)
+const seenNew = () => { try { return JSON.parse(localStorage.getItem('newSeen') || '[]'); } catch { return []; } };
+const pickOrder = ms => { const s = seenNew(), fresh = m => m.new_until > Date.now() && !s.includes(m.id); return [...ms.filter(fresh), ...ms.filter(m => !fresh(m))]; };
+const newSeen = ms => { try { localStorage.setItem('newSeen', JSON.stringify([...new Set([...seenNew(), ...ms.filter(m => m.new_until > Date.now()).map(m => m.id)])].slice(-50))); } catch { /* ไม่มีที่เก็บ */ } };
 function modelSheet(which) {
   const cur = $(which).value, auto = $(which).querySelector('option[value="auto"]');
   const vendors = [...new Map(me.models.map(m => [vendorOf(m.name).toLowerCase(), vendorOf(m.name)])).values()];
@@ -698,9 +702,9 @@ function modelSheet(which) {
   const mult = m => site.picker_mult === '0' ? '' : `<span class="vmult">×${m.multiplier}</span>`;
   sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', chips
     + (auto ? vOpt('auto', `<span class="vlogo auto">${ic('sparkles')}</span>`, 'อัตโนมัติ', 'ระบบเลือกโมเดลให้: ถามทั่วไปใช้โมเดลประหยัด โจทย์ยากหรือโค้ดใช้โมเดลเก่ง', '', cur === 'auto', 'auto') : '')
-    + me.models.map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name), [m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป', mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase())).join('')
+    + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : ''), [m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป', mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase())).join('')
     + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', (d, close) => {
-      pickTo(which)(d, close);
+      pickTo(which)(d, close); newSeen(me.models);
       d.querySelectorAll('[data-vf]').forEach(c => c.onclick = () => {
         d.querySelectorAll('[data-vf]').forEach(x => x.classList.toggle('on', x === c));
         d.querySelectorAll('.vopt').forEach(o => o.hidden = !!c.dataset.vf && o.dataset.vk !== c.dataset.vf && o.dataset.vk !== 'auto');

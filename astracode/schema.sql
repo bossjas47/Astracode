@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS models (
   cost_cache_write REAL NOT NULL DEFAULT 0,
   vision INTEGER NOT NULL DEFAULT 0,        -- อ่านรูปได้
   ctx_k REAL,                               -- ขนาด context ของโมเดล (พัน token) ว่าง = 128
+  new_until INTEGER,                        -- แสดงป้าย "ใหม่" ในหน้าเลือกโมเดลถึงเวลานี้ (ms)
   req_cap INTEGER,                          -- เพดานจำนวนคำขอต่อผู้ใช้ต่อ 4 ชม. (ว่าง = ไม่จำกัด)
   bill TEXT,                                -- วิธีคิดเงิน: NULL/token = ตามจำนวน token · request = เหมาต่อ request (ใช้ req_cost/req_price แทนราคา token ทั้งหมด ไม่ผสมกัน)
   req_cost REAL, req_price REAL,            -- ต้นทุน/ราคาขายต่อ request (บาท) ใช้เมื่อ bill=request
@@ -284,6 +285,7 @@ CREATE TABLE IF NOT EXISTS models (
   cost_cache_write REAL NOT NULL DEFAULT 0,
   vision INTEGER NOT NULL DEFAULT 0,        -- อ่านรูปได้
   ctx_k REAL,                               -- ขนาด context ของโมเดล (พัน token) ว่าง = 128
+  new_until INTEGER,                        -- แสดงป้าย "ใหม่" ในหน้าเลือกโมเดลถึงเวลานี้ (ms)
   req_cap INTEGER,                          -- เพดานจำนวนคำขอต่อผู้ใช้ต่อ 4 ชม. (ว่าง = ไม่จำกัด)
   bill TEXT,                                -- วิธีคิดเงิน: NULL/token = ตามจำนวน token · request = เหมาต่อ request (ใช้ req_cost/req_price แทนราคา token ทั้งหมด ไม่ผสมกัน)
   req_cost REAL, req_price REAL,            -- ต้นทุน/ราคาขายต่อ request (บาท) ใช้เมื่อ bill=request
