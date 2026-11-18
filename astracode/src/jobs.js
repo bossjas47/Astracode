@@ -4,7 +4,7 @@ import { reapAgentJobs, runAgent } from './agent.js';
 import { sendPush } from './push.js';
 import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl, walletAdd } from './billing.js';
 import { admin } from './admin.js';
-import { slug } from './api.js';
+import { runBatches, slug } from './api.js';
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
 // KPI ของวันก่อนหน้า (ตามเวลาไทย) สำหรับแจ้งแอดมิน
 export async function kpiYesterday(env, now = Date.now()) {
@@ -39,6 +39,7 @@ export async function cron(env) {
   // สรุป KPI เมื่อวานให้แอดมิน (8 โมงเช้าไทย): สมัครใหม่, รายได้, ต้นทุน, กำไร, โมเดลยอดนิยม
   if (new Date(now + BKK).getUTCHours() === 8) await step('kpi', async () => { const k = await kpiYesterday(env, now); if (!await limited(env, 'kpi:' + k.day, 1, 2 * DAY)) await notify(env, k.text); });
   // ดึงคนกลับ (10 โมงเช้าไทย): ผู้ใช้ที่เคยใช้งานแต่หายไป 14 วัน → อีเมลบอกของใหม่ + เครดิต (winback_credit บาท, 0 = ไม่แจก) · คนละครั้งต่อ 60 วัน
+  await step('batch', () => runBatches(env)); // Batch API: งานค้างประมวลผลทุกชั่วโมง
   // เตือนแอดมินเมื่อราคาขายต่ำกว่าต้นทุน (เช่นต้นทางขึ้นราคาแต่ยังไม่ได้แก้ราคาขาย) วันละครั้ง
   if (new Date(now + BKK).getUTCHours() === 9) await step('margin', async () => { const bad = await lossModels(env); if (bad.length && !await limited(env, 'margin:' + Math.floor((now + BKK) / DAY), 1, 2 * DAY)) await notify(env, '⚠️ ราคาขายต่ำกว่าต้นทุน (ขาดทุนทุกครั้งที่ใช้):\n' + bad.map(x => `• ${x.name}: ${x.parts.join(', ')}`).join('\n')); });
   if (new Date(now + BKK).getUTCHours() === 10) await step('winback', async () => {

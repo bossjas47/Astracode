@@ -43,7 +43,7 @@ export async function snapshot(env, pid, files, source) {
     if (!cur || cur.content === f.content) continue;
     if (source === 'edit') { const last = await DB.prepare('SELECT created_at FROM file_versions WHERE project_id=? AND path=? ORDER BY id DESC LIMIT 1').bind(pid, f.path).first(); if (last && now - last.created_at < 300e3) continue; }
     ops.push(DB.prepare('INSERT INTO file_versions (project_id,path,content,source,created_at) VALUES (?,?,?,?,?)').bind(pid, f.path, cur.content, source, now),
-      DB.prepare('DELETE FROM file_versions WHERE project_id=?1 AND path=?2 AND id NOT IN (SELECT id FROM file_versions WHERE project_id=?1 AND path=?2 ORDER BY id DESC LIMIT 30)').bind(pid, f.path));
+      DB.prepare("DELETE FROM file_versions WHERE project_id=?1 AND path=?2 AND source NOT LIKE 'cp:%' AND id NOT IN (SELECT id FROM file_versions WHERE project_id=?1 AND path=?2 ORDER BY id DESC LIMIT 30)").bind(pid, f.path));
   }
   for (let i = 0; i < ops.length; i += 50) await DB.batch(ops.slice(i, i + 50));
 }
@@ -207,6 +207,13 @@ export async function projects(req, env, u, path, url) {
       return json({ token, slug: slug || null });
     }
     return json({ token, slug: p.slug || null, featured: p.featured || 0, blurb: p.blurb || '' });
+  }
+  if (sub === '/checkpoint' && M === 'POST') { // จุดบันทึกตั้งชื่อ (คล้าย commit): เก็บทุกไฟล์ตอนนี้ไว้ ไม่ถูกลบตามโควตา 30 เวอร์ชัน · เก็บได้ 20 จุดต่อโปรเจกต์
+    const name = String((await req.json()).name || '').trim().slice(0, 40); if (!name) return err('ตั้งชื่อจุดบันทึกก่อน');
+    const old = (await DB.prepare("SELECT DISTINCT created_at FROM file_versions WHERE project_id=? AND source LIKE 'cp:%' ORDER BY created_at DESC").bind(pid).all()).results;
+    if (old.length >= 20) await DB.prepare("DELETE FROM file_versions WHERE project_id=? AND source LIKE 'cp:%' AND created_at<=?").bind(pid, old[19].created_at).run();
+    const r = await DB.prepare("INSERT INTO file_versions (project_id,path,content,source,created_at) SELECT project_id,path,content,?,? FROM project_files WHERE project_id=?").bind('cp:' + name, now, pid).run();
+    return json({ ok: true, files: r.meta.changes });
   }
   if (sub === '/restorepoints') return json((await DB.prepare('SELECT MIN(created_at) ts, source, COUNT(DISTINCT path) files FROM file_versions WHERE project_id=? GROUP BY created_at/60000, source ORDER BY ts DESC LIMIT 40').bind(pid).all()).results);
   if (sub === '/restore' && M === 'POST') { // ย้อนทั้งโปรเจกต์ไปสถานะก่อนช่วงเวลานั้น (ใช้ประวัติรายไฟล์) · ไฟล์ที่สร้างใหม่หลังจุดนั้นจะยังอยู่

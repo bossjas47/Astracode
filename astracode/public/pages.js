@@ -48,6 +48,17 @@ PAGES.developers = async () => {
         ${pre(['claude code', `export ANTHROPIC_BASE_URL=${location.origin}\nexport ANTHROPIC_AUTH_TOKEN=sk-astra-...\nexport ANTHROPIC_MODEL=${first}`])}
         ${pre(['python', `import anthropic\nc = anthropic.Anthropic(base_url="${location.origin}", api_key="sk-astra-...")\nm = c.messages.create(model="${first}", max_tokens=512, messages=[{"role": "user", "content": "สวัสดี"}])\nprint(m.content[0].text)`])}
       </div>
+      <div class="band" id="batch"><h2>Batch API (ถูกกว่า 20%)</h2><p class="muted">ส่งงานทีละมาก (สูงสุด 500 คำขอ) ระบบทยอยประมวลผลและเสร็จภายใน 24 ชั่วโมง คิดเงินจาก Wallet แล้วคืนส่วนลดให้อัตโนมัติ เหมาะกับงานแปล/สรุป/จัดหมวดข้อมูลจำนวนมากที่ไม่ต้องได้คำตอบทันที</p>
+        ${pre(['curl', `curl ${base}/batches \\\n  -H "Authorization: Bearer $ASTRA_KEY" -H "Content-Type: application/json" \\\n  -d '{"requests":[{"custom_id":"1","body":{"model":"${first}","messages":[{"role":"user","content":"สรุปข่าวนี้..."}]}}]}'\n\n# ดูสถานะและผลลัพธ์\ncurl ${base}/batches/batch_xxx -H "Authorization: Bearer $ASTRA_KEY"\n# ยกเลิกงานที่ยังไม่เริ่ม\ncurl -X POST ${base}/batches/batch_xxx/cancel -H "Authorization: Bearer $ASTRA_KEY"`])}
+      </div>
+      <div class="band" id="agents"><h2>ใช้กับ Agent บนคอมพิวเตอร์</h2><p class="muted">ให้ AI แก้โค้ดในเครื่อง รันคำสั่ง และคุมโปรแกรมอื่นผ่าน MCP โดยใช้โมเดลและ Wallet ของ AstraCode · แนะนำให้สร้าง key แยกและตั้งงบรายเดือนของ key ไว้ เพราะ Agent ใช้ token มาก</p>
+        <p><b>Cline / Roo Code / Kilo Code (VS Code)</b>: Settings → API Provider = <code>OpenAI Compatible</code> · Base URL = <code>${base}</code> · API Key = <code>sk-astra-...</code> · Model ID = <code>${first}</code></p>
+        ${pre(['codex ~/.codex/config.toml', `model = "${first}"\nmodel_provider = "astra"\n\n[model_providers.astra]\nname = "AstraCode"\nbase_url = "${base}"\nenv_key = "ASTRA_KEY"\nwire_api = "responses"`])}
+        ${pre(['opencode opencode.json', `{\n  "provider": {\n    "astra": {\n      "npm": "@ai-sdk/openai-compatible",\n      "options": { "baseURL": "${base}", "apiKey": "{env:ASTRA_KEY}" },\n      "models": { "${first}": {} }\n    }\n  }\n}`])}
+        <p><b>Claude Code</b>: ตั้ง <code>ANTHROPIC_BASE_URL</code> ตามตัวอย่างด้านบน แล้วเพิ่ม MCP ได้ตามปกติ</p>
+        ${pre(['MCP: Blender / Unity', `# Blender: ลง add-on blender-mcp ใน Blender แล้วกด Connect\nclaude mcp add blender -- uvx blender-mcp\n\n# Unity: ลงแพ็กเกจ Unity MCP ผ่าน Package Manager แล้วเพิ่ม server ตามคู่มือของแพ็กเกจ`])}
+        <p class="muted" style="font-size:13px">เลือกโมเดลที่เรียก tool เก่ง (เช่นรุ่นใหญ่ของ Claude/ChatGPT) งานที่ส่งภาพหน้าจอ เช่น Blender ต้องใช้โมเดลที่อ่านรูปได้ · ถ้าเครื่องมือไหนต่อไม่ได้ แจ้งเราที่หน้า <a href="/support">ติดต่อเรา</a></p>
+      </div>
       <div class="band"><h2>รหัสข้อผิดพลาด</h2><p class="muted">รูปแบบ <code>{"error": {"message": "...", "message_th": "...", "type": "..."}}</code> · <code>message</code> เป็นภาษาอังกฤษ ส่วน <code>message_th</code> เป็นไทย</p>
         <div class="tw"><table class="tbl"><tr><th>HTTP</th><th>type</th><th>ความหมาย</th></tr>
           <tr><td>400</td><td><code>invalid_request_error</code></td><td>พารามิเตอร์ผิด เช่น temperature เกินช่วง, messages ว่าง, ส่งรูปให้โมเดลที่ไม่รองรับ</td></tr>

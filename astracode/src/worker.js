@@ -54,6 +54,7 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
+    if ((r = path.match(/^\/p\/([a-z0-9][a-z0-9-]{2,39})\/src$/))) return secure(await sourceView(env, r[1])); // ดูโค้ดของโปรเจกต์ที่แชร์ (อ่านอย่างเดียว)
     if ((r = path.match(/^\/p\/([a-z0-9][a-z0-9-]{2,39})(?:\/((?:[\w-]+\/)*[\w.-]+\.html?)?)?$/))) { // /p/<ลิงก์>/<หน้า>.html = เว็บหลายหน้า // token 24 ตัว หรือชื่อลิงก์ที่เจ้าของตั้งเอง // โปรเจกต์ที่แชร์: หน้าเว็บอ่านอย่างเดียว รันใน sandbox (ไม่มีคุกกี้/ข้อมูลของเว็บเรา)
       await ensureCols(env);
       if (r[1] === SHOWCASE_SLUG) await seedShowcase(env).catch(e => console.log('showcase', e.message));
@@ -100,7 +101,7 @@ export default {
 };
 
 // cdn.jsdelivr.net: ตัวอ่าน PDF/Word/Excel (ล็อกเวอร์ชัน + SRI ใน app.js)
-export const CSP = "default-src 'self'; script-src 'self' 'inline-speculation-rules' https://cdn.jsdelivr.net https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+export const CSP = "default-src 'self'; script-src 'self' 'inline-speculation-rules' https://cdn.jsdelivr.net https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src 'self' https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
 // หน้าแสดงผลโค้ดของผู้ใช้: รันใน iframe sandbox (origin แยก อ่าน cookie / เรียก API ในชื่อผู้ใช้ไม่ได้)
 export function sandboxed(res, path) {
   const r = new Response(res.body, res), h = r.headers;
@@ -409,4 +410,20 @@ async function searchTerms(env, u, q) {
   try { for await (const e of callModel(env, m, [{ role: 'user', content: q.slice(0, 200) }], { effort: null, maxTokens: 80, signal: AbortSignal.timeout(6000), system: 'List up to 7 short keywords or phrases (Thai and English, synonyms and related terms) that would appear in past chat messages about this topic. Comma-separated, nothing else.' })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; } } catch { return [q]; }
   if (usage) await logUsage(env, u.id, m, usage, { units: false, src: 'system' });
   return [...new Set([q, ...out.split(/[,\n]/).map(x => x.replace(/^[\s\d.)\-*"']+|["']+$/g, '').trim()).filter(x => x.length >= 2 && x.length <= 40)])].slice(0, 8);
+}
+
+// หน้าโค้ดอ่านอย่างเดียวของโปรเจกต์ที่แชร์: รายชื่อไฟล์ + เนื้อหา (escape แล้ว ไม่มีสคริปต์) · ไม่แสดง .env
+// ใครมีลิงก์แชร์ก็ Remix เอาโค้ดไปได้อยู่แล้ว หน้านี้จึงไม่เปิดเผยอะไรเพิ่ม
+async function sourceView(env, link) {
+  await ensureCols(env);
+  const pr = await env.DB.prepare('SELECT id,name FROM projects WHERE share_token IS NOT NULL AND (share_token=?1 OR slug=?1)').bind(link).first();
+  const files = pr ? (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pr.id).all()).results.filter(f => !/(^|\/)\.env(\.|$)/.test(f.path) && !/^data:/.test(f.content)) : [];
+  if (!pr) return new Response('ไม่พบโปรเจกต์นี้ หรือเจ้าของยกเลิกการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  const e = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])), id = p => 'f-' + p.replace(/[^\w-]/g, '_');
+  const html = `<!doctype html><html lang="th"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${e(pr.name)} · โค้ด</title>
+<style>body{margin:0;font:14px/1.5 system-ui,sans-serif;background:#0f0f10;color:#e8e8ea}header{padding:14px 16px;border-bottom:1px solid #2a2a2e;display:flex;gap:12px;align-items:center;flex-wrap:wrap}header a{color:#8ab4ff}nav{padding:8px 16px;display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid #2a2a2e}nav a{color:#cfcfd4;background:#1b1b1e;border-radius:8px;padding:4px 10px;text-decoration:none;font-size:13px}section{padding:0 16px 8px}h2{font-size:14px;margin:18px 0 6px;color:#9a9aa2}pre{margin:0;background:#161618;border:1px solid #2a2a2e;border-radius:10px;padding:12px;overflow:auto;font:12.5px/1.5 ui-monospace,Menlo,monospace;tab-size:2}</style>
+<header><b>${e(pr.name)}</b><span style="color:#9a9aa2">โค้ดอ่านอย่างเดียว · ${files.length} ไฟล์</span><a href="/p/${e(link)}">เปิดหน้าเว็บ</a><a href="/code?remix=${e(link)}">Remix ไปแก้เอง</a></header>
+<nav>${files.map(f => `<a href="#${id(f.path)}">${e(f.path)}</a>`).join('')}</nav>
+${files.map(f => `<section id="${id(f.path)}"><h2>${e(f.path)}</h2><pre>${e(f.content.slice(0, 200000))}</pre></section>`).join('')}</html>`;
+  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60', 'x-robots-tag': 'noindex' } });
 }

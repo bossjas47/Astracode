@@ -199,3 +199,17 @@ test('model sys_prompt is sent before the caller system message (specialist mode
   assert.match(sys, /You are a finance assistant\.\s+Be brief\./);
   fm.close();
 });
+
+test('batch API: queued, processed by the cron runner, 20% cheaper, results returned; bad model refused', async () => {
+  const { t, fm, v1, bal } = await setup(), { runBatches } = await import('../src/api.js');
+  assert.equal((await v1('/v1/batches', { requests: [{ custom_id: 'a', body: { model: 'nope', messages: [{ role: 'user', content: 'hi' }] } }] })).status, 400);
+  const r = await v1('/v1/batches', { requests: [{ custom_id: 'a', body: { model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] } }, { custom_id: 'b', body: { model: 'chat-one', messages: [{ role: 'system', content: 'x' }, { role: 'user', content: 'yo' }] } }] });
+  assert.equal(r.status, 200); assert.equal(r.d.status, 'queued'); const before = bal();
+  assert.equal(await runBatches(t.env), 2);
+  const g = await v1('/v1/batches/' + r.d.id); assert.equal(g.d.status, 'completed'); assert.equal(g.d.results.length, 2);
+  assert.equal(g.d.results[0].response.choices[0].message.content, 'hello'); assert.equal(g.d.results[1].custom_id, 'b');
+  const paid = before - bal(), gross = -t.DB.raw.prepare("SELECT SUM(amount) s FROM wallet_tx WHERE kind='api'").get().s;
+  assert.ok(Math.abs(paid - gross * 0.8) < 1e-3, `paid ${paid} vs 80% of ${gross}`);
+  assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM usage WHERE src='batch'").get().n, 2);
+  fm.close();
+});

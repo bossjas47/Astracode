@@ -631,10 +631,11 @@ async function vercelSheet() {
 async function shareProject() {
   const r = await api(`/projects/${IDE.pid}/share`, { method: 'POST' }), url = `${location.origin}/p/${r.slug || r.token}`;
   sheet('แชร์โปรเจกต์ (อ่านอย่างเดียว)', `<p class="muted" style="margin:0 0 12px">ใครมีลิงก์นี้เปิดดูหน้าเว็บของโปรเจกต์ได้ แต่แก้ไฟล์ไม่ได้ · หน้าจะอัปเดตตามไฟล์ล่าสุดเสมอ</p>
-    <div class="row" style="flex-wrap:nowrap"><input readonly id="shu" value="${esc(url)}"><button class="btn out sm" id="shc">Copy</button></div><form id="shs" class="row" style="flex-wrap:nowrap;margin-top:10px"><input name="slug" value="${esc(r.slug || '')}" placeholder="ตั้งชื่อลิงก์เอง เช่น my-shop" pattern="[a-z0-9][a-z0-9-]{2,39}" autocapitalize="none"><button class="btn blue sm">Save name</button></form><p class="muted" style="margin:6px 0 0;font-size:12.5px">ลิงก์แสดงไฟล์ล่าสุดของโปรเจกต์เสมอ แก้แล้วคนเปิดลิงก์เห็นของใหม่ภายใน 1 นาที</p><button class="btn red sm" id="shx" style="margin-top:12px">Stop sharing</button>
+    <div class="row" style="flex-wrap:nowrap"><input readonly id="shu" value="${esc(url)}"><button class="btn out sm" id="shc">Copy</button></div><p class="muted" style="font-size:12.5px;margin:6px 0 0">ลิงก์ดูโค้ดอ่านอย่างเดียว (ไม่รวม .env): <a href="${esc(url)}/src" target="_blank" rel="noopener">${esc(url)}/src</a> <button type="button" class="btn out sm" id="shsrc">Copy</button></p><form id="shs" class="row" style="flex-wrap:nowrap;margin-top:10px"><input name="slug" value="${esc(r.slug || '')}" placeholder="ตั้งชื่อลิงก์เอง เช่น my-shop" pattern="[a-z0-9][a-z0-9-]{2,39}" autocapitalize="none"><button class="btn blue sm">Save name</button></form><p class="muted" style="margin:6px 0 0;font-size:12.5px">ลิงก์แสดงไฟล์ล่าสุดของโปรเจกต์เสมอ แก้แล้วคนเปิดลิงก์เห็นของใหม่ภายใน 1 นาที</p><button class="btn red sm" id="shx" style="margin-top:12px">Stop sharing</button>
     <form id="shg" class="sheet-form" style="margin-top:16px;border-top:1px solid var(--hair);padding-top:14px"><b>ส่งเข้าแกลเลอรี</b><p class="muted" style="margin:0;font-size:12.5px">${r.featured === 1 ? 'อยู่ในแกลเลอรีแล้ว ✓ (หน้า Code และหน้าแรก)' : r.featured === 2 ? 'ส่งแล้ว รอแอดมินอนุมัติ' : 'ให้คนอื่นเห็นผลงานและกด Remix ได้ · แอดมินตรวจก่อนขึ้น'}</p><input name="blurb" maxlength="160" required minlength="10" value="${esc(r.blurb || '')}" placeholder="คำอธิบายสั้นๆ เช่น แอปจดรายจ่าย ทำด้วยทีม Agent"><div class="row"><button class="btn blue sm">${r.featured ? 'อัปเดตคำอธิบาย' : 'ส่งเข้าแกลเลอรี'}</button>${r.featured ? '<button type="button" class="btn out sm" id="shgx">ถอนออก</button>' : ''}</div></form>`, (d, close) => {
     d.querySelector('#shs').onsubmit = async e => { e.preventDefault(); try { await api(`/projects/${IDE.pid}/share`, { method: 'POST', body: { slug: new FormData(e.target).get('slug') } }); toast('บันทึกชื่อลิงก์แล้ว', 'ok'); shareProject(); } catch (x) { toast(x.message, 'bad'); } };
     d.querySelector('#shc').onclick = e => copy(url, e.target);
+    d.querySelector('#shsrc').onclick = e => copy(url + '/src', e.target);
     d.querySelector('#shg').onsubmit = async e => { e.preventDefault(); try { const g = await api(`/projects/${IDE.pid}/gallery`, { method: 'POST', body: { blurb: new FormData(e.target).get('blurb') } }); toast(g.featured === 1 ? 'อัปเดตแล้ว' : 'ส่งแล้ว รอแอดมินอนุมัติ', 'ok'); shareProject(); } catch (x) { toast(x.message, 'bad'); } };
     d.querySelector('#shgx')?.addEventListener('click', async () => { await api(`/projects/${IDE.pid}/gallery`, { method: 'DELETE' }); toast('ถอนออกจากแกลเลอรีแล้ว'); shareProject(); });
     d.querySelector('#shx').onclick = async () => { await api(`/projects/${IDE.pid}/share`, { method: 'DELETE' }); close(); toast('ยกเลิกการแชร์แล้ว', 'ok'); };
@@ -746,7 +747,9 @@ async function reloadFiles() {
 }
 async function projectHistory() {
   const pts = await api(`/projects/${IDE.pid}/restorepoints`), label = { edit: 'ก่อนแก้ไข', import: 'ก่อนนำเข้า', git: 'ก่อน Pull', restore: 'ก่อนย้อนกลับ' };
-  sheet('ประวัติโปรเจกต์', pts.length ? `<p class="muted" style="margin:0 0 10px">เลือกจุดเวลา แล้วไฟล์ที่เปลี่ยนหลังจุดนั้นจะย้อนกลับ (ไฟล์ใหม่ที่เพิ่งสร้างจะยังอยู่ · ย้อนกลับของการย้อนได้จากรายการนี้)</p>${pts.map(x => optHTML(x.ts, when(x.ts), `${label[x.source] || x.source} · ${x.files} ไฟล์`)).join('')}` : '<p class="muted">ยังไม่มีประวัติ</p>', (d, close) => {
+  const lbl = s => s.startsWith('cp:') ? 'จุดบันทึก: ' + s.slice(3) : label[s] || s;
+  sheet('ประวัติโปรเจกต์', `<button type="button" class="btn blue sm" id="cpnew" style="margin:0 0 10px">${ic('star', 'sm')} บันทึกจุดนี้ (ตั้งชื่อ)</button>` + (pts.length ? `<p class="muted" style="margin:0 0 10px">เลือกจุดเวลา แล้วไฟล์ที่เปลี่ยนหลังจุดนั้นจะย้อนกลับ (ไฟล์ใหม่ที่เพิ่งสร้างจะยังอยู่ · ย้อนกลับของการย้อนได้จากรายการนี้)</p>${pts.map(x => optHTML(x.ts, (x.source.startsWith('cp:') ? '★ ' : '') + when(x.ts), `${esc(lbl(x.source))} · ${x.files} ไฟล์`)).join('')}` : '<p class="muted">ยังไม่มีประวัติ</p>'), (d, close) => {
+    d.querySelector('#cpnew').onclick = async () => { const name = await promptSheet('ชื่อจุดบันทึก เช่น "หน้าแรกเสร็จ"', '', { title: 'บันทึกจุดนี้', ok: 'Save' }); if (!name?.trim()) return; try { await saveNow(); await api(`/projects/${IDE.pid}/checkpoint`, { method: 'POST', body: { name } }); close(); toast('บันทึกจุดแล้ว ย้อนกลับมาได้จากประวัติโปรเจกต์', 'ok'); } catch (x) { toast(x.message, 'bad'); } };
     d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = async () => {
       if (!await confirmSheet('ย้อนไฟล์ในโปรเจกต์ไปสถานะก่อนเวลานี้?', { title: 'ย้อนโปรเจกต์', ok: 'Undo' })) return;
       try { await saveNow(); const r = await api(`/projects/${IDE.pid}/restore`, { method: 'POST', body: { ts: +b.dataset.v } }); close(); await reloadFiles(); toast(`ย้อนแล้ว ${r.restored} ไฟล์`, 'ok'); } catch (x) { toast(x.message, 'bad'); }
@@ -775,6 +778,7 @@ function codeTools() {
     + optHTML('members', ic('users') + 'ชวนเพื่อนมาแก้ด้วยกัน', 'เชิญด้วยอีเมล (สูงสุด 5 คน) แก้ไฟล์และใช้ AI ในโปรเจกต์นี้ได้ ใช้ลิมิตของแต่ละคนเอง')
     + optHTML('vercel', ic('globe') + 'Deploy ขึ้น Vercel ของคุณ', 'ขึ้นเว็บจริงในบัญชี Vercel ของคุณ ผูกโดเมนเองได้ที่ Vercel')
     + optHTML('share', ic('share') + 'แชร์โปรเจกต์ (ลิงก์อ่านอย่างเดียว)', 'ให้คนอื่นเปิดดูหน้าเว็บที่รันแล้วได้ แก้ไฟล์ไม่ได้')
+    + optHTML('audit', ic('activity') + 'ตรวจหน้าเว็บ (ความเร็ว / SEO / การเข้าถึง)', 'ให้คะแนนพร้อมรายการที่ควรแก้ แล้วส่งให้ AI แก้ได้ในคลิกเดียว')
     + optHTML('hist', ic('undo') + 'ประวัติโปรเจกต์ / ย้อนทั้งโปรเจกต์', 'ย้อนไฟล์ทั้งหมดไปสถานะก่อนช่วงเวลาที่เลือก')
     + optHTML('exphtml', ic('download') + 'ส่งออก HTML ไฟล์เดียว', 'รวม HTML/CSS/JS เป็นไฟล์เดียวพร้อมเปิดใช้งาน')
     + optHTML('autotest', ic('check') + 'รันเทสต์อัตโนมัติ: ' + (localStorage.getItem('autoTest') === '0' ? 'ปิด' : 'เปิด'), 'หลังใช้การแก้ไขของ AI รัน npm test ให้เอง ไม่ผ่านส่งผลกลับให้ AI แก้ (สูงสุด 2 รอบ) · เฉพาะโปรเจกต์ที่มี scripts.test ใน package.json')
@@ -792,6 +796,7 @@ function codeTools() {
       if (v === 'skl') skillsSheet(IDE.skills, ids => { IDE.skills = ids; localStorage.setItem('cskills', JSON.stringify(ids)); cUI(); });
       if (v === 'share') shareProject().catch(x => $('#ce').textContent = x.message);
       if (v === 'hist') projectHistory().catch(x => $('#ce').textContent = x.message);
+      if (v === 'audit') auditSheet();
       if (v === 'rules') {
         sheet('กฎประจำโปรเจกต์', `<form class="sheet-form" id="rf"><p class="sheet-msg">AI จะอ่านกฎนี้ทุกครั้งที่สั่งงานในโปรเจกต์นี้ (เช่น Stack, สไตล์โค้ด, ข้อห้าม) · หรือสร้างไฟล์ <code>ASTRA.md</code> ในโปรเจกต์ AI จะอ่านให้อัตโนมัติเช่นกัน</p><textarea name="instructions" rows="5" maxlength="3000" placeholder="เช่น ใช้ Vanilla JS + Tailwind CSS, ตอบสั้นๆ">${esc(IDE.instructions || '')}</textarea><div class="sheet-acts"><button type="button" class="btn out" data-c>Cancel</button><button class="btn blue">Save rule</button></div></form>`, (sd, sclose) => {
           sd.querySelector('[data-c]').onclick = sclose;
@@ -1513,3 +1518,37 @@ async function codeView(id) {
   if (chats[0]) { IDE.chatId = chats[0].id; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); if (IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); }
 }
 addEventListener('beforeunload', e => { if (IDE.dirty.size) { saveNow(); e.preventDefault(); } });
+
+// ตรวจหน้าเว็บจากไฟล์ในโปรเจกต์ (ไม่ต้องรัน): หาจุดที่ทำให้ช้า / ไม่ติด Google / ใช้ยากสำหรับผู้พิการ
+function auditProject(files) {
+  const html = [...files.keys()].filter(p => /\.html?$/i.test(p)).sort((a, b) => (b === 'index.html') - (a === 'index.html'));
+  const out = { speed: [], seo: [], a11y: [] }; if (!html.length) return null;
+  const kb = n => (n / 1024).toFixed(0) + ' KB';
+  for (const p of html) {
+    const doc = new DOMParser().parseFromString(files.get(p), 'text/html'), at = html.length > 1 ? ` (${p})` : '';
+    if (!doc.title?.trim()) out.seo.push('ไม่มี <title>' + at);
+    else if (doc.title.length > 65) out.seo.push(`<title> ยาว ${doc.title.length} ตัวอักษร (ควรไม่เกิน 60)` + at);
+    if (!doc.querySelector('meta[name=description]')?.content?.trim()) out.seo.push('ไม่มี meta description' + at);
+    if (!doc.querySelector('meta[name=viewport]')) out.seo.push('ไม่มี meta viewport: มือถือจะแสดงผลเล็กผิดปกติ' + at);
+    if (!doc.documentElement.getAttribute('lang')) out.a11y.push('<html> ไม่มี lang (เช่น lang="th")' + at);
+    const h1 = doc.querySelectorAll('h1').length; if (h1 !== 1) out.seo.push(`มี <h1> ${h1} อัน (ควรมี 1 อัน)` + at);
+    if (!doc.querySelector('meta[property="og:title"],meta[property="og:image"]')) out.seo.push('ไม่มี og:title / og:image: แชร์ลง Facebook/LINE ไม่มีรูปตัวอย่าง' + at);
+    const noAlt = doc.querySelectorAll('img:not([alt])').length; if (noAlt) out.a11y.push(`รูป ${noAlt} รูปไม่มี alt` + at);
+    const noLazy = [...doc.querySelectorAll('img')].slice(2).filter(i => i.getAttribute('loading') !== 'lazy').length; if (noLazy) out.speed.push(`รูป ${noLazy} รูปไม่ได้ใส่ loading="lazy"` + at);
+    const blocking = [...doc.head?.querySelectorAll('script[src]:not([defer]):not([async]):not([type=module])') || []].length; if (blocking) out.speed.push(`สคริปต์ ${blocking} ไฟล์ใน <head> บล็อกการแสดงผล (ใส่ defer)` + at);
+    const btn = [...doc.querySelectorAll('button,a')].filter(b => !b.textContent.trim() && !b.getAttribute('aria-label') && !b.querySelector('img[alt]')).length; if (btn) out.a11y.push(`ปุ่ม/ลิงก์ ${btn} อันไม่มีข้อความหรือ aria-label` + at);
+    const inputs = [...doc.querySelectorAll('input:not([type=hidden]):not([type=submit]),select,textarea')].filter(i => !i.getAttribute('aria-label') && !(i.id && doc.querySelector(`label[for="${CSS.escape(i.id)}"]`)) && !i.closest('label')).length; if (inputs) out.a11y.push(`ช่องกรอก ${inputs} ช่องไม่มี label` + at);
+    const ext = doc.querySelectorAll('script[src^="http"],link[rel=stylesheet][href^="http"]').length; if (ext > 4) out.speed.push(`โหลดไฟล์จากเว็บอื่น ${ext} ไฟล์` + at);
+  }
+  for (const [p, c] of files) { if (/^data:image/.test(c) && c.length > 300e3) out.speed.push(`รูป ${p} ใหญ่ ${kb(c.length * 0.75)} (ควรย่อให้ต่ำกว่า 200 KB)`); else if (/\.(js|css)$/.test(p) && c.length > 150e3) out.speed.push(`${p} ใหญ่ ${kb(c.length)}`); }
+  const score = list => Math.max(0, 100 - list.length * 12);
+  return { ...out, scores: { speed: score(out.speed), seo: score(out.seo), a11y: score(out.a11y) } };
+}
+function auditSheet() {
+  const r = auditProject(IDE.files); if (!r) return toast('ไม่พบไฟล์ HTML ในโปรเจกต์', 'bad');
+  const all = [...r.speed, ...r.seo, ...r.a11y], col = n => n >= 90 ? 'ok' : n >= 60 ? 'warn' : 'bad';
+  const sec = (k, t) => `<div style="margin:10px 0"><b>${t}</b> <span class="pill ${col(r.scores[k])}">${r.scores[k]}</span>${r[k].length ? `<ul style="margin:6px 0 0;padding-left:20px;font-size:13px">${r[k].map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p class="muted" style="margin:4px 0 0;font-size:13px">ผ่านทุกข้อ</p>'}</div>`;
+  sheet('ตรวจหน้าเว็บ', sec('speed', 'ความเร็ว') + sec('seo', 'SEO / แชร์ลงโซเชียล') + sec('a11y', 'การเข้าถึง') + (all.length ? '<button class="btn blue" id="aufix" style="width:100%;margin-top:8px">ให้ AI แก้ทั้งหมด</button>' : ''), (d, close) => {
+    d.querySelector('#aufix')?.addEventListener('click', () => { close(); const ct = $('#ct'); ct.value = 'แก้ปัญหาจากการตรวจหน้าเว็บต่อไปนี้ โดยไม่เปลี่ยนหน้าตาและข้อความเดิม:\n' + all.map(x => '- ' + x).join('\n'); ct.oninput?.(); setPane('ai'); ct.focus(); });
+  });
+}

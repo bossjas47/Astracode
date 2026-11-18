@@ -82,6 +82,11 @@ const FLOWS = [
     const put = calls.find(c => c.m === 'PUT' && c.p === '/api/projects/1/file');
     return [!errs.length || errs.join(' | '), !!put || 'no save request', /<p>ok<\/p>/.test(put?.body || '') || 'typed text not saved'];
   }],
+  ['page audit finds missing title, alt and viewport, and passes a clean page', async () => {
+    const { page, errs } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<html><body><img src="a.png"><h1>x</h1></body></html>' }] } });
+    const r = await page.evaluate(() => { const bad = auditProject(IDE.files); const good = auditProject(new Map([['index.html', '<html lang="th"><head><title>ร้าน</title><meta name="description" content="d"><meta name="viewport" content="width=device-width"><meta property="og:title" content="t"></head><body><h1>x</h1><img src="a.png" alt="a"></body></html>']])); return { bad, good }; });
+    return [!errs.length || errs.join(' | '), r.bad.seo.some(x => /title/.test(x)) || 'missing title not found', r.bad.a11y.some(x => /alt/.test(x)) || 'missing alt not found', r.bad.seo.some(x => /viewport/.test(x)) || 'viewport not found', (r.good.seo.length + r.good.a11y.length + r.good.speed.length === 0) || 'clean page flagged: ' + JSON.stringify(r.good)];
+  }],
   ['pay for a plan with a slip uploads the image', async () => {
     const { page, errs, calls } = await open('/plans');
     await page.click('[data-plan="2"]'); await page.waitForTimeout(300);
