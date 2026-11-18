@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL
   , webhook_url TEXT                       -- แจ้งเตือนงบ API key ถึงปลายทางนี้ (https)
   , bill_info TEXT                        -- ข้อมูลผู้ซื้อในใบเสร็จ (JSON: name, address, tax_id)
+  , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
 );
 
@@ -246,6 +247,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL
   , webhook_url TEXT                       -- แจ้งเตือนงบ API key ถึงปลายทางนี้ (https)
   , bill_info TEXT                        -- ข้อมูลผู้ซื้อในใบเสร็จ (JSON: name, address, tax_id)
+  , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
 );
 

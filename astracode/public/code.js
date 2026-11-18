@@ -24,7 +24,7 @@ async function codeHome() {
   page(nav() + `<div class="wrap"><section class="hero code-hero" style="padding:20px 0 8px"><h1>Code</h1>
     <p>เขียนโค้ดบนมือถือ มี AI ช่วยแก้ไฟล์ รัน HTML, JavaScript และ Python ได้ในเบราว์เซอร์</p></section>
     <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px">
-      <select name="template" style="width:auto;min-width:160px"><option value="starter">เว็บเริ่มต้น (HTML/CSS/JS/Py)</option><option value="tailwind">HTML + Tailwind CSS</option><option value="react">React (ไม่ต้องติดตั้ง)</option><option value="node">Node.js (package.json)</option><option value="python">Python</option><option value="empty">โปรเจกต์ว่าง</option></select>
+      <select name="template" style="width:auto;min-width:160px"><option value="starter">เว็บเริ่มต้น (HTML/CSS/JS/Py)</option><option value="tailwind">HTML + Tailwind CSS</option><option value="react">React (ไม่ต้องติดตั้ง)</option><option value="node">Node.js (package.json)</option><option value="python">Python</option><option value="landing">หน้าขายของ (Landing page)</option><option value="dashboard">Dashboard กราฟ</option><option value="game">เกม (Canvas)</option><option value="linebot">LINE Bot (Node.js)</option><option value="discordbot">Discord Bot (Node.js)</option><option value="empty">โปรเจกต์ว่าง</option></select>
       <button class="btn blue">+ New project</button></form>
     <details class="card clone"><summary><b>${ic('branch')} Clone จาก GitHub</b> <span class="muted">ดึง repo มาเป็นโปรเจกต์ใหม่</span></summary>
       <form id="cf2" class="form2" style="margin-top:12px"><div><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required></div>
@@ -618,6 +618,16 @@ async function membersSheet() {
     d.querySelectorAll('[data-mrm]').forEach(b => b.onclick = async () => { const self = +b.dataset.mrm === me.id; if (!await confirmSheet(self ? 'ออกจากโปรเจกต์นี้?' : 'ลบสมาชิกคนนี้?', { title: 'สมาชิกโปรเจกต์', ok: 'ยืนยัน', danger: true })) return; await api(`/projects/${IDE.pid}/members`, { method: 'DELETE', body: { user_id: +b.dataset.mrm } }); close(); if (self) go('/code'); else membersSheet(); });
   });
 }
+async function vercelSheet() {
+  const st = await api(`/projects/${IDE.pid}/vercel`).catch(() => ({ connected: false }));
+  sheet('Deploy ขึ้น Vercel', `<form class="sheet-form" id="vf">${st.connected ? '<p class="muted" style="margin:0">เชื่อม Vercel แล้ว กด Deploy เพื่ออัปไฟล์ล่าสุดขึ้นเว็บ (ไม่ส่งไฟล์ .env)</p>' : '<p class="muted" style="margin:0">สร้าง token ที่ vercel.com/account/tokens แล้ววางที่นี่ (เก็บแบบเข้ารหัส ใช้แค่ deploy โปรเจกต์ของคุณ)</p><input name="token" type="password" autocomplete="off" placeholder="Vercel token" required>'}
+    <button class="btn blue">${ic('globe', 'sm')} Deploy</button><p id="vm" class="muted" style="margin:0"></p>${st.connected ? '<button type="button" class="btn out sm" id="vx">ลบ token</button>' : ''}</form>`, (d, close) => {
+    d.querySelector('#vf').onsubmit = async e => { e.preventDefault(); const b = e.submitter; b.disabled = true; d.querySelector('#vm').textContent = 'กำลังอัปขึ้น Vercel...'; await saveNow();
+      try { const r = await api(`/projects/${IDE.pid}/vercel`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); d.querySelector('#vm').innerHTML = `ขึ้นแล้ว: <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a> (เว็บอาจใช้เวลาสร้าง 10-30 วินาที)`; }
+      catch (x) { d.querySelector('#vm').innerHTML = `<span class="bad">${esc(x.message)}</span>`; } b.disabled = false; };
+    d.querySelector('#vx')?.addEventListener('click', async () => { await api(`/projects/${IDE.pid}/vercel`, { method: 'DELETE' }); close(); toast('ลบ token แล้ว'); });
+  });
+}
 async function shareProject() {
   const r = await api(`/projects/${IDE.pid}/share`, { method: 'POST' }), url = `${location.origin}/p/${r.slug || r.token}`;
   sheet('แชร์โปรเจกต์ (อ่านอย่างเดียว)', `<p class="muted" style="margin:0 0 12px">ใครมีลิงก์นี้เปิดดูหน้าเว็บของโปรเจกต์ได้ แต่แก้ไฟล์ไม่ได้ · หน้าจะอัปเดตตามไฟล์ล่าสุดเสมอ</p>
@@ -763,6 +773,7 @@ function codeTools() {
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
     + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
     + optHTML('members', ic('users') + 'ชวนเพื่อนมาแก้ด้วยกัน', 'เชิญด้วยอีเมล (สูงสุด 5 คน) แก้ไฟล์และใช้ AI ในโปรเจกต์นี้ได้ ใช้ลิมิตของแต่ละคนเอง')
+    + optHTML('vercel', ic('globe') + 'Deploy ขึ้น Vercel ของคุณ', 'ขึ้นเว็บจริงในบัญชี Vercel ของคุณ ผูกโดเมนเองได้ที่ Vercel')
     + optHTML('share', ic('share') + 'แชร์โปรเจกต์ (ลิงก์อ่านอย่างเดียว)', 'ให้คนอื่นเปิดดูหน้าเว็บที่รันแล้วได้ แก้ไฟล์ไม่ได้')
     + optHTML('hist', ic('undo') + 'ประวัติโปรเจกต์ / ย้อนทั้งโปรเจกต์', 'ย้อนไฟล์ทั้งหมดไปสถานะก่อนช่วงเวลาที่เลือก')
     + optHTML('exphtml', ic('download') + 'ส่งออก HTML ไฟล์เดียว', 'รวม HTML/CSS/JS เป็นไฟล์เดียวพร้อมเปิดใช้งาน')
@@ -772,6 +783,7 @@ function codeTools() {
       close(); const v = b.dataset.v;
       if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
       if (v === 'members') return membersSheet();
+      if (v === 'vercel') return vercelSheet();
       if (v === 'autotest') { const on = localStorage.getItem('autoTest') === '0'; localStorage.setItem('autoTest', on ? '1' : '0'); toast('รันเทสต์อัตโนมัติ: ' + (on ? 'เปิด' : 'ปิด')); }
       if (v === 'bgagent') { seen('team'); return bgAgentSheet(); }
       if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); IDE.agent = !IDE.agent; localStorage.setItem('agent', IDE.agent ? '1' : '0'); cUI(); toast(IDE.agent ? 'เปิดโหมด Agent: งานยาวได้ถึง 20 รอบ' : 'ปิดโหมด Agent', 'ok'); if (IDE.agent && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); }
@@ -940,20 +952,44 @@ async function apply(c, msg, force = true) {
   } else await writeFiles([{ path: c.path, content: c.content }]);
   refresh(); drawAI();
 }
+// diff ทีละบรรทัด (LCS) แบ่งเป็นจุดๆ ให้เลือกรับ/ไม่รับทีละจุด · ไฟล์ใหญ่มาก (เกิน ~4 ล้านคู่บรรทัด) คืน null แล้วใช้แบบรวมก้อนเดียว
+function hunksOf(a, b) {
+  const n = a.length, m = b.length; if (n * m > 4e6) return null;
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const ops = []; let i = 0, j = 0;
+  while (i < n && j < m) { if (a[i] === b[j]) { ops.push(['=', a[i++]]); j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) ops.push(['-', a[i++]]); else ops.push(['+', b[j++]]); }
+  while (i < n) ops.push(['-', a[i++]]); while (j < m) ops.push(['+', b[j++]]);
+  const hunks = []; let cur = null; ops.forEach((o, k) => { if (o[0] === '=') cur = null; else { if (!cur) hunks.push(cur = { ops: [] }); cur.ops.push(k); } });
+  return { ops, hunks };
+}
+// สร้างเนื้อหาไฟล์จากจุดที่เลือกรับ (ไม่รับ = คงบรรทัดเดิม)
+function pickHunks(d, keep) {
+  const take = new Set(); d.hunks.forEach((h, i) => { if (keep.has(i)) h.ops.forEach(k => take.add(k)); });
+  return d.ops.filter(([o], k) => o === '=' || (o === '+' ? take.has(k) : !take.has(k))).map(o => o[1]).join('\n');
+}
 function showDiff(c, label = 'Apply') {
-  const cur = has(c.path) ? content(c.path) : '', d = lineDiff(cur, c.content);
-  let ln = d.start - d.before.length;
+  const cur = has(c.path) ? content(c.path) : '', H = !c.del && cur ? hunksOf(cur.split('\n'), c.content.split('\n')) : null;
   const line = (cls, sign, t) => `<div class="dl ${cls}"><span>${sign}</span>${esc(t) || ' '}</div>`;
-  const body = d.before.map(t => line('', ' ', t)).join('')
-    + d.ops.map(([o, t]) => line(o === '+' ? 'add' : o === '-' ? 'del' : '', o, t)).join('')
-    + d.after.map(t => line('', ' ', t)).join('');
+  let body, add = 0, del = 0;
+  if (H && H.hunks.length > 1) { // หลายจุด: แสดงทีละจุดพร้อมบรรทัดรอบข้าง 2 บรรทัด และช่องติ๊กเลือก
+    body = H.hunks.map((h, i) => { const a = h.ops[0], z = h.ops.at(-1), ctx = k => k >= 0 && k < H.ops.length && H.ops[k][0] === '=' ? line('', ' ', H.ops[k][1]) : '';
+      h.ops.forEach(k => H.ops[k][0] === '+' ? add++ : del++);
+      return `<label class="hunk"><input type="checkbox" data-h="${i}" checked> จุดที่ ${i + 1}</label>${ctx(a - 2)}${ctx(a - 1)}${h.ops.map(k => line(H.ops[k][0] === '+' ? 'add' : 'del', H.ops[k][0], H.ops[k][1])).join('')}${ctx(z + 1)}${ctx(z + 2)}<div class="dl muted">…</div>`; }).join('');
+  } else {
+    const d = lineDiff(cur, c.content); add = d.add; del = d.del; const ln = d.start - d.before.length;
+    body = (ln > 0 ? `<div class="dl muted">… บรรทัด ${ln + 1}</div>` : '') + d.before.map(t => line('', ' ', t)).join('') + d.ops.map(([o, t]) => line(o === '+' ? 'add' : o === '-' ? 'del' : '', o, t)).join('') + d.after.map(t => line('', ' ', t)).join('');
+  }
   const box = document.createElement('div'); box.className = 'diffbox';
-  box.innerHTML = `<div class="diff-h"><b>${esc(c.path)}</b> <span class="ok">+${d.add}</span> <span class="bad">−${d.del}</span><span style="flex:1"></span>
+  box.innerHTML = `<div class="diff-h"><b>${esc(c.path)}</b> <span class="ok">+${add}</span> <span class="bad">−${del}</span><span style="flex:1"></span>
     <button class="btn blue sm" id="dapply">${label}</button><button class="btn out sm" id="dclose">Close</button></div>
-    <div class="diff-b">${ln > 0 ? `<div class="dl muted">… บรรทัด ${ln + 1}</div>` : ''}${body}</div>`;
+    ${H && H.hunks.length > 1 ? '<p class="muted" style="margin:6px 12px 0;font-size:12.5px">ติ๊กออกจุดที่ไม่อยากได้ แล้วกด Apply ใช้เฉพาะจุดที่เลือก</p>' : ''}<div class="diff-b">${body}</div>`;
   $('.ide').append(box);
   box.querySelector('#dclose').onclick = () => box.remove();
-  box.querySelector('#dapply').onclick = async () => { box.remove(); await apply(c); };
+  box.querySelector('#dapply').onclick = async () => {
+    const keep = new Set([...box.querySelectorAll('[data-h]')].filter(x => x.checked).map(x => +x.dataset.h));
+    box.remove(); await apply(H && H.hunks.length > 1 && keep.size < H.hunks.length ? { ...c, content: pickHunks(H, keep) } : c);
+  };
 }
 // บรรทัด READ / GREP / LIST ที่ AI ใช้อ่านไฟล์ → แสดงเป็นป้ายเล็กๆ
 const TOOL_LABEL = { IMAGE: ['image', 'สร้างรูป'], READ: ['filetext', 'อ่านไฟล์'], GREP: ['search', 'ค้นหา'], LIST: ['folder', 'ดูโฟลเดอร์'], RUN: ['terminal', 'รันคำสั่ง'] };

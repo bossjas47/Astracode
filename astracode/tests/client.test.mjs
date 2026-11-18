@@ -123,3 +123,12 @@ test('generated images get a download button; vote, speak and memory buttons use
   for (const k of ['thumbup', 'thumbdown', 'volume', 'bulb']) assert.ok(new RegExp(`"${k}":"<`).test(app), 'icon ' + k);
   assert.ok(!/[\u{1F44D}\u{1F44E}\u{1F50A}\u{1F4A1}\u{1F4C4}]/u.test(chat), 'no emoji left in the chat page buttons');
 });
+
+test('per-hunk diff: separate changes become separate hunks; applying only some keeps the rest as before', () => {
+  const f = new Function(`${pick('function hunksOf', 'function showDiff')}\nreturn { hunksOf, pickHunks };`)();
+  const a = ['a', 'b', 'c', 'd', 'e', 'f', 'g'], b = ['a', 'B', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const d = f.hunksOf(a, b); assert.equal(d.hunks.length, 2);
+  assert.equal(f.pickHunks(d, new Set([0, 1])), b.join('\n'));
+  assert.equal(f.pickHunks(d, new Set([1])), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].join('\n'));
+  assert.equal(f.pickHunks(d, new Set()), a.join('\n'));
+});

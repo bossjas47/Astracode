@@ -388,3 +388,18 @@ test('bookmarks: star a message, list and search it; per-chat instructions are s
   await t.json('/api/chats/' + c.id, { method: 'PUT', cookie: u.cookie, body: { instructions: 'ตอบเป็นภาษาอังกฤษ' } });
   assert.equal(t.DB.raw.prepare('SELECT instructions FROM chats WHERE id=?').get(c.id).instructions, 'ตอบเป็นภาษาอังกฤษ');
 });
+
+test('deploy to Vercel: token stored sealed, files sent without .env, images as base64', async () => {
+  const t = await makeEnv({ SECRET_KEY: 'test-secret-key-for-sealing-0123456789' }), u = await t.user();
+  const p = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'My Site' } })).data;
+  t.DB.raw.prepare("INSERT OR REPLACE INTO project_files (project_id,path,content,updated_at) VALUES (?,?,?,0),(?,?,?,0)").run(p.id, '.env', 'KEY=secret', p.id, 'logo.png', 'data:image/png;base64,AAAA');
+  const f0 = globalThis.fetch; let sent;
+  globalThis.fetch = async (url, o) => { if (String(url).startsWith('https://api.vercel.com')) { sent = { url: String(url), auth: o.headers.authorization, body: JSON.parse(o.body) }; return Response.json({ url: 'my-site-abc.vercel.app', alias: ['my-site.vercel.app'] }); } return f0(url, o); };
+  try {
+    const r = await t.json(`/api/projects/${p.id}/vercel`, { method: 'POST', cookie: u.cookie, body: { token: 'vercel_token_1234567890abc' } });
+    assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.url, 'https://my-site.vercel.app');
+    assert.equal(sent.auth, 'Bearer vercel_token_1234567890abc'); assert.equal(sent.body.name, 'my-site');
+    assert.ok(!sent.body.files.some(f => f.file === '.env')); assert.deepEqual(sent.body.files.find(f => f.file === 'logo.png'), { file: 'logo.png', data: 'AAAA', encoding: 'base64' });
+    assert.doesNotMatch(t.DB.raw.prepare('SELECT vercel_token FROM users WHERE id=?').get(u.id).vercel_token, /vercel_token_1234567890abc/);
+  } finally { globalThis.fetch = f0; }
+});
