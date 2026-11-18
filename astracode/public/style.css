@@ -1395,3 +1395,6 @@ input[type=file]::file-selector-button:hover { background: var(--graphite); }
 .pm-chip { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--steel); font-size: 12.5px; white-space: nowrap; }
 .pm-more { padding: 3px 9px; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--link); cursor: pointer; }
 .pm-api { margin-top: 12px; font-size: 13px; }
+/* ปุ่มคัดลอกคำตอบ: อยู่หน้าสุด เห็นชัด · .copying = ซ่อนปุ่ม/หัวโค้ดตอนอ่านข้อความไปคัดลอก */
+.acts .cp-msg { color: var(--porcelain); border: 1px solid var(--steel); }
+.copying button, .copying .code-h, .copying .mfiles { display: none !important; }

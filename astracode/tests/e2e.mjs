@@ -67,6 +67,13 @@ const FLOWS = [
     const sent = calls.find(c => c.p === '/api/chat'), text = await page.locator('#app').innerText();
     return [!errs.length || errs.join(' | '), !!sent || 'no /api/chat call', /"text":"สวัสดี"/.test(sent?.body || '') || 'text not sent', text.includes('สวัสดีครับ ทดสอบ') || 'answer not shown'];
   }],
+  ['copy an AI answer gives clean text without markdown symbols', async () => {
+    const { page, errs } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'คัดลอก' }], '/api/chats/81': [{ id: 1, role: 'user', content: 'ถาม' }, { id: 2, role: 'assistant', content: '## หัวข้อ\n\n**ตัวหนา** และ `โค้ด`\n\n- ข้อหนึ่ง' }] });
+    await page.evaluate(() => { window.__clip = ''; const cb = { writeText: async t => { window.__clip = t; }, write: async items => { window.__clip = await (await items[0].getType('text/plain')).text(); } }; Object.defineProperty(navigator, 'clipboard', { value: cb, configurable: true }); }); // http://t.test ไม่ใช่ secure context: จำลอง clipboard
+    await page.click('.msg.ai .cp-msg'); await page.waitForTimeout(300);
+    const clip = await page.evaluate(() => window.__clip), label = await page.locator('.msg.ai .cp-msg').innerText();
+    return [!errs.length || errs.join(' | '), /ตัวหนา/.test(clip) || 'nothing copied: ' + clip, !/[*#`]/.test(clip) || 'markdown left: ' + clip, /คัดลอกแล้ว/.test(label) || 'no copied feedback'];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);
