@@ -363,8 +363,8 @@ export function fitContext(system, msgs, max) {
 export const flat = m => m.bill === 'request' && m.req_cost > 0;
 export const msgCost = m => flat(m) ? m.req_cost : (20000 * m.cost_cache + 1000 * m.cost_in + 1000 * m.cost_out) / 1e6;
 // โมเดลที่จ่ายจาก Wallet ได้ (สาธารณะ เปิดอยู่ มีคีย์) รูปแบบเดียวกับ allowedModels
-export const walletModels = env => env.DB.prepare("SELECT id,name,provider,multiplier,vision,effort,effort_levels,cost_in,cost_out,cost_cache,cap_pct,key_name,ctx_k,new_until FROM models WHERE active=1 AND public=1 AND provider<>'embedding' ORDER BY sort,id").all()
+export const walletModels = env => env.DB.prepare("SELECT id,name,provider,multiplier,vision,effort,effort_levels,cost_in,cost_out,cost_cache,cap_pct,key_name,ctx_k,new_until,note FROM models WHERE active=1 AND public=1 AND provider<>'embedding' ORDER BY sort,id").all()
   .then(r => r.results.filter(m => env[m.key_name]).map(({ key_name, ...m }) => m));
 export const allowedModels = (env, planId) => env.DB.prepare(
-  'SELECT m.id,m.name,m.provider,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct,m.key_name,m.ctx_k,m.new_until FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 AND m.provider<>\'embedding\' ORDER BY m.sort,m.id').bind(planId).all()
+  'SELECT m.id,m.name,m.provider,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct,m.key_name,m.ctx_k,m.new_until,m.note FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 AND m.provider<>\'embedding\' ORDER BY m.sort,m.id').bind(planId).all()
   .then(r => r.results.filter(m => env[m.key_name]).map(({ key_name, ...m }) => m)); // ซ่อนโมเดลที่ Worker ยังไม่มีคีย์ (เรียกไปก็ error)

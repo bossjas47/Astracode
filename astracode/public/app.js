@@ -725,7 +725,7 @@ function modelSheet(which) {
   const mult = m => site.picker_mult === '0' ? '' : `<span class="vmult">×${m.multiplier}</span>`;
   sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', chips
     + (auto ? vOpt('auto', `<span class="vlogo auto">${ic('sparkles')}</span>`, 'อัตโนมัติ', 'ระบบเลือกโมเดลให้: ถามทั่วไปใช้โมเดลประหยัด โจทย์ยากหรือโค้ดใช้โมเดลเก่ง', '', cur === 'auto', 'auto') : '')
-    + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : ''), [m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป', mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase())).join('')
+    + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : ''), (m.note ? `<span class="vnote">${esc(m.note)}</span>` : '') + ([m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป'), mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase())).join('')
     + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', (d, close) => {
       pickTo(which)(d, close); newSeen(me.models);
       d.querySelectorAll('[data-vf]').forEach(c => c.onclick = () => {
