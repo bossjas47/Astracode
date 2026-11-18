@@ -519,3 +519,11 @@ test('chat: an attached zip is stored once and the AI opens files with read_file
   assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /แก้แล้ว/);
   fm.close();
 });
+
+test('admin: model usage detail lists who used a model', async () => {
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'M', base_url: 'http://x' }), admin = await t.user({ role: 'admin' }), u = await t.user();
+  t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,src) VALUES (?,?,?,?,?,?,?,?,?)').run(u.id, m.id, 100, 50, 0, 0.1, 0.1, Date.now(), 'chat');
+  const r = await t.json(`/api/admin/model-usage/${m.id}?days=7`, { cookie: admin.cookie });
+  assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.by_user[0].id, u.id); assert.equal(r.data.recent.length, 1); assert.equal(r.data.by_src[0].src, 'chat');
+  assert.equal((await t.json(`/api/admin/model-usage/${m.id}`, { cookie: u.cookie })).status, 403);
+});

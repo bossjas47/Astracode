@@ -165,13 +165,14 @@ const ADMIN = {
         <section class="panel"><div class="ph"><h2>สมัครใหม่รายวัน</h2></div><div class="chart" id="c-reg"></div>${dataTable(['วันที่', 'สมัครใหม่'], s.daily.map((d, i) => [labels[i], num(d.reg)]))}</section>
       </div>
       <section class="panel"><div class="ph"><h2>แยกตามโมเดล</h2><span class="muted">${days} วัน</span></div>
-        ${s.models.length ? `<div class="hbars">${s.models.map(m => { const max = Math.max(...s.models.map(x => x.cost)) || 1; return `<div class="hb"><div class="hb-l"><b>${esc(m.name)}</b><span class="muted">${num(m.msgs)} ข้อความ · ${compact(m.tin + m.tout + m.tc)} token</span></div>
+        ${s.models.length ? `<div class="hbars">${s.models.map(m => { const max = Math.max(...s.models.map(x => x.cost)) || 1; return `<div class="hb click" data-mu="${m.id}" role="button" tabindex="0" title="ดูรายละเอียด"><div class="hb-l"><b>${esc(m.name)}</b><span class="muted">${num(m.msgs)} ข้อความ · ${compact(m.tin + m.tout + m.tc)} token</span></div>
           <div class="hb-t"><div style="width:${Math.max(1, m.cost / max * 100)}%"></div></div><div class="hb-v">฿${baht(m.cost)}</div></div>`; }).join('')}</div>` : '<p class="muted">ยังไม่มีการใช้งาน</p>'}</section>
       ${s.by_src?.length ? `<section class="panel"><div class="ph"><h2>แยกตามที่มา</h2><span class="muted">${days} วัน · เก็บตั้งแต่ 18 พ.ย. 2569</span></div><div class="tw"><table class="tbl"><tr><th>ที่มา</th><th>ครั้ง</th><th>ต้นทุน</th><th>หัก Wallet</th></tr>${s.by_src.map(x => `<tr><td>${{ chat: 'แชต', api: 'API', agent: 'Agent', task: 'งานตั้งเวลา', complete: 'เติมโค้ด', image: 'สร้างรูป', system: 'ระบบ', batch: 'Batch API', line: 'LINE', '-': 'ไม่ระบุ (ก่อนเริ่มเก็บ)' }[x.src] || esc(x.src)}</td><td>${num(x.n)}</td><td>฿${baht(x.cost)}</td><td>฿${baht(x.charge)}</td></tr>`).join('')}</table></div></section>` : ''}
       <section class="panel"><div class="ph"><h2>ผู้ใช้ที่ใช้มากที่สุด</h2><span class="muted">${days} วัน</span></div>
         ${s.top.length ? `<div class="tw"><table class="tbl"><tr><th>ผู้ใช้</th><th>แพลน</th><th>ข้อความ</th><th>Token</th><th>ต้นทุน</th></tr>${s.top.map(u => `<tr class="click" data-user="${u.id}"><td>${esc(u.email)}</td><td>${esc(u.plan || 'Free')}</td><td>${num(u.msgs)}</td><td>${compact(u.tok)}</td><td>฿${baht(u.cost)}</td></tr>`).join('')}</table></div>` : '<p class="muted">ยังไม่มีการใช้งาน</p>'}</section>`;
     box.querySelectorAll('[data-days]').forEach(b => b.onclick = () => { localStorage.setItem('adm-days', b.dataset.days); ADMIN.stats(box); });
     box.querySelectorAll('[data-user]').forEach(r => r.onclick = () => userDrawer(+r.dataset.user));
+    box.querySelectorAll('[data-mu]').forEach(r => r.onclick = () => modelUsageSheet(+r.dataset.mu, days));
     const draw = () => {
       if (!$('#c-tok')) return ADMIN._resize?.disconnect(); // ออกจากหน้าแล้ว
       lineChart($('#c-tok'), { labels, series: [{ name: 'Input', color: SERIES[0], values: s.daily.map(d => d.tin) }, { name: 'Output', color: SERIES[1], values: s.daily.map(d => d.tout) }, { name: 'Cache', color: SERIES[2], values: s.daily.map(d => d.tc) }], unit: ' token' });
@@ -618,6 +619,18 @@ async function editors(tab, box, reload, kind) {
 const RL_KIND = { grant: 'แจกสิทธิ์', use: 'ผู้ใช้กดใช้', direct: 'แอดมินรีเซ็ตให้' };
 const resetLogTable = (rows, withUser = true) => rows.length ? `<table class="tbl"><tr><th>เมื่อ</th>${withUser ? '<th>ผู้ใช้</th>' : ''}<th>รายการ</th><th>ขอบเขต</th><th>หมายเหตุ</th></tr>${rows.map(r => `<tr><td>${when(r.created_at)}</td>${withUser ? `<td>${esc(r.email || '-')}</td>` : ''}<td>${RL_KIND[r.kind] || esc(r.kind)}${r.kind === 'grant' ? ' ×' + (r.n || 1) : ''}</td><td>${esc(r.scope || '-')}</td><td class="muted">${r.kind === 'grant' ? (r.expires_at ? 'หมดอายุ ' + when(r.expires_at) : 'ไม่หมดอายุ') + (r.by_email ? ' · โดย ' + esc(r.by_email) : '') : (r.by_email && r.kind === 'direct' ? 'โดย ' + esc(r.by_email) : '')}</td></tr>`).join('')}</table>` : '<p class="muted">ยังไม่มีประวัติ</p>';
 // แผงรายละเอียดผู้ใช้ (เลื่อนออกมาจากขวา)
+// รายละเอียดการใช้โมเดลหนึ่งตัว: ใครใช้ ใช้จากไหน และคำขอล่าสุด (กดแถวผู้ใช้เพื่อเปิดข้อมูลผู้ใช้)
+async function modelUsageSheet(id, days) {
+  let d; try { d = await api(`/admin/model-usage/${id}?days=${days}`); } catch (x) { return toast(x.message, 'bad'); }
+  const src = k => ({ chat: 'แชต', api: 'API', agent: 'Agent', task: 'งานตั้งเวลา', line: 'LINE', image: 'รูป' })[k] || k;
+  const tot = d.by_user.reduce((a, u) => ({ n: a.n + u.n, cost: a.cost + u.cost, charge: a.charge + u.charge }), { n: 0, cost: 0, charge: 0 });
+  const m = d.model || {};
+  sheet(esc(m.name || 'โมเดล'), `<p class="muted" style="margin:0 0 10px">${d.days} วัน · ${num(tot.n)} ครั้ง · ต้นทุน ฿${baht(tot.cost)} · เก็บจาก Wallet ฿${baht(tot.charge)}<br>ต้นทุน in/out ฿${m.cost_in}/${m.cost_out} ต่อ 1M · ราคาขาย ${m.price_in ?? 'อัตโนมัติ'}/${m.price_out ?? 'อัตโนมัติ'}${m.use_mult ? ` · หักลิมิต ×${m.use_mult}` : ''}</p>
+    <h3>ผู้ใช้</h3><div class="tw"><table class="tbl"><tr><th>ผู้ใช้</th><th>ครั้ง</th><th>in/out/cache</th><th>ต้นทุน</th><th>Wallet</th></tr>${d.by_user.map(u => `<tr class="click" data-user="${u.id}"><td>${esc(u.email || '#' + u.id)}</td><td>${num(u.n)}</td><td>${compact(u.tin)}/${compact(u.tout)}/${compact(u.tc)}</td><td>฿${baht(u.cost)}</td><td>${u.charge ? '฿' + baht(u.charge) : '-'}</td></tr>`).join('')}</table></div>
+    <h3>ที่มา</h3><div class="tw"><table class="tbl"><tr><th>ที่มา</th><th>ครั้ง</th><th>ต้นทุน</th><th>Wallet</th></tr>${d.by_src.map(x => `<tr><td>${esc(src(x.src))}</td><td>${num(x.n)}</td><td>฿${baht(x.cost)}</td><td>${x.charge ? '฿' + baht(x.charge) : '-'}</td></tr>`).join('')}</table></div>
+    <h3>คำขอล่าสุด</h3><div class="tw"><table class="tbl"><tr><th>เวลา</th><th>ผู้ใช้</th><th>in/out/cache</th><th>ต้นทุน</th><th>เวลาตอบ</th></tr>${d.recent.map(x => `<tr class="click" data-user="${x.id}"><td>${when(x.t)}</td><td>${esc(x.email || '#' + x.id)}<br><span class="muted">${esc(src(x.src || '-'))}</span></td><td>${compact(x.tin)}/${compact(x.tout)}/${compact(x.tc)}</td><td>฿${baht(x.cost)}${x.charge ? `<br><span class="muted">เก็บ ฿${baht(x.charge)}</span>` : ''}</td><td>${x.ms ? (x.ms / 1000).toFixed(1) + ' วิ' : '-'}</td></tr>`).join('')}</table></div>`,
+    (box, close) => box.querySelectorAll('[data-user]').forEach(r => r.onclick = () => { close(); userDrawer(+r.dataset.user); }));
+}
 async function userDrawer(id, after) {
   const [u, plans, allModels, rlog] = await Promise.all([api('/admin/users/' + id), api('/admin/plans'), api('/admin/models'), api('/admin/reset-log?user_id=' + id).catch(() => [])]);
   const vendors = [...new Set(allModels.map(m => String(m.name).trim().split(/\s+/)[0]))];

@@ -47,6 +47,17 @@ export async function admin(req, env, path, url, me) {
   const M = req.method, DB = env.DB;
   const ctxAudit = M === 'GET' ? async () => {} : (action, detail) => audit(env, me, action, detail); // บันทึกทุกการแก้ไขของแอดมิน
   let r;
+  if ((r = path.match(/^\/api\/admin\/model-usage\/(\d+)$/)) && M === 'GET') { // กดดูรายละเอียดโมเดลในภาพรวม: ใครใช้ ใช้จากไหน คำขอล่าสุด
+    const id = +r[1], days = Math.min(90, Math.max(1, +url.searchParams.get('days') || 7)), from = Date.now() - days * DAY;
+    const q = (sql, ...a) => DB.prepare(sql).bind(...a).all().then(x => x.results);
+    const [byUser, bySrc, recent] = await Promise.all([
+      q('SELECT u.user_id id, us.email, COUNT(*) n, SUM(u.tokens_in) tin, SUM(u.tokens_out) tout, SUM(u.tokens_cache) tc, SUM(u.cost) cost, SUM(COALESCE(u.charge,0)) charge FROM usage u LEFT JOIN users us ON us.id=u.user_id WHERE u.model_id=? AND u.created_at>=? GROUP BY u.user_id ORDER BY cost DESC LIMIT 50', id, from),
+      q("SELECT COALESCE(src,'-') src, COUNT(*) n, SUM(cost) cost, SUM(COALESCE(charge,0)) charge FROM usage WHERE model_id=? AND created_at>=? GROUP BY src ORDER BY cost DESC", id, from),
+      q('SELECT u.created_at t, u.user_id id, us.email, u.tokens_in tin, u.tokens_out tout, u.tokens_cache tc, u.cost, u.charge, u.ms, u.src FROM usage u LEFT JOIN users us ON us.id=u.user_id WHERE u.model_id=? AND u.created_at>=? ORDER BY u.id DESC LIMIT 30', id, from),
+    ]);
+    const m = await DB.prepare('SELECT id,name,api_model,cost_in,cost_out,cost_cache,price_in,price_out,use_mult FROM models WHERE id=?').bind(id).first();
+    return json({ model: m, days, by_user: byUser, by_src: bySrc, recent });
+  }
   if ((r = path.match(/^\/api\/admin\/(plans|models|posts)(?:\/(\d+))?$/))) {
     const [, t, id] = r, cols = TABLES[t];
     if (M === 'GET') {
@@ -183,7 +194,7 @@ export async function admin(req, env, path, url, me) {
       DB.prepare(`SELECT ${dayOf('created_at')} d, COUNT(*) n FROM users WHERE created_at>=? GROUP BY d`).bind(from).all(),
       DB.prepare(`SELECT (SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='approved' AND created_at>=?1) rev, COALESCE(SUM(cost),0) cost, COUNT(*) msgs, COUNT(DISTINCT user_id) au, COALESCE(SUM(tokens_in+tokens_out+tokens_cache),0) tok FROM usage WHERE created_at>=?1`).bind(from).first(),
       DB.prepare(`SELECT (SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='approved' AND created_at>=?1 AND created_at<?2) rev, COALESCE(SUM(cost),0) cost, COUNT(*) msgs, COUNT(DISTINCT user_id) au, COALESCE(SUM(tokens_in+tokens_out+tokens_cache),0) tok FROM usage WHERE created_at>=?1 AND created_at<?2`).bind(prev, from).first(),
-      DB.prepare('SELECT m.name, COUNT(*) msgs, SUM(u.tokens_in) tin, SUM(u.tokens_out) tout, SUM(u.tokens_cache) tc, SUM(u.cost) cost FROM usage u JOIN models m ON m.id=u.model_id WHERE u.created_at>=? GROUP BY m.id ORDER BY cost DESC').bind(from).all(),
+      DB.prepare('SELECT m.id, m.name, COUNT(*) msgs, SUM(u.tokens_in) tin, SUM(u.tokens_out) tout, SUM(u.tokens_cache) tc, SUM(u.cost) cost FROM usage u JOIN models m ON m.id=u.model_id WHERE u.created_at>=? GROUP BY m.id ORDER BY cost DESC').bind(from).all(),
       DB.prepare('SELECT us.id, us.email, p.name plan, COUNT(*) msgs, SUM(u.tokens_in+u.tokens_out+u.tokens_cache) tok, SUM(u.cost) cost FROM usage u JOIN users us ON us.id=u.user_id LEFT JOIN plans p ON p.id=us.plan_id AND us.plan_expires>? WHERE u.created_at>=? GROUP BY us.id ORDER BY cost DESC LIMIT 10').bind(now, from).all(),
       DB.prepare('SELECT COUNT(*) total, COALESCE(SUM(plan_id IS NOT NULL AND plan_expires>?),0) paid FROM users').bind(now).first(),
       DB.prepare("SELECT COUNT(*) n FROM payments WHERE status='pending'").first(),
