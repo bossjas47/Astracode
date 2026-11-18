@@ -170,7 +170,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       await finish({ fresh: tokens, read: 0, write: 0, out: 0 }, 0);
       return out({ object: 'list', data: d.data, model: slug(m), usage: { prompt_tokens: tokens, total_tokens: tokens } }, 200, { 'x-astracode-billing': billingMode });
     }
-    if (!b.stream) {
+    if (!b.stream) { // ทำใน waitUntil: ลูกค้าตัดการเชื่อมต่อระหว่างรอ ยังทำต่อจนคิดเงินได้ (ผู้ให้บริการคิดเงินเราแล้ว)
+      const job = (async () => {
       let content = '', reasoning = '', usage = null, finishReason = 'stop', tcs = new Map(), anthIdx = new Map();
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -192,7 +193,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
           if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { activeModel = fb; continue; }
-          if (walletKey) await unlimit(env, walletKey);
+          if (content || reasoning || tcs.size) await finish(usage, content.length + reasoning.length + 2); // พังกลางคำตอบ: ผู้ให้บริการคิดเงินส่วนที่ทำไปแล้ว
+          else if (walletKey) await unlimit(env, walletKey);
           return fail('โมเดลตอบไม่ได้ตอนนี้', 502, 'api_error');
         }
       }
@@ -205,6 +207,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       const toolCalls = [...tcs.values()]; if (toolCalls.length) finishReason = 'tool_calls';
       const used = await finish(usage, content.length + reasoning.length + JSON.stringify(toolCalls).length);
       return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined }, 200, { 'x-astracode-billing': billingMode });
+      })();
+      ctx.waitUntil(job.catch(() => {}));
+      return await job;
     }
     const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder();
     // ลูกค้าตัดการเชื่อมต่อกลางคำตอบ (กดหยุด / timeout / ส่งซ้ำ): ผู้ให้บริการคิดเงิน input เราไปแล้ว ต้องหยุดอ่านแล้วคิดเงินตามประมาณ ไม่ใช่ถือเป็น error แล้วไม่คิดเงิน
@@ -237,7 +242,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         if (tcCount > 0 && finishReason === 'stop') finishReason = 'tool_calls';
         const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars);
         if (!gone) await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
-      } catch (e) { await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
+      } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2)).catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
     return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors, ...rl } });
@@ -280,11 +285,13 @@ export const innerChat = (req, env, ctx, lg, body) => {
 };
 export async function* chatChunks(res) { // อ่าน SSE ของ chat/completions ทีละก้อน JSON
   const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
-  for (;;) {
-    const { done, value } = await rd.read(); if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (line.startsWith('data:') && !line.includes('[DONE]')) { try { yield JSON.parse(line.slice(5)); } catch { /* ข้าม */ } } }
-  }
+  try {
+    for (;;) {
+      const { done, value } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (line.startsWith('data:') && !line.includes('[DONE]')) { try { yield JSON.parse(line.slice(5)); } catch { /* ข้าม */ } } }
+    }
+  } finally { rd.cancel().catch(() => {}); } // ลูกค้าของ /v1/messages, /v1/responses ตัดกลางทาง: ยกเลิกสตรีมด้านใน ไม่งั้นด้านในค้างรอไม่จบและไม่คิดเงิน
 }
 export const sseOut = res => { const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder(); return { readable, w, send: (name, data) => w.write(enc.encode(`event: ${name}\ndata: ${JSON.stringify({ type: name, ...data })}\n\n`)), close: () => w.close().catch(() => {}) }; };
 export const passHeaders = res => { const h = {}; for (const k of ['retry-after', 'x-request-id', 'x-ratelimit-limit-requests', 'x-ratelimit-remaining-requests', 'x-ratelimit-reset-requests', 'x-astracode-billing']) { const v = res.headers.get(k); if (v) h[k] = v; } return { ...V1_CORS, ...h }; };

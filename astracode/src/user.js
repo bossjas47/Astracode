@@ -320,7 +320,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const prompt = out.replace(/<think>[\s\S]*?<\/think>/g, '').trim().replace(/^```\w*\n?|```$/g, '').replace(/^["'“”]+|["'“”]+$/g, '').trim().slice(0, 2000);
     return prompt ? json({ prompt, model: used }) : err('AI ไม่ได้ส่ง prompt กลับมา ลองใหม่อีกครั้ง', 502);
   }
-  if (path === '/api/image' && M === 'POST') return await imageGen(req, env, u);
+  if (path === '/api/image' && M === 'POST') { const job = imageGen(req, env, u); ctx.waitUntil(job.catch(() => {})); return await job; } // ปิดหน้าระหว่างรอ: ยังสร้างเสร็จและคิดเงิน (ผู้ให้บริการคิดเงินเราแล้ว)
   if ((r = path.match(/^\/api\/img\/(\d+)\/([\w-]+)\.(png|jpg)$/))) {
     if (+r[1] !== u.id && u.role !== 'admin') return err('not found', 404);
     const o = env.SLIPS && await env.SLIPS.get(`img/${r[1]}/${r[2]}.${r[3]}`), cc = { 'cache-control': 'private, max-age=31536000' };

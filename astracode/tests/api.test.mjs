@@ -256,3 +256,23 @@ test('api: a client that disconnects mid-stream is still billed (the provider al
   assert.ok(t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance < 100);
   void m; fm.close();
 });
+
+test('api: /v1/messages client that disconnects is billed; a provider error mid-answer is billed for what was produced', async () => {
+  const fm = await fakeModel((q, res, body) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'partial answer' } }] }) + '\n\n');
+    if (body.messages?.some(m => String(m.content).includes('BREAK'))) return setTimeout(() => { res.write('data: ' + JSON.stringify({ error: { message: 'upstream exploded' } }) + '\n\n'); res.end(); }, 50);
+    setTimeout(() => { res.write('data: [DONE]\n\n'); res.end(); }, 300);
+  });
+  const t = await makeEnv({ K: 'k' }); addModel(t.DB, { name: 'Long Two', provider: 'openai', base_url: fm.url, cost_in: 1000, cost_out: 2000 });
+  const u = await t.user({ balance: 100 }), key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const rows = () => t.DB.raw.prepare("SELECT COUNT(*) n FROM usage WHERE user_id=? AND src='api'").get(u.id).n;
+  const r = await t.call('/v1/messages', { method: 'POST', body: { model: 'long-two', max_tokens: 100, stream: true, messages: [{ role: 'user', content: 'a'.repeat(3000) }] }, headers: { 'x-api-key': key } });
+  const rd = r.body.getReader(); await rd.read(); await rd.cancel(); await Promise.all(t.ctx.pending);
+  assert.equal(rows(), 1, '/v1/messages disconnect not billed');
+  const r2 = await t.call('/v1/chat/completions', { method: 'POST', body: { model: 'long-two', stream: true, messages: [{ role: 'user', content: 'BREAK ' + 'b'.repeat(3000) }] }, headers: { authorization: 'Bearer ' + key } });
+  await r2.text(); await Promise.all(t.ctx.pending);
+  assert.equal(rows(), 2, 'mid-answer provider error not billed');
+  fm.close();
+});
