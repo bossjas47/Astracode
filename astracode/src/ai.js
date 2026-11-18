@@ -226,7 +226,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       const ch = e.choices?.[0], dl = ch?.delta;
       const th = dl?.reasoning_content || dl?.reasoning || dl?.thought || dl?.thinking || (Array.isArray(dl?.reasoning_details) ? dl.reasoning_details.map(x => x?.text || '').join('') : '');
       if (typeof th === 'string' && th) yield { th };
-      const t = dl?.content;
+      const t = dl?.content || dl?.refusal; // refusal = ข้อความปฏิเสธของโมเดล OpenAI (มาแยกช่องจาก content) ต้องโชว์ ไม่งั้นผู้ใช้เห็นคำตอบว่าง
       if (typeof t === 'string' && t) { tagBuf += t; for (const ev of flushBuf(false)) yield ev; }
       for (const im of Array.isArray(dl?.images) ? dl.images : []) { // โมเดลที่ตอบเป็นภาพในแชตเลย (เช่น Gemini Image ผ่านรูปแบบ OpenAI): เก็บเป็นไฟล์แล้วแสดงใต้คำตอบ
         const u0 = im?.image_url?.url || im?.url;
@@ -549,7 +549,7 @@ export async function runChat(env, J, send, st) {
       const ac = new AbortController(); let stalled = 0, wd;
       const arm = ms => { clearTimeout(wd); wd = setTimeout(() => { stalled = ms; ac.abort(); }, ms); };
       const firstMs = (model.first_token_s > 0 ? model.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 150 : 90) * 1000, idleMs = (model.idle_s > 0 ? model.idle_s : 60) * 1000; // ตั้งต่อโมเดลได้ในหลังบ้าน
-      arm(firstMs);
+      arm(firstMs); let stopR = '';
       try {
         for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined, userId: u.id, signal: ac.signal })) {
           arm(idleMs);
@@ -566,18 +566,19 @@ export async function runChat(env, J, send, st) {
             const c = tcs.get(idx); if (d.id) c.id = d.id; if (d.function?.name) c.function.name += d.function.name; if (d.function?.arguments) c.function.arguments += d.function.arguments;
           }
           if (e.usage) ru = e.usage;
+          if (e.stop_reason) stopR = e.stop_reason;
         }
         clearTimeout(wd);
-        if (!out && !think && !tcs.size && !st.gone) throw new Error('โมเดลส่งคำตอบว่างกลับมา'); // ตอบว่าง = ถือเป็นข้อผิดพลาด (นับเข้าตัวตัดวงจร และลองโมเดลสำรอง)
+        if (!out.trim() && !think && !tcs.size && !st.gone) throw new Error('โมเดลส่งคำตอบว่างกลับมา' + (stopR && stopR !== 'stop' ? ` (เหตุผลจากผู้ให้บริการ: ${stopR})` : '')); // ตอบว่าง = ถือเป็นข้อผิดพลาด (นับเข้าตัวตัดวงจร และลองโมเดลสำรอง)
         break;
       } catch (e0) {
         clearTimeout(wd);
         const e = stalled ? new Error(`โมเดลไม่ตอบภายใน ${Math.round(stalled / 1000)} วินาที`) : e0;
         console.log('AI error', model.name, e.message);
         await event(env, 'error', model.id, e.message.slice(0, 300));
-        const fb = !out && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
+        const fb = !out.trim() && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
         if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
-        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
+        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล' : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
         break;
       }
     }

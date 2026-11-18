@@ -454,3 +454,22 @@ test('wallet minimum: below ฿1 the off-plan model stays locked and API refuses
   assert.equal((await t.json('/api/keys', { method: 'POST', cookie: low.cookie, body: { name: 'x' } })).status, 403);
   assert.equal((await t.json('/api/keys', { method: 'POST', cookie: ok.cookie, body: { name: 'x' } })).status, 200);
 });
+
+test('chat: an OpenAI refusal field is shown; a blank answer reports the provider stop reason', async () => {
+  const { fakeModel, readSSE } = await import('./helpers.mjs'); let mode = 'refusal';
+  const fm = await fakeModel((q, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const d = mode === 'refusal' ? { refusal: 'ขอโทษ ช่วยเรื่องนี้ไม่ได้' } : { content: ' ' };
+    res.write('data: ' + JSON.stringify({ choices: [{ delta: d }] }) + '\n\n');
+    res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: mode === 'refusal' ? 'stop' : 'content_filter' }], usage: { prompt_tokens: 10, completion_tokens: 1 } }) + '\n\n');
+    res.end('data: [DONE]\n\n');
+  });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'M', base_url: fm.url });
+  const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  let ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'x' } }));
+  assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /ช่วยเรื่องนี้ไม่ได้/);
+  t.DB.raw.exec('DELETE FROM rate'); mode = 'filter';
+  ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'y' } }));
+  assert.match(ev.find(e => e.error)?.error || '', /content_filter/);
+  fm.close();
+});
