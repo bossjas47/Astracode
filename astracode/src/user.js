@@ -539,7 +539,7 @@ export async function imageGen(req, env, u) {
   const item = d.data?.[0]; let bytes;
   if (item?.b64_json) bytes = unb64(item.b64_json); else if (item?.url) bytes = new Uint8Array(await (await fetch(item.url)).arrayBuffer()); else return err('ไม่ได้รูปกลับมา', 502);
   const now = Date.now(); await touchWindows(env, u.id, now, plan);
-  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,0,0,0,0,?,?,?)').bind(u.id, Math.max(+s.image_cost || 0, 1e-9), +s.image_cost || 0, now).run();
+  await env.DB.prepare("INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,src) VALUES (?,0,0,0,0,?,?,?,'image')").bind(u.id, Math.max(+s.image_cost || 0, 1e-9), +s.image_cost || 0, now).run();
   let src;
   if (b.inline) return json({ src: 'data:image/png;base64,' + b64(bytes), usage: await usageStatus(env, u, plan) }); // โหมด Code: เบราว์เซอร์ย่อรูปแล้วเก็บเป็นไฟล์ในโปรเจกต์เอง
   if (env.SLIPS) { const name = rand(12) + '.png'; await env.SLIPS.put(`img/${u.id}/${name}`, bytes, { httpMetadata: { contentType: 'image/png' } }); src = `/api/img/${u.id}/${name}`; }
@@ -564,6 +564,6 @@ export async function complete(req, env, u) {
     for await (const e of callModel(env, m, [{ role: 'user', content: `File: ${String(b.path || '').slice(0, 200)}\n<code>${prefix}<CURSOR>${suffix}</code>\nReturn ONLY the code to insert at <CURSOR> (at most a few lines). No explanations, no markdown fences. If nothing fits, return nothing.` }],
       { system: 'You are a code completion engine.', maxTokens: 96, effort: null })) { if (e.t) text += e.t; if (e.usage) usage = e.usage; }
   } catch { return json({ text: '' }); }
-  if (usage) await logUsage(env, u.id, m, usage, { plan });
+  if (usage) await logUsage(env, u.id, m, usage, { plan, src: 'complete' });
   return json({ text: text.replace(/^```\w*\n?|```$/g, '').replace(/<\/?code>|<CURSOR>/g, '').split('\n').slice(0, 8).join('\n').slice(0, 400) }); // เดาแค่ไม่กี่บรรทัด
 }

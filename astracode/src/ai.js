@@ -366,7 +366,7 @@ export async function smartSearch(env, u, hist) {
       const ctx = hist.slice(-5).map(x => `${x.role === 'user' ? 'User' : 'Assistant'}: ${String(x.content || '').slice(0, 500)}`).join('\n');
       let outT = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 8000); // ช้าเกิน 8 วินาที = ใช้คำถามเดิมค้นเลย
       try { for await (const e of callModel(env, m, [{ role: 'user', content: ctx }], { effort: null, maxTokens: 120, signal: ac.signal, system: 'Write 1 to 3 web search queries that would find the facts needed to answer the last user message. Resolve pronouns from the conversation. One query per line, no numbering, no quotes, nothing else. Use the language most likely to find good sources.' })) { if (e.t) outT += e.t; if (e.usage) usage = e.usage; } } finally { clearTimeout(timer); }
-      if (usage) await logUsage(env, u.id, m, usage, { units: false });
+      if (usage) await logUsage(env, u.id, m, usage, { units: false, src: 'system' });
       const qs = outT.split('\n').map(x => x.replace(/^[\s\d.)\-*"']+|["']+$/g, '').trim()).filter(x => x.length > 2 && x.length < 200).slice(0, 3);
       if (qs.length) queries = qs;
     }
@@ -391,20 +391,18 @@ export function excerptFiles(content, question) {
   });
 }
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
-export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null } = {}) {
+export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null } = {}) {
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
-  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null).run();
+  let charge = 0;
+  if (wallet) { const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6) * 10000) / 10000; }
+  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null).run();
   // ต้นทุน/token ต่องาน Agent · ctx_peak = input ของรอบที่ใหญ่สุด (ใช้แสดง context ของทีม)
   if (job) { const tin = usage.fresh + usage.read + usage.write; await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, tin, usage.out, tin, job).run(); }
-  let charge = 0;
-  if (wallet) {
-    const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6) * 10000) / 10000;
-    if (charge > 0) await walletAdd(env, uid, -charge, wallet, m.name);
-  }
+  if (charge > 0) await walletAdd(env, uid, -charge, wallet, m.name);
   return charge; // ยอดที่ตัดจาก wallet (0 ถ้าไม่ได้ตัด)
 }
 export async function chat(req, env, u, ctx) {
@@ -625,7 +623,7 @@ export async function runChat(env, J, send, st) {
   let mid = null;
   if ((out || think) && cid) mid = (await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id')
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).first())?.id ?? null;
-  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet', ms: Date.now() - tStart, ttft }) : 0;
+  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet', ms: Date.now() - tStart, ttft, src: 'chat' }) : 0;
   await unlimit(env, lock);
   const fin = await usageStatus(env, u, plan);
   await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: ctxUsed, max: ctxMax(model) }, ...fin });
@@ -672,7 +670,7 @@ export async function compact(env, u, cid, force = false, byCtx = false) { // by
   let summary = '', usage = null;
   for await (const e of callModel(env, m, [{ role: 'user', content: body.slice(-80000) }], { effort: null, maxTokens: 1500,
     system: 'Summarize this conversation so an assistant can continue it. Keep: the user\'s goals and preferences, decisions made, facts, names, numbers, file names, code identifiers and unfinished tasks. Drop small talk and long code (say what it does). Write in the same language as the conversation, at most 350 words, as bullet points.' })) { if (e.t) summary += e.t; if (e.usage) usage = e.usage; }
-  if (usage) await logUsage(env, u.id, m, usage, { units: false }); // ต้นทุนของเรา ไม่หักลิมิตผู้ใช้
+  if (usage) await logUsage(env, u.id, m, usage, { units: false, src: 'system' }); // ต้นทุนของเรา ไม่หักลิมิตผู้ใช้
   if (summary.trim()) await env.DB.prepare('UPDATE chats SET summary=?, summary_upto=? WHERE id=?').bind(summary.trim().slice(0, 6000), old.at(-1).id, cid).run();
   return !!summary.trim();
 }

@@ -163,7 +163,7 @@ export async function admin(req, env, path, url, me) {
       DB.prepare('SELECT COUNT(*) n FROM chats WHERE user_id=?').bind(u.id).first(),
     ]);
     u.wallet = (await DB.prepare('SELECT amount,balance_after,kind,ref,created_at FROM wallet_tx WHERE user_id=? ORDER BY id DESC LIMIT 15').bind(u.id).all()).results;
-    u.recent = (await DB.prepare("SELECT x.created_at,x.tokens_in tin,x.tokens_out tout,x.tokens_cache tc,x.cost,x.ms,COALESCE(m.name,'รูปภาพ') name FROM usage x LEFT JOIN models m ON m.id=x.model_id WHERE x.user_id=? ORDER BY x.id DESC LIMIT 30").bind(u.id).all()).results;
+    u.recent = (await DB.prepare("SELECT x.created_at,x.tokens_in tin,x.tokens_out tout,x.tokens_cache tc,x.cost,x.ms,x.src,x.charge,COALESCE(m.name,'รูปภาพ') name FROM usage x LEFT JOIN models m ON m.id=x.model_id WHERE x.user_id=? ORDER BY x.id DESC LIMIT 30").bind(u.id).all()).results;
     u.keys = (await DB.prepare('SELECT COUNT(*) n FROM api_keys WHERE user_id=? AND revoked=0').bind(u.id).first()).n;
     const plan = await planOf(env, u);
     return json({ ...u, usage: await usageStatus(env, u, plan), current_plan: plan.name, models: models.results, payments: pays.results, chats: chats.n });

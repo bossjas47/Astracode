@@ -26,10 +26,11 @@ const events = txt => txt.split('\n\n').filter(Boolean).map(b => ({ name: b.matc
 const msg = { model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] };
 
 test('chat completion bills the wallet, sets rate-limit headers, errors are English with a Thai copy', async () => {
-  const { fm, v1, bal } = await setup(), before = bal();
+  const { t, fm, v1, bal } = await setup(), before = bal();
   const r = await v1('/v1/chat/completions', msg);
   assert.equal(r.status, 200); assert.equal(r.d.choices[0].message.content, 'hello');
-  assert.ok(bal() < before); assert.equal(r.h.get('x-ratelimit-limit-requests'), '60'); assert.equal(r.h.get('x-ratelimit-remaining-requests'), '59');
+  assert.ok(bal() < before);
+  const row = t.DB.raw.prepare('SELECT src,charge FROM usage ORDER BY id DESC').get(); assert.equal(row.src, 'api'); assert.ok(Math.abs(row.charge - (before - bal())) < 1e-6); // หลังบ้านเห็นที่มาและยอดหัก assert.equal(r.h.get('x-ratelimit-limit-requests'), '60'); assert.equal(r.h.get('x-ratelimit-remaining-requests'), '59');
   const bad = await v1('/v1/chat/completions', msg, 'sk-astra-nope');
   assert.equal(bad.status, 401); assert.equal(bad.d.error.message, 'Invalid API key.'); assert.match(bad.d.error.message_th, /ไม่ถูกต้อง/);
   const nom = await v1('/v1/chat/completions', { ...msg, model: 'zzz' });

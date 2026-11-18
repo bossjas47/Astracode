@@ -105,7 +105,7 @@ export async function runTasks(env, now = Date.now()) {
       const sources = t.search ? await smartSearch(env, u, hist) : [];
       let out = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 120e3);
       try { for await (const e of callModel(env, m, [{ role: 'user', content: withSources(t.prompt, sources) }], { effort: null, system: SYSTEM, maxTokens: 2000, userId: u.id, signal: ac.signal })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; } } finally { clearTimeout(timer); }
-      if (usage) await logUsage(env, u.id, m, usage, { plan });
+      if (usage) await logUsage(env, u.id, m, usage, { plan, src: 'task' });
       if (!out.trim()) return;
       const c = await env.DB.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').bind(u.id, ('⏰ ' + t.prompt).slice(0, 40), now).first();
       await env.DB.batch([env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(c.id, 'user', t.prompt, m.id, now),

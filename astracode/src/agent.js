@@ -39,7 +39,7 @@ async function makeImages(env, u, plan, pid, list) {
       if (data.length > FILE_LIMIT) throw new Error(`รูปใหญ่เกิน ${Math.round(FILE_LIMIT / 1000)}KB (ได้ ${Math.round(data.length / 1000)}KB)`);
       const wr = await applyChanges(env, pid, [{ path: it.path, content: data }], true); if (wr.problems.length) throw new Error(wr.problems[0]);
       const now = Date.now(); await touchWindows(env, u.id, now, plan);
-      await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,0,0,0,0,?,?,?)').bind(u.id, Math.max(+s.image_cost || 0, 1e-9), +s.image_cost || 0, now).run();
+      await env.DB.prepare("INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,src) VALUES (?,0,0,0,0,?,?,?,'image')").bind(u.id, Math.max(+s.image_cost || 0, 1e-9), +s.image_cost || 0, now).run();
       text += `\n\nสร้างแล้ว: ${it.path} (~${Math.round(data.length / 1365)}KB) ใช้ใน HTML ด้วย <img src="${it.path}"> หรือใน CSS ด้วย url(${it.path})`;
     } catch (x) { text += `\n\nสร้าง ${it.path} ไม่สำเร็จ: ${String(x.message).slice(0, 120)} (ใช้ CSS หรือ SVG แทนได้)`; }
   }
