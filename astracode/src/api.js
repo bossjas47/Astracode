@@ -212,15 +212,16 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       return await job;
     }
     const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder();
-    // ลูกค้าตัดการเชื่อมต่อกลางคำตอบ (กดหยุด / timeout / ส่งซ้ำ): ผู้ให้บริการคิดเงิน input เราไปแล้ว ต้องหยุดอ่านแล้วคิดเงินตามประมาณ ไม่ใช่ถือเป็น error แล้วไม่คิดเงิน
-    let gone = false; const GONE = new Error('client gone');
-    const chunk = async (delta, extra = {}, fin = null) => { if (gone) throw GONE; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { gone = true; throw GONE; } };
+    // ลูกค้าตัดการเชื่อมต่อกลางคำตอบ (กดหยุด / timeout / ส่งซ้ำ): ผู้ให้บริการยังคิดเงินเรา → อ่านต่อเงียบๆ จนได้ token จริงแล้วคิดเงินตามจริง
+    // อ่านต่อได้ไม่เกิน 25 วินาที (Cloudflare ให้งานเบื้องหลังหลังลูกค้าหลุดราว 30 วินาที) เกินนั้นตัดแล้วคิดตามประมาณ
+    let gone = false; const upstream = new AbortController();
+    const chunk = async (delta, extra = {}, fin = null) => { if (gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { gone = true; setTimeout(() => upstream.abort(), 25e3); } };
     ctx.waitUntil((async () => {
       let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0;
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice, extra, imageOpts, api: true })) {
+            for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice, extra, imageOpts, api: true, signal: upstream.signal })) {
               if (!sentAny) { sentAny = true; await chunk({ role: 'assistant', content: '' }); }
               if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
               if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }

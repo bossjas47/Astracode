@@ -243,7 +243,7 @@ test('api: a client that disconnects mid-stream is still billed (the provider al
   const fm = await fakeModel((q, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'x' } }] }) + '\n\n');
-    setTimeout(() => { res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'more text' } }] }) + '\n\n'); setTimeout(() => { res.write('data: [DONE]\n\n'); res.end(); }, 100); }, 300);
+    setTimeout(() => { res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'more text' }, finish_reason: 'stop' }], usage: { prompt_tokens: 5000, completion_tokens: 7 } }) + '\n\n'); setTimeout(() => { res.write('data: [DONE]\n\n'); res.end(); }, 100); }, 300);
   });
   const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Long One', base_url: fm.url, cost_in: 1000, cost_out: 2000 });
   const u = await t.user({ balance: 100 }), key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
@@ -252,7 +252,7 @@ test('api: a client that disconnects mid-stream is still billed (the provider al
   const rd = r.body.getReader(); await rd.read(); await rd.cancel(); // ลูกค้าตัดหลังได้ชิ้นแรก
   await Promise.all(t.ctx.pending);
   const row = t.DB.raw.prepare("SELECT tokens_in, charge FROM usage WHERE user_id=? AND src='api'").get(u.id);
-  assert.ok(row, 'no usage row: the request was not billed'); assert.ok(row.tokens_in >= 1000, 'input estimate too small: ' + row.tokens_in); assert.ok(row.charge > 0);
+  assert.ok(row, 'no usage row: the request was not billed'); assert.equal(row.tokens_in, 5000, 'not billed by the real token count'); assert.ok(row.charge > 0);
   assert.ok(t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance < 100);
   void m; fm.close();
 });
