@@ -23,9 +23,12 @@ label.row input { width: auto; }
 pre { white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 10px; border-radius: 10px; max-height: 50vh; overflow: auto; font: 12.5px Consolas, monospace; }
 
 .muted { color: var(--muted); font-size: 12.5px; }
-.msg.md { white-space: pre-wrap; } .msg.md h4 { margin: 10px 0 4px; font-size: 16px; } .msg.md li { margin-left: 18px; list-style: disc; display: list-item; }
+.msg.md { white-space: normal; } .msg.md h4 { margin: 4px 0 6px; font-size: 16px; } .msg.md ul { margin: 4px 0 8px; padding-left: 22px; } .msg.md li { margin: 2px 0; } .msg.md h4 + br { display: none; }
 .msg.md code { background: var(--card); padding: 1px 6px; border-radius: 6px; font: 13px Consolas, monospace; }
 .code { margin: 8px 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; white-space: normal; }
 .code-h { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--card); color: var(--muted); font-size: 12px; }
 .code-h .cp { background: none; border: 0; color: var(--text); cursor: pointer; font: inherit; }
 .code pre { margin: 0; border-radius: 0; max-height: none; }
+
+.logo, .chip, #usage { white-space: nowrap; flex-shrink: 0; } #folder { max-width: 300px; flex-shrink: 1; } #model { flex-shrink: 1; min-width: 140px; }
+.code pre { white-space: pre; overflow-x: auto; }

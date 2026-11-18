@@ -33,7 +33,13 @@ const inline = t => t.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([
 function md(src) {
   return String(src).split(/```/).map((part, i) => {
     if (i % 2) { const nl = part.indexOf('\n'), lang = nl > 0 ? part.slice(0, nl).trim() : '', code = nl >= 0 ? part.slice(nl + 1) : part; return `<div class="code"><div class="code-h"><span>${escH(lang || 'code')}</span><button class="cp">Copy</button></div><pre>${escH(code.replace(/\n$/, ''))}</pre></div>`; }
-    return escH(part).split('\n').map(l => /^#{1,3} /.test(l) ? `<h4>${inline(l.replace(/^#+ /, ''))}</h4>` : /^\s*[-*] /.test(l) ? `<li>${inline(l.replace(/^\s*[-*] /, ''))}</li>` : inline(l)).join('\n');
+    let h = '', ul = false; // บรรทัดธรรมดาคั่นด้วย <br> · รายการติดกันรวมเป็น <ul> เดียว · บรรทัดว่างหลายบรรทัดนับเป็นช่องว่างเดียว
+    for (const l of escH(part).replace(/\n{3,}/g, '\n\n').split('\n')) {
+      const li = /^\s*[-*] /.test(l);
+      if (li !== ul) { h += li ? '<ul>' : '</ul>'; ul = li; }
+      h += /^#{1,3} /.test(l) ? `<h4>${inline(l.replace(/^#+ /, ''))}</h4>` : li ? `<li>${inline(l.replace(/^\s*[-*] /, ''))}</li>` : l.trim() ? inline(l) + '<br>' : '<br>';
+    }
+    return (ul ? h + '</ul>' : h).replace(/^(<br>)+|(<br>)+$/g, '');
   }).join('');
 }
 log.addEventListener('click', e => { const b = e.target.closest('.cp'); if (b) { navigator.clipboard.writeText(b.closest('.code').querySelector('pre').textContent); b.textContent = 'คัดลอกแล้ว'; setTimeout(() => b.textContent = 'Copy', 1200); } });

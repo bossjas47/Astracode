@@ -1,6 +1,6 @@
 {
   "name": "astracode-desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "AstraCode Desktop: AI agent that works on files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "AstraCode",
