@@ -1,5 +1,5 @@
 import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy } from './core.js';
-import { bundleProject, chat, compact, ensureFb } from './ai.js';
+import { bundleProject, callModel, chat, compact, ensureFb, logUsage } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
@@ -70,12 +70,23 @@ export default {
     if (path === '/robots.txt' || path === '/api/robots') return robots(req, env);
     if (path === '/sitemap.xml' || path === '/api/sitemap') return secure(await sitemap(req, env));
     if ((r = path.match(/^(?:\/api\/page)?\/blog\/([\w-]+)$/))) return secure(await blogPage(req, env, r[1])); // บทความ: ใส่ meta ให้ Google/social
+    if (path === '/share-in' && M === 'POST') { // แชร์ไฟล์/ข้อความจากแอปอื่นบนมือถือ (manifest share_target) · เก็บชั่วคราวด้วยโทเคนสุ่ม แล้วให้หน้าแชตดึงไปแนบ
+      const fd = await req.formData().catch(() => null), q = new URLSearchParams();
+      for (const k of ['title', 'text', 'url']) { const v = String(fd?.get(k) || '').slice(0, 5000); if (v) q.set(k, v); }
+      const files = (fd?.getAll('files') || []).filter(f => f instanceof File && f.size > 0 && f.size <= 10e6).slice(0, 4);
+      if (files.length && env.SLIPS && !await limited(env, 'share:' + ip(req, env), 20, 3600e3)) {
+        const tok = rand(8); // shortcut: ไฟล์ที่ไม่ถูกเปิดค้างใน R2 จนกว่าจะตั้ง lifecycle ลบ share/ อัตโนมัติ
+        await Promise.all(files.map((f, i) => env.SLIPS.put(`share/${tok}/${i}`, f.stream(), { httpMetadata: { contentType: f.type || 'application/octet-stream' }, customMetadata: { name: f.name.slice(0, 120) } })));
+        q.set('shared', tok + '.' + files.length);
+      }
+      return new Response(null, { status: 303, headers: { location: '/chat?' + q } });
+    }
     if (!path.startsWith('/api/')) { // URL สะอาด: ไม่มี .html, หน้าแรกอยู่ที่ / (ไฟล์ home.html)
       const clean = path === '/index.html' || path === '/home' || path === '/home.html' ? '/' : path.endsWith('.html') ? path.slice(0, -5) : null;
       if (clean) return new Response(null, { status: 301, headers: { location: clean + url.search } }); // Location แบบ relative: ผ่าน Vercel แล้วไม่หลุดไปโดเมน workers.dev
       const res = await env.ASSETS.fetch(path === '/' ? new Request(new URL('/home', req.url), req) : req);
       if (res.status === 404 && M === 'GET') return secure(new Response((await env.ASSETS.fetch(new Request(new URL('/404.html', req.url), req))).body, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })); // หน้าไม่มีจริง: แสดงหน้าแรก
-      return secure(res);
+      return secure(versioned(res, path, url, env));
     }
     if (M !== 'GET' && M !== 'HEAD') {
       const o = req.headers.get('origin'); // กัน CSRF: รับคำขอแก้ข้อมูลจากเว็บตัวเองเท่านั้น
@@ -98,6 +109,18 @@ export function sandboxed(res, path) {
     ? "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self'; sandbox allow-scripts allow-modals allow-forms allow-popups"
     : "default-src 'none'; script-src https://cdn.jsdelivr.net 'wasm-unsafe-eval' 'unsafe-eval'; connect-src https://cdn.jsdelivr.net");
   return r;
+}
+// เก็บ JS/CSS ในเครื่องผู้ใช้ได้ยาว: HTML อ้างไฟล์เป็น /app.js?v=<commit> แล้วไฟล์ที่มี ?v= ตอบแบบ immutable
+// deploy ใหม่ = ?v ใหม่ = โหลดไฟล์ใหม่ทันที · ETag ของ HTML ผูกกับ commit ด้วย ไม่งั้น cache ตรวจซ้ำแล้วได้ HTML เก่าที่ชี้ ?v เก่า
+export function versioned(res, path, url, env) {
+  const v = String(env.VERSION || '').slice(0, 10);
+  if (!v || !res.ok) return res;
+  if (/\.(js|css)$/.test(path) && url.searchParams.get('v')) { const r = new Response(res.body, res); r.headers.set('cache-control', 'public, max-age=31536000, immutable'); return r; }
+  if (!(res.headers.get('content-type') || '').includes('text/html') || typeof HTMLRewriter === 'undefined') return res;
+  const add = attr => ({ element(e) { const x = e.getAttribute(attr); if (x && /^\/[\w./-]+\.(js|css)$/.test(x)) e.setAttribute(attr, x + '?v=' + v); } });
+  const r = new HTMLRewriter().on('script[src]', add('src')).on('link[rel="stylesheet"][href]', add('href')).transform(res);
+  const out = new Response(r.body, res), et = res.headers.get('etag'); if (et) out.headers.set('etag', 'W/"' + v + '-' + et.replace(/^W\/|"/g, '') + '"');
+  return out;
 }
 export function secure(res) {
   const r = new Response(res.body, res), h = r.headers;
@@ -253,11 +276,14 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/chats/search') {
         const q = String(url.searchParams.get('q') || '').trim();
         if (q.length < 2) return json([]);
-        const rows = (await env.DB.prepare(`SELECT m.chat_id, c.title, m.role, m.content, m.created_at
+        // smart=1: ค้นตามความหมาย = ให้โมเดลถูกสุดแตกเป็นคำ/คำพ้องไทย-อังกฤษ แล้วจัดอันดับตามจำนวนคำที่เจอ (ไม่มีโมเดล embedding ในระบบ)
+        const terms = url.searchParams.get('smart') === '1' && !await limited(env, 'ssearch:' + u.id, 30, 3600e3) ? await searchTerms(env, u, q) : [q];
+        const like = terms.map(x => '%' + x.replace(/[%_]/g, '') + '%');
+        const rows = (await env.DB.prepare(`SELECT m.chat_id, c.title, m.role, m.content, m.created_at, (${like.map(() => 'CASE WHEN m.content LIKE ? THEN 1 ELSE 0 END').join('+')}) score
           FROM messages m JOIN chats c ON c.id=m.chat_id
-          WHERE c.user_id=? AND c.project_id IS NULL AND c.deleted_at IS NULL AND COALESCE(c.archived,0)=0 AND m.content LIKE ?
-          ORDER BY m.id DESC LIMIT 30`).bind(u.id, '%' + q.replace(/[%_]/g, '') + '%').all()).results;
-        const ql = q.toLowerCase();
+          WHERE c.user_id=? AND c.project_id IS NULL AND c.deleted_at IS NULL AND COALESCE(c.archived,0)=0 AND (${like.map(() => 'm.content LIKE ?').join(' OR ')})
+          ORDER BY score DESC, m.id DESC LIMIT 30`).bind(...like, u.id, ...like).all()).results;
+        const ql = (terms.find(x => rows[0]?.content.toLowerCase().includes(x.toLowerCase())) || q).toLowerCase();
         return json(rows.map(r => {
           const clean = r.content.replace(/\[\[file:[^\]]+\]\][\s\S]*?\[\[\/file\]\]/g, '').trim();
           const idx = clean.toLowerCase().indexOf(ql);
@@ -346,6 +372,11 @@ export async function route(req, env, ctx, url, path, M) {
         await ensureFb(env);
         return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,m.starred,md.name model,(SELECT vote FROM feedback f WHERE f.message_id=m.id AND f.user_id=?2) vote FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=?1 ORDER BY m.id').bind(r[1], u.id).all()).results);
       }
+      if ((r = path.match(/^\/api\/shared\/([0-9a-f]{16})\/([0-3])$/)) && env.SLIPS) { // ไฟล์ที่แชร์มาจากแอปอื่น: ส่งครั้งเดียวแล้วลบ
+        const k = `share/${r[1]}/${r[2]}`, o = await env.SLIPS.get(k); if (!o) return err('ไฟล์หมดอายุแล้ว', 404);
+        ctx.waitUntil(env.SLIPS.delete(k));
+        return new Response(o.body, { headers: { 'content-type': o.httpMetadata?.contentType || 'application/octet-stream', 'x-name': encodeURIComponent(o.customMetadata?.name || 'file'), 'cache-control': 'no-store' } });
+      }
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if ((r = path.match(/^\/api\/pay\/(\d+)\/review$/)) && M === 'POST') { // สลิปถูกปฏิเสธ: ลูกค้าขอให้แอดมินตรวจเอง (ครั้งเดียวต่อรายการ)
         const p = await env.DB.prepare("UPDATE payments SET review=1 WHERE id=? AND user_id=? AND status='rejected' AND review IS NULL RETURNING id,amount").bind(+r[1], u.id).first();
@@ -369,3 +400,13 @@ export async function route(req, env, ctx, url, path, M) {
     }
 }
 export { ChatRun } from './jobs.js';
+
+// คำค้นที่ใกล้เคียง (ไทย + อังกฤษ) จากโมเดลถูกสุด · ล้ม/ช้า = ใช้คำเดิม
+async function searchTerms(env, u, q) {
+  const m = (await env.DB.prepare("SELECT * FROM models WHERE active=1 AND provider NOT IN ('image','embedding') ORDER BY cost_in+cost_out").all()).results.find(x => env[x.key_name]);
+  if (!m) return [q];
+  let out = '', usage = null;
+  try { for await (const e of callModel(env, m, [{ role: 'user', content: q.slice(0, 200) }], { effort: null, maxTokens: 80, signal: AbortSignal.timeout(6000), system: 'List up to 7 short keywords or phrases (Thai and English, synonyms and related terms) that would appear in past chat messages about this topic. Comma-separated, nothing else.' })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; } } catch { return [q]; }
+  if (usage) await logUsage(env, u.id, m, usage, { units: false, src: 'system' });
+  return [...new Set([q, ...out.split(/[,\n]/).map(x => x.replace(/^[\s\d.)\-*"']+|["']+$/g, '').trim()).filter(x => x.length >= 2 && x.length <= 40)])].slice(0, 8);
+}

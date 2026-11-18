@@ -1384,3 +1384,6 @@ input[type=file]::file-selector-button:hover { background: var(--graphite); }
 @keyframes vtOut { to { opacity: 0; } }
 @keyframes vtIn { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; } }
+.tbl-x { margin: 6px 0 12px; }
+.selbar { display: flex; gap: 6px; justify-content: center; padding: 6px 8px; animation: fadeUp .15s ease-out both; }
+.selbar button { min-height: 36px; padding: 0 14px; border-radius: 9999px; border: 1px solid var(--hair); background: var(--carbon); color: var(--porcelain); font: 500 13px var(--font); cursor: pointer; }

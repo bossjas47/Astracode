@@ -417,3 +417,30 @@ test('roadmap voting (one vote per user, toggle) and SEO pages generated per pub
   const post = t.DB.raw.prepare("SELECT title,body,published FROM posts WHERE slug='model-test-model-9'").get();
   assert.ok(post?.published); assert.match(post.body, /Test Model 9/);
 });
+
+test('folder instructions and reference documents reach the model for chats in that folder', async () => {
+  const { fakeModel, readSSE } = await import('./helpers.mjs'); const seen = []; const fm = await fakeModel((q, res, body) => { seen.push(body); fm.sse(res, 'ok'); });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'M', base_url: fm.url });
+  const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const f = (await t.json('/api/folders', { method: 'POST', cookie: u.cookie, body: { name: 'ร้าน' } })).data;
+  assert.equal((await t.json('/api/folders/' + f.id, { method: 'PUT', cookie: u.cookie, body: { instructions: 'ตอบแบบพนักงานร้าน', files: [{ name: 'menu.txt', text: 'ลาเต้ 60 บาท' }] } })).status, 200);
+  const g = (await t.json('/api/folders/' + f.id, { cookie: u.cookie })).data; assert.deepEqual(g.files, [{ name: 'menu.txt', size: 'ลาเต้ 60 บาท'.length }]);
+  await t.json('/api/folders/' + f.id, { method: 'PUT', cookie: u.cookie, body: { files: [{ name: 'menu.txt' }] } }); // ส่งชื่อเดิม = เก็บไว้
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'ราคาลาเต้' } }));
+  const cid = ev.find(e => e.chat_id).chat_id; await t.json('/api/chats/' + cid, { method: 'PUT', cookie: u.cookie, body: { folder_id: f.id } });
+  t.DB.raw.exec('DELETE FROM rate'); seen.length = 0;
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, chat_id: cid, text: 'อีกที' } }));
+  const sys = JSON.stringify(seen.at(-1)); assert.match(sys, /ตอบแบบพนักงานร้าน/); assert.match(sys, /ลาเต้ 60 บาท/);
+  fm.close();
+});
+
+test('smart chat search expands the query with related terms and ranks by matches', async () => {
+  const { fakeModel } = await import('./helpers.mjs'); const fm = await fakeModel((q, res) => fm.sse(res, 'กาแฟ, coffee, latte'));
+  const t = await makeEnv({ K: 'k' }); addModel(t.DB, { name: 'Cheap', base_url: fm.url }); const u = await t.user();
+  const c = t.DB.raw.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').get(u.id, 'คาเฟ่', Date.now()).id;
+  t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,'user','iced latte with coffee beans',?)").run(c, Date.now());
+  assert.equal((await t.json('/api/chats/search?q=' + encodeURIComponent('เครื่องดื่ม'), { cookie: u.cookie })).data.length, 0, 'exact search misses');
+  const r = (await t.json('/api/chats/search?smart=1&q=' + encodeURIComponent('เครื่องดื่ม'), { cookie: u.cookie })).data;
+  assert.equal(r.length, 1); assert.match(r[0].snippet, /latte|coffee/);
+  fm.close();
+});

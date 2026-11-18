@@ -163,6 +163,10 @@ async function chatView(id) {
     if (q.length < 2) { chat.hits = null; return drawSide(); }
     srchT = setTimeout(async () => {
       chat.hits = await api('/chats/search?q=' + encodeURIComponent(q)).catch(() => []);
+      if (!chat.hits.length && q.length >= 3) { // ไม่เจอคำตรงตัว: ลองค้นตามความหมาย (คำใกล้เคียงไทย/อังกฤษ)
+        if ($('#search')?.value.trim() === q) { chat.hits = null; drawSide(); }
+        chat.hits = await api('/chats/search?smart=1&q=' + encodeURIComponent(q)).catch(() => []);
+      }
       if ($('#search')?.value.trim() === q) drawSide();
     }, 250);
   };
@@ -184,10 +188,24 @@ async function chatView(id) {
   if (skTok) api('/skills/import', { method: 'POST', body: { token: skTok } }).then(async s => { await loadSkills(true); if (!chat.skills.includes(s.id) && chat.skills.length < 3) chat.skills.push(s.id); localStorage.setItem('skills', JSON.stringify(chat.skills)); skillModel(s); modelUI(); toast(`เพิ่ม Skill "${s.name}" แล้ว`, 'ok'); }).catch(x => toast(x.message, 'bad'));
   const shared = [qs().get('title'), qs().get('text'), qs().get('url')].filter(Boolean).join('\n'); // ข้อความที่แชร์มาจากแอปอื่น (manifest share_target)
   if (shared && !qs().get('id')) { t.value = shared.slice(0, 20000); setTimeout(() => t.oninput(), 0); }
+  const shf = (qs().get('shared') || '').match(/^([0-9a-f]{16})\.([1-4])$/); // ไฟล์ที่แชร์มาจากแอปอื่น: ดึงมาแนบในแชตใหม่
+  if (shf && !qs().get('id')) Promise.all(Array.from({ length: +shf[2] }, async (_, i) => { const r = await fetch(`/api/shared/${shf[1]}/${i}`); if (!r.ok) return null; return new File([await r.blob()], decodeURIComponent(r.headers.get('x-name') || 'file'), { type: r.headers.get('content-type') || '' }); }))
+    .then(fs => { fs = fs.filter(Boolean); if (fs.length) addFiles(fs); else toast('ไฟล์ที่แชร์หมดอายุแล้ว แชร์ใหม่อีกครั้ง', 'bad'); history.replaceState(null, '', '/chat'); }).catch(() => {});
   slashSkills(t, () => chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); });
   t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#f').requestSubmit(); } };
   $('#f').onsubmit = e => { e.preventDefault(); chat.busy ? stopRun() : send(); };
   $('#file').onchange = async e => { await addFiles([...e.target.files]); e.target.value = ''; };
+  // เลือกข้อความในคำตอบ → แถบลอย "อธิบาย / แปล / ถามต่อ" เหนือช่องพิมพ์ (มือถือ: เมนูคัดลอกของระบบบังบริเวณข้อความ จึงไม่วางติดข้อความ)
+  let selBar = null, selT = null;
+  document.addEventListener('selectionchange', () => { clearTimeout(selT); selT = setTimeout(() => {
+    const sel = getSelection(), txt = sel?.toString().trim() || '', node = sel?.anchorNode?.parentElement;
+    if (!txt || txt.length < 2 || !node?.closest('#msgs .msg')) { selBar?.remove(); selBar = null; return; }
+    if (!selBar) { selBar = document.createElement('div'); selBar.className = 'selbar'; $('#f').before(selBar); }
+    const q = txt.slice(0, 1500).replace(/\n/g, '\n> ');
+    selBar.innerHTML = [['explain', 'อธิบายตรงนี้', 'อธิบายส่วนนี้ให้ละเอียดและเข้าใจง่ายขึ้น'], ['tr', 'แปล', 'แปลส่วนนี้ (ไทย↔อังกฤษ)'], ['ask', 'ถามต่อ', '']].map(([k, l]) => `<button type="button" data-sel="${k}">${l}</button>`).join('');
+    selBar.querySelectorAll('[data-sel]').forEach((b, i) => b.onpointerdown = e => { e.preventDefault(); const p = ['อธิบายส่วนนี้ให้ละเอียดและเข้าใจง่ายขึ้น', 'แปลส่วนนี้ (ไทย↔อังกฤษ)', ''][i];
+      t.value = `> ${q}\n\n${p}`; selBar.remove(); selBar = null; getSelection().removeAllRanges(); t.focus(); t.setSelectionRange(t.value.length, t.value.length); t.oninput(); if (p) $('#f').requestSubmit(); });
+  }, 250); });
   const comp = $('.compose'); // ลากไฟล์มาวาง / วางรูปจากคลิปบอร์ด
   comp.ondragover = e => { e.preventDefault(); comp.classList.add('drop'); };
   comp.ondragleave = () => comp.classList.remove('drop');
@@ -217,7 +235,7 @@ async function chatView(id) {
     if (b.dataset.vote != null) { const m = chat.msgs[+b.dataset.vote], v = m.vote === +b.dataset.v ? 0 : +b.dataset.v; api('/feedback', { method: 'POST', body: { message_id: m.id, vote: v } }).then(() => { m.vote = v || null; renderAll(); }).catch(x => toast(x.message, 'bad')); }
     if (b.dataset.report != null) reportMsg(chat.msgs[+b.dataset.report]);
     if (b.dataset.regen != null) send({ regenerate: true });
-    if (b.dataset.s != null) { t.value = SUGGEST[+b.dataset.s]; t.focus(); t.oninput(); }
+    if (b.dataset.s != null) { t.value = SUGGEST[+b.dataset.s][2]; t.focus(); t.oninput(); }
   };
   $('#lim').innerHTML = limHTML(me.usage); modelUI(); renderAll(); loadSide();
   if (chat.id && chat.msgs.at(-1)?.role === 'user') send({ resume: true }); // ข้อความล่าสุดยังไม่มีคำตอบ: ต่อสตรีมที่ AI ยังทำอยู่
@@ -476,7 +494,7 @@ function drawSide() {
   const pinned = shown.filter(c => c.pinned && !chat.folders.some(f => f.id === c.folder_id));
   const recent = shown.filter(c => !c.pinned && !chat.folders.some(f => f.id === c.folder_id));
   list.innerHTML = (pinned.length ? `<div class="side-sub">ปักหมุด</div>${pinned.map(item).join('')}` : '')
-    + chat.folders.map(f => { const cs = shown.filter(c => c.folder_id === f.id); return q && !cs.length ? '' : `<details class="folder" data-f="${f.id}" ${open[f.id] || q ? 'open' : ''}><summary><span>${ic('folder')} ${esc(f.name)}</span><small class="muted">${cs.length}</small><button data-fren="${f.id}" aria-label="เปลี่ยนชื่อโฟลเดอร์">${ic('pen')}</button><button data-fdel="${f.id}" aria-label="ลบโฟลเดอร์">${ic('trash')}</button></summary>${cs.map(item).join('') || '<p class="muted" style="padding:4px 12px;font-size:13px">ว่าง</p>'}</details>`; }).join('')
+    + chat.folders.map(f => { const cs = shown.filter(c => c.folder_id === f.id); return q && !cs.length ? '' : `<details class="folder" data-f="${f.id}" ${open[f.id] || q ? 'open' : ''}><summary><span>${ic('folder')} ${esc(f.name)}</span><small class="muted">${cs.length}</small><button data-fren="${f.id}" aria-label="ตั้งค่าโฟลเดอร์" title="ชื่อ คำสั่ง และเอกสารประจำโฟลเดอร์">${ic('settings')}</button><button data-fdel="${f.id}" aria-label="ลบโฟลเดอร์">${ic('trash')}</button></summary>${cs.map(item).join('') || '<p class="muted" style="padding:4px 12px;font-size:13px">ว่าง</p>'}</details>`; }).join('')
     + (recent.map(item).join('') || (chat.chats.length ? '' : '<p class="muted" style="padding:8px 12px">ยังไม่มีแชต</p>'))
     + (q && chat.hits?.length ? `<div class="side-sub">ในข้อความ</div>${chat.hits.map(h => `<div class="item hit"><a href="/chat?id=${h.chat_id}" data-chat="${h.chat_id}">${ic('msg', 'sm ci')}<span><b>${esc(h.title)}</b><small>${esc(h.snippet)}</small></span></a></div>`).join('')}` : '');
   list.querySelectorAll('details.folder').forEach(d => d.ontoggle = () => { const o = JSON.parse(localStorage.getItem('fopen') || '{}'); o[d.dataset.f] = d.open; localStorage.setItem('fopen', JSON.stringify(o)); });
@@ -519,7 +537,7 @@ function drawSide() {
         sd.querySelector('[data-v=del]').onclick = async () => { close(); if (!await confirmSheet(`ลบแชต "${c.title}"? ย้ายเข้าถังขยะ กู้คืนได้ภายใน 30 วัน`, { title: 'ลบแชต', ok: 'Delete', danger: true })) return; await api('/chats/' + c.id, { method: 'DELETE' }); if (chat.id === c.id) openChat(null); else loadSide(); toast('ย้ายเข้าถังขยะแล้ว'); };
       });
     }
-    if (d.fren) { const f = chat.folders.find(x => x.id === +d.fren), name = await promptSheet('ชื่อโฟลเดอร์ใหม่', f.name, { title: 'เปลี่ยนชื่อโฟลเดอร์' }); if (name?.trim()) { await api('/folders/' + f.id, { method: 'PUT', body: { name } }); loadSide(); } }
+    if (d.fren) folderSheet(+d.fren);
     if (d.fdel) { if (!await confirmSheet('ลบโฟลเดอร์นี้? แชตข้างในจะย้ายออกมา ไม่ถูกลบ', { title: 'ลบโฟลเดอร์', ok: 'Delete folder', danger: true })) return; await api('/folders/' + d.fdel, { method: 'DELETE' }); loadSide(); }
   };
 }
@@ -555,7 +573,13 @@ function exportMenu() {
   const title = chat.chats.find(c => c.id === chat.id)?.title || 'แชต AstraCode';
   if (!chat.msgs.length) return toast('ยังไม่มีข้อความให้ส่งออก');
   sheet('ส่งออกแชต', optHTML('md', ic('filetext') + 'Markdown (.md)', 'บันทึกเป็นไฟล์ข้อความพร้อมจัดรูปแบบ')
+    + optHTML('doc', ic('filetext') + 'Word (.doc)', 'เปิดแก้ต่อใน Word / Google Docs ได้ พร้อมหัวข้อ ตาราง และโค้ด')
     + optHTML('pdf', ic('download') + 'PDF (พิมพ์)', 'เปิดหน้าพิมพ์ / บันทึกเป็น PDF'), (d, close) => {
+    d.querySelector('[data-v=doc]').onclick = () => { // Word เปิดไฟล์ HTML ที่ตั้งนามสกุล .doc ได้ตรง ๆ: ใช้คำตอบที่วาดแล้ว ตัดปุ่มออก
+      close(); const box = $('#msgs').cloneNode(true); box.querySelectorAll('button, .acts, svg, script').forEach(x => x.remove());
+      const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:'TH Sarabun New',Tahoma,sans-serif;font-size:14pt}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}pre{background:#f4f4f4;padding:8px;font-family:Consolas,monospace;font-size:10pt}</style></head><body><h1>${esc(title)}</h1>${box.innerHTML}</body></html>`;
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + html], { type: 'application/msword' })); a.download = title.replace(/[\\/:*?"<>|]/g, '').slice(0, 60) + '.doc'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    };
     d.querySelector('[data-v=pdf]').onclick = () => { close(); document.body.classList.add('printing'); print(); setTimeout(() => document.body.classList.remove('printing'), 500); };
     d.querySelector('[data-v=md]').onclick = () => {
       close();
@@ -658,7 +682,7 @@ function renderAll() {
   const box = $('#msgs'); if (!box) return;
   box.innerHTML = chat.compare ? compareHTML() : chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
     : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>เลือกโมเดลที่มุมซ้ายล่าง แล้วพิมพ์ได้เลย</div>
-       <div class="chips">${['อธิบายให้เข้าใจง่าย', 'ช่วยเขียนโค้ด', 'สรุปข้อความ', 'แปลภาษา'].map((s, i) => `<button data-s="${i}">${s}</button>`).join('')}</div></div>`;
+       <div class="chips">${SUGGEST.map(([icon, s], i) => `<button data-s="${i}">${ic(icon, 'sm')} ${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight; head(); renderRich(box);
 }
 function appendMsg(m) {
@@ -832,3 +856,25 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
 addEventListener('error', e => { try { if (e.message) showErr('ผิดพลาด: ' + e.message); } catch {} });
 addEventListener('unhandledrejection', e => { const s = e.reason?.message || String(e.reason || ''); if (s && !/\babort/i.test(s)) try { showErr('ผิดพลาด: ' + s); } catch {} });
 
+
+// ตั้งค่าโฟลเดอร์: ชื่อ + คำสั่งที่ทุกแชตในโฟลเดอร์ใช้ + เอกสารอ้างอิง (อ่านไฟล์ในเครื่องแล้วเก็บเป็นข้อความ)
+async function folderSheet(id) {
+  const f = await api('/folders/' + id).catch(x => { toast(x.message, 'bad'); return null; }); if (!f) return;
+  let files = f.files.slice();
+  const list = () => files.map((x, i) => `<div class="row" style="justify-content:space-between;flex-wrap:nowrap;font-size:13px">${ic('filetext', 'sm')}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(x.name)}</span><span class="muted">${((x.size ?? x.text.length) / 1000).toFixed(1)}k</span><button type="button" class="icon-btn xs ghost" data-rmf="${i}" aria-label="ลบไฟล์">${ic('x')}</button></div>`).join('') || '<p class="muted" style="font-size:13px;margin:0">ยังไม่มีเอกสาร</p>';
+  sheet('ตั้งค่าโฟลเดอร์', `<form id="fdf" class="sheet-form" style="display:grid;gap:8px">
+    <label>ชื่อ</label><input name="name" value="${esc(f.name)}" maxlength="40" required>
+    <label>คำสั่งสำหรับทุกแชตในโฟลเดอร์นี้</label><textarea name="ins" rows="4" maxlength="4000" placeholder="เช่น ตอบในฐานะผู้ช่วยร้านกาแฟ ใช้ราคาจากเอกสารที่แนบ ตอบสั้นและสุภาพ">${esc(f.instructions || '')}</textarea>
+    <label>เอกสารอ้างอิง (สูงสุด 10 ไฟล์ รวม 150,000 ตัวอักษร)</label><div id="fdl" style="display:grid;gap:4px">${list()}</div>
+    <label class="btn out sm" style="justify-self:start">${ic('clip', 'sm')} เพิ่มไฟล์<input type="file" id="fdi" multiple hidden></label>
+    <p class="muted" style="font-size:12px;margin:0">AI เห็นคำสั่งและเอกสารนี้ทุกครั้งที่คุยในแชตของโฟลเดอร์ ยิ่งเอกสารยาว แต่ละข้อความยิ่งใช้ลิมิตมากขึ้น</p>
+    <button class="btn blue">บันทึก</button></form>`, (d, close) => {
+    const redraw = () => { d.querySelector('#fdl').innerHTML = list(); d.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => { files.splice(+b.dataset.rmf, 1); redraw(); }); };
+    redraw();
+    d.querySelector('#fdi').onchange = async e => { for (const x of e.target.files) { if (files.length >= 10) break; try { files.push({ name: x.name.replace(/[\[\]\r\n]/g, '').slice(0, 120), text: await readFile(x) }); } catch (er) { toast(`${x.name}: ${er.message}`, 'bad'); } } e.target.value = ''; redraw(); };
+    d.querySelector('#fdf').onsubmit = async e => {
+      e.preventDefault(); const fd = new FormData(e.target);
+      try { await api('/folders/' + id, { method: 'PUT', body: { name: fd.get('name'), instructions: fd.get('ins'), files: files.map(x => x.text != null ? x : { name: x.name }) } }); toast('บันทึกแล้ว', 'ok'); close(); loadSide(); } catch (x) { toast(x.message, 'bad'); }
+    };
+  });
+}

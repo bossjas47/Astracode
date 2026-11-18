@@ -50,3 +50,25 @@ test('ensureCols adds only what is missing (old schema is upgraded on the first 
   assert.ok(t.DB.raw.prepare("SELECT name FROM pragma_table_info('models')").all().some(x => x.name === 'idle_s'));
   assert.equal(stmts.filter(s => /^ALTER TABLE/.test(s)).length, 2, 'only the two missing columns were altered');
 });
+
+test('versioned assets: ?v= files are cached immutable, others untouched', async () => {
+  const { versioned } = await import('../src/worker.js');
+  const res = () => new Response('x', { headers: { 'content-type': 'text/javascript', 'cache-control': 'public, max-age=0, must-revalidate' } });
+  const env = { VERSION: 'abcdef1234567' };
+  assert.match(versioned(res(), '/app.js', new URL('https://t.test/app.js?v=abcdef1234'), env).headers.get('cache-control'), /immutable/);
+  assert.match(versioned(res(), '/app.js', new URL('https://t.test/app.js'), env).headers.get('cache-control'), /must-revalidate/);
+  assert.match(versioned(res(), '/app.js', new URL('https://t.test/app.js?v=1'), {}).headers.get('cache-control'), /must-revalidate/, 'no VERSION (local dev) = no long cache');
+});
+
+test('share target: text goes to the chat URL, files are kept once in R2 and served once to a signed-in user', async () => {
+  const t = await makeEnv(), u = await t.user(), store = new Map();
+  t.env.SLIPS = { put: async (k, v, o) => store.set(k, { body: await new Response(v).arrayBuffer(), httpMetadata: o.httpMetadata, customMetadata: o.customMetadata }), get: async k => store.get(k) || null, delete: async k => store.delete(k) };
+  const fd = new FormData(); fd.set('text', 'สวัสดี'); fd.append('files', new File(['a,b\n1,2'], 'data.csv', { type: 'text/csv' }));
+  const r = await t.worker.default.fetch(new Request('https://t.test/share-in', { method: 'POST', body: fd }), t.env, t.ctx);
+  assert.equal(r.status, 303); const loc = new URL(r.headers.get('location'), 'https://t.test');
+  assert.equal(loc.searchParams.get('text'), 'สวัสดี'); const [tok, n] = loc.searchParams.get('shared').split('.'); assert.equal(n, '1');
+  assert.equal((await t.call(`/api/shared/${tok}/0`)).status, 401, 'needs sign-in');
+  const f = await t.call(`/api/shared/${tok}/0`, { cookie: u.cookie }); await Promise.all(t.ctx.pending || []);
+  assert.equal(await f.text(), 'a,b\n1,2'); assert.equal(decodeURIComponent(f.headers.get('x-name')), 'data.csv');
+  assert.equal((await t.call(`/api/shared/${tok}/0`, { cookie: u.cookie })).status, 404, 'served once');
+});

@@ -66,8 +66,17 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   if ((r = path.match(/^\/api\/folders\/(\d+)$/))) {
     if (!await DB.prepare('SELECT 1 FROM folders WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบโฟลเดอร์', 404);
     if (M === 'DELETE') { await DB.batch([DB.prepare('UPDATE chats SET folder_id=NULL WHERE folder_id=?').bind(r[1]), DB.prepare('DELETE FROM folders WHERE id=?').bind(r[1])]); return json({ ok: true }); }
-    const name = String((await req.json()).name || '').trim().slice(0, 40); if (!name) return err('ชื่อว่าง');
-    await DB.prepare('UPDATE folders SET name=? WHERE id=?').bind(name, r[1]).run(); return json({ ok: true });
+    if (M === 'GET') { const f = await DB.prepare('SELECT id,name,instructions,files FROM folders WHERE id=?').bind(r[1]).first(); let files = []; try { files = JSON.parse(f.files || '[]'); } catch {} return json({ ...f, files: files.map(x => ({ name: x.name, size: x.text.length })) }); }
+    const b = await req.json();
+    if ('name' in b) { const name = String(b.name || '').trim().slice(0, 40); if (!name) return err('ชื่อว่าง'); await DB.prepare('UPDATE folders SET name=? WHERE id=?').bind(name, r[1]).run(); }
+    if ('instructions' in b) await DB.prepare('UPDATE folders SET instructions=? WHERE id=?').bind(String(b.instructions || '').trim().slice(0, 4000) || null, r[1]).run();
+    if (Array.isArray(b.files)) { // เอกสารอ้างอิงของโฟลเดอร์ (ข้อความที่อ่านจากไฟล์แล้ว) · ส่งชื่อเดิมโดยไม่มี text = เก็บของเดิมไว้
+      let old = []; try { old = JSON.parse((await DB.prepare('SELECT files FROM folders WHERE id=?').bind(r[1]).first())?.files || '[]'); } catch {}
+      const files = b.files.slice(0, 10).map(x => typeof x?.text === 'string' ? { name: String(x.name || 'file').slice(0, 120), text: x.text } : old.find(o => o.name === x?.name)).filter(Boolean);
+      if (files.reduce((n, x) => n + x.text.length, 0) > 150000) return err('เอกสารรวมยาวเกิน 150,000 ตัวอักษร ลบบางไฟล์ออก');
+      await DB.prepare('UPDATE folders SET files=? WHERE id=?').bind(files.length ? JSON.stringify(files) : null, r[1]).run();
+    }
+    return json({ ok: true });
   }
   if (path === '/api/usage/daily') { // ใช้ไปเท่าไรต่อวัน 30 วันล่าสุด (นับวันตามเวลาไทย)
     const plan = await planOf(env, u), from = Date.now() - 30 * DAY;
