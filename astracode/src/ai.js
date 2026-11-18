@@ -35,8 +35,8 @@ export function nearEffort(errText, cur) {
   if (!ok.length || ci < 0) return null;
   return ok.sort((a, b) => Math.abs(EFFORT_ORDER.indexOf(a) - ci) - Math.abs(EFFORT_ORDER.indexOf(b) - ci) || EFFORT_ORDER.indexOf(b) - EFFORT_ORDER.indexOf(a))[0];
 }
-// เพดาน output ของโมเดล GPT (ไม่ส่ง = ผู้ให้บริการบางรายใช้ค่าน้อยจนคิดหมดก่อนตอบ) · โมเดลค่ายอื่นรูปแบบ OpenAI ไม่ส่ง เพราะเพดานต่างกันและอาจถูกปฏิเสธ
-export const gptMax = m => /^(gpt|o\d)/i.test(m.api_model || '') ? 256000 : undefined;
+// เพดาน output ตามค่ายของโมเดล (ไม่ส่ง = ผู้ให้บริการบางรายใช้ค่าน้อยจนคิดหมดก่อนตอบ) · ค่ายที่ไม่รู้เพดานไม่ส่ง เพราะค่าเกินอาจถูกปฏิเสธ
+export const gptMax = m => { const a = m.api_model || ''; return /^(gpt|o\d|gemini)/i.test(a) ? 256000 : /^deepseek/i.test(a) ? 356000 : undefined; };
 export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false } = {}) {
   const key = env[m.key_name];
   const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
