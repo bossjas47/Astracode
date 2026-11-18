@@ -225,6 +225,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     const rawTail = []; // ข้อมูลดิบ 3 ก้อนท้าย: คำตอบว่างจะได้ดูว่าผู้ให้บริการส่งอะไรมาจริง
     for await (const e of sse(res)) {
       rawTail.push(JSON.stringify(e).slice(0, 300)); if (rawTail.length > 3) rawTail.shift();
+      if (e.error) throw new Error('ผู้ให้บริการแจ้ง error กลางคำตอบ: ' + String(e.error.message || e.error.type || JSON.stringify(e.error)).slice(0, 200)); // ไม่งั้นนับเป็นคำตอบว่างและคิดเงิน
       const ch = e.choices?.[0], dl = ch?.delta;
       const th = dl?.reasoning_content || dl?.reasoning || dl?.thought || dl?.thinking || (Array.isArray(dl?.reasoning_details) ? dl.reasoning_details.map(x => x?.text || '').join('') : '');
       if (typeof th === 'string' && th) yield { th };

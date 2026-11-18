@@ -461,6 +461,7 @@ test('chat: an OpenAI refusal field is shown; a blank answer reports the provide
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const d = mode === 'refusal' ? { refusal: 'ขอโทษ ช่วยเรื่องนี้ไม่ได้' } : { content: ' ' };
     res.write('data: ' + JSON.stringify({ choices: [{ delta: d }] }) + '\n\n');
+    if (mode === 'midError') return res.end('data: ' + JSON.stringify({ error: { type: 'api_error', message: 'The upstream service could not complete this stream.' } }) + '\n\n');
     res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: mode === 'refusal' ? 'stop' : 'content_filter' }], usage: { prompt_tokens: 10, completion_tokens: 1 } }) + '\n\n');
     res.end('data: [DONE]\n\n');
   });
@@ -471,5 +472,8 @@ test('chat: an OpenAI refusal field is shown; a blank answer reports the provide
   t.DB.raw.exec('DELETE FROM rate'); mode = 'filter';
   ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'y' } }));
   assert.match(ev.find(e => e.error)?.error || '', /content_filter/);
+  t.DB.raw.exec('DELETE FROM rate'); mode = 'midError'; const admin = await t.user({ role: 'admin' }); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, admin.id);
+  ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: admin.cookie, body: { model_id: m.id, text: 'z' } }));
+  assert.match(ev.find(e => e.error)?.error || '', /could not complete this stream/);
   fm.close();
 });
