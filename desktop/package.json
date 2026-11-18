@@ -1,6 +1,6 @@
 {
   "name": "astracode-desktop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "AstraCode Desktop: the AstraCode website in an app window, with access to files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "AstraCode",

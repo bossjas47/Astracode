@@ -933,12 +933,13 @@ const pcFmt = text => PCD ? String(text).split(/(```[\s\S]*?(?:```|$))/).map((p,
 const pcTools = () => { if (pcOn()) PCD.mcp.tools().then(t => { chat.pcTools = t; }).catch(x => { chat.pcTools = []; toast('MCP ในเครื่อง: ' + x.message, 'bad'); }); };
 async function pcInit() { if (!PCD) return; chat.pc = await PCD.fs.linked('chat').catch(() => null); pcTools(); modelUI(); }
 function pcSheet() {
-  sheet('ใช้คอมเครื่องนี้', `<div class="sheet-form"><p class="sheet-msg">AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP ในเครื่องนี้ได้ <b>เฉพาะในโฟลเดอร์ที่เลือก</b> · รันคำสั่งต้องกดอนุญาตในหน้าต่างของ Windows ทุกครั้ง · เขียนไฟล์ถามก่อนทุกครั้ง</p>
-    <p style="margin:0">${chat.pc ? `โฟลเดอร์: <b>${esc(chat.pc.path)}</b>` : 'ยังไม่ได้เลือกโฟลเดอร์'}</p>
+  sheet('ใช้คอมเครื่องนี้', `<div class="sheet-form"><p class="sheet-msg">AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP ในเครื่องนี้ได้ <b>เฉพาะในโฟลเดอร์ที่เลือก</b> · เขียนไฟล์ได้เองในโฟลเดอร์นี้ · รันคำสั่งถามในหน้าต่างของ Windows (เลือก "รันอัตโนมัติ" ได้ คำสั่งลบ/อันตรายยังถามเสมอ)</p>
+    <p style="margin:0">${chat.pc ? `โฟลเดอร์: <b>${esc(chat.pc.path)}</b>${chat.pc.auto ? '<br>รันคำสั่งอัตโนมัติ: <b>เปิด</b> (ยกเว้นคำสั่งอันตราย) <button type="button" class="btn out sm" id="pcauto">ปิด</button>' : ''}` : 'ยังไม่ได้เลือกโฟลเดอร์'}</p>
     <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button></div></div>`, (d, close) => {
     d.querySelector('#pcpick').onclick = async () => { const l = await PCD.fs.link('chat').catch(x => { toast(x.message, 'bad'); return null; }); if (!l) return; chat.pc = l; localStorage.setItem('pc', '1'); close(); pcTools(); modelUI(); toast(`AI ใช้โฟลเดอร์ ${l.name} ได้แล้ว`, 'ok'); };
     d.querySelector('#pctog')?.addEventListener('click', () => { localStorage.setItem('pc', pcOn() ? '0' : '1'); close(); pcTools(); modelUI(); });
     d.querySelector('#pcopen')?.addEventListener('click', () => PCD.fs.open('chat'));
+    d.querySelector('#pcauto')?.addEventListener('click', async () => { await PCD.fs.autoOff('chat'); chat.pc.auto = false; close(); toast('ปิดรันอัตโนมัติแล้ว ต่อไปจะถามทุกคำสั่ง'); });
     d.querySelector('#pcmcp').onclick = () => { close(); mcpLocalSheet(); };
   });
 }
@@ -965,18 +966,14 @@ async function pcAct(ai) {
   chat.pcRound = (chat.pcRound || 0) + 1; if (chat.pcRound > PC_MAX) return showErr(`AI ใช้เครื่องมือในเครื่องครบ ${PC_MAX} รอบแล้ว พิมพ์สั่งต่อได้`);
   const calls = pcCalls(ai.content), writes = fileBlocks(ai.content), cut = s => s.length > 8000 ? s.slice(0, 2500) + '\n…(ตัดกลาง)…\n' + s.slice(-5000) : s;
   let out = PC_RES; const imgs = [];
-  if (writes.length) {
-    const ok = await confirmSheet(`AI ขอเขียน ${writes.length} ไฟล์ลงโฟลเดอร์ ${chat.pc.name} (ไฟล์ชื่อเดียวกันจะถูกทับ):\n${writes.map(f => '• ' + f.path).join('\n')}`, { title: 'เขียนไฟล์ลงเครื่อง', ok: 'เขียนไฟล์' });
-    if (!ok) out += '\n\nผู้ใช้ไม่อนุญาตให้เขียนไฟล์';
-    else try { await PCD.fs.write('chat', writes.map(f => ({ path: f.path, content: f.text }))); out += '\n\nเขียนไฟล์แล้ว: ' + writes.map(f => f.path).join(', '); } catch (x) { out += '\n\nเขียนไฟล์ไม่สำเร็จ: ' + x.message; }
-  }
+  if (writes.length) try { await PCD.fs.write('chat', writes.map(f => ({ path: f.path, content: f.text }))); out += '\n\nเขียนไฟล์แล้ว: ' + writes.map(f => f.path).join(', '); toast(`เขียน ${writes.length} ไฟล์ลง ${chat.pc.name} แล้ว`, 'ok'); } catch (x) { out += '\n\nเขียนไฟล์ไม่สำเร็จ: ' + x.message; }
   for (const [k, a] of calls) {
     let r;
     try {
       const arg = a.replace(/^path=/, '').replace(/^[`'"]|[`'"]$/g, '');
       if (k === 'LIST') r = await PCD.fs.list('chat', arg || '.');
       if (k === 'READ') r = await PCD.fs.read('chat', arg);
-      if (k === 'RUN') { toast('รอคุณกดอนุญาตในหน้าต่างของ Windows'); const d = await PCD.fs.run('chat', a); r = `(exit ${d.code})\n${d.stdout}${d.stderr ? '\n[stderr]\n' + d.stderr : ''}`; }
+      if (k === 'RUN') { if (!chat.pc.auto) toast('รอคุณกดอนุญาตในหน้าต่างของ Windows'); const d = await PCD.fs.run('chat', a); chat.pc = await PCD.fs.linked('chat').catch(() => chat.pc) || chat.pc; r = `(exit ${d.code})\n${d.stdout}${d.stderr ? '\n[stderr]\n' + d.stderr : ''}`; }
       if (k === 'MCP') { const sp = a.indexOf(' '), name = sp < 0 ? a : a.slice(0, sp); let args = {}; if (sp >= 0) try { args = JSON.parse(a.slice(sp + 1)); } catch { throw new Error('JSON arguments ไม่ถูกต้อง'); } const d = await PCD.mcp.call(name, args); r = d.text; imgs.push(...(d.images || [])); }
     } catch (x) { r = 'Error: ' + x.message; }
     out += `\n\n$ ${k} ${a}\n${cut(String(r || '(ไม่มีผลลัพธ์)'))}`;

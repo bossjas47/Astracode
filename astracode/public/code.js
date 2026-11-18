@@ -597,7 +597,9 @@ async function localRun(cmd) {
 }
 async function linkLocal() {
   if (IDE.local) {
-    const a = await sheetPick(`เชื่อมกับโฟลเดอร์ในเครื่อง: ${IDE.local.path}`, [['open', 'เปิดโฟลเดอร์'], ['sync', 'ซิงก์ตอนนี้'], ['off', 'เลิกเชื่อม (ไฟล์ในเครื่องและในโปรเจกต์ยังอยู่ครบ)']]);
+    IDE.local = await DESK.linked(lkey()).catch(() => IDE.local) || IDE.local;
+    const a = await sheetPick(`เชื่อมกับโฟลเดอร์ในเครื่อง: ${IDE.local.path}`, [['open', 'เปิดโฟลเดอร์'], ['sync', 'ซิงก์ตอนนี้'], ...(IDE.local.auto ? [['auto', 'ปิดรันคำสั่งอัตโนมัติ (ตอนนี้เปิดอยู่ ยกเว้นคำสั่งอันตราย)']] : []), ['off', 'เลิกเชื่อม (ไฟล์ในเครื่องและในโปรเจกต์ยังอยู่ครบ)']]);
+    if (a === 'auto') { await DESK.autoOff(lkey()); IDE.local.auto = false; toast('ปิดรันอัตโนมัติแล้ว ต่อไปจะถามทุกคำสั่ง'); }
     if (a === 'open') DESK.open(lkey()); if (a === 'sync') syncDisk(true);
     if (a === 'off') { await DESK.unlink(lkey()); IDE.local = null; IDE.seen = null; localUI(); toast('เลิกเชื่อมโฟลเดอร์แล้ว'); }
     return;

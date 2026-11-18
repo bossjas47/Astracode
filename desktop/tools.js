@@ -40,4 +40,8 @@ function runCmd(cwd, cmd, { onOut = () => {}, timeout = 600e3, signal } = {}) {
   });
 }
 
-module.exports = { localTool, safePath, runCmd };
+// คำสั่งที่ลบ/ทับข้อมูล ปิดเครื่อง แก้ระบบ ส่งงานขึ้นที่อื่น หรือโหลดสคริปต์จากเน็ตมารัน: ถามทุกครั้งแม้เปิดรันอัตโนมัติ
+const DANGER = /\b(rm|rmdir|rd|del|erase|format|mkfs|diskpart|shutdown|reboot|reg|regedit|taskkill|kill|pkill|chmod|chown|sudo|runas|takeown|icacls|bcdedit|cipher|move|mv|dd)\b|remove-item|format-volume|stop-process|set-executionpolicy|invoke-expression|\biex\b|\biwr\b|invoke-webrequest|git\s+(push|reset|clean|checkout|rebase|branch\s+-D)|--force|\b(curl|wget)\b[^\n]*\|\s*(sh|bash|pwsh|powershell)|npm\s+(publish|unpublish)|>\s*[\w./\\:-]*\.(env|bat|cmd|ps1)\b/i;
+const isDanger = cmd => DANGER.test(String(cmd));
+
+module.exports = { localTool, safePath, runCmd, isDanger };

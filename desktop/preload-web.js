@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('astraDesktop', {
   version: () => inv('desk:version'),
   notify: (title, body) => inv('desk:notify', String(title || ''), String(body || '')),
   fs: {
-    link: k => inv('desk:link', k), linked: k => inv('desk:linked', k), unlink: k => inv('desk:unlink', k),
+    link: k => inv('desk:link', k), linked: k => inv('desk:linked', k), unlink: k => inv('desk:unlink', k), autoOff: k => inv('desk:autoOff', k),
     scan: k => inv('desk:scan', k), write: (k, files) => inv('desk:write', k, files), remove: (k, p) => inv('desk:remove', k, p),
     rename: (k, a, b) => inv('desk:rename', k, a, b), read: (k, p) => inv('desk:read', k, p), list: (k, p) => inv('desk:list', k, p), open: k => inv('desk:open', k),
     // onOut(d): d.out / d.err = ผลระหว่างทาง

@@ -2,7 +2,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { localTool, runCmd } = require('./tools');
+const { localTool, runCmd, isDanger } = require('./tools');
 const { scanFolder, writeRel, removeRel, renameRel } = require('./localfs');
 const { startMcp } = require('./mcp');
 
@@ -30,7 +30,7 @@ const h = (ch, fn) => ipcMain.handle(ch, (e, ...a) => { if (!fromSite(e)) throw 
 // โฟลเดอร์ในเครื่อง: เว็บอ้างถึงด้วยชื่อช่อง (p:<id โปรเจกต์> หรือ chat) ไม่เคยส่งพาธเต็มมาเอง · ผู้ใช้เลือกโฟลเดอร์ผ่านหน้าต่างของ Windows เท่านั้น
 const slot = k => { if (!/^(p:\d{1,12}|chat)$/.test(String(k))) throw new Error('ช่องโฟลเดอร์ไม่ถูกต้อง'); return String(k); };
 const rootOf = k => { const r = (settings.links || {})[slot(k)]; if (!r || !fs.existsSync(r)) throw new Error('ยังไม่ได้เชื่อมโฟลเดอร์ในเครื่อง หรือโฟลเดอร์ถูกย้าย/ลบไปแล้ว'); return r; };
-const info = r => ({ name: path.basename(r), path: r });
+const info = r => ({ name: path.basename(r), path: r, auto: !!settings.autoRun?.[r] });
 h('desk:link', async (_, k) => {
   const r = await dialog.showOpenDialog(web, { title: 'เลือกโฟลเดอร์ที่ให้ AstraCode ทำงาน', properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
@@ -39,6 +39,7 @@ h('desk:link', async (_, k) => {
   settings.links = { ...settings.links, [slot(k)]: dir }; save(); return info(dir);
 });
 h('desk:linked', (_, k) => { const r = (settings.links || {})[slot(k)]; return r && fs.existsSync(r) ? info(r) : null; });
+h('desk:autoOff', (_, k) => { const r = (settings.links || {})[slot(k)]; if (r && settings.autoRun) { delete settings.autoRun[r]; save(); } return true; }); // ปิดได้จากหน้าเว็บ (ปลอดภัยขึ้นเท่านั้น) · เปิดได้จากหน้าต่าง Windows เท่านั้น
 h('desk:unlink', (_, k) => { if (settings.links) { delete settings.links[slot(k)]; save(); } return true; });
 h('desk:scan', (_, k) => scanFolder(rootOf(k)));
 h('desk:write', async (_, k, files) => { const r = rootOf(k); let n = 0; for (const f of [].concat(files).slice(0, 300)) if (await writeRel(r, f.path, f.content)) n++; return n; });
@@ -48,14 +49,16 @@ h('desk:read', (_, k, p) => localTool(rootOf(k), 'read_file', { path: p }));
 h('desk:list', (_, k, p) => localTool(rootOf(k), 'list_dir', { path: p || '.' }));
 h('desk:open', (_, k) => shell.openPath(rootOf(k)));
 
-// รันคำสั่ง: ถามด้วยหน้าต่างของ Windows ทุกครั้ง (หน้าเว็บกดแทนไม่ได้) · เลือก "อนุญาตทุกคำสั่ง" ได้ต่อโฟลเดอร์จนปิดแอป
-const runOk = new Set(), jobs = new Map();
+// รันคำสั่ง: ถามด้วยหน้าต่างของ Windows (หน้าเว็บกดแทนไม่ได้) · เลือก "รันอัตโนมัติ" ได้ต่อโฟลเดอร์ (จำถาวร) แต่คำสั่งอันตรายยังถามทุกครั้ง
+const jobs = new Map();
+const ask = async (r, cmd, auto) => (await dialog.showMessageBox(web, { type: auto ? 'warning' : 'question', title: 'อนุญาตให้รันคำสั่ง?', message: auto ? 'คำสั่งนี้อาจลบหรือเปลี่ยนแปลงข้อมูล ตรวจก่อนอนุญาต' : 'AstraCode ขอรันคำสั่งนี้ในเครื่องของคุณ', detail: `โฟลเดอร์: ${r}\n\n${cmd.slice(0, 1500)}`, buttons: auto ? ['อนุญาตครั้งนี้', 'ไม่อนุญาต'] : ['อนุญาต', 'รันอัตโนมัติในโฟลเดอร์นี้ (ยกเว้นคำสั่งอันตราย)', 'ไม่อนุญาต'], defaultId: auto ? 1 : 0, cancelId: auto ? 1 : 2, noLink: true })).response;
 h('desk:run', async (e, k, cmd, id) => {
   const r = rootOf(k); cmd = String(cmd || '').trim(); if (!cmd) throw new Error('คำสั่งว่าง');
-  if (!runOk.has(r)) {
-    const a = await dialog.showMessageBox(web, { type: 'question', title: 'อนุญาตให้รันคำสั่ง?', message: 'AstraCode ขอรันคำสั่งนี้ในเครื่องของคุณ', detail: `โฟลเดอร์: ${r}\n\n${cmd.slice(0, 1500)}`, buttons: ['อนุญาต', 'อนุญาตทุกคำสั่งในโฟลเดอร์นี้ (จนปิดแอป)', 'ไม่อนุญาต'], defaultId: 0, cancelId: 2, noLink: true });
-    if (a.response === 2) return { code: 1, stdout: '', stderr: 'ผู้ใช้ไม่อนุญาตให้รันคำสั่งนี้', denied: true };
-    if (a.response === 1) runOk.add(r);
+  const auto = !!settings.autoRun?.[r];
+  if (!auto || isDanger(cmd)) {
+    const a = await ask(r, cmd, auto);
+    if (auto ? a === 1 : a === 2) return { code: 1, stdout: '', stderr: 'ผู้ใช้ไม่อนุญาตให้รันคำสั่งนี้', denied: true };
+    if (!auto && a === 1) { settings.autoRun = { ...settings.autoRun, [r]: true }; save(); }
   }
   const ac = new AbortController(); jobs.set(String(id), ac);
   try { return await runCmd(r, cmd, { signal: ac.signal, onOut: (t, s) => { if (!e.sender.isDestroyed()) e.sender.send('desk:out', { id, [t]: s }); } }); }
