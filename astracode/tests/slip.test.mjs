@@ -133,3 +133,15 @@ test('EasySlip: transfer straight to the shop bank account passes even when easy
   const r = await b.topup(10); assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.equal(b.bal(), 10);
   b.fm.close();
 });
+
+test('CheckSlip: FOUND with right amount and receiver is approved; DUPLICATE and QR_TAMPERED are rejected; a bad key leaves it pending', async () => {
+  const found = (o = {}) => ({ request_id: 'rq', outcome: 'FOUND', slip: { trans_ref: 'CS' + Math.random().toString(36).slice(2, 8), transferred_at: new Date(Date.now() - 60e3).toISOString(), amount: { satang: 20000, currency: 'THB' }, receiver: { kind: 'BANK_ACCOUNT', name_th: 'นาย ณัฐภูมินทร์ จ', account: '088-xxx-4567' }, ...o } });
+  const run = async reply => { const x = await setup(reply, { slip_provider: 'checkslip', checkslip_url: '' }); x.t.env.CHECKSLIP_KEY = 'csk_test'; x.t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('checkslip_url',?)").run(x.fm.url); return x; };
+  const a = await run(() => found()); const r = await a.topup(200);
+  assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.equal(a.bal(), 200); assert.equal(a.hits[0], 'Bearer csk_test'); a.fm.close();
+  for (const [reply, msg] of [[{ outcome: 'DUPLICATE', slip: { trans_ref: 'D1' } }, /ถูกใช้/], [{ status: 422, code: 'QR_TAMPERED', title: 'QR tampered' }, /ปลอม/], [found({ receiver: { account: '099-xxx-9999' } }), /ผู้รับ/]]) { // ยอดไม่ตรง: เติม Wallet ใช้ยอดตามสลิป จึงไม่ปฏิเสธ (judgeSlip ชุดเดียวกับ EasySlip ทดสอบแล้ว)
+    const b = await run(reply); const q = await b.topup(200); assert.equal(q.status, 400, JSON.stringify(q.d)); assert.match(q.d.error, msg); assert.equal(b.bal(), 0); b.fm.close();
+  }
+  const c = await run({ status: 401, code: 'UNAUTHENTICATED', title: 'Invalid API key' }); const q = await c.topup(200);
+  assert.equal(q.status, 200); assert.ok(!q.d.approved); assert.equal(c.pay().status, 'pending'); assert.match(c.pay().slip_check, /UNAUTHENTICATED/); c.fm.close();
+});

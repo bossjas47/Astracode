@@ -489,14 +489,22 @@ const ADMIN = {
       <label>PromptPay (เบอร์โทรหรือเลขบัตรประชาชน)</label><input name="promptpay_id" value="${esc(s.promptpay_id)}">
       <div class="form2"><div><label>ธนาคาร (แสดงในหน้าชำระเงิน)</label><input name="bank_name" value="${esc(s.bank_name)}" placeholder="กสิกรไทย"></div><div><label>เลขบัญชี</label><input name="bank_account" value="${esc(s.bank_account)}" placeholder="193-1-13233-0"></div></div>
       <label>ชื่อบัญชี</label><input name="bank_holder" value="${esc(s.bank_holder)}" placeholder="นาย ณัฐภูมินทร์ จูบ้ง">
-      <label>ตรวจสลิปอัตโนมัติ</label><select name="slip_provider" id="sp">${[['', 'ไม่ใช้ (แอดมินตรวจเอง)'], ['easyslip', 'EasySlip'], ['slip2go', 'Slip2Go'], ['byshop', 'byshop']].map(([k, l]) => `<option value="${k}" ${(s.slip_provider || (s.slip_api_url ? 'byshop' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label>ตรวจสลิปอัตโนมัติ</label><select name="slip_provider" id="sp">${[['', 'ไม่ใช้ (แอดมินตรวจเอง)'], ['easyslip', 'EasySlip'], ['checkslip', 'CheckSlip'], ['slip2go', 'Slip2Go'], ['byshop', 'byshop']].map(([k, l]) => `<option value="${k}" ${(s.slip_provider || (s.slip_api_url ? 'byshop' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <div data-sp="easyslip">
         <p class="muted">Secret Key (จากหน้า Application ใน EasySlip) ตั้งที่ Worker เป็น Secret ชื่อ <code>EASYSLIP_KEY</code> ${s.easyslip_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'}</p>
         <label>API URL (เว้นว่าง = v1 มาตรฐาน · EasySlip v2 ใช้ <code>https://api.easyslip.com/v2/verify/bank</code>)</label><input name="easyslip_url" value="${esc(s.easyslip_url)}" placeholder="https://developer.easyslip.com/api/v1/verify">
+      </div>
+      <div data-sp="checkslip">
+        <p class="muted">API Key (ขึ้นต้น <code>csk_</code> จากเว็บ CheckSlip) ตั้งที่ Worker เป็น Secret ชื่อ <code>CHECKSLIP_KEY</code> ${s.checkslip_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'}</p>
+        <label>API URL (เว้นว่าง = https://api.checkslip.com)</label><input name="checkslip_url" value="${esc(s.checkslip_url)}" placeholder="https://api.checkslip.com">
+      </div>
+      <div data-sp="easyslip checkslip">
         <label>เลขพร้อมเพย์/บัญชีผู้รับที่ต้องตรงกับสลิป (เว้นว่าง = ใช้ PromptPay ด้านบน)</label><input name="easyslip_receiver" value="${esc(s.easyslip_receiver)}" placeholder="0812345678">
         <label>ชื่อผู้รับที่อนุญาต (คั่นด้วยจุลภาค · ตรงชื่อใดชื่อหนึ่งก็ผ่าน · ใส่ชื่อต้นอย่างเดียวไว้สำรองได้ เพราะสลิปมักตัดนามสกุลเหลือตัวอักษรแรก)</label><input name="easyslip_receiver_names" value="${esc(s.easyslip_receiver_names)}" placeholder="ณัฐภูมินทร์ จูบ้ง, ณัฐภูมินทร์">
+        <p class="muted">ระบบส่งสลิปให้ EasySlip/CheckSlip ตรวจ: สลิปซ้ำ, ยอดต้องตรงเป๊ะ, โอนไม่เกิน 15 นาที สลิปที่เคยสแกนแล้วใช้ซ้ำไม่ได้ และผู้รับต้องตรงชื่อที่อนุญาต (เลขบัญชีในสลิปถูกปิดบังบางหลัก ระบบเทียบเฉพาะหลักที่เห็นและต้องไม่ขัดแย้ง) · ตรวจไม่ได้หรือไม่พบสลิป = รอแอดมินตรวจเอง ไม่ปฏิเสธเอง</p>
+      </div>
+      <div data-sp="easyslip">
         <div class="row" style="margin-top:8px"><button type="button" class="btn out sm" id="est">Test connection</button><span id="esr" class="muted"></span></div>
-        <p class="muted">ระบบส่งสลิปให้ EasySlip ตรวจ: สลิปซ้ำ, ยอดต้องตรงเป๊ะ, โอนไม่เกิน 15 นาที สลิปที่เคยสแกนแล้วใช้ซ้ำไม่ได้ และผู้รับต้องตรงชื่อที่อนุญาต (เลขบัญชีในสลิปถูกปิดบังบางหลัก ระบบเทียบเฉพาะหลักที่เห็นและต้องไม่ขัดแย้ง) · ตรวจไม่ได้หรือไม่พบสลิป = รอแอดมินตรวจเอง ไม่ปฏิเสธเอง</p>
       </div>
       <div data-sp="slip2go">
         <label>API URL ของ Slip2Go (ดูในหน้า API Connect หลังล็อกอิน Slip2Go)</label><input name="slip2go_url" value="${esc(s.slip2go_url)}" placeholder="https://...">
@@ -511,7 +519,7 @@ const ADMIN = {
         <label>ตำแหน่งยอดเงินในผลลัพธ์ JSON (เช่น data.amount)</label><input name="slip_amount_field" value="${esc(s.slip_amount_field)}">
         <p class="muted">API key: ${s.slip_key_set ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'} · ตั้งเป็น Secret ชื่อ <code>SLIP_API_KEY</code></p>
       </div>
-      <label class="sw-row" data-sp="easyslip slip2go byshop"><span class="sw"><input type="checkbox" data-b="slip_auto_approve" ${s.slip_auto_approve !== '0' ? 'checked' : ''}><span></span></span> อนุมัติอัตโนมัติเมื่อสลิปผ่าน (ปิด = รอแอดมินกดเหมือนเดิม)</label>
+      <label class="sw-row" data-sp="easyslip checkslip slip2go byshop"><span class="sw"><input type="checkbox" data-b="slip_auto_approve" ${s.slip_auto_approve !== '0' ? 'checked' : ''}><span></span></span> อนุมัติอัตโนมัติเมื่อสลิปผ่าน (ปิด = รอแอดมินกดเหมือนเดิม)</label>
       <h2 style="margin-top:28px">หน้าราคา <a href="/pricing" style="font-size:14px;font-weight:400">ดูหน้าราคา ›</a></h2>
       <label>Markup อัตโนมัติ (%) ใช้กับโมเดลที่ไม่ได้ตั้งราคาขายเอง</label><input name="price_markup" type="number" step="any" inputmode="decimal" value="${esc(s.price_markup || '0')}">
       <p class="muted">ตัวอย่าง: ทุน 1.00 บาท + markup 30% = ขาย 1.30 บาท ต่อ 1M token</p>
