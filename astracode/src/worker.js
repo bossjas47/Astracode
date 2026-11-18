@@ -86,7 +86,7 @@ export default {
       if (clean) return new Response(null, { status: 301, headers: { location: clean + url.search } }); // Location แบบ relative: ผ่าน Vercel แล้วไม่หลุดไปโดเมน workers.dev
       const res = await env.ASSETS.fetch(path === '/' ? new Request(new URL('/home', req.url), req) : req);
       if (res.status === 404 && M === 'GET') return secure(new Response((await env.ASSETS.fetch(new Request(new URL('/404.html', req.url), req))).body, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })); // หน้าไม่มีจริง: แสดงหน้าแรก
-      return secure(versioned(res, path, url, env));
+      return secure(versioned(res, path, url, env), true); // shortcut: CSP ของหน้าเว็บเป็น report-only จนกว่าจะตรวจว่าไม่บล็อกอะไร (เดิม wrangler 3 ข้าม run_worker_first หน้าเว็บจึงไม่เคยมี CSP)
     }
     if (M !== 'GET' && M !== 'HEAD') {
       const o = req.headers.get('origin'); // กัน CSRF: รับคำขอแก้ข้อมูลจากเว็บตัวเองเท่านั้น
@@ -122,9 +122,9 @@ export function versioned(res, path, url, env) {
   const out = new Response(r.body, res), et = res.headers.get('etag'); if (et) out.headers.set('etag', 'W/"' + v + '-' + et.replace(/^W\/|"/g, '') + '"');
   return out;
 }
-export function secure(res) {
+export function secure(res, reportOnly = false) {
   const r = new Response(res.body, res), h = r.headers;
-  if (!h.has('content-security-policy')) h.set('content-security-policy', CSP);
+  if (!h.has('content-security-policy')) h.set(reportOnly ? 'content-security-policy-report-only' : 'content-security-policy', CSP);
   h.set('x-content-type-options', 'nosniff');
   h.set('x-frame-options', 'DENY');
   h.set('referrer-policy', 'strict-origin-when-cross-origin');

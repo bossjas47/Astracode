@@ -31,6 +31,7 @@ jobs:
       - uses: cloudflare/wrangler-action@v3
         continue-on-error: true
         with:
+          wranglerVersion: '4.162.0' # wrangler 3 ข้ามค่า run_worker_first ทำให้ Worker ไม่ทำงานกับหน้าเว็บ
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: astracode
