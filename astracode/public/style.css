@@ -1403,3 +1403,4 @@ input[type=file]::file-selector-button:hover { background: var(--graphite); }
 .vtxt .vnote { display: block; margin: 1px 0 2px; color: var(--porcelain); opacity: .85; white-space: normal; line-height: 1.35; }
 /* ลิงก์ติดต่อเราในเมนู: เด่นกว่ารายการอื่น หาเจอง่าย */
 a.contact-l { color: var(--link) !important; border: 1px solid color-mix(in srgb, var(--link) 45%, transparent); border-radius: 12px; font-weight: 600; }
+.zipbar { margin: 10px 0 2px; }
