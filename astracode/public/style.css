@@ -1387,13 +1387,11 @@ input[type=file]::file-selector-button:hover { background: var(--graphite); }
 .tbl-x { margin: 6px 0 12px; }
 .selbar { display: flex; gap: 6px; justify-content: center; padding: 6px 8px; animation: fadeUp .15s ease-out both; }
 .selbar button { min-height: 36px; padding: 0 14px; border-radius: 9999px; border: 1px solid var(--hair); background: var(--carbon); color: var(--porcelain); font: 500 13px var(--font); cursor: pointer; }
-/* การ์ดแพลน: คำอธิบายไม่เกิน 3 บรรทัด · รายชื่อโมเดลสั้น ชื่อซ้าย ตัวเลขขวา */
+/* การ์ดแพลน: กี่เท่าของ Free (เด่น) · คำอธิบายไม่เกิน 3 บรรทัด · ชื่อโมเดลเป็นชิป */
+.pm-x { margin: 6px 0 4px; font-size: 14.5px; } .pm-x b { font-size: 17px; color: var(--link); white-space: nowrap; }
 .pm-desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 13.5px; }
-.pm-head { display: flex; justify-content: space-between; margin: 12px 0 2px; font-size: 12px; opacity: .6; }
-.feat-list.pm li { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; }
-.feat-list.pm li span { min-width: 0; }
-.feat-list.pm li b { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pm-more summary { cursor: pointer; padding: 8px 0 2px; font-size: 13.5px; color: var(--link); list-style: none; }
-.pm-more summary::-webkit-details-marker { display: none; }
-.pm-more summary::after { content: ' ▾'; } .pm-more[open] summary::after { content: ' ▴'; }
-.pm-api { margin-top: 10px; font-size: 13px; }
+.pm-head { margin: 12px 0 6px; font-size: 12.5px; opacity: .65; }
+.pm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pm-chip { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--steel); font-size: 12.5px; white-space: nowrap; }
+.pm-more { padding: 3px 9px; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--link); cursor: pointer; }
+.pm-api { margin-top: 12px; font-size: 13px; }

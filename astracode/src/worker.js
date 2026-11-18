@@ -43,7 +43,9 @@ async function pricingBody(env) {
 async function plansBody(env) {
   const plans = (await env.DB.prepare('SELECT id,name,price,price_year,days,once,description,limit_week,seats,shared_pool,api_limit FROM plans WHERE active=1 ORDER BY sort').all()).results;
   const [featured, lists] = await Promise.all([getSetting(env, 'featured_plan'), Promise.all(plans.map(p => allowedModels(env, p.id)))]);
+  const free = plans.find(p => !(p.price > 0))?.limit_week || 0;
   plans.forEach((p, i) => { // ประมาณจำนวนข้อความ/สัปดาห์ ตามต้นทุนจริงของ 1 ข้อความทั่วไป
+    p.x_free = free > 0 && p.price > 0 ? Math.round(p.limit_week / free * 10) / 10 : null; // ใช้ได้มากกว่าแพลนฟรีกี่เท่า (คิดจากงบลิมิตสัปดาห์)
     p.models = lists[i].map(m => ({ name: m.name, week: Math.floor(p.limit_week / Math.max(msgCost(m), 1e-6)) }));
     p.featured = p.id === +featured;
     delete p.limit_week;

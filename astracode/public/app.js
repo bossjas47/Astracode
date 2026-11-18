@@ -264,31 +264,31 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') document.que
 // วาดซ้ำหน้าเดิม (เช่น สลับสกุลเงิน): ไม่เล่นแอนิเมชันเข้าหน้าซ้ำ และคงตำแหน่งที่เลื่อนอยู่
 const page = html => { const again = !!app.querySelector('.view'), y = scrollY; app.innerHTML = `<div class="view${again ? ' still' : ''}">${html}</div>`; if (again) scrollTo(0, y); let seen = 0; try { seen = +localStorage.getItem('clSeen') || 0; } catch { /* ไม่มีที่เก็บ */ } if (site?.cl_latest > seen) app.querySelector('#clnav')?.classList.add('dot'); if (me) notifLoad(); };
 
-// การ์ดแพลน: โชว์โมเดลเด่นตามลำดับที่ตั้งในหลังบ้าน ที่เหลือพับไว้ · ตัวเลขย่อ (21.9K) อ่านเร็วกว่า
-const PLAN_TOP = 5, numShort = n => Number(n || 0).toLocaleString('en', { notation: 'compact', maximumFractionDigits: 1 });
-const pmLi = m => `<li><span>${esc(m.name)}</span><b>~${numShort(m.week)}</b></li>`;
+// การ์ดแพลน: บอกแค่ใช้ได้กี่เท่าของ Free + ชื่อโมเดล (ตามลำดับที่ตั้งในหลังบ้าน ที่เหลือพับไว้) · ไม่โชว์จำนวนข้อความ
+const PLAN_TOP = 8, pmChip = (m, hide) => `<span class="pm-chip"${hide ? ' hidden' : ''}>${esc(m.name)}</span>`;
+document.addEventListener('click', e => { const b = e.target.closest?.('.pm-more'); if (!b) return; e.stopPropagation(); b.parentElement.querySelectorAll('.pm-chip[hidden]').forEach(c => c.hidden = false); b.remove(); }, true); // ก่อนตัวเลือกแพลนของการ์ด
 function planTiles(plans, sel, period) {
   return `<div class="grid" tabindex="0" aria-label="แพลน (เลื่อนดูได้)">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
-    ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}${p.price > 0 && promoOn() ? `<div class="promo-pill">${ic('sparkles', 'sm')} ใช้ได้ x${site.promo.x4h} ถึง ${promoEnd()}<small>ลิมิตสัปดาห์ x${site.promo.xweek}</small></div>` : ''}
+    ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}${p.price > 0 && promoOn() ? `<div class="promo-pill">${ic('sparkles', 'sm')} โปร: ใช้ได้ x${site.promo.x4h} ถึง ${promoEnd()}<small>ลิมิตสัปดาห์ x${site.promo.xweek}</small></div>` : ''}
     <div style="font:600 19px var(--display)">${esc(p.name)}</div>
     <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : p.days && p.days !== 30 ? ` / ${p.days} วัน` : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') + (p.once ? ' · ซื้อได้ครั้งเดียว' : '') : ''}</small></div>
     ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
-    ${p.seats > 1 ? `<div style="font-size:12.5px;color:var(--link);font-weight:500">ทีม · สูงสุด ${p.seats} คน (${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'})</div>` : ''}<div class="muted pm-desc">${esc(p.description)}</div>
-    <div class="pm-head"><span>${p.models.length} โมเดล</span><span>ข้อความ/สัปดาห์</span></div>
-    <ul class="feat-list pm">${p.models.slice(0, PLAN_TOP).map(pmLi).join('')}</ul>
-    ${p.models.length > PLAN_TOP ? `<details class="pm-more"><summary>ดูอีก ${p.models.length - PLAN_TOP} โมเดล</summary><ul class="feat-list pm">${p.models.slice(PLAN_TOP).map(pmLi).join('')}</ul></details>` : ''}
+    ${p.seats > 1 ? `<div style="font-size:12.5px;color:var(--link);font-weight:500">ทีม · สูงสุด ${p.seats} คน (${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'})</div>` : ''}${p.x_free > 1 ? `<div class="pm-x">ใช้ได้มากกว่า Free <b>${num(p.x_free)} เท่า</b>${p.seats > 1 ? ' (รวมทั้งทีม)' : ''}</div>` : ''}<div class="muted pm-desc">${esc(p.description)}</div>
+    <div class="pm-head">ใช้ได้ ${p.models.length} โมเดล</div>
+    <div class="pm-chips">${p.models.slice(0, PLAN_TOP).map(m => pmChip(m)).join('')}${p.models.length > PLAN_TOP ? `<button type="button" class="pm-more">+${p.models.length - PLAN_TOP} โมเดล</button>${p.models.slice(PLAN_TOP).map(m => pmChip(m, true)).join('')}` : ''}</div>
     ${p.api_limit ? `<div class="pm-api">${ic('check', 'sm ok')} ใช้ API Key หักจากลิมิตแพลน</div>` : ''}</div>`).join('')}</div>
-    <p class="muted" style="text-align:center;margin-top:16px">จำนวนข้อความเป็นค่าประมาณ (ข้อความละ ~2,500 token) ใช้ทุกโมเดลได้ในลิมิตเดียวกัน · เทียบครบทุกโมเดลในตาราง "เทียบแพลน" ด้านล่าง</p>`;
+    <p class="muted" style="text-align:center;margin-top:16px">ทุกโมเดลในแพลนใช้ลิมิตก้อนเดียวกัน โมเดลที่เก่งกว่าใช้ลิมิตเร็วกว่า</p>`;
 }
 function compareTable(plans) {
   const names = [...new Set(plans.flatMap(p => p.models.map(m => m.name)))];
   return `<div class="tw"><table class="cmp"><tr><th></th>${plans.map(p => `<th scope="col">${esc(p.name)}</th>`).join('')}</tr>
     <tr><th scope="row">ราคา/เดือน</th>${plans.map(p => `<td>${p.price > 0 ? fmtPlanPrice(p.price) : 'ฟรี'}</td>`).join('')}</tr>
-    ${names.map(n => `<tr><th scope="row">${esc(n)}</th>${plans.map(p => { const m = p.models.find(x => x.name === n); return `<td>${m ? '~' + num(m.week) : '<span class="muted">—</span>'}</td>`; }).join('')}</tr>`).join('')}
+    <tr><th scope="row">ใช้ได้มากกว่า Free</th>${plans.map(p => `<td>${p.x_free > 1 ? num(p.x_free) + ' เท่า' : '—'}</td>`).join('')}</tr>
+    ${names.map(n => `<tr><th scope="row">${esc(n)}</th>${plans.map(p => `<td>${p.models.some(x => x.name === n) ? '<span class="ok">✓</span>' : '<span class="muted">—</span>'}</td>`).join('')}</tr>`).join('')}
     <tr><th scope="row">จำนวนผู้ใช้</th>${plans.map(p => `<td>${p.seats > 1 ? `${p.seats} คน (${p.shared_pool ? 'งบรวม' : 'แยกโควตา'})` : '1 คน'}</td>`).join('')}</tr>
     <tr><th scope="row">API Key</th>${plans.map(p => `<td>${p.api_limit ? '<span class="ok">หักลิมิตแพลนได้</span>' : '<span class="muted">หัก Wallet</span>'}</td>`).join('')}</tr>
     <tr><th scope="row">รีเซ็ตลิมิต</th>${plans.map(() => '<td>4 ชม. + สัปดาห์</td>').join('')}</tr></table></div>
-    <p class="muted" style="text-align:center">ตัวเลขในตาราง = จำนวนข้อความโดยประมาณต่อสัปดาห์</p>`;
+`;
 }
 const FAQ = [
   ['ลิมิต 4 ชั่วโมงกับลิมิตสัปดาห์ต่างกันยังไง', 'ลิมิต 4 ชั่วโมงกันการใช้รวดเดียวหมด ส่วนลิมิตสัปดาห์คือโควตารวม ทั้งสองแสดงเป็น % ด้านบนหน้าแชต โดยเริ่มนับรอบเมื่อส่งข้อความแรกและรีเซ็ตหลังครบ 4 ชั่วโมง / 7 วัน'],

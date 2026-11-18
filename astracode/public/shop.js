@@ -6,7 +6,7 @@ const askReview = async (id, btn) => { btn.disabled = true; try { await api('/pa
 // ตารางเทียบแพลน: ราคา, จำนวนโมเดล, ข้อความโดยประมาณ, API, ที่นั่ง
 const cmpTable = ps => ps.length < 2 ? '' : `<details class="faq" style="max-width:920px;margin:14px auto"><summary>เปรียบเทียบแพลนแบบตาราง</summary><div class="tw"><table class="tbl cmp"><tr><th></th>${ps.map(p => `<th>${esc(p.name)}</th>`).join('')}</tr>
   ${[['ราคา/เดือน', p => p.price ? '฿' + baht(p.price) : 'ฟรี'], ['รายปี', p => p.price_year ? '฿' + baht(p.price_year) : '-'], ['จำนวนโมเดล', p => p.models?.length || 0],
-    ['ข้อความ/สัปดาห์ (โมเดลประหยัดสุด)', p => p.models?.length ? '~' + Math.max(...p.models.map(m => m.week)).toLocaleString(LOC) : '-'], ['API key', p => p.price > 0 ? ic('check', 'sm ok') : '-'], ['API หักจากลิมิตแพลน', p => p.api_limit ? ic('check', 'sm ok') : '-'],
+    ['ใช้ได้มากกว่า Free', p => p.x_free > 1 ? p.x_free.toLocaleString(LOC) + ' เท่า' : '-'], ['API key', p => p.price > 0 ? ic('check', 'sm ok') : '-'], ['API หักจากลิมิตแพลน', p => p.api_limit ? ic('check', 'sm ok') : '-'],
     ['ที่นั่ง', p => p.seats || 1], ['งบรวมทั้งทีม', p => p.shared_pool ? ic('check', 'sm ok') : '-']].map(([l, f]) => `<tr><th scope="row">${l}</th>${ps.map(p => `<td>${f(p)}</td>`).join('')}</tr>`).join('')}</table></div></details>`;
 async function plansPage() {
   const plans = await api('/plans');
@@ -56,7 +56,7 @@ async function plansPage() {
     app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); draw(); });
     app.querySelectorAll('[data-aud]').forEach(b => b.onclick = () => { aud = b.dataset.aud; sel = null; coupon = null; draw(); });
     app.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { period = b.dataset.per; coupon = null; if (sel && !plans.find(x => x.id === sel)?.price_year && period === 'year') sel = null; draw(); });
-    app.querySelectorAll('[data-plan]').forEach(t => t.onclick = e => { if (e.target.closest('details')) return; sel = +t.dataset.plan; coupon = null; draw(); $('#pay')?.scrollIntoView({ behavior: 'smooth' }); });
+    app.querySelectorAll('[data-plan]').forEach(t => t.onclick = () => { sel = +t.dataset.plan; coupon = null; draw(); $('#pay')?.scrollIntoView({ behavior: 'smooth' }); });
     $('#cf')?.addEventListener('submit', async e => {
       e.preventDefault(); const code = new FormData(e.target).get('code').trim();
       if (!code) { coupon = null; return draw(); }
