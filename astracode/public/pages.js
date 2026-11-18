@@ -28,6 +28,7 @@ PAGES.developers = async () => {
         <div class="card dv-status ${canUse ? 'ok' : 'warn'}">${h3k(canUse ? '✓ พร้อมใช้ API' : 'ยังใช้ API ไม่ได้')}
           <p style="margin:0">${me.plan.api_limit ? `หักจาก<b>ลิมิตแพลน ${esc(me.plan.name)}</b> ก่อน (4 ชม. ${me.usage.pct4h}% · สัปดาห์ ${me.usage.pctWeek}%) ลิมิตเต็มแล้วตัดจาก Wallet` : `ตัดเงินจาก <b>Wallet</b> ตามที่ใช้จริง`} · Wallet คงเหลือ <b>฿${baht(me.balance)}</b></p>
           ${canUse ? '' : '<p style="margin:8px 0 0">เติม Wallet อย่างน้อย ฿1 หรือสมัครแพลนที่รองรับ API ก่อน</p>'}<div class="row" style="margin-top:10px"><a class="btn out sm" href="/plans?topup=1">เติม Wallet</a></div></div>
+        <div class="card">${h3k('💻 AstraCode Desktop (Windows)')}<p class="muted" style="margin:0 0 10px">ให้ AI ทำงานในเครื่องคุณ: แก้ไฟล์ รันคำสั่ง และคุมโปรแกรมอย่าง Blender ผ่าน MCP · ล็อกอินด้วยบัญชีนี้ ไม่ต้องก๊อป key</p><a class="btn blue sm" href="/download/desktop">ดาวน์โหลด .exe</a> <span class="muted" style="font-size:12.5px">ตอนติดตั้งถ้า Windows เตือน ให้กด More info → Run anyway</span></div>
         ${newKey ? `<div class="card dv-new">${h3k('🔑 API Key ใหม่ของคุณ')}<p class="warn" style="margin:0 0 8px">คัดลอกเก็บไว้ตอนนี้ ระบบจะไม่แสดงอีก</p>
           ${fld('API Key', newKey, 'nk')}${fld('Base URL', base)}<p class="muted" style="font-size:13px;margin:6px 0 0">ใส่ 2 ค่านี้ในโปรแกรมที่ใช้ แล้วเลือกโมเดล · ดูวิธีใส่ในแต่ละโปรแกรมที่แท็บ <a href="#" data-goto="connect">เชื่อมต่อโปรแกรม</a></p></div>` : ''}
         <div class="card">${h3k('API Key ของฉัน')}
@@ -150,6 +151,23 @@ PAGES.developers = async () => {
   draw();
 };
 const h3k = t => `<div style="font:600 19px var(--display);margin-bottom:8px">${t}</div>`;
+
+// ---------- อนุญาตแอป AstraCode Desktop: สร้าง key ชื่อ Desktop แล้วส่งกลับไปที่ 127.0.0.1 ของเครื่องผู้ใช้ ----------
+PAGES['desktop-auth'] = async () => {
+  const q = qs(), port = +q.get('port'), state = q.get('state') || '';
+  const ok = port >= 1024 && port <= 65535 && /^[0-9a-f]{32}$/.test(state);
+  const box = body => page(nav() + `<div class="wrap" style="max-width:560px"><section class="hero" style="padding:56px 0 20px"><h1>เชื่อมต่อ AstraCode Desktop</h1></section><div class="card">${body}</div>${footer()}</div>`);
+  if (!ok) return box('<p>ลิงก์ไม่ถูกต้อง กลับไปกด "เข้าสู่ระบบ" ในแอปอีกครั้ง</p>');
+  if (!me) return box(`<p>เข้าสู่ระบบก่อน แล้วกลับมาที่หน้านี้</p><a class="btn blue" href="/login?next=${encodeURIComponent(location.pathname + location.search)}">Log in</a>`);
+  box(`<p>อนุญาตให้แอป <b>AstraCode Desktop</b> ในเครื่องนี้ใช้บัญชี <b>${esc(me.email)}</b>?</p>
+    <p class="muted" style="font-size:13.5px">ระบบจะสร้าง API key ชื่อ "Desktop" ให้แอป ค่าใช้งานหักจากแพลนหรือ Wallet ของคุณ ลบ key ได้ทุกเมื่อที่หน้า <a href="/developers">API</a></p>
+    <div class="row" style="margin-top:12px"><button class="btn blue" id="dok">อนุญาต</button><a class="btn out" href="/">ยกเลิก</a></div><div class="err" id="derr"></div>`);
+  $('#dok').onclick = async e => {
+    e.target.disabled = true;
+    try { const r = await api('/keys', { method: 'POST', body: { name: 'Desktop' } }); location.href = `http://127.0.0.1:${port}/cb?key=${encodeURIComponent(r.key)}&state=${state}`; }
+    catch (x) { $('#derr').textContent = x.message; e.target.disabled = false; }
+  };
+};
 
 // ---------- ติดต่อเรา (ticket) ----------
 const TK = { open: '<span class="warn">รอตอบ</span>', answered: '<span class="ok">ตอบแล้ว</span>', closed: '<span class="muted">ปิดแล้ว</span>' };

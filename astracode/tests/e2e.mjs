@@ -89,6 +89,12 @@ const FLOWS = [
     const snip = await page.locator('#csnip').innerText();
     return [!errs.length || errs.join(' | '), calls.some(c => c.m === 'POST' && c.p === '/api/keys') || 'no POST /api/keys', shown === 'sk-astra-newkey123' || 'new key not shown: ' + shown, snip.includes('sk-astra-newkey123') || 'snippet has no key'];
   }],
+  ['desktop app login: allowing creates a Desktop key and sends it back to 127.0.0.1 with the state', async () => {
+    const st = 'ab'.repeat(16), { page, errs, calls } = await open(`/desktop-auth?port=5555&state=${st}`, { '/api/keys': { key: 'sk-astra-0123abcd' } });
+    const [req] = await Promise.all([page.waitForRequest(r => r.url().startsWith('http://127.0.0.1:5555/cb'), { timeout: 3000 }).catch(() => null), page.click('#dok')]);
+    const bad = await open('/desktop-auth?port=80&state=x'), badText = await bad.page.locator('#app').innerText();
+    return [!errs.length || errs.join(' | '), calls.some(c => c.m === 'POST' && c.p === '/api/keys' && /Desktop/.test(c.body)) || 'no Desktop key created', req?.url().includes('key=sk-astra-0123abcd&state=' + st) || 'no redirect to app: ' + req?.url(), /ไม่ถูกต้อง/.test(badText) || 'bad link not refused'];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);
