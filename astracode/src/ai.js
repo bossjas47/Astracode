@@ -35,6 +35,8 @@ export function nearEffort(errText, cur) {
   if (!ok.length || ci < 0) return null;
   return ok.sort((a, b) => Math.abs(EFFORT_ORDER.indexOf(a) - ci) - Math.abs(EFFORT_ORDER.indexOf(b) - ci) || EFFORT_ORDER.indexOf(b) - EFFORT_ORDER.indexOf(a))[0];
 }
+// เพดาน output ของโมเดล GPT (ไม่ส่ง = ผู้ให้บริการบางรายใช้ค่าน้อยจนคิดหมดก่อนตอบ) · โมเดลค่ายอื่นรูปแบบ OpenAI ไม่ส่ง เพราะเพดานต่างกันและอาจถูกปฏิเสธ
+export const gptMax = m => /^(gpt|o\d)/i.test(m.api_model || '') ? 256000 : undefined;
 export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false } = {}) {
   const key = env[m.key_name];
   const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
@@ -143,7 +145,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     if (images.length) { const last = input.findLast(i => i.role === 'user'); if (last) last.content.push(...images.map(url => ({ type: 'input_image', image_url: url }))); }
     const body = { model: m.api_model, stream: true, store: false, input };
     if (system) body.instructions = system;
-    if (maxTokens) body.max_output_tokens = maxTokens;
+    const mt = maxTokens || gptMax(m); if (mt) body.max_output_tokens = mt;
     if (m.effort === 'openai' && effort) body.reasoning = { effort: { on: 'medium', max: 'high' }[effort] || effort };
     if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
       body.tools = tools.map(t => ({ type: 'function', name: t.function?.name || t.name, description: t.function?.description || t.description || '', parameters: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));
@@ -182,7 +184,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       body.tools = tools;
       if (toolChoice) body.tool_choice = toolChoice;
     }
-    if (maxTokens) body[/api\.openai\.com/.test(m.base_url) ? 'max_completion_tokens' : 'max_tokens'] = maxTokens; // OpenAI รุ่นคิด (GPT-5, o-series) ไม่รับ max_tokens
+    const mt = maxTokens || gptMax(m); if (mt) body[/api\.openai\.com/.test(m.base_url) ? 'max_completion_tokens' : 'max_tokens'] = mt; // OpenAI รุ่นคิด (GPT-5, o-series) ไม่รับ max_tokens
     if (m.effort === 'openai' && effort) body.reasoning_effort = { on: 'medium', max: 'high' }[effort] || effort;
     if (m.effort === 'gemini') body.reasoning_effort = effort ? ({ xhigh: 'high', max: 'high', on: 'medium' }[effort] || effort) : 'none';
     if (m.effort === 'deepseek') { // DeepSeek เปิดคิดเป็นค่าเริ่มต้น จึงต้องปิดเองเมื่อเลือก Instant
