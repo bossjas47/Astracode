@@ -2,6 +2,15 @@ name = "astracode"
 main = "src/worker.js"
 compatibility_date = "2026-11-01"
 
+# Workers Paid ($5): CPU ต่อคำขอได้ถึง 5 นาที (แผนฟรี 10ms) · แตก zip ใหญ่, ย่อแชต, ตรวจสลิป, งาน cron ไม่โดนตัดกลางทาง
+[limits]
+cpu_ms = 300000
+
+# Workers Logs: เก็บ log ทุกคำขอ ค้น error ย้อนหลังได้ใน dashboard (Workers Paid ได้ 20 ล้านบรรทัด/เดือน)
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [assets]
 directory = "./public"
 binding = "ASSETS"
@@ -20,7 +29,7 @@ bucket_name = "astracode"
 
 # [vars]  (ตั้ง ADMIN_EMAIL ใน dashboard ของ Worker แทน จะได้ไม่ถูกเขียนทับตอน deploy)
 
-# ตอบแชตต่อเบื้องหลังแม้ผู้ใช้ปิดจอ (Durable Object แบบ SQLite ใช้ได้ในแผนฟรี)
+# ตอบแชตต่อเบื้องหลังแม้ผู้ใช้ปิดจอ (Durable Object แบบ SQLite)
 [[durable_objects.bindings]]
 name = "CHATRUN"
 class_name = "ChatRun"
