@@ -560,3 +560,13 @@ test('admin live cost page: cost per provider key, feed with flags, heavy users,
   assert.equal(data.hot[0].uid, u.id);
   assert.equal((await t.json('/api/admin/live', { cookie: u.cookie })).status, 403);
 });
+
+test('desktop agent: chats/append saves a turn to a new or own chat only; /v1/web_search needs a key', async () => {
+  const t = await makeEnv(), u = await t.user(), other = await t.user();
+  const r = await t.json('/api/chats/append', { method: 'POST', cookie: u.cookie, body: { title: 'แก้บั๊ก', messages: [{ role: 'user', content: 'แก้บั๊ก' }, { role: 'assistant', content: 'แก้แล้ว' }, { role: 'system', content: 'x' }] } });
+  assert.equal(r.status, 200); const id = r.data.chat_id;
+  assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM messages WHERE chat_id=?').get(id).n, 2);
+  assert.equal((await t.json('/api/chats/append', { method: 'POST', cookie: u.cookie, body: { chat_id: id, messages: [{ role: 'user', content: 'ต่อ' }] } })).data.chat_id, id);
+  assert.equal((await t.json('/api/chats/append', { method: 'POST', cookie: other.cookie, body: { chat_id: id, messages: [{ role: 'user', content: 'แทรก' }] } })).status, 404);
+  assert.equal((await t.json('/v1/web_search', { method: 'POST', body: { query: 'x' } })).status, 401);
+});

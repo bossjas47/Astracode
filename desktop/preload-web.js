@@ -2,10 +2,11 @@
 // หน้าเว็บอ้างโฟลเดอร์ด้วยชื่อช่อง (p:<id> / chat) ที่ผู้ใช้เลือกเองผ่านหน้าต่าง Windows · รันคำสั่ง, ตั้งค่า MCP, ให้ AI คุมจอ ต้องกดอนุญาตในหน้าต่าง Windows
 const { contextBridge, ipcRenderer } = require('electron');
 const inv = (ch, ...a) => ipcRenderer.invoke(ch, ...a);
-const outs = new Map(), subs = { changed: new Set(), serve: new Set() };
+const outs = new Map(), subs = { changed: new Set(), serve: new Set(), agent: new Set() };
 ipcRenderer.on('desk:out', (_, d) => outs.get(d.id)?.(d));
 ipcRenderer.on('desk:changed', (_, k) => subs.changed.forEach(f => f(k)));
 ipcRenderer.on('desk:serveOut', (_, d) => subs.serve.forEach(f => f(d)));
+ipcRenderer.on('desk:agentEv', (_, d) => subs.agent.forEach(f => f(d)));
 const on = (set, f) => { set.add(f); return () => set.delete(f); };
 contextBridge.exposeInMainWorld('astraDesktop', {
   version: () => inv('desk:version'),
@@ -23,6 +24,8 @@ contextBridge.exposeInMainWorld('astraDesktop', {
     isServer: cmd => inv('desk:isServer', String(cmd)), serve: (k, cmd) => inv('desk:serve', k, String(cmd)), serveStop: k => inv('desk:serveStop', k), serveInfo: k => inv('desk:serveInfo', k), onServe: f => on(subs.serve, f),
     preview: port => inv('desk:preview', port),
   },
+  // Agent แบบ Claude Code: run({ sid, text, model, mode, maxRounds, slot, history }) · เหตุการณ์มาทาง onEvent
+  agent: { needKey: () => inv('desk:agentNeedKey'), setKey: k => inv('desk:agentSetKey', String(k)), run: o => inv('desk:agentRun', o), stop: sid => inv('desk:agentStop', sid), undo: sid => inv('desk:agentUndo', sid), reset: sid => inv('desk:agentReset', sid), onEvent: f => on(subs.agent, f) },
   screen: { on: () => inv('desk:screenOn'), off: () => inv('desk:screenOff'), state: () => inv('desk:screenState'), batch: acts => inv('desk:screenBatch', acts) },
   mcp: { get: () => inv('desk:mcpGet'), set: t => inv('desk:mcpSet', String(t ?? '')), tools: () => inv('desk:mcpTools'), call: (n, a) => inv('desk:mcpCall', n, a) },
 });

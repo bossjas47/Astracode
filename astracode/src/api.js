@@ -1,5 +1,5 @@
 import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
-import { SSE, callModel, chat, logUsage } from './ai.js';
+import { SSE, callModel, chat, logUsage, webSearch } from './ai.js';
 import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl, walletAdd } from './billing.js';
 import { status } from './jobs.js';
 // ---------- API สำหรับนักพัฒนา: /v1/models, /v1/chat/completions (แบบ OpenAI) คิดเงินจาก wallet ----------
@@ -46,6 +46,12 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id)));
     if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
     if (path.startsWith('/v1/models/')) { const m = models.find(x => slug(x) === decodeURIComponent(path.slice(11))); return m ? out({ id: slug(m), object: 'model', created: 0, owned_by: m.provider }) : fail(`ไม่พบโมเดล "${decodeURIComponent(path.slice(11)).slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404); }
+    // ค้นเว็บให้ agent ในแอป Desktop (ไม่คิดเงิน จำกัด 60 ครั้ง/ชม. ต่อ key)
+    if (path === '/v1/web_search' && req.method === 'POST') {
+      if (await limited(env, 'vws:' + k.kid, 60, 3600e3)) return fail('ค้นเว็บบ่อยเกินไป (60 ครั้ง/ชม.)', 429, 'rate_limit_error');
+      const q = String((await req.json().catch(() => ({}))).query || '').trim(); if (!q) return fail('ไม่มีคำค้น', 400);
+      return out({ results: await webSearch(env, q) });
+    }
     // แบบ OpenRouter: Cline / Kilo / Roo เรียกดูเครดิตที่เหลือทุกไม่กี่วินาที (เดิมตอบ 404 เต็มหน้าแอดมิน) · หน่วยเป็นบาทของ Wallet
     if (path === '/v1/credits' || path === '/v1/key' || path === '/v1/auth/key') {
       const used = k.spent_month === monthKey() ? +k.spent || 0 : 0, bal = Math.max(0, +k.balance || 0);

@@ -234,6 +234,17 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     ].map(q => DB.prepare(q).bind(u.id)));
     return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
   }
+  // แอป Desktop โหมด Agent: บันทึกคำสั่งและคำตอบลงแชต (โมเดลทำงานผ่าน /v1 ซึ่งคิดเงินแยกแล้ว ตรงนี้เก็บประวัติเท่านั้น) · เปิดดูจากมือถือได้
+  if (path === '/api/chats/append' && M === 'POST') {
+    if (await limited(env, 'append:' + u.id, 300, 3600e3)) return err('บันทึกบ่อยเกินไป', 429);
+    const b = await req.json().catch(() => ({})), ms = (Array.isArray(b.messages) ? b.messages : []).filter(m => ['user', 'assistant'].includes(m?.role) && typeof m.content === 'string' && m.content.trim()).slice(0, 10);
+    if (!ms.length) return err('ไม่มีข้อความ');
+    let id = +b.chat_id || 0;
+    if (id && !await DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(id, u.id).first()) return err('ไม่พบแชต', 404);
+    if (!id) id = (await DB.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').bind(u.id, ('🤖 ' + String(b.title || ms[0].content)).slice(0, 80), Date.now()).first()).id;
+    const t0 = Date.now(); await DB.batch(ms.map((m, i) => DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(id, m.role, m.content.slice(0, 50000), t0 + i)));
+    return json({ chat_id: id });
+  }
   if (path === '/api/chats/import' && M === 'POST') { // นำเข้าแชตจากไฟล์ export ของ ChatGPT/Claude (หน้าเว็บแกะไฟล์แล้วส่งมาเป็นชุด ชุดละไม่เกิน 50 แชต)
     if (await limited(env, 'import:' + u.id, 40, 3600e3)) return err('นำเข้าบ่อยเกินไป รอสักครู่', 429);
     const list = (await req.json().catch(() => ({}))).chats; if (!Array.isArray(list) || !list.length || list.length > 50) return err('ไม่มีแชตให้นำเข้า');

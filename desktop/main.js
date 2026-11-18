@@ -6,6 +6,8 @@ const { localTool, runCmd, isDanger, isServer, portOf } = require('./tools');
 const { execFile } = require('child_process');
 const { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel } = require('./localfs');
 const { startMcp } = require('./mcp');
+const { runAgent } = require('./agent');
+const { AGENT_TOOLS, Workspace, agentSystem, projectRules } = require('./agenttools');
 
 const SITE = 'https://astracode.panderx.xyz';
 let settings, mcp = null;
@@ -202,6 +204,60 @@ h('desk:mcpSet', async (_, text) => {
 });
 h('desk:mcpTools', async () => settings.mcp ? (await mcpUp()).tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: t.function.parameters })) : []);
 h('desk:mcpCall', async (_, name, args) => (await mcpUp()).call(String(name), args && typeof args === 'object' ? args : {}));
+
+// ---------- Agent แบบ Claude Code: วนทำงานในเครื่องนี้ด้วย tool calling ผ่าน /v1 (หักลิมิต/Wallet ตามจริง) ----------
+// key: หน้าเว็บที่ล็อกอินอยู่สร้าง API key ชื่อ "Desktop Agent" ส่งมาครั้งแรก · โหมด: ask = ถามทุกครั้ง, edits = แก้ไฟล์เอง ถามก่อนรันคำสั่ง, auto = ทำเองทั้งหมด (คำสั่งอันตราย/นอกโฟลเดอร์ยังถาม)
+const agents = new Map(); // sid → { messages, ws, ac, mode, okMode }
+const MODES = ['ask', 'edits', 'auto'];
+h('desk:agentNeedKey', () => !settings.key);
+h('desk:agentSetKey', (_, key) => { if (!/^sk-astra-[0-9a-f]+$/.test(String(key))) return false; settings.key = String(key); save(); return true; });
+h('desk:agentStop', (_, sid) => { const a = agents.get(String(sid)); a?.ac?.abort(); a?.ws?.stopAll(); return true; });
+h('desk:agentUndo', async (_, sid) => { const a = agents.get(String(sid)); return a?.ws ? await a.ws.undo() : []; });
+h('desk:agentReset', (_, sid) => { const a = agents.get(String(sid)); a?.ws?.stopAll(); agents.delete(String(sid)); return true; });
+async function approve(a, req) {
+  const auto = a.mode === 'auto', edits = a.mode === 'edits' || auto;
+  if (req.kind === 'read' || req.kind === 'net' || req.kind === 'none') { if (!req.outside) return true; }
+  else if (!req.outside && !req.danger && ((req.kind === 'edit' && edits) || (req.kind === 'bash' && auto))) return true;
+  if (a.allowAll?.has(req.kind) && !req.outside && !req.danger) return true;
+  const what = req.kind === 'bash' ? `รันคำสั่ง (ใน ${req.cwd}):\n\n${String(req.args.command).slice(0, 1500)}` : `${req.name} ${req.args.path || req.args.url || ''}${req.kind === 'edit' ? '\n\n' + String(req.args.new_string ?? req.args.content ?? '').slice(0, 800) : ''}`;
+  const r = await dialog.showMessageBox(web, { type: req.danger || req.outside ? 'warning' : 'question', title: 'AstraCode Agent ขออนุญาต', message: req.outside ? 'Agent ขอแตะไฟล์นอกโฟลเดอร์งาน' : req.danger ? 'คำสั่งนี้อาจลบหรือเปลี่ยนแปลงข้อมูล ตรวจก่อนอนุญาต' : 'Agent ขออนุญาต', detail: `โฟลเดอร์งาน: ${a.ws.root}\n\n${what}`, buttons: ['อนุญาต', req.danger || req.outside ? 'อนุญาตครั้งนี้เท่านั้น' : `อนุญาต${req.kind === 'bash' ? 'ทุกคำสั่ง' : 'ทุกการแก้ไฟล์'}ในงานนี้`, 'ไม่อนุญาต'], defaultId: 0, cancelId: 2, noLink: true });
+  if (r.response === 1 && !req.danger && !req.outside) (a.allowAll ||= new Set()).add(req.kind);
+  return r.response < 2;
+}
+h('desk:agentRun', async (e, o = {}) => {
+  if (!settings.key) throw new Error('ยังไม่ได้เชื่อม API key ของแอป');
+  const sid = String(o.sid || '').slice(0, 80), mode = MODES.includes(o.mode) ? o.mode : 'ask', model = String(o.model || '').slice(0, 120), root = rootOf(o.slot || 'chat');
+  if (!sid || !model) throw new Error('ข้อมูลไม่ครบ');
+  let a = agents.get(sid);
+  if (a && a.ac) throw new Error('Agent กำลังทำงานอยู่ในแชตนี้');
+  // เปิดโหมดทำเองครั้งแรกของงาน: ยืนยันด้วยหน้าต่าง Windows (หน้าเว็บสั่งเองไม่ได้)
+  if (mode !== 'ask' && a?.okMode !== mode) {
+    const r = await dialog.showMessageBox(web, { type: 'warning', title: 'เปิดโหมดทำงานเอง?', message: mode === 'auto' ? 'Agent จะแก้ไฟล์และรันคำสั่งได้เองโดยไม่ถาม' : 'Agent จะแก้ไฟล์ได้เองโดยไม่ถาม (ยังถามก่อนรันคำสั่ง)', detail: `เฉพาะในโฟลเดอร์ ${root}\nคำสั่งอันตรายและไฟล์นอกโฟลเดอร์ยังถามทุกครั้ง · ย้อนไฟล์ที่ Agent แก้ได้จากปุ่มในแชต`, buttons: ['เปิดโหมดนี้', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
+    if (r.response !== 0) throw new Error('ยกเลิกแล้ว');
+  }
+  const tell = d => { if (!e.sender.isDestroyed()) e.sender.send('desk:agentEv', { sid, ...d }); };
+  if (!a || a.ws.root !== path.resolve(root)) {
+    a = { messages: [], mode };
+    a.ws = new Workspace(root, { ask: req => approve(a, req), onTodos: t => tell({ type: 'todos', todos: t }), search: async q => { const r = await fetch(SITE + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ query: q }) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error?.message_th || d.error?.message || 'ค้นเว็บไม่ได้'); return d.results || []; } });
+    a.messages.push({ role: 'system', content: agentSystem({ root: a.ws.root, os: `${process.platform} ${require('os').release()}`, rules: await projectRules(a.ws.root) }) });
+    for (const m of (Array.isArray(o.history) ? o.history : []).slice(-10)) if (['user', 'assistant'].includes(m?.role) && typeof m.content === 'string') a.messages.push({ role: m.role, content: m.content.slice(0, 8000) }); // แชตเดิมที่เปิดใหม่หลังปิดแอป
+    agents.set(sid, a);
+  }
+  a.mode = mode; a.okMode = mode; a.ws.snap.clear(); a.allowAll = null;
+  a.messages.push({ role: 'user', content: String(o.text || '').slice(0, 100000) });
+  const ac = a.ac = new AbortController(); a.ws.signal = ac.signal;
+  let tools = AGENT_TOOLS;
+  if (settings.mcp) { try { await mcpUp(); tools = [...AGENT_TOOLS, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
+  const callTool = (name, args) => mcp?.has(name) ? mcp.call(name, args) : a.ws.call(name, args);
+  try {
+    await runAgent({ base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent: tell, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)) });
+    tell({ type: 'done', changed: a.ws.changed() });
+  } catch (x) {
+    tell({ type: 'error', text: ac.signal.aborted ? 'หยุดแล้ว' : x.message, changed: a.ws.changed() });
+    if (/API key/i.test(x.message) && /ไม่ถูกต้อง|invalid/i.test(x.message)) { settings.key = ''; save(); } // key ถูกลบที่เว็บ: ให้สร้างใหม่รอบหน้า
+  } finally { a.ac = null; }
+  return true;
+});
 
 h('desk:notify', (_, title, body) => {
   if (web.isFocused()) return false;

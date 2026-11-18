@@ -1419,3 +1419,16 @@ a.contact-l { color: var(--link) !important; border: 1px solid color-mix(in srgb
 /* หลังบ้าน → ต้นทุนสด */
 svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .pill.muted { opacity: .7; }
+/* แอป Desktop: โหมด Agent (ขั้นตอนที่ Agent ทำในเครื่อง) */
+.msg.ai .agent { margin: 0 0 8px; font-size: 13px; }
+.agsteps > summary { cursor: pointer; color: var(--ash); display: flex; gap: 6px; align-items: center; padding: 4px 0; }
+.agstep { border-left: 2px solid var(--steel); padding: 3px 0 3px 10px; margin: 2px 0; }
+.agstep > summary { cursor: pointer; list-style: none; display: flex; gap: 6px; align-items: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agstep > summary code { opacity: .8; overflow: hidden; text-overflow: ellipsis; }
+.agstep pre { white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; font-size: 12px; margin: 6px 0 2px; background: var(--carbon); padding: 8px; border-radius: 8px; }
+.agstep .ok { color: var(--green); } .agstep .bad { color: var(--red); }
+.agsp { width: 10px; height: 10px; border: 2px solid var(--steel); border-top-color: var(--accent, #c25b3a); border-radius: 50%; display: inline-block; animation: agspin .8s linear infinite; }
+@keyframes agspin { to { transform: rotate(360deg); } }
+.agtodo { border: 1px solid var(--steel); border-radius: 10px; padding: 8px 10px; margin: 0 0 8px; display: grid; gap: 3px; }
+.agtodo .completed { opacity: .55; text-decoration: line-through; } .agtodo .in_progress { font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .agsp { animation: none; } }
