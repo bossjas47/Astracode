@@ -1,6 +1,6 @@
 {
   "name": "astracode-desktop",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "AstraCode Desktop: the AstraCode website in an app window, with access to files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "AstraCode",
@@ -9,7 +9,9 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test --test-force-exit test/localfs.test.js",
-    "dist": "electron-builder --win nsis --publish never"
+    "dist": "electron-builder --win nsis --publish never",
+    "dist:mac": "electron-builder --mac dmg zip --publish never",
+    "dist:linux": "electron-builder --linux AppImage --publish never"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.0.4",
@@ -27,7 +29,8 @@
       "preload-web.js",
       "tools.js",
       "mcp.js",
-      "localfs.js"
+      "localfs.js",
+      "build/icon.png"
     ],
     "win": {
       "target": "nsis",
@@ -43,6 +46,31 @@
         "provider": "generic",
         "url": "https://github.com/bossjas47/Astracode/releases/download/desktop-latest"
       }
-    ]
+    ],
+    "protocols": [
+      {
+        "name": "AstraCode",
+        "schemes": [
+          "astracode"
+        ]
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "AstraCode-Desktop-mac.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Development",
+      "artifactName": "AstraCode-Desktop-linux.${ext}"
+    }
   }
 }

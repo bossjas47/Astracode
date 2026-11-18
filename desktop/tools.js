@@ -23,15 +23,16 @@ async function localTool(root, name, a = {}) {
   throw new Error('ไม่รู้จักเครื่องมือ ' + name);
 }
 
-// รันคำสั่งให้หน้าเว็บ: ส่งผลระหว่างทางทีละส่วน (onOut) · หมดเวลา/กดหยุด = ฆ่าทั้งกลุ่ม process (Windows ต้องใช้ taskkill /T)
+// รันคำสั่งให้หน้าเว็บ: ส่งผลระหว่างทางทีละส่วน (onOut) · หมดเวลา/กดหยุด = ฆ่าทั้งกลุ่ม process (Windows ต้องใช้ taskkill /T) · timeout 0 = ไม่จำกัด (dev server)
+// ปิด stdin: คำสั่งที่ถาม y/n ได้คำตอบว่าง แล้วจบเอง ไม่ค้างรอ · Windows: chcp 65001 ให้ผลภาษาไทยเป็น UTF-8 (ค่าเดิม code page 874 อ่านแล้วเพี้ยน)
 const OUT_MAX = 200e3;
 function runCmd(cwd, cmd, { onOut = () => {}, timeout = 600e3, signal } = {}) {
   return new Promise(ok => {
     const win = process.platform === 'win32';
-    const p = spawn(cmd, { cwd, shell: true, windowsHide: true, detached: !win, env: { ...process.env, FORCE_COLOR: '0' } });
+    const p = spawn(win ? 'chcp 65001>nul & ' + cmd : cmd, { cwd, shell: true, windowsHide: true, detached: !win, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FORCE_COLOR: '0', npm_config_yes: 'true', PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
     let stdout = '', stderr = '', done = false;
     const kill = () => { try { win ? exec(`taskkill /pid ${p.pid} /T /F`) : process.kill(-p.pid, 'SIGKILL'); } catch { /* จบไปแล้ว */ } };
-    const t = setTimeout(() => { stderr += '\n(หมดเวลา ' + timeout / 1000 + ' วินาที หยุดคำสั่งแล้ว)'; kill(); }, timeout);
+    const t = timeout ? setTimeout(() => { stderr += '\n(หมดเวลา ' + timeout / 1000 + ' วินาที หยุดคำสั่งแล้ว)'; kill(); }, timeout) : null;
     signal?.addEventListener('abort', () => { stderr += '\n(หยุดแล้ว)'; kill(); });
     const take = (k, b) => { const s = b.toString('utf8'); if (k === 'out') { if (stdout.length < OUT_MAX) stdout += s; } else if (stderr.length < OUT_MAX) stderr += s; onOut(k, s); };
     p.stdout.on('data', b => take('out', b)); p.stderr.on('data', b => take('err', b));
@@ -39,9 +40,13 @@ function runCmd(cwd, cmd, { onOut = () => {}, timeout = 600e3, signal } = {}) {
     p.on('error', e => { stderr += e.message; end(1); }); p.on('close', end);
   });
 }
+// dev server: เห็นพอร์ตในผลลัพธ์ (localhost:5173 ฯลฯ) · คำสั่งที่ไม่จบเอง ต้องรันเบื้องหลังแทนรันแล้วรอ
+const portOf = s => +(/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d{2,5})/.exec(String(s).replace(/\x1b\[[0-9;]*m/g, '')) || [])[1] || null;
+const SERVER_CMD = /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|preview|watch)\b|\b(vite|nodemon|live-server|http-server|serve)\b(?!-)|\bnext\s+(dev|start)\b|\bpython3?\s+-m\s+http\.server\b|\bflask\s+run\b|\buvicorn\b|\bphp\s+-S\b|\bng\s+serve\b|--watch\b/i;
+const isServer = cmd => SERVER_CMD.test(String(cmd));
 
 // คำสั่งที่ลบ/ทับข้อมูล ปิดเครื่อง แก้ระบบ ส่งงานขึ้นที่อื่น หรือโหลดสคริปต์จากเน็ตมารัน: ถามทุกครั้งแม้เปิดรันอัตโนมัติ
 const DANGER = /\b(rm|rmdir|rd|del|erase|format|mkfs|diskpart|shutdown|reboot|reg|regedit|taskkill|kill|pkill|chmod|chown|sudo|runas|takeown|icacls|bcdedit|cipher|move|mv|dd)\b|remove-item|format-volume|stop-process|set-executionpolicy|invoke-expression|\biex\b|\biwr\b|invoke-webrequest|git\s+(push|reset|clean|checkout|rebase|branch\s+-D)|--force|\b(curl|wget)\b[^\n]*\|\s*(sh|bash|pwsh|powershell)|npm\s+(publish|unpublish)|>\s*[\w./\\:-]*\.(env|bat|cmd|ps1)\b/i;
 const isDanger = cmd => DANGER.test(String(cmd));
 
-module.exports = { localTool, safePath, runCmd, isDanger };
+module.exports = { localTool, safePath, runCmd, isDanger, isServer, portOf };

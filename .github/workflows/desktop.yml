@@ -1,4 +1,4 @@
-name: Build Desktop (Windows .exe)
+name: Build Desktop (Windows / Mac / Linux)
 on:
   workflow_dispatch:
   push:
@@ -6,7 +6,14 @@ on:
     paths: ['desktop/**', '.github/workflows/desktop.yml']
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, script: dist, name: win, files: "desktop/dist/*.exe\ndesktop/dist/*.exe.blockmap\ndesktop/dist/latest.yml" }
+          - { os: macos-latest, script: 'dist:mac', name: mac, files: "desktop/dist/*.dmg\ndesktop/dist/*.zip\ndesktop/dist/*.blockmap\ndesktop/dist/latest-mac.yml" }
+          - { os: ubuntu-latest, script: 'dist:linux', name: linux, files: "desktop/dist/*.AppImage\ndesktop/dist/latest-linux.yml" }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,32 +28,32 @@ jobs:
       - name: Build installer
         working-directory: desktop
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # ยังไม่เซ็นรับรอง: Windows จะขึ้นคำเตือนตอนติดตั้ง
-        run: npm run dist
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # ยังไม่เซ็นรับรอง: Windows/Mac จะขึ้นคำเตือนตอนติดตั้ง
+        run: npm run ${{ matrix.script }}
       - uses: actions/upload-artifact@v4
         with:
-          name: AstraCode-Desktop-Setup
-          path: |
-            desktop/dist/*.exe
-            desktop/dist/*.blockmap
-            desktop/dist/latest.yml
+          name: desktop-${{ matrix.name }}
+          path: ${{ matrix.files }}
           if-no-files-found: error
   publish:
     needs: build
+    if: ${{ !cancelled() }} # Mac/Linux พังก็ยังปล่อยตัวที่ build ได้
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: AstraCode-Desktop-Setup
+          pattern: desktop-*
           path: out
-      # ลิงก์ดาวน์โหลดบนเว็บ (/download/desktop) ชี้มาที่ไฟล์นี้ใน GitHub Release แท็ก desktop-latest (ชื่อไฟล์คงที่ ทับของเดิมทุกครั้ง)
-      # latest.yml + blockmap = ให้แอปที่ติดตั้งแล้วอัปเดตตัวเอง (electron-updater อ่านจาก release เดียวกัน) · ต้องเพิ่ม version ใน package.json ทุกครั้งที่อยากให้เครื่องผู้ใช้อัปเดต
+          merge-multiple: true
+      # ลิงก์ดาวน์โหลดบนเว็บ (/download/desktop?os=win|mac|linux) ชี้มาที่ไฟล์ใน GitHub Release แท็ก desktop-latest (ชื่อไฟล์คงที่ ทับของเดิมทุกครั้ง)
+      # latest*.yml + blockmap = ให้แอปที่ติดตั้งแล้วอัปเดตตัวเอง (electron-updater) · ต้องเพิ่ม version ใน package.json ทุกครั้งที่อยากให้เครื่องผู้ใช้อัปเดต
       - name: Publish to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "AstraCode Desktop" --notes "ตัวติดตั้ง Windows ล่าสุด" --target "${{ github.sha }}"
-          gh release upload desktop-latest out/AstraCode-Desktop-Setup.exe out/*.blockmap out/latest.yml --clobber
+          ls -la out
+          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "AstraCode Desktop" --notes "ตัวติดตั้งล่าสุด Windows / Mac / Linux" --target "${{ github.sha }}"
+          gh release upload desktop-latest out/* --clobber

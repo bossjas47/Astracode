@@ -535,7 +535,7 @@ test('desktop app: chat with local tools gets the tool instructions in the syste
   const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
   await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'x', local: { os: 'Win32', folder: 'work', mcp: [{ name: 'mcp_blender_get_scene', description: 'scene', parameters: { properties: { a: {} } } }, { bad: 1 }] } } }));
   const sys = seen[0].messages[0].content;
-  assert.match(sys, /folder "work"/); assert.match(sys, /RUN <shell command/); assert.match(sys, /mcp_blender_get_scene/);
+  assert.match(sys, /folder "work"/); assert.match(sys, /RUN <shell command/); assert.match(sys, /mcp_blender_get_scene/); assert.match(sys, /GREP/); assert.doesNotMatch(sys, /CLICK x y/);
   await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'y' } }));
   assert.doesNotMatch(seen[1].messages[0].content, /AstraCode Desktop/);
   const { localOf } = await import('../src/ai.js');

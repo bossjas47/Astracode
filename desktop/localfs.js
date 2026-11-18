@@ -3,9 +3,9 @@ const fs = require('fs/promises');
 const path = require('path');
 const { safePath } = require('./tools');
 
-// ขีดจำกัดเดียวกับโปรเจกต์บนเว็บ (src/projects.js): 300 ไฟล์ · ไฟล์ละ 500KB · รวม 5MB
-const FILE_LIMIT = 500e3, PROJECT_LIMIT = 5e6, MAX_FILES = 300;
-const SKIP_DIR = /^(node_modules|\.git|__MACOSX|dist|build|\.next|\.nuxt|\.venv|venv|__pycache__|\.cache|\.idea|\.vs|bin|obj|target)$/i;
+// ขีดจำกัดเดียวกับโปรเจกต์บนเว็บ (src/projects.js): 600 ไฟล์ · ไฟล์ละ 500KB · รวม 10MB
+const FILE_LIMIT = 500e3, PROJECT_LIMIT = 10e6, MAX_FILES = 600;
+const SKIP_DIR = /^(node_modules|\.git|__MACOSX|dist|build|out|coverage|\.next|\.nuxt|\.svelte-kit|\.turbo|\.venv|venv|env|__pycache__|\.cache|\.idea|\.vs|bin|obj|target|vendor)$/i;
 const IMG = { png: 'png', jpg: 'jpeg', jpeg: 'jpeg', gif: 'gif', webp: 'webp', ico: 'x-icon' };
 const BAD = /[\x00-\x1f<>:"|?*\\]/;
 
@@ -54,4 +54,33 @@ async function renameRel(root, from, to) {
   await fs.mkdir(path.dirname(b), { recursive: true }); await fs.rename(a, b);
 }
 
-module.exports = { scanFolder, writeRel, removeRel, renameRel, FILE_LIMIT, MAX_FILES };
+// ค้นข้อความในไฟล์ข้อความทั้งโฟลเดอร์ (ไม่สนตัวพิมพ์เล็กใหญ่) ให้ AI หาจุดที่ต้องแก้โดยไม่ต้องอ่านทุกไฟล์
+async function grepRel(root, q) {
+  const needle = String(q || '').toLowerCase(), hits = []; if (!needle) return 'Error: ไม่มีคำค้น';
+  const walk = async rel => {
+    let items; try { items = await fs.readdir(path.join(root, rel), { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      if (hits.length >= 200) return;
+      const p = rel ? rel + '/' + it.name : it.name;
+      if (it.isDirectory()) { if (!SKIP_DIR.test(it.name) && !it.name.startsWith('.')) await walk(p); continue; }
+      if (!it.isFile() || IMG[p.split('.').pop().toLowerCase()]) continue;
+      const buf = await fs.readFile(path.join(root, p)).catch(() => null); if (!buf || buf.length > 2e6 || buf.includes(0)) continue;
+      buf.toString('utf8').split(/\r?\n/).forEach((l, i) => { if (hits.length < 200 && l.toLowerCase().includes(needle)) hits.push(`${p}:${i + 1}: ${l.trim().slice(0, 200)}`); });
+    }
+  };
+  await walk('');
+  return hits.length ? hits.join('\n') + (hits.length >= 200 ? '\n…(แสดง 200 จุดแรก)' : '') : 'ไม่พบ';
+}
+// แก้บางส่วนของไฟล์: ข้อความเดิมต้องเจอครั้งเดียวพอดี (ไฟล์ Windows ที่ขึ้นบรรทัดด้วย CRLF ก็จับคู่ได้)
+async function editRel(root, rel, edits) {
+  const f = safePath(root, rel); let t = await fs.readFile(f, 'utf8'); const crlf = t.includes('\r\n'), bad = [];
+  for (const e of [].concat(edits)) {
+    const fix = s => crlf ? String(s).replace(/\r?\n/g, '\r\n') : String(s), a = fix(e.search), n = a ? t.split(a).length - 1 : 0;
+    if (n !== 1) { bad.push(`${n ? 'เจอ ' + n + ' จุด (ต้องเจอจุดเดียว ใส่บรรทัดรอบๆ เพิ่ม)' : 'ไม่เจอข้อความเดิม'}: ${String(e.search).split('\n')[0].slice(0, 80)}`); continue; }
+    t = t.replace(a, () => fix(e.replace));
+  }
+  if (bad.length < [].concat(edits).length) await fs.writeFile(f, t, 'utf8');
+  return bad;
+}
+
+module.exports = { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel, FILE_LIMIT, MAX_FILES };

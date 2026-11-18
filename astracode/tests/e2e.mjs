@@ -103,28 +103,35 @@ const FLOWS = [
       scan: async () => ({ files: [{ path: 'index.html', content: '<h1>disk</h1>' }, { path: 'new.js', content: 'let n = 1' }], skipped: [] }),
       write: async (k, f) => (log.push(['write', k, f.map(x => x.path).join(',')]), 1), remove: async (k, p) => log.push(['remove', k, p]),
       run: async (k, cmd, on) => { log.push(['run', k, cmd]); on({ out: 'tests ok\n' }); return { code: 0, stdout: 'tests ok\n', stderr: '' }; }, kill() {},
+      isServer: async c => /run dev/.test(c), serve: async (k, c) => (log.push(['serve', k, c]), window.__srv = { cmd: c, port: 5173 }, { code: 0, port: 5173, running: true }), serveInfo: async () => window.__srv || null, onServe() {}, onChanged() {}, watch: async k => (log.push(['watch', k]), true),
     }, mcp: { tools: async () => [] }, notify: async () => false }; };
     const { page, errs, calls } = await open('/code?p=1', { init, '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }, { path: 'old.css', content: 'b{}' }] } });
     await page.waitForTimeout(600);
     const imp = calls.find(c => c.m === 'POST' && c.p === '/api/projects/1/import'), log1 = await page.evaluate(() => window.__desk.slice());
     await page.evaluate(() => { showRun(true); runTab('term'); }); await page.fill('#term-i', 'npm test'); await page.press('#term-i', 'Enter'); await page.waitForTimeout(700);
+    await page.fill('#term-i', 'npm run dev'); await page.press('#term-i', 'Enter'); await page.waitForTimeout(700);
     const log2 = await page.evaluate(() => window.__desk.slice()), term = await page.locator('#term-o').innerText().catch(() => ''), btn = await page.locator('#localb').innerText().catch(() => '');
+    const srv = await page.locator('#srvb').innerText().catch(() => '');
     return [!errs.length || errs.join(' | '), /<h1>disk<\/h1>/.test(imp?.body || '') && /new\.js/.test(imp?.body || '') || 'disk files not uploaded: ' + imp?.body?.slice(0, 120),
       log1.some(x => x[0] === 'write' && x[2].includes('old.css')) || 'project-only file not written to disk: ' + JSON.stringify(log1), !log1.some(x => x[0] === 'write' && x[2].includes('new.js')) || 'disk file written back to disk',
-      log2.some(x => x[0] === 'run' && x[1] === 'p:1' && x[2] === 'npm test') || 'RUN did not use the local terminal', term.includes('tests ok') || 'no output: ' + term, btn.includes('site') || 'header does not show the folder: ' + btn];
+      log2.some(x => x[0] === 'run' && x[1] === 'p:1' && x[2] === 'npm test') || 'RUN did not use the local terminal', term.includes('tests ok') || 'no output: ' + term, btn.includes('site') || 'header does not show the folder: ' + btn,
+      log2.some(x => x[0] === 'serve' && x[2] === 'npm run dev') || 'dev server not started in the background', srv.includes('5173') || 'server button missing: ' + srv, term.includes('localhost:5173') || 'server URL not shown', log1.some(x => x[0] === 'watch') || 'folder not watched'];
   }],
   ['desktop app: chat with "use this computer" runs the AI tool lines locally and sends the results back', async () => {
     const init = () => { try { localStorage.setItem('pc', '1'); } catch { return; } const log = window.__desk = []; window.astraDesktop = { fs: {
       linked: async k => k === 'chat' ? { name: 'work', path: 'C:/work' } : null, list: async (k, p) => (log.push(['list', k, p]), 'a.txt\nb.txt'),
       read: async (k, p) => (log.push(['read', k, p]), 'hello from a'), run: async () => ({ code: 0, stdout: '', stderr: '' }), write: async () => 1, kill() {},
+      grep: async (k, q) => (log.push(['grep', k, q]), 'a.txt:1: hello from a'), edit: async (k, p, e) => (log.push(['edit', p, e[0].search, e[0].replace]), []), isServer: async () => false,
     }, mcp: { tools: async () => [{ name: 'mcp_blender_get_scene', description: 'scene', parameters: { properties: {} } }] }, notify: async () => false }; };
-    let n = 0; const chat = () => ++n === 1 ? [{ chat_id: 7 }, { t: 'ขอดูไฟล์ก่อน\nLIST .\nREAD a.txt' }, { done: true, pct4h: 1, pctWeek: 1 }] : [{ t: 'ไฟล์ a.txt เขียนว่า hello' }, { done: true, pct4h: 1, pctWeek: 1 }];
+    let n = 0; const chat = () => ++n === 1 ? [{ chat_id: 7 }, { t: 'ขอดูไฟล์ก่อน\nLIST .\nREAD a.txt\nGREP hello\nCLICK 10 10\n```js file=a.js\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n```' }, { done: true, pct4h: 1, pctWeek: 1 }] : [{ t: 'ไฟล์ a.txt เขียนว่า hello' }, { done: true, pct4h: 1, pctWeek: 1 }];
     const { page, errs, calls } = await open('/chat', { init, chat });
     await page.fill('#t', 'ดูไฟล์ในโฟลเดอร์'); await page.press('#t', 'Enter'); await page.waitForTimeout(1500);
     const sent = calls.filter(c => c.p === '/api/chat').map(c => JSON.parse(c.body)), log = await page.evaluate(() => window.__desk.slice()), text = await page.locator('#msgs').innerText();
     return [!errs.length || errs.join(' | '), sent[0]?.local?.folder === 'work' && sent[0].local.mcp?.[0]?.name === 'mcp_blender_get_scene' || 'local info not sent: ' + JSON.stringify(sent[0]?.local),
       log.some(x => x[0] === 'list') && log.some(x => x[0] === 'read' && x[2] === 'a.txt') || 'tools not run: ' + JSON.stringify(log),
       sent.length === 2 && sent[1].text.startsWith('[ผลจากเครื่อง]') && sent[1].text.includes('hello from a') || 'results not sent back: ' + JSON.stringify(sent[1]?.text),
+      log.some(x => x[0] === 'grep' && x[2] === 'hello') && log.some(x => x[0] === 'edit' && x[1] === 'a.js' && x[2] === 'old' && x[3] === 'new') || 'grep/edit not run: ' + JSON.stringify(log),
+      /ยังไม่ได้เปิดให้ AI ดูหน้าจอ/.test(sent[1]?.text || '') || 'screen action ran without permission',
       text.includes('ไฟล์ a.txt เขียนว่า hello') || 'final answer missing', text.includes('ผลจากเครื่อง') || 'result bubble missing', /⚙ LIST/.test(text) || 'tool line not shown as a step'];
   }],
   ['delete a chat moves it to the trash', async () => {

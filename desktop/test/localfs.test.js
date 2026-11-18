@@ -43,3 +43,23 @@ test('isDanger: delete/force/system commands still ask even in auto mode; normal
   for (const c of ['npm install', 'npm test', 'npm run build', 'node app.js', 'python main.py', 'pip install requests', 'git status', 'git diff', 'git add .', 'git commit -m "x"', 'dir', 'ls -la', 'npx tsc', 'echo hi > out.txt'])
     assert.ok(!isDanger(c), c);
 });
+
+test('grep and edit: finds lines, edits one exact match, keeps CRLF, refuses ambiguous', async () => {
+  const { grepRel, editRel } = require('../localfs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'astra-'));
+  fs.writeFileSync(path.join(root, 'a.js'), 'const total = 1;\r\nconsole.log(total);\r\n');
+  fs.mkdirSync(path.join(root, 'node_modules')); fs.writeFileSync(path.join(root, 'node_modules/x.js'), 'total');
+  assert.equal(await grepRel(root, 'TOTAL'), 'a.js:1: const total = 1;\na.js:2: console.log(total);');
+  assert.deepEqual(await editRel(root, 'a.js', [{ search: 'const total = 1;\nconsole', replace: 'const total = 2;\nconsole' }]), []);
+  assert.equal(fs.readFileSync(path.join(root, 'a.js'), 'utf8'), 'const total = 2;\r\nconsole.log(total);\r\n');
+  assert.match((await editRel(root, 'a.js', [{ search: 'total', replace: 'x' }]))[0], /เจอ 2 จุด/);
+});
+
+test('isServer / portOf: dev servers run in the background and their port is found', () => {
+  const { isServer, portOf } = require('../tools');
+  for (const c of ['npm run dev', 'npm start', 'yarn dev', 'npx vite', 'python -m http.server 8000', 'php -S localhost:8000', 'next dev']) assert.ok(isServer(c), c);
+  for (const c of ['npm test', 'npm run build', 'node app.js', 'npm install', 'npx serve-handler']) assert.ok(!isServer(c), c);
+  assert.equal(portOf('  \x1b[32m➜\x1b[39m  Local:   http://localhost:\x1b[1m5173\x1b[22m/'.replace(/\x1b\[1m|\x1b\[22m/g, '')), 5173);
+  assert.equal(portOf('Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/)'), 8000);
+  assert.equal(portOf('compiled ok'), null);
+});

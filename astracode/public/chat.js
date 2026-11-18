@@ -869,7 +869,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   const t0 = Date.now();
   let started = false, streamErr = null, aborted = false, raf = 0;
   try {
-    await stream({ chat_id: chat.id, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps, local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [] } : undefined,
+    await stream({ chat_id: chat.id, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps, local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
       started = true;
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
@@ -926,16 +926,18 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
 // AI เขียนบรรทัด LIST / READ / RUN / MCP หรือบล็อก file=… → หน้าเว็บในแอปทำในเครื่อง (เฉพาะโฟลเดอร์ที่ผู้ใช้เลือก) แล้วส่งผลกลับเป็นข้อความถัดไปให้ AI ทำต่อ
 // RUN และการตั้งค่า MCP ถามอนุญาตด้วยหน้าต่างของ Windows (แอปเป็นคนถาม หน้าเว็บกดแทนไม่ได้) · เขียนไฟล์ถามในหน้านี้ก่อน
 const PCD = window.astraDesktop?.fs ? window.astraDesktop : null;
-const PC_LINE = /^[ \t]*(LIST|READ|RUN|MCP)\b[ \t]*(.*)$/gm, PC_RES = '[ผลจากเครื่อง]', PC_MAX = 15;
+const PC_LINE = /^[ \t]*(LIST|READ|GREP|RUN|MCP|SCREEN|CLICK|DOUBLE|RIGHT|TYPE|KEY|SCROLL|WAIT)\b[ \t]*(.*)$/gm, PC_SCREEN = new Set(['SCREEN', 'CLICK', 'DOUBLE', 'RIGHT', 'TYPE', 'KEY', 'SCROLL', 'WAIT']), PC_RES = '[ผลจากเครื่อง]', PC_MAX = 15;
 const pcOn = () => !!(PCD && chat.pc && localStorage.getItem('pc') === '1');
-const pcCalls = text => [...String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(PC_LINE)].map(m => [m[1], m[2].trim()]).slice(0, 5);
+const pcCalls = text => [...String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(PC_LINE)].map(m => [m[1], m[2].trim()]).slice(0, 12);
 const pcFmt = text => PCD ? String(text).split(/(```[\s\S]*?(?:```|$))/).map((p, i) => i % 2 ? p : p.replace(PC_LINE, (_, k, a) => '`⚙ ' + k + ' ' + a.replace(/`/g, "'").slice(0, 200) + '`')).join('') : text;
 const pcTools = () => { if (pcOn()) PCD.mcp.tools().then(t => { chat.pcTools = t; }).catch(x => { chat.pcTools = []; toast('MCP ในเครื่อง: ' + x.message, 'bad'); }); };
-async function pcInit() { if (!PCD) return; chat.pc = await PCD.fs.linked('chat').catch(() => null); pcTools(); modelUI(); }
+async function pcInit() { if (!PCD) return; chat.pc = await PCD.fs.linked('chat').catch(() => null); chat.screen = await PCD.screen?.state().catch(() => false); pcTools(); modelUI(); }
 function pcSheet() {
   sheet('ใช้คอมเครื่องนี้', `<div class="sheet-form"><p class="sheet-msg">AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP ในเครื่องนี้ได้ <b>เฉพาะในโฟลเดอร์ที่เลือก</b> · เขียนไฟล์ได้เองในโฟลเดอร์นี้ · รันคำสั่งถามในหน้าต่างของ Windows (เลือก "รันอัตโนมัติ" ได้ คำสั่งลบ/อันตรายยังถามเสมอ)</p>
     <p style="margin:0">${chat.pc ? `โฟลเดอร์: <b>${esc(chat.pc.path)}</b>${chat.pc.auto ? '<br>รันคำสั่งอัตโนมัติ: <b>เปิด</b> (ยกเว้นคำสั่งอันตราย) <button type="button" class="btn out sm" id="pcauto">ปิด</button>' : ''}` : 'ยังไม่ได้เลือกโฟลเดอร์'}</p>
-    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button></div></div>`, (d, close) => {
+    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button></div>
+    ${chat.pc ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="pcscr" ${chat.screen ? 'checked' : ''}><span></span></span> ให้ AI ดูหน้าจอและคุมเมาส์/คีย์บอร์ด (Windows · ต้องใช้โมเดลที่อ่านรูปได้ · หยุดทันที Ctrl+Alt+Esc)</label>` : ''}</div>`, (d, close) => {
+    d.querySelector('#pcscr')?.addEventListener('change', async e => { try { chat.screen = e.target.checked ? await PCD.screen.on() : !await PCD.screen.off(); } catch (x) { chat.screen = false; toast(x.message, 'bad'); } e.target.checked = !!chat.screen; if (chat.screen && !curModel()?.vision) toast('โมเดลที่เลือกอ่านรูปไม่ได้ เปลี่ยนเป็นโมเดลที่มีไอคอนตาก่อนใช้', 'bad'); });
     d.querySelector('#pcpick').onclick = async () => { const l = await PCD.fs.link('chat').catch(x => { toast(x.message, 'bad'); return null; }); if (!l) return; chat.pc = l; localStorage.setItem('pc', '1'); close(); pcTools(); modelUI(); toast(`AI ใช้โฟลเดอร์ ${l.name} ได้แล้ว`, 'ok'); };
     d.querySelector('#pctog')?.addEventListener('click', () => { localStorage.setItem('pc', pcOn() ? '0' : '1'); close(); pcTools(); modelUI(); });
     d.querySelector('#pcopen')?.addEventListener('click', () => PCD.fs.open('chat'));
@@ -966,17 +968,31 @@ async function pcAct(ai) {
   chat.pcRound = (chat.pcRound || 0) + 1; if (chat.pcRound > PC_MAX) return showErr(`AI ใช้เครื่องมือในเครื่องครบ ${PC_MAX} รอบแล้ว พิมพ์สั่งต่อได้`);
   const calls = pcCalls(ai.content), writes = fileBlocks(ai.content), cut = s => s.length > 8000 ? s.slice(0, 2500) + '\n…(ตัดกลาง)…\n' + s.slice(-5000) : s;
   let out = PC_RES; const imgs = [];
-  if (writes.length) try { await PCD.fs.write('chat', writes.map(f => ({ path: f.path, content: f.text }))); out += '\n\nเขียนไฟล์แล้ว: ' + writes.map(f => f.path).join(', '); toast(`เขียน ${writes.length} ไฟล์ลง ${chat.pc.name} แล้ว`, 'ok'); } catch (x) { out += '\n\nเขียนไฟล์ไม่สำเร็จ: ' + x.message; }
-  for (const [k, a] of calls) {
+  for (const f of writes) { // บล็อก file= ทั้งไฟล์ = เขียนทับ · ข้างในเป็น SEARCH/REPLACE = แก้เฉพาะจุด
+    const edits = [...f.text.matchAll(/^<{5,9} SEARCH[ \t]*\n([\s\S]*?)\n?={5,9}[ \t]*\n([\s\S]*?)\n?>{5,9} REPLACE[ \t]*$/gm)].map(m => ({ search: m[1], replace: m[2] }));
+    try {
+      if (edits.length) { const bad = await PCD.fs.edit('chat', f.path, edits); out += `\n\nแก้ ${f.path}: ${edits.length - bad.length}/${edits.length} จุด${bad.length ? '\n' + bad.map(b => '- ' + b).join('\n') : ''}`; }
+      else { await PCD.fs.write('chat', [{ path: f.path, content: f.text }]); out += `\n\nเขียน ${f.path} แล้ว`; }
+    } catch (x) { out += `\n\nเขียน ${f.path} ไม่สำเร็จ: ${x.message}`; }
+  }
+  if (writes.length) toast(`อัปเดต ${writes.length} ไฟล์ใน ${chat.pc.name} แล้ว`, 'ok');
+  const acts = calls.filter(c => PC_SCREEN.has(c[0])).map(([k, a]) => [k, ...(k === 'TYPE' ? [a] : a.split(/\s+/).filter(Boolean))]);
+  for (const [k, a] of calls.filter(c => !PC_SCREEN.has(c[0]))) {
     let r;
     try {
       const arg = a.replace(/^path=/, '').replace(/^[`'"]|[`'"]$/g, '');
       if (k === 'LIST') r = await PCD.fs.list('chat', arg || '.');
       if (k === 'READ') r = await PCD.fs.read('chat', arg);
+      if (k === 'GREP') r = await PCD.fs.grep('chat', arg);
+      if (k === 'RUN' && await PCD.fs.isServer(a)) { const d = await PCD.fs.serve('chat', a); r = d.stderr || (d.running ? `รันเบื้องหลังแล้ว${d.port ? ' ที่ http://localhost:' + d.port : ''} (เซิร์ฟเวอร์ไม่จบเอง ผู้ใช้เปิดดูได้)` : 'เซิร์ฟเวอร์หยุดทันที'); out += `\n\n$ ${k} ${a}\n${r}`; continue; }
       if (k === 'RUN') { if (!chat.pc.auto) toast('รอคุณกดอนุญาตในหน้าต่างของ Windows'); const d = await PCD.fs.run('chat', a); chat.pc = await PCD.fs.linked('chat').catch(() => chat.pc) || chat.pc; r = `(exit ${d.code})\n${d.stdout}${d.stderr ? '\n[stderr]\n' + d.stderr : ''}`; }
       if (k === 'MCP') { const sp = a.indexOf(' '), name = sp < 0 ? a : a.slice(0, sp); let args = {}; if (sp >= 0) try { args = JSON.parse(a.slice(sp + 1)); } catch { throw new Error('JSON arguments ไม่ถูกต้อง'); } const d = await PCD.mcp.call(name, args); r = d.text; imgs.push(...(d.images || [])); }
     } catch (x) { r = 'Error: ' + x.message; }
     out += `\n\n$ ${k} ${a}\n${cut(String(r || '(ไม่มีผลลัพธ์)'))}`;
+  }
+  if (acts.length) {
+    if (!chat.screen) out += '\n\n' + acts.map(x => x[0]).join(', ') + ': Error: ผู้ใช้ยังไม่ได้เปิดให้ AI ดูหน้าจอ/คุมเมาส์';
+    else try { const d = await PCD.screen.batch(acts); out += `\n\n[หน้าจอ ${d.w}x${d.h} พิกเซล ภาพแนบล่าสุด]\n${d.log.join('\n')}`; imgs.push(d.image); } catch (x) { out += '\n\nหน้าจอ: Error: ' + x.message; if (/ยังไม่ได้อนุญาต/.test(x.message)) chat.screen = false; }
   }
   if (imgs.length && !curModel()?.vision) out += '\n\n(เครื่องมือส่งรูปมา แต่โมเดลนี้อ่านรูปไม่ได้)';
   const t = $('#t'), keep = [t.value, chat.files, chat.images];

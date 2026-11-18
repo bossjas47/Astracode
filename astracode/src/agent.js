@@ -71,7 +71,7 @@ async function applyChanges(env, pid, changes, raw = false) {
     const w = raw ? '' : syntaxWarning(c.path, c.content); if (w) warnings.push(`${c.path}: ${w}`);
   }
   const sizes = new Map(cur); for (const d of dels) sizes.delete(d); for (const w of writes) sizes.set(w.path, w.content);
-  if (sizes.size > FILES_PER_PROJECT || [...sizes.values()].reduce((a, b) => a + b.length, 0) > PROJECT_LIMIT) return { applied: [], problems: ['โปรเจกต์ใหญ่เกินขีดจำกัด (ไฟล์เยอะหรือเกิน 5MB) ไม่ได้เขียนไฟล์รอบนี้'] };
+  if (sizes.size > FILES_PER_PROJECT || [...sizes.values()].reduce((a, b) => a + b.length, 0) > PROJECT_LIMIT) return { applied: [], problems: ['โปรเจกต์ใหญ่เกินขีดจำกัด (เกิน 600 ไฟล์หรือ 10MB) ไม่ได้เขียนไฟล์รอบนี้'] };
   const now = Date.now();
   await snapshot(env, pid, [...writes, ...dels.map(path => ({ path, content: '' }))], 'agent');
   const ops = [...writes.map(w => DB.prepare('INSERT OR REPLACE INTO project_files (project_id,path,content,updated_at) VALUES (?,?,?,?)').bind(pid, w.path, w.content, now)), ...dels.map(p => DB.prepare('DELETE FROM project_files WHERE project_id=? AND path=?').bind(pid, p))];

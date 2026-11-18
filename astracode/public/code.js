@@ -580,12 +580,13 @@ async function syncDisk(first) {
     if (down.length) await DESK.write(lkey(), down.map(p => ({ path: p, content: content(p) })));
     IDE.seen = new Set([...disk.keys(), ...down]);
     if (delHere.length) refresh();
-    if (first && skipped.length) toast(`ข้าม ${skipped.length} ไฟล์ในเครื่อง (ไบนารี / ใหญ่เกิน 500KB / เกิน 300 ไฟล์ หรือ 5MB) · ไฟล์ยังอยู่ในเครื่องครบ`);
+    if (first && skipped.length) toast(`ข้าม ${skipped.length} ไฟล์ในเครื่อง (ไบนารี / ใหญ่เกิน 500KB / เกิน 600 ไฟล์ หรือ 10MB) · ไฟล์ยังอยู่ในเครื่องครบ`);
     if (up.length || delHere.length) setStatus(`ซิงก์จากเครื่อง ${up.length + delHere.length} ไฟล์ ✓`);
   } catch (x) { setStatus('ซิงก์โฟลเดอร์ในเครื่องไม่ได้: ' + x.message, true); }
   finally { IDE.syncing = false; }
 }
 async function localRun(cmd) {
+  if (await DESK.isServer(cmd)) return localServe(cmd);
   await saveNow(); showRun(true); runTab('term');
   termOut(`$ ${cmd}\n`, 'cmd'); $('#run-status').textContent = 'กำลังรันในเครื่อง...';
   const d = await DESK.run(lkey(), cmd, o => { if (o.out) termOut(o.out); if (o.err) termOut(o.err, 'err', true); }).catch(x => ({ code: 1, stdout: '', stderr: x.message }));
@@ -595,17 +596,36 @@ async function localRun(cmd) {
   await syncDisk(); // คำสั่งสร้าง/แก้ไฟล์ (build, format, codegen) → ขึ้นโปรเจกต์
   return d;
 }
+// dev server (npm run dev ฯลฯ): รันค้างเบื้องหลังในเครื่อง ไม่รอให้จบ · ผลลัพธ์ไหลเข้า Terminal · ปุ่ม 🌐 บนหัวจอ = เปิดพรีวิว / หยุด
+async function localServe(cmd) {
+  await saveNow(); showRun(true); runTab('term'); termOut(`$ ${cmd}  (รันเบื้องหลัง)\n`, 'cmd'); IDE.srvLog = '';
+  const d = await DESK.serve(lkey(), cmd).catch(x => ({ code: 1, stderr: x.message }));
+  if (d.stderr) { termOut(d.stderr + '\n', 'err', true); return { code: 1, stdout: '', stderr: d.stderr }; }
+  const msg = d.running ? `เซิร์ฟเวอร์รันอยู่เบื้องหลัง${d.port ? ' ที่ http://localhost:' + d.port : ' (ยังไม่เห็นพอร์ตใน 20 วินาทีแรก)'} · เปิดพรีวิว/หยุดได้ที่ปุ่ม 🌐 ด้านบน` : 'เซิร์ฟเวอร์หยุดทำงานทันที ดู error ด้านบน';
+  termOut(msg + '\n', d.running ? 'muted' : 'err'); srvUI();
+  return { code: d.running ? 0 : 1, stdout: msg + '\n' + (IDE.srvLog || '').slice(-3000), stderr: '' };
+}
+async function srvUI() {
+  const b = $('#srvb'); if (!b) return;
+  const sv = IDE.local ? await DESK.serveInfo(lkey()).catch(() => null) : null; b.hidden = !sv;
+  if (sv) b.innerHTML = `${ic('globe', 'sm')} ${sv.port ? ':' + sv.port : 'server'}`;
+  b.onclick = async () => { const a = await sheetPick(`${sv.cmd}${sv.port ? ' · http://localhost:' + sv.port : ''}`, [...(sv.port ? [['open', 'เปิดพรีวิว']] : []), ['stop', 'หยุดเซิร์ฟเวอร์']]); if (a === 'open') DESK.preview(sv.port); if (a === 'stop') { await DESK.serveStop(lkey()); setTimeout(srvUI, 500); } };
+}
+if (DESK) {
+  DESK.onServe?.(d => { if (!IDE.local || d.k !== lkey()) return; const t = d.out || d.err; if (t) { termOut(t, d.err ? 'err' : '', true); IDE.srvLog = ((IDE.srvLog || '') + t).slice(-20000); } if (d.port || d.exit != null) { if (d.exit != null) termOut(`[เซิร์ฟเวอร์หยุด exit ${d.exit}]\n`, 'muted'); srvUI(); } });
+  DESK.onChanged?.(k => { if (IDE.local && k === lkey()) syncDisk(); }); // แก้ไฟล์ด้วยโปรแกรมอื่น → ขึ้นโปรเจกต์ทันที
+}
 async function linkLocal() {
   if (IDE.local) {
     IDE.local = await DESK.linked(lkey()).catch(() => IDE.local) || IDE.local;
     const a = await sheetPick(`เชื่อมกับโฟลเดอร์ในเครื่อง: ${IDE.local.path}`, [['open', 'เปิดโฟลเดอร์'], ['sync', 'ซิงก์ตอนนี้'], ...(IDE.local.auto ? [['auto', 'ปิดรันคำสั่งอัตโนมัติ (ตอนนี้เปิดอยู่ ยกเว้นคำสั่งอันตราย)']] : []), ['off', 'เลิกเชื่อม (ไฟล์ในเครื่องและในโปรเจกต์ยังอยู่ครบ)']]);
     if (a === 'auto') { await DESK.autoOff(lkey()); IDE.local.auto = false; toast('ปิดรันอัตโนมัติแล้ว ต่อไปจะถามทุกคำสั่ง'); }
     if (a === 'open') DESK.open(lkey()); if (a === 'sync') syncDisk(true);
-    if (a === 'off') { await DESK.unlink(lkey()); IDE.local = null; IDE.seen = null; localUI(); toast('เลิกเชื่อมโฟลเดอร์แล้ว'); }
+    if (a === 'off') { DESK.unwatch(lkey()); DESK.serveStop(lkey()); await DESK.unlink(lkey()); IDE.local = null; IDE.seen = null; localUI(); toast('เลิกเชื่อมโฟลเดอร์แล้ว'); }
     return;
   }
   const l = await DESK.link(lkey()); if (!l) return;
-  IDE.local = l; IDE.seen = null; localUI(); toast(`เชื่อม ${l.name} แล้ว · ไฟล์ในเครื่องจะทับไฟล์ชื่อเดียวกันในโปรเจกต์`, 'ok'); await syncDisk(true);
+  IDE.local = l; IDE.seen = null; localUI(); DESK.watch(lkey()); toast(`เชื่อม ${l.name} แล้ว · ไฟล์ในเครื่องจะทับไฟล์ชื่อเดียวกันในโปรเจกต์`, 'ok'); await syncDisk(true);
 }
 function localUI() { const b = $('#localb'); if (b) { b.hidden = !DESK; b.innerHTML = `${ic('folder', 'sm')} ${IDE.local ? esc(IDE.local.name) : 'โฟลเดอร์ในเครื่อง'}`; b.classList.toggle('blue', !!IDE.local); b.classList.toggle('out', !IDE.local); } }
 const sheetPick = (title, opts) => new Promise(ok => { sheet(title, opts.map(([k, t]) => `<button type="button" class="opt" data-v="${k}">${esc(t)}</button>`).join(''), (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { close(); ok(b.dataset.v); })); }); // ปิดแผ่นโดยไม่เลือก = ไม่ทำอะไร
@@ -1131,7 +1151,7 @@ async function codeSend(auto) {
   if (resume && IDE.msgs.at(-1)?.role !== 'user') return;
   const t = $('#ct'), text = resume ? '' : auto ? auto.text : t.value.trim();
   if (!resume && !text) return;
-  if (!auto) IDE.round = 0;
+  if (!auto) { IDE.round = 0; IDE.t0 = Date.now(); }
   await saveNow();
   const files = []; // ไม่มีระบบแนบไฟล์: AI อ่านไฟล์เองด้วย READ / GREP
   const tree = resume ? '' : [...IDE.files.keys()].join('\n').slice(0, 15000) + (IDE.active && has(IDE.active) ? `\n\n[ไฟล์ที่เปิดอยู่ในตัวแก้ไข: ${IDE.active}]` : '');
@@ -1217,6 +1237,7 @@ async function codeSend(auto) {
     }
     else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if (await autoTest()) { /* รันเทสต์แล้ว */ } else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < (IDE.agent ? 8 : 3)) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
+  if (!IDE.busy && Date.now() - (IDE.t0 || Date.now()) > 15000 && Date.now() - (IDE.told || 0) > 10000) { IDE.told = Date.now(); window.astraDesktop?.notify('AI ทำงานเสร็จแล้ว', IDE.name); } // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่น
 }
 
 // ---------- AI ดูผลลัพธ์เอง: รัน → จับภาพหน้าจอ + คอนโซล → ส่งให้ AI ตรวจ ----------
@@ -1374,7 +1395,7 @@ async function codeView(id) {
   const saved = localStorage.getItem('model');
   app.innerHTML = `<div class="ide view" data-pane="code">
     <header class="ide-bar"><button type="button" class="icon-btn sm ide-burger" id="burger" aria-label="เมนูไฟล์" aria-expanded="false">${ic('menu')}</button><a class="icon-btn sm ide-back" href="/code" aria-label="กลับไปหน้าโปรเจกต์">‹</a><b class="pname">${esc(d.name)}</b><span id="ide-status" class="muted"></span><span style="flex:1"></span>
-      <button class="btn out sm" id="localb" hidden title="ไฟล์ในโปรเจกต์ = ไฟล์จริงในโฟลเดอร์นี้ · RUN รันในเครื่อง"></button><button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} Run</button></header>
+      <button class="btn out sm" id="srvb" hidden></button><button class="btn out sm" id="localb" hidden title="ไฟล์ในโปรเจกต์ = ไฟล์จริงในโฟลเดอร์นี้ · RUN รันในเครื่อง"></button><button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} Run</button></header>
     <div class="ide-body">
       <aside class="ide-files">
         <div class="dr-tabs"><button type="button" data-dr="ai" aria-label="AI">${ic('sparkles')}</button><button type="button" data-dr="files" class="on" aria-label="ไฟล์">${ic('folder')}</button><button type="button" data-dr="find" aria-label="ค้นหาทั้งโปรเจกต์">${ic('search')}</button><button type="button" data-dr="git" aria-label="GitHub">${ic('branch')}</button><a href="/account" aria-label="บัญชี">${ic('user')}</a></div>
@@ -1582,7 +1603,7 @@ async function codeView(id) {
   drawAI();
   $('#localb').onclick = () => linkLocal().catch(x => toast(x.message, 'bad'));
   IDE.local = DESK ? await DESK.linked(lkey()).catch(() => null) : null; IDE.seen = null; localUI();
-  if (IDE.local) syncDisk(true);
+  if (IDE.local) { syncDisk(true); DESK.watch(lkey()); srvUI(); }
   const chats = await api('/chats?project=' + IDE.pid).catch(() => []); // เปิดแชตล่าสุดของโปรเจกต์
   ctxMeter();
   if (chats[0]) { IDE.chatId = chats[0].id; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); if (IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); }
