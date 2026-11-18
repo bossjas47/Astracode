@@ -496,3 +496,26 @@ test('chat: Claude at Max effort gets room to answer, and running out while thin
   assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /เต็มความยาวสูงสุด/);
   fm.close();
 });
+
+test('chat: an attached zip is stored once and the AI opens files with read_file', async () => {
+  const { fakeModel, readSSE } = await import('./helpers.mjs'); const seen = [];
+  const fm = await fakeModel((q, res, body) => {
+    seen.push(body); res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const tool = !body.messages.some(m => m.role === 'tool');
+    const d = tool ? { tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"main.py"}' } }] } : { content: 'แก้แล้ว' };
+    res.write('data: ' + JSON.stringify({ choices: [{ delta: d, finish_reason: tool ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 2 } }) + '\n\n'); res.end('data: [DONE]\n\n');
+  });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'M', base_url: fm.url });
+  const store = new Map(); t.env.SLIPS = { put: async (k, v) => { store.set(k, typeof v === 'string' ? v : new Uint8Array(v)); }, get: async k => store.has(k) ? { body: store.get(k), json: async () => JSON.parse(store.get(k)) } : null };
+  const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(), other = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const fd = new FormData(); fd.set('zip', new File([new Uint8Array([80, 75, 3, 4])], 'p.zip')); fd.set('files', JSON.stringify({ 'proj/main.py': 'print("hello-from-zip")', 'proj/README.md': '# x' }));
+  const up = await t.worker.default.fetch(new Request('https://t.test/api/zipref', { method: 'POST', headers: { cookie: u.cookie }, body: fd }), t.env, t.ctx), { id } = await up.json();
+  assert.match(id, /^[0-9a-f]{16}$/);
+  assert.equal((await t.call(`/api/zipref/${id}`, { cookie: other.cookie })).status, 404, 'another user cannot read it');
+  const text = `แก้ไฟล์\n\n[[file:p.zip]]\n[zip: 2 ไฟล์ข้อความ] [[zipref:${id}]]\nproj/main.py\nproj/README.md\n[[/file]]`;
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text } }));
+  assert.ok(seen[0].tools?.some(x => x.function?.name === 'read_file'), 'read_file offered');
+  assert.match(JSON.stringify(seen[1].messages.find(x => x.role === 'tool')), /hello-from-zip/);
+  assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /แก้แล้ว/);
+  fm.close();
+});

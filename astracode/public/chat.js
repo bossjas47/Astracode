@@ -620,15 +620,21 @@ async function readFile(f) {
     }
     text = pages.join('\n');
     if (!text.replace(/--- หน้า \d+ ---/g, '').trim()) throw new Error('PDF นี้เป็นภาพสแกน ไม่มีข้อความให้อ่าน ลองแคปหน้าจอแล้วแนบเป็นรูปแทน');
-  } else if (n.endsWith('.zip')) { // zip: แตกในเบราว์เซอร์ รวมไฟล์ข้อความ/โค้ดทุกไฟล์เป็นข้อความเดียว (มีชื่อไฟล์คั่น) ไฟล์ไบนารีบอกแค่ชื่อ
-    await lib('jszip'); const z = await JSZip.loadAsync(f), parts = [], bin = [];
+  } else if (n.endsWith('.zip')) { // zip: แตกในเบราว์เซอร์ · ส่งเก็บที่เซิร์ฟเวอร์ แล้วแนบแค่รายชื่อไฟล์ AI เปิดอ่านเองทีละไฟล์ (รับโปรเจกต์ใหญ่ได้)
+    if (f.size > 25e6) throw new Error('zip ต้องไม่เกิน 25MB');
+    await lib('jszip'); const z = await JSZip.loadAsync(f), files = {}, bin = [];
     for (const e of Object.values(z.files)) {
       if (e.dir || /(^|\/)(__MACOSX|node_modules|\.git|dist|build|\.next|vendor)\/|\.DS_Store$/.test(e.name)) continue;
       const t = TEXT_EXT.test(e.name) || !/\.[a-z0-9]+$/i.test(e.name.split('/').pop()) ? await e.async('string') : null;
-      if (t == null || t.includes('\u0000')) bin.push(e.name); else parts.push(`===== ${e.name} =====\n${t}`);
+      if (t == null || t.includes('\u0000')) bin.push(e.name); else files[e.name] = t;
     }
-    if (!parts.length) throw new Error('ไม่พบไฟล์ข้อความหรือโค้ดใน zip');
-    text = `[zip: ${parts.length} ไฟล์ข้อความ${bin.length ? `, ไฟล์อื่น ${bin.length} ไฟล์ (ไม่ได้อ่าน): ${bin.slice(0, 30).join(', ')}` : ''}]\n\n` + parts.join('\n\n');
+    const list = Object.keys(files); if (!list.length) throw new Error('ไม่พบไฟล์ข้อความหรือโค้ดใน zip');
+    const head = `[zip: ${list.length} ไฟล์ข้อความ${bin.length ? `, ไฟล์อื่น ${bin.length} ไฟล์ (ไม่ได้อ่าน): ${bin.slice(0, 30).join(', ')}` : ''}]`;
+    let id = null;
+    try { const fd = new FormData(); fd.append('zip', f); fd.append('files', JSON.stringify(files)); id = (await api('/zipref', { method: 'POST', body: fd })).id; }
+    catch (x) { if (!/R2|501/.test(x.message)) throw x; } // เซิร์ฟเวอร์ไม่มีที่เก็บ: แนบทั้งก้อนแบบเดิม
+    text = id ? `${head} [[zipref:${id}]]\nรายชื่อไฟล์ (AI เปิดอ่านเองได้):\n` + list.slice(0, 1500).map(p => `${p} · ${files[p].length.toLocaleString()} ตัวอักษร`).join('\n') + (list.length > 1500 ? `\n…และอีก ${list.length - 1500} ไฟล์` : '')
+      : head + '\n\n' + list.map(p => `===== ${p} =====\n${files[p]}`).join('\n\n');
   } else if (n.endsWith('.docx')) {
     await lib('mammoth'); text = (await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() })).value;
   } else if (/\.(xlsx|xlsm|xls|ods)$/.test(n)) {
@@ -678,6 +684,8 @@ function baseZip(i) { // zip ล่าสุดที่ผู้ใช้แน
     const m = chat.msgs[k]; if (m.role !== 'user') continue;
     for (const f of [...String(m.content).matchAll(FILE_RE)].reverse()) {
       if (!/\.zip$/i.test(f[1]) || !f[2].startsWith('[zip:')) continue;
+      const ref = f[2].match(/\[\[zipref:([0-9a-f]{16})\]\]/)?.[1];
+      if (ref) return { name: f[1], ref };
       const parts = f[2].split(/(?:^|\n\n)===== (.+?) =====\n/), files = new Map(), cut = /\n…\(ไฟล์ยาวเกิน ตัดเหลือ/.test(f[2]);
       for (let j = 1; j < parts.length; j += 2) files.set(parts[j], parts[j + 1] ?? '');
       if (cut && parts.length > 2) files.delete(parts[parts.length - 2]); // ไฟล์สุดท้ายถูกตัดกลางไฟล์: ไม่ใส่ ไม่งั้นทับของจริงด้วยไฟล์ครึ่งเดียว
@@ -689,12 +697,16 @@ function baseZip(i) { // zip ล่าสุดที่ผู้ใช้แน
 const zipBtn = (m, i) => { const n = fileBlocks(m.content).length, base = n && baseZip(i); return n > 1 || base ? `<button type="button" class="btn out sm zipbar" data-zip="${i}">${ic('download', 'sm')} ${base ? `ดาวน์โหลดโปรเจกต์ที่แก้แล้ว (.zip) · แก้ ${n} ไฟล์` : `ดาวน์โหลดทั้งหมดเป็น .zip · ${n} ไฟล์`}</button>` : ''; };
 async function zipFiles(i, btn) {
   const fs = fileBlocks(chat.msgs[i].content), base = baseZip(i); if (!fs.length) return;
-  await lib('jszip'); const z = new JSZip(), all = new Map(base?.files || []);
+  await lib('jszip'); let z = new JSZip(), all = new Map(base?.files || []);
+  if (base?.ref) { // zip ที่เก็บบนเซิร์ฟเวอร์: เริ่มจาก zip ต้นฉบับ (มีรูป/ไฟล์ไบนารีครบ) แล้วทับด้วยไฟล์ที่ AI แก้
+    const r = await fetch(`/api/zipref/${base.ref}/raw`); if (!r.ok) throw new Error('zip ต้นฉบับหมดอายุหรือถูกลบแล้ว');
+    z = await JSZip.loadAsync(await r.blob()); all = new Map(Object.values(z.files).filter(e => !e.dir).map(e => [e.name, null]));
+  }
   for (const f of fs) { // AI อาจเขียน path มีหรือไม่มีโฟลเดอร์ครอบของ zip: จับคู่กับไฟล์เดิมที่ path ลงท้ายเหมือนกัน
     const hit = [...all.keys()].find(p => p === f.path || p.endsWith('/' + f.path) || f.path.endsWith('/' + p));
     all.set(hit || f.path, f.text);
   }
-  for (const [p, t] of all) z.file(p, t);
+  for (const [p, t] of all) if (t != null) z.file(p, t);
   const roots = new Set([...all.keys()].map(p => p.split('/')[0])), name = base ? base.name.replace(/\.zip$/i, '') + '_edited.zip' : (roots.size === 1 && [...all.keys()][0].includes('/') ? [...roots][0] : 'astracode-files') + '.zip';
   const a = document.createElement('a'); a.href = URL.createObjectURL(await z.generateAsync({ type: 'blob' })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   const o = btn.innerHTML; btn.innerHTML = ic('check', 'sm') + ' ดาวน์โหลดแล้ว'; setTimeout(() => btn.innerHTML = o, 1500);

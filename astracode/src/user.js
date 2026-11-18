@@ -5,9 +5,29 @@ import { b64, projects, seal, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { monthKey } from './api.js';
 import { status } from './jobs.js';
+export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
 export async function userRoutes(req, env, ctx, url, path, M, u) {
   const DB = env.DB; let r;
+  // zip ที่แนบในแชต: เก็บ zip ต้นฉบับ + ไฟล์ข้อความ (JSON) ใน R2 · AI เปิดอ่านทีละไฟล์ด้วยเครื่องมือ read_file แทนการยัดทั้งก้อนลงข้อความ
+  if (path === '/api/zipref' && M === 'POST') {
+    if (!env.SLIPS) return err('ยังไม่ได้ตั้งที่เก็บไฟล์ (R2)', 501);
+    if (await limited(env, 'zipref:' + u.id, 30, 3600e3)) return err('อัปโหลด zip บ่อยเกินไป รอสักครู่', 429);
+    const fd = await req.formData(), zip = fd.get('zip'), raw = String(fd.get('files') || '');
+    if (!(zip instanceof File) || zip.size > ZIPREF_MAX) return err('zip ต้องไม่เกิน 25MB');
+    if (raw.length > ZIPREF_TEXT_MAX) return err('ไฟล์ข้อความใน zip รวมกันใหญ่เกิน 20MB');
+    let files; try { files = JSON.parse(raw); } catch { return err('ข้อมูลไฟล์ไม่ถูกต้อง'); }
+    if (!files || typeof files !== 'object' || Array.isArray(files) || Object.keys(files).length > 5000 || Object.values(files).some(v => typeof v !== 'string')) return err('ข้อมูลไฟล์ไม่ถูกต้อง');
+    const id = rand(8);
+    await env.SLIPS.put(`zip/${u.id}/${id}.zip`, await zip.arrayBuffer(), { httpMetadata: { contentType: 'application/zip' } });
+    await env.SLIPS.put(`zip/${u.id}/${id}.json`, raw, { httpMetadata: { contentType: 'application/json' } });
+    return json({ id });
+  }
+  if ((r = path.match(/^\/api\/zipref\/([0-9a-f]{16})(\/raw)?$/)) && M === 'GET') { // ของตัวเองเท่านั้น (คีย์มี user id)
+    const o = env.SLIPS && await env.SLIPS.get(`zip/${u.id}/${r[1]}.${r[2] ? 'zip' : 'json'}`);
+    if (!o) return err('ไม่พบไฟล์ zip นี้แล้ว', 404);
+    return new Response(o.body, { headers: { 'content-type': r[2] ? 'application/zip' : 'application/json', 'cache-control': 'private, max-age=3600' } });
+  }
   if (path === '/api/limits/reset' && M === 'POST') { // ผู้ใช้กดใช้สิทธิ์รีเซ็ตที่แอดมินแจก · ขอบเขตกำหนดโดยแอดมินตอนแจก ผู้ใช้เลือกเองไม่ได้ (ส่งแค่ k ของสิทธิ์ที่มีอยู่)
     const b = await req.json(), plan = await planOf(env, u), k = String(b.k || '');
     if (plan?._team?.shared_pool) return err('แพลนทีมใช้ลิมิตรวมกัน รีเซ็ตเองไม่ได้ ติดต่อแอดมิน', 400);

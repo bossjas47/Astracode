@@ -532,6 +532,12 @@ export async function runChat(env, J, send, st) {
       }
     }
   }
+  // zip ที่แนบไว้ในแชต ([[zipref:id]] ในข้อความผู้ใช้): ให้ AI เปิดเฉพาะไฟล์ที่ต้องใช้ด้วย read_file / grep_files
+  const zipIds = !pid && env.SLIPS ? [...new Set(hist.filter(x => x.role === 'user').flatMap(x => [...String(x.content).matchAll(/\[\[zipref:([0-9a-f]{16})\]\]/g)].map(y => y[1])))] : [];
+  let zipCache = null;
+  const zipLoad = async () => zipCache ||= Object.assign({}, ...await Promise.all(zipIds.map(async id => { const o = await env.SLIPS.get(`zip/${u.id}/${id}.json`); return o ? await o.json().catch(() => ({})) : {}; })));
+  const zipTools = zipIds.length ? ZIP_TOOLS : [];
+  const sysZ = zipIds.length ? system + ZIP_SYS : system;
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำต่อหน้าผู้ใช้
   if (model.fallback_id && await modelDown(env, model.id)) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
@@ -558,7 +564,7 @@ export async function runChat(env, J, send, st) {
       const firstMs = (model.first_token_s > 0 ? model.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 150 : 90) * 1000, idleMs = (model.idle_s > 0 ? model.idle_s : 60) * 1000; // ตั้งต่อโมเดลได้ในหลังบ้าน
       arm(firstMs); let stopR = '', rawT = '';
       try {
-        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined, userId: u.id, signal: ac.signal })) {
+        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system: sysZ, tools: mcpTools.length || zipTools.length ? [...mcpTools, ...zipTools] : undefined, userId: u.id, signal: ac.signal })) {
           arm(idleMs);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
@@ -594,10 +600,16 @@ export async function runChat(env, J, send, st) {
     cumIn += ru ? ru.fresh + ru.read + ru.write : ctxUsed;
     if (ru) usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : ru;
     const toolCalls = [...tcs.values()];
-    if (toolCalls.length && !st.gone && round < 5) {
+    if (toolCalls.length && !st.gone && round < (zipTools.length ? 12 : 5)) {
       msgs = [...msgs, { role: 'assistant', content: part || null, tool_calls: toolCalls }];
       imgs = [];
       for (const tc of toolCalls) {
+        if (ZIP_TOOL_NAMES.has(tc.function?.name) && zipTools.length) {
+          let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch {}
+          const resText = cumIn >= ANSWER_IN_MAX ? 'Reading budget for this answer is used up. Stop calling tools and answer now with what you have.' : zipTool(tc.function.name, args, await zipLoad());
+          await send({ mcp: { server: 'zip', tool: `${tc.function.name === 'read_file' ? 'อ่าน' : 'ค้นหา'} ${String(args.path || args.pattern || '').slice(0, 80)}`, ok: !resText.startsWith('Error') } });
+          msgs.push({ role: 'tool', tool_call_id: tc.id, content: resText }); continue;
+        }
         const meta = mcpMap.get(tc.function?.name);
         let resText = 'ไม่พบเครื่องมือนี้', ok = false;
         if (meta) {
@@ -748,6 +760,28 @@ export async function mcpCall(url, token, name, args) {
 
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
 export const AGENT_ROUNDS = 20, AGENT_IN_MAX = 1.2e6; // โหมด Agent ในหน้า Code (แพลนชำระเงิน)
+// ---------- zip ที่แนบในแชต: เครื่องมืออ่านไฟล์ให้ AI ----------
+export const ZIP_SYS = '\n\nThe user attached a project archive; its file list is in their message. Call read_file to open the files you need (and grep_files to find where something is) before answering. Never guess file contents. To change files, output each changed file in FULL in its own code block with file=<the same path as in the archive>; the page merges them back into the archive for download.';
+export const ZIP_TOOLS = [
+  { type: 'function', function: { name: 'read_file', description: 'Read a text file from the attached archive. Large files: pass from_line/to_line (1-based).', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Path as listed in the archive' }, from_line: { type: 'integer' }, to_line: { type: 'integer' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'grep_files', description: 'Case-insensitive plain-text search across all text files in the attached archive. Returns path:line: text (max 80 hits).', parameters: { type: 'object', properties: { pattern: { type: 'string' }, path_prefix: { type: 'string', description: 'Only search under this folder (optional)' } }, required: ['pattern'] } } },
+];
+export const ZIP_TOOL_NAMES = new Set(ZIP_TOOLS.map(t => t.function.name)), ZIP_READ_MAX = 60e3;
+export function zipTool(name, a, files) {
+  const paths = Object.keys(files);
+  if (name === 'grep_files') {
+    const q = String(a.pattern || '').toLowerCase(), pre = String(a.path_prefix || ''); if (!q) return 'Error: empty pattern';
+    const hits = [];
+    for (const p of paths) { if (pre && !p.startsWith(pre)) continue; const ls = files[p].split('\n'); for (let i = 0; i < ls.length && hits.length < 80; i++) if (ls[i].toLowerCase().includes(q)) hits.push(`${p}:${i + 1}: ${ls[i].trim().slice(0, 200)}`); if (hits.length >= 80) break; }
+    return hits.length ? hits.join('\n') + (hits.length >= 80 ? '\n…(more hits, narrow the search)' : '') : 'No matches.';
+  }
+  const want = String(a.path || '').replace(/^\.?\/+/, ''), p = paths.find(x => x === want) || paths.find(x => x.endsWith('/' + want) || want.endsWith('/' + x));
+  if (!p) return `Error: no file ${want}. Files that look close: ${paths.filter(x => x.split('/').pop() === want.split('/').pop()).slice(0, 10).join(', ') || '(none)'}`;
+  const ls = files[p].split('\n'), from = Math.max(1, +a.from_line || 1), to = Math.min(ls.length, +a.to_line || ls.length);
+  let body = ls.slice(from - 1, to).join('\n'); const cut = body.length > ZIP_READ_MAX;
+  if (cut) body = body.slice(0, ZIP_READ_MAX);
+  return `${p} (lines ${from}-${to} of ${ls.length})\n${body}${cut ? `\n…(cut at ${ZIP_READ_MAX} characters; read the rest with from_line/to_line)` : ''}`;
+}
 export const TOOL_ROUNDS = 6, READ_MAX = 100e3, ANSWER_IN_MAX = 400e3; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
 // หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
 export const stripOpenFile = t => String(t || '').replace(/\n\n\[(?:เนื้อหาไฟล์ที่เปิดอยู่|เนื้อหาไฟล์ในโปรเจกต์)\][\s\S]*$/, '');
