@@ -256,7 +256,7 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-la
 const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<a class="l" href="/blog?c=1" id="clnav">${ic('sparkles')}<span>มีอะไรใหม่</span></a>${['admin', 'support', 'viewer'].includes(me.role) ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
+  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<a class="l" href="/blog?c=1" id="clnav">${ic('sparkles')}<span>มีอะไรใหม่</span></a>${navL('/support', 'ติดต่อเรา / แจ้งปัญหา', 'mail').replace('class="l', 'class="l contact-l')}${['admin', 'support', 'viewer'].includes(me.role) ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
        : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
@@ -713,25 +713,31 @@ function vendorLogo(name, cls = '') {
   const inner = /^data:image\//.test(custom || '') ? `<img src="${esc(custom)}" alt="">` : VENDOR_SVG[k] ? `<svg viewBox="0 0 24 24" aria-hidden="true">${VENDOR_SVG[k]}</svg>` : `<b>${esc((vendorOf(name)[0] || '?').toUpperCase())}</b>`;
   return `<span class="vlogo ${cls}">${inner}</span>`;
 }
-const vOpt = (v, logo, title, tags, mult, on, vk = '') => `<button class="vopt ${on ? 'on' : ''} ${me?.models.find(m => String(m.id) === String(v))?.locked ? 'lock' : ''}" data-v="${esc(v)}" data-vk="${esc(vk)}">${logo}<span class="vtxt"><b>${title}</b><small>${tags}</small></span>${mult}${on ? `<i class="vck">${ic('check')}</i>` : ''}</button>`;
+const vOpt = (v, logo, title, tags, mult, on, vk = '', vc = '') => `<button class="vopt ${on ? 'on' : ''} ${me?.models.find(m => String(m.id) === String(v))?.locked ? 'lock' : ''}" data-v="${esc(v)}" data-vk="${esc(vk)}" data-vc="${esc(vc)}">${logo}<span class="vtxt"><b>${title}</b><small>${tags}</small></span>${mult}${on ? `<i class="vck">${ic('check')}</i>` : ''}</button>`;
 // โมเดลใหม่ (new_until ยังไม่หมด) ขึ้นบนสุดจนผู้ใช้เปิดหน้าเลือกโมเดลเห็นครั้งหนึ่ง แล้วกลับไปตามลำดับปกติ (ป้าย "ใหม่" ยังอยู่จนหมดเวลา)
 const seenNew = () => { try { return JSON.parse(localStorage.getItem('newSeen') || '[]'); } catch { return []; } };
 const pickOrder = ms => { const s = seenNew(), fresh = m => m.new_until > Date.now() && !s.includes(m.id); return [...ms.filter(fresh), ...ms.filter(m => !fresh(m))]; };
 const newSeen = ms => { try { localStorage.setItem('newSeen', JSON.stringify([...new Set([...seenNew(), ...ms.filter(m => m.new_until > Date.now()).map(m => m.id)])].slice(-50))); } catch { /* ไม่มีที่เก็บ */ } };
+// หมวดตามงาน (ช่อง cats ในหลังบ้าน) · โมเดลสร้างรูปเข้าหมวดรูปเอง
+const MODEL_CATS = [['general', 'ทั่วไป'], ['code', 'เขียนโค้ด'], ['math', 'คณิต/ตรรกะ'], ['write', 'งานเขียน'], ['docs', 'อ่านเอกสาร'], ['image', 'สร้างรูป'], ['fast', 'เร็ว/ประหยัด'], ['special', 'เฉพาะทาง'], ['uncen', 'Uncensored']];
+const catsOf = m => [...new Set([...String(m.cats || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean), ...(m.provider === 'image' ? ['image'] : [])])];
 function modelSheet(which) {
   const cur = $(which).value, auto = $(which).querySelector('option[value="auto"]');
+  const have = new Set(me.models.flatMap(catsOf)), cats = MODEL_CATS.filter(([k]) => have.has(k));
+  const catChips = cats.length ? `<div class="vchips" role="group" aria-label="ใช้ทำอะไร"><button type="button" class="on" data-cf="">ทุกงาน</button>${cats.map(([k, l]) => `<button type="button" data-cf="${k}">${l}</button>`).join('')}</div>` : '';
   const vendors = [...new Map(me.models.map(m => [vendorOf(m.name).toLowerCase(), vendorOf(m.name)])).values()];
   const chips = site.picker_filter !== '0' && vendors.length > 1 ? `<div class="vchips" role="group" aria-label="ค่าย"><button type="button" class="on" data-vf="">ทั้งหมด</button>${vendors.map(v => `<button type="button" data-vf="${esc(v.toLowerCase())}">${vendorLogo(v, 'xs')}${esc(v)}</button>`).join('')}</div>` : '';
   const mult = m => site.picker_mult === '0' ? '' : `<span class="vmult">×${m.multiplier}</span>`;
-  sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', chips
+  sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', catChips + chips
     + (auto ? vOpt('auto', `<span class="vlogo auto">${ic('sparkles')}</span>`, 'อัตโนมัติ', 'ระบบเลือกโมเดลให้: ถามทั่วไปใช้โมเดลประหยัด โจทย์ยากหรือโค้ดใช้โมเดลเก่ง', '', cur === 'auto', 'auto') : '')
-    + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : ''), (m.note ? `<span class="vnote">${esc(m.note)}</span>` : '') + ([m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป'), mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase())).join('')
+    + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : ''), (m.note ? `<span class="vnote">${esc(m.note)}</span>` : '') + ([m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป'), mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase(), catsOf(m).join(' '))).join('')
     + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', (d, close) => {
       pickTo(which)(d, close); newSeen(me.models);
-      d.querySelectorAll('[data-vf]').forEach(c => c.onclick = () => {
-        d.querySelectorAll('[data-vf]').forEach(x => x.classList.toggle('on', x === c));
-        d.querySelectorAll('.vopt').forEach(o => o.hidden = !!c.dataset.vf && o.dataset.vk !== c.dataset.vf && o.dataset.vk !== 'auto');
-      });
+      const filt = () => { // กรองพร้อมกันได้ทั้งค่ายและหมวดงาน
+        const vf = d.querySelector('[data-vf].on')?.dataset.vf || '', cf = d.querySelector('[data-cf].on')?.dataset.cf || '';
+        d.querySelectorAll('.vopt').forEach(o => o.hidden = o.dataset.vk !== 'auto' && (!!vf && o.dataset.vk !== vf || !!cf && !o.dataset.vc.split(' ').includes(cf)));
+      };
+      for (const a of ['vf', 'cf']) d.querySelectorAll(`[data-${a}]`).forEach(c => c.onclick = () => { d.querySelectorAll(`[data-${a}]`).forEach(x => x.classList.toggle('on', x === c)); filt(); });
     });
 }
 function effortSheet(sel, m) {

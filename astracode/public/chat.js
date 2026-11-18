@@ -68,12 +68,12 @@ async function chatView(id) {
       </div>
       <div class="side-search" id="sbox" hidden><input id="search" placeholder="Search chats…" aria-label="Search chats"></div>
       <nav class="side-nav">
+        <a href="/support" class="contact-l">${ic('mail')}<span>ติดต่อเรา / แจ้งปัญหา</span></a>
         <a href="/code">${ic('code')}<span>Code</span></a>
         <a href="/plans">${ic('layers')}<span>Plans · ${esc(me.plan.name)}</span></a>
         <a href="/plans?topup=1">${ic('wallet')}<span>เติมเงิน · ฿${baht(me.balance)}</span></a>
         <a href="/pricing">${ic('tag')}<span>Pricing</span></a>
         <a href="/developers">${ic('braces')}<span>Developer API</span></a>
-        <a href="/support">${ic('mail')}<span>Contact us</span></a>
         ${['admin', 'support', 'viewer'].includes(me.role) ? `<a href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
       </nav>
       <div class="side-sec"><span>Folders &amp; recent</span><span><button type="button" class="icon-btn xs ghost" id="bmk" aria-label="บุ๊กมาร์ก" title="บุ๊กมาร์ก">${ic('star', 'sm')}</button><button type="button" class="icon-btn xs ghost" id="bin" aria-label="เก็บถาวรและถังขยะ" title="เก็บถาวร / ถังขยะ">${ic('trash')}</button><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></span></div>
