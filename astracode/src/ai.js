@@ -222,7 +222,9 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       }
       return out;
     };
+    const rawTail = []; // ข้อมูลดิบ 3 ก้อนท้าย: คำตอบว่างจะได้ดูว่าผู้ให้บริการส่งอะไรมาจริง
     for await (const e of sse(res)) {
+      rawTail.push(JSON.stringify(e).slice(0, 300)); if (rawTail.length > 3) rawTail.shift();
       const ch = e.choices?.[0], dl = ch?.delta;
       const th = dl?.reasoning_content || dl?.reasoning || dl?.thought || dl?.thinking || (Array.isArray(dl?.reasoning_details) ? dl.reasoning_details.map(x => x?.text || '').join('') : '');
       if (typeof th === 'string' && th) yield { th };
@@ -237,6 +239,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       if (e.usage || ch?.usage) usage = e.usage || ch.usage; // Kimi ใส่ usage ไว้ใน choices
     }
     for (const ev of flushBuf(true)) yield ev;
+    yield { raw: rawTail.join(' | ') };
     if (usage) {
       const p = usage.prompt_tokens || 0, d = usage.prompt_tokens_details;
       const read = usage.prompt_cache_hit_tokens ?? d?.cached_tokens ?? usage.cached_tokens ?? 0, write = d?.cache_write_tokens || 0;
@@ -549,7 +552,7 @@ export async function runChat(env, J, send, st) {
       const ac = new AbortController(); let stalled = 0, wd;
       const arm = ms => { clearTimeout(wd); wd = setTimeout(() => { stalled = ms; ac.abort(); }, ms); };
       const firstMs = (model.first_token_s > 0 ? model.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 150 : 90) * 1000, idleMs = (model.idle_s > 0 ? model.idle_s : 60) * 1000; // ตั้งต่อโมเดลได้ในหลังบ้าน
-      arm(firstMs); let stopR = '';
+      arm(firstMs); let stopR = '', rawT = '';
       try {
         for await (const e of callModel(env, model, msgs, { effort, images: imgs, system, tools: mcpTools.length ? mcpTools : undefined, userId: u.id, signal: ac.signal })) {
           arm(idleMs);
@@ -567,6 +570,7 @@ export async function runChat(env, J, send, st) {
           }
           if (e.usage) ru = e.usage;
           if (e.stop_reason) stopR = e.stop_reason;
+          if (e.raw) rawT = e.raw;
         }
         clearTimeout(wd);
         if (!out.trim() && !think && !tcs.size && !st.gone) throw new Error('โมเดลส่งคำตอบว่างกลับมา' + (stopR && stopR !== 'stop' ? ` (เหตุผลจากผู้ให้บริการ: ${stopR})` : '')); // ตอบว่าง = ถือเป็นข้อผิดพลาด (นับเข้าตัวตัดวงจร และลองโมเดลสำรอง)
@@ -578,7 +582,7 @@ export async function runChat(env, J, send, st) {
         await event(env, 'error', model.id, e.message.slice(0, 300));
         const fb = !out.trim() && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
         if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
-        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล' : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
+        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message + (rawT && e.message.startsWith('โมเดลส่งคำตอบว่าง') ? ' · ข้อมูลดิบท้ายสุด: ' + rawT.slice(0, 900) : '') : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล' : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
         break;
       }
     }
