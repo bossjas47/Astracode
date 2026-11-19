@@ -29,6 +29,12 @@ export const toAnthropicPart = p => {
   return null;
 };
 // ผู้ให้บริการบางรายปฏิเสธระดับ effort ที่เราเลือก (เช่น "does not support reasoning effort \"minimal\"; use low, medium, high, xhigh or max") → อ่านรายการที่รองรับแล้วเลือกระดับที่ใกล้ที่สุด (เท่ากันเลือกอันที่สูงกว่า) เพื่อลองใหม่ 1 ครั้ง
+// ผู้ให้บริการล่ม/คนแน่นชั่วคราว (429/5xx ก่อนเริ่มตอบ): ลองใหม่เอง 2 ครั้ง รอ 1.5 และ 4 วินาที ไม่ให้ลูกค้าเห็น "ตอบไม่ได้" ทันที
+export async function busyRetry(post, waits = [1500, 4000]) {
+  let res = await post();
+  for (const w of waits) { if (![429, 500, 502, 503, 504, 529].includes(res.status)) break; await res.body?.cancel().catch(() => {}); await new Promise(ok => setTimeout(ok, w)); res = await post(); }
+  return res;
+}
 export const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 export function nearEffort(errText, cur) {
   const after = String(errText).split(/reasoning effort/i)[1]?.split(/\buse\b/i)[1]; if (!after || !cur) return null;
@@ -95,7 +101,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify(body),
     });
-    let res = await postA();
+    let res = await busyRetry(postA);
     if (res.status === 400 && cc.ttl) { const t = await res.text(); if (!/ttl|cache_control/i.test(t)) throw new Error(`upstream 400: ${t.slice(0, 300)}`); cc = { type: 'ephemeral' }; const strip = x => { if (Array.isArray(x)) x.forEach(strip); else if (x && typeof x === 'object') { if (x.cache_control) x.cache_control = cc; Object.values(x).forEach(strip); } }; strip(body); res = await postA(); } // ผู้ให้บริการไม่รองรับ ttl: ใช้ 5 นาที
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const u = { fresh: 0, read: 0, write: 0, out: 0 };
@@ -202,7 +208,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     const thinking = body.reasoning_effort || body.thinking?.type === 'enabled'; // โหมดคิดไม่รับพารามิเตอร์สุ่ม
     for (const k of ['seed', 'response_format', ...(thinking ? [] : ['temperature', 'top_p', 'presence_penalty', 'frequency_penalty', 'stop'])]) if (extra[k] !== undefined) body[k] = extra[k];
     const post = () => fetch(m.base_url + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
-    let res = await post();
+    let res = await busyRetry(post);
     if (res.status === 400 && body.prompt_cache_key) { const t = await res.clone().text(); if (/prompt_cache_key/i.test(t)) { delete body.prompt_cache_key; res = await post(); } } // ตัวกลางบางรายไม่รู้จักช่องนี้
     if (res.status === 400 && body.reasoning_effort) { const t = await res.text(), ne = nearEffort(t, body.reasoning_effort); if (!ne) throw new Error(`upstream 400: ${t.slice(0, 300)}`); body.reasoning_effort = ne; res = await post(); }
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);

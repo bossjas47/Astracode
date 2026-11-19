@@ -4,13 +4,19 @@ const TOOL_OUT_MAX = 60000;
 const COMPACT_AT = 350000; // ตัวอักษรรวมของบทสนทนา (~100k token) เกินนี้ → ย่อส่วนเก่าก่อนรอบถัดไป
 
 // inbox(): ข้อความที่ผู้ใช้พิมพ์แทรกระหว่างทำงาน (เข้าไปก่อนรอบถัดไป) · effort: ระดับการคิด (โชว์ Thinking ในแชต) · onStep(n): เลขขั้นตอนก่อนเรียกเครื่องมือ (ใช้ย้อนไฟล์)
-async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {} }) {
+async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {}, retryWaits = [5000, 15000, 30000] }) {
   const post = (body) => fetchImpl(base.replace(/\/$/, '') + '/chat/completions', { method: 'POST', signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
   for (let round = 0; round < maxRounds; round++) {
     if (signal?.aborted) throw new Error('หยุดแล้ว');
     for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
     if (JSON.stringify(messages).length > compactAt) await compact({ post, model, messages, onEvent });
-    const r = await post({ model, messages, stream: true, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) });
+    let r = await post({ model, messages, stream: true, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) });
+    for (const w of retryWaits) { // ผู้ให้บริการล่มชั่วคราว: รอแล้วลองรอบเดิมใหม่ ไม่ทิ้งงานที่ทำมาแล้ว
+      if (![429, 500, 502, 503, 504].includes(r.status) || signal?.aborted) break;
+      onEvent({ type: 'info', text: `โมเดลไม่ว่างชั่วคราว (${r.status}) ลองใหม่ใน ${w / 1000} วินาที…` });
+      await new Promise(ok => setTimeout(ok, w));
+      r = await post({ model, messages, stream: true, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) });
+    }
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error?.message_th || d.error?.message || 'HTTP ' + r.status); }
     const msg = await readStream(r, onEvent); // สตรีม: ตัวหนังสือขึ้นทีละส่วนเหมือนเว็บ
     messages.push({ role: 'assistant', content: msg.content || null, ...(msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });

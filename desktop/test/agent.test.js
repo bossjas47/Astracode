@@ -143,3 +143,11 @@ test('setupTool: Codex config keeps other settings, replaces the astra provider 
   assert.ok(fs.existsSync(path.join(home, '.claude', 'settings.json.bak')));
   await setupTool('Codex', { site: 'https://a.b', key: 'k', model: 'm', home }); assert.match(fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8'), /model_provider = "astra"/);
 });
+
+test('runAgent: a 503 from the model is retried and the task continues', async () => {
+  let n = 0; const infos = [];
+  const fetchImpl = async () => (++n === 1 ? new Response('{"error":{"message":"busy"}}', { status: 503 }) : new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', { status: 200 }));
+  const msgs = [{ role: 'user', content: 'hi' }];
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: msgs, fetchImpl, callTool: async () => '', retryWaits: [1], onEvent: e => e.type === 'info' && infos.push(e.text) });
+  assert.equal(n, 2); assert.equal(msgs.at(-1).content, 'ok'); assert.match(infos[0], /503/);
+});

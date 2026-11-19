@@ -616,3 +616,11 @@ test('prompt cache: web chat asks Claude for a 1h cache (falls back to 5 min if 
   assert.equal(seen.at(-1).prompt_cache_key, 'astra-' + u.id); assert.equal(seen.at(-1).reasoning_effort, 'low');
   fm.close();
 });
+
+test('provider 503 before answering is retried, the user still gets the answer', async () => {
+  let n = 0;
+  const fm = await fakeModel((q, res) => { if (++n === 1) { res.writeHead(503, { 'content-type': 'application/json' }); return res.end('{"error":{"message":"temporarily unavailable"}}'); } fm.sse(res, 'fine'); });
+  const t = await makeEnv({ K: 'k' }); const m = addModel(t.DB, { name: 'B', base_url: fm.url }); const plan = addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'hi' } }));
+  assert.ok(ev.some(e => e.t === 'fine'), JSON.stringify(ev)); assert.equal(n, 2); fm.close();
+});
