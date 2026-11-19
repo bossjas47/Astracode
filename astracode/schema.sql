@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS models (
   promo_pct REAL, promo_start INTEGER, promo_end INTEGER, -- โปรลดราคา % ช่วงเวลา (unix ms)
   cap_pct INTEGER NOT NULL DEFAULT 0,       -- เพดานโมเดลนี้เป็น % ของงบสัปดาห์ (0 = ไม่จำกัด) เช่น Opus 50
   use_mult REAL, promo_mult REAL,           -- ตัวคูณหน่วยลิมิต (ว่าง = 1) / ช่วงโปร
+  tools TEXT,                               -- tools แบบ native: auto (ว่าง) / on / off
   first_token_s REAL, idle_s REAL,          -- นาฬิกาเฝ้าโมเดล: รอข้อความแรก / เงียบกลางทาง (วินาที ว่าง = ค่าเริ่มต้น 90/60)
   code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
   sys_prompt TEXT,                          -- คำสั่งระบบประจำโมเดล (แชตและ API) เช่นโมเดลเฉพาะทาง
@@ -133,6 +134,7 @@ CREATE TABLE IF NOT EXISTS usage (
   created_at INTEGER NOT NULL
   , ms INTEGER                              -- เวลารวมของข้อความ (แชตเว็บ)
   , ttft INTEGER                            -- เวลาจนได้ตัวอักษรแรก
+  , prep INTEGER                            -- เวลาที่ระบบเตรียมก่อนเรียกโมเดล (ms)
   , src TEXT                                -- chat/api/agent/task/complete/image/system
   , charge REAL                             -- บาทที่หักจาก Wallet
   , flag TEXT                               -- gone = ลูกค้าตัดกลางทาง · est = token ประมาณ (ผู้ให้บริการไม่ส่ง usage) · part = ผู้ให้บริการ error กลางคำตอบ
@@ -318,6 +320,7 @@ CREATE TABLE IF NOT EXISTS models (
   promo_pct REAL, promo_start INTEGER, promo_end INTEGER, -- โปรลดราคา % ช่วงเวลา (unix ms)
   cap_pct INTEGER NOT NULL DEFAULT 0,       -- เพดานโมเดลนี้เป็น % ของงบสัปดาห์ (0 = ไม่จำกัด) เช่น Opus 50
   use_mult REAL, promo_mult REAL,           -- ตัวคูณหน่วยลิมิต (ว่าง = 1) / ช่วงโปร
+  tools TEXT,                               -- tools แบบ native: auto (ว่าง) / on / off
   first_token_s REAL, idle_s REAL,          -- นาฬิกาเฝ้าโมเดล: รอข้อความแรก / เงียบกลางทาง (วินาที ว่าง = ค่าเริ่มต้น 90/60)
   code_prompt TEXT,                         -- คำสั่งเพิ่มในโหมด Code สำหรับโมเดลนี้
   sys_prompt TEXT,                          -- คำสั่งระบบประจำโมเดล (แชตและ API) เช่นโมเดลเฉพาะทาง
@@ -372,6 +375,7 @@ CREATE TABLE IF NOT EXISTS usage (
   created_at INTEGER NOT NULL
   , ms INTEGER                              -- เวลารวมของข้อความ (แชตเว็บ)
   , ttft INTEGER                            -- เวลาจนได้ตัวอักษรแรก
+  , prep INTEGER                            -- เวลาที่ระบบเตรียมก่อนเรียกโมเดล (ms)
   , src TEXT                                -- chat/api/agent/task/complete/image/system
   , charge REAL                             -- บาทที่หักจาก Wallet
   , flag TEXT                               -- gone = ลูกค้าตัดกลางทาง · est = token ประมาณ (ผู้ให้บริการไม่ส่ง usage) · part = ผู้ให้บริการ error กลางคำตอบ

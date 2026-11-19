@@ -1,6 +1,7 @@
-import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
+import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
+import { CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, WEB_TOOL_NAMES, WRITE_TOOLS, codeTool, codeWorkspace, nativeTools, webTools } from './codetools.js';
 import { GOOGLE_TOOLS, GOOGLE_URL, googleCall } from './google.js';
 import { admin } from './admin.js';
 import { v1 } from './api.js';
@@ -414,7 +415,7 @@ export function excerptFiles(content, question) {
   });
 }
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
-export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null, flag = null, pack = false } = {}) {
+export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null, flag = null, pack = false, prep = null } = {}) {
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   usage._units = un; // ให้ /v1 บอกลูกค้าว่าคำขอนี้ใช้ลิมิตไปกี่ % (ไม่เปิดเผยต้นทุน)
@@ -423,8 +424,8 @@ export async function logUsage(env, uid, m, usage, { units = true, wallet = null
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   let charge = 0;
   if (wallet) { const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6) * 10000) / 10000; }
-  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge,flag,pack) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null, flag || usage.flag || null, pk).run();
+  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge,flag,pack,prep) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null, flag || usage.flag || null, pk, prep).run(); // prep = ms ที่ระบบเตรียมก่อนเรียกโมเดล (แยกจาก ttft ของโมเดล)
   // ต้นทุน/token ต่องาน Agent · ctx_peak = input ของรอบที่ใหญ่สุด (ใช้แสดง context ของทีม)
   if (job) { const tin = usage.fresh + usage.read + usage.write; await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, tin, usage.out, tin, job).run(); }
   if (charge > 0) await walletAdd(env, uid, -charge, wallet, m.name);
@@ -458,35 +459,44 @@ export async function chat(req, env, u, ctx) {
   if (!text) text = files.length ? 'อ่านไฟล์นี้' : 'อธิบายรูปนี้';
   const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.effort) ? b.effort : null;
   const ephemeral = !!b.ephemeral; // โหมดเทียบโมเดล: ไม่บันทึกแชต
-  const plan = await planOf(env, u);
-  if (b.model_id === 'auto') b.model_id = await autoModel(env, plan, u, { text, images, files, effort, regenerate: b.regenerate });
-  let m = await env.DB.prepare('SELECT m.* FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.id=? AND m.active=1').bind(plan.id, b.model_id).first(), offPlan = false;
-  if (!m && u.balance >= WALLET_MIN) { m = await env.DB.prepare("SELECT * FROM models WHERE id=? AND active=1 AND public=1 AND provider<>'embedding'").bind(b.model_id).first(); offPlan = !!m; } // โมเดลนอกแพลน: จ่ายจาก Wallet ตามราคาขาย ไม่หักลิมิตแพลน
-  if (!m) return err(u.balance >= WALLET_MIN ? 'ใช้โมเดลนี้ไม่ได้' : 'แพลนของคุณใช้โมเดลนี้ไม่ได้ · เติม Wallet เพื่อใช้ทุกโมเดลตามราคาขาย', 403);
-  if (images.length && !m.vision) return err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น');
-  if (!offPlan && await capHit(env, u, plan, m)) return json({ error: `${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว ลองโมเดลอื่นได้เลย`, cap: true }, 429);
-  if (await reqCapHit(env, u, m)) return json({ error: `${m.name} ใช้ครบ ${m.req_cap} ครั้งใน 4 ชั่วโมงแล้ว ลองโมเดลอื่นหรือรอสักครู่`, cap: true }, 429);
-  if (await blockedText(env, text)) return err('ข้อความนี้มีเนื้อหาที่ระบบไม่รับ');
-  const st = await usageStatus(env, u, plan), pw0 = st.pctWeek;
+  // ลำดับรอฐานข้อมูลก่อนเริ่มตอบ (เดิมรอทีละคำสั่ง ~15 รอบ): 1) แพลน + โมเดล 2) ตรวจสิทธิ์/เพดาน/ลิมิต/ล็อก/โปรเจกต์/แชตพร้อมกัน 3) บันทึก+อ่านประวัติใน batch เดียว
+  const autoPick = b.model_id === 'auto', modelQ = id => env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(id).first();
+  const [plan, mPre] = await Promise.all([planOf(env, u), autoPick ? null : modelQ(b.model_id)]);
+  if (autoPick) b.model_id = await autoModel(env, plan, u, { text, images, files, effort, regenerate: b.regenerate });
+  const mRow = autoPick ? await modelQ(b.model_id) : mPre;
+  const pid = b.project_id || null; // โหมด Code
+  let cid = ephemeral ? null : b.chat_id;
+  const takeLock = k => env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(k, Date.now() + LOCK_MS, Date.now()).first().then(r => r ? k : null);
+  // ให้ตอบได้ทีละข้อความ กันยิงพร้อมกันหลายอันเพื่อเลี่ยงลิมิต (ล็อกหมดอายุเอง) · จองพร้อมกับการตรวจอื่น แล้วคืนล็อกทุกทางออกที่ไม่ได้ตอบ
+  const [inPlan, capped, reqCapped, blocked, st, dayCapped, tooFast, lock0, projOk, chatOk] = await Promise.all([
+    mRow ? env.DB.prepare('SELECT 1 FROM plan_models WHERE plan_id=? AND model_id=?').bind(plan.id, mRow.id).first() : null,
+    mRow ? capHit(env, u, plan, mRow) : false, mRow ? reqCapHit(env, u, mRow) : false, blockedText(env, text), usageStatus(env, u, plan),
+    u.balance >= WALLET_MIN ? dayCapHit(env, u.id) : false, limited(env, 'chatmin:' + u.id, 20, 60e3),
+    mRow && !ephemeral ? takeLock('chatlock:' + u.id) : null,
+    !pid || projectFor(env, pid, u.id), !cid || env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(cid, u.id).first()]);
+  let lock = lock0;
+  const bail = async r => { if (lock) await unlimit(env, lock); return r; }; // ทางออกก่อนเริ่มตอบต้องคืนล็อกเสมอ
+  // โมเดลนอกแพลน: จ่ายจาก Wallet ตามราคาขาย ไม่หักลิมิตแพลน (ต้องเป็นโมเดลสาธารณะ ไม่ใช่ embedding)
+  let m = mRow, offPlan = false;
+  if (m && !inPlan) { if (u.balance >= WALLET_MIN && m.public && m.provider !== 'embedding') offPlan = true; else m = null; }
+  if (!m) return bail(err(u.balance >= WALLET_MIN ? 'ใช้โมเดลนี้ไม่ได้' : 'แพลนของคุณใช้โมเดลนี้ไม่ได้ · เติม Wallet เพื่อใช้ทุกโมเดลตามราคาขาย', 403));
+  if (images.length && !m.vision) return bail(err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น'));
+  if (capped && !offPlan) return bail(json({ error: `${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว ลองโมเดลอื่นได้เลย`, cap: true }, 429));
+  if (reqCapped) return bail(json({ error: `${m.name} ใช้ครบ ${m.req_cap} ครั้งใน 4 ชั่วโมงแล้ว ลองโมเดลอื่นหรือรอสักครู่`, cap: true }, 429));
+  if (blocked) return bail(err('ข้อความนี้มีเนื้อหาที่ระบบไม่รับ'));
+  const pw0 = st.pctWeek;
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
   const overflow = offPlan ? 'wallet' : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance >= WALLET_MIN && !ephemeral ? 'overflow' : null) : null;
-  if (!offPlan && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429);
-  if (overflow && await dayCapHit(env, u.id)) return err('ใช้ Wallet ครบเพดานต่อวันที่ตั้งไว้แล้ว ปรับได้ที่หน้าบัญชี', 429);
-  if (await limited(env, 'chatmin:' + u.id, 20, 60e3)) return err('ส่งเร็วเกินไป รอสักครู่', 429);
-  // ให้ตอบได้ทีละข้อความ กันยิงพร้อมกันหลายอันเพื่อเลี่ยงลิมิต (ล็อกหมดอายุเองใน 3 นาที) ยกเว้นโหมดเทียบ
-  // โหมดเทียบ (ephemeral) ขนานได้สูงสุด 3 ช่อง ไม่ใช่ไม่จำกัด
-  let lock = null;
-  for (const k of ephemeral ? [0, 1, 2].map(i => 'chatlock:' + u.id + ':e' + i) : ['chatlock:' + u.id]) {
-    if (await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(k, Date.now() + LOCK_MS, Date.now()).first()) { lock = k; break; }
-  }
+  if (!offPlan && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return bail(json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429));
+  if (overflow && dayCapped) return bail(err('ใช้ Wallet ครบเพดานต่อวันที่ตั้งไว้แล้ว ปรับได้ที่หน้าบัญชี', 429));
+  if (tooFast) return bail(err('ส่งเร็วเกินไป รอสักครู่', 429));
+  if (ephemeral) for (const k of [0, 1, 2].map(i => 'chatlock:' + u.id + ':e' + i)) if ((lock = await takeLock(k))) break; // โหมดเทียบขนานได้สูงสุด 3 ช่อง
   if (!lock) return err('กำลังตอบข้อความก่อนหน้าอยู่', 429);
-  const fail = async (...a) => { await unlimit(env, lock); return err(...a); }; // ทางออกก่อนเริ่มตอบต้องคืนล็อกเสมอ
+  const fail = async (...a) => { await unlimit(env, lock); return err(...a); };
+  if (!projOk) return fail('ไม่พบโปรเจกต์', 404);
+  if (!chatOk) return fail('ไม่พบแชต', 404);
   try {
 
-  const pid = b.project_id || null; // โหมด Code
-  if (pid && !await projectFor(env, pid, u.id)) return fail('ไม่พบโปรเจกต์', 404);
-  let cid = ephemeral ? null : b.chat_id;
-  if (cid && !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(cid, u.id).first()) return fail('ไม่พบแชต', 404);
   // ไฟล์เก็บในข้อความ โมเดลจึงจำได้ในข้อความถัดไป (รูปแบบเดียวกับฝั่งเว็บ)
   // shortcut: ไม่เก็บรูปไว้ในประวัติ (โมเดลเห็นรูปแค่ข้อความนี้) ถ้าต้องการให้จำรูป ให้เก็บใน R2
   const saved = text + files.map(f => `\n\n[[file:${f.name.replace(/[[\]\r\n]/g, '')}]]\n${f.text}\n[[/file]]`).join('') + (images.length ? `\n\n[แนบรูป ${images.length} รูป]` : '');
@@ -505,14 +515,27 @@ export async function chat(req, env, u, ctx) {
       const last = cid && await env.DB.prepare('SELECT id,role FROM messages WHERE chat_id=? ORDER BY id DESC LIMIT 1').bind(cid).first();
       if (!last) return fail('ไม่มีข้อความให้ตอบใหม่');
       if (last.role === 'assistant') await env.DB.prepare('DELETE FROM messages WHERE id=?').bind(last.id).run();
-    } else {
-      if (!cid) cid = (await env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,?) RETURNING id').bind(u.id, text.slice(0, 40), Date.now(), pid, b.folder_id || null).first()).id;
-      await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(cid, 'user', saved, m.id, Date.now()).run();
     }
-    chatRow = await env.DB.prepare('SELECT c.summary,c.summary_upto,c.instructions,f.instructions fins,f.files fdocs FROM chats c LEFT JOIN folders f ON f.id=c.folder_id WHERE c.id=?').bind(cid).first();
-    const hmax = pid ? HISTORY_CODE : HISTORY, after = chatRow?.summary_upto || 0;
-    const hn = (await env.DB.prepare('SELECT COUNT(*) n FROM messages WHERE chat_id=? AND id>?').bind(cid, after).first()).n;
-    hist = (await env.DB.prepare('SELECT role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id LIMIT -1 OFFSET ?').bind(cid, after, histStart(hn, hmax)).all()).results.map(x => ({ ...x, content: String(x.content || '').replace(/\u2063/g, '') })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
+    const hmax = pid ? HISTORY_CODE : HISTORY, write = !b.edit_id && !b.regenerate;
+    const rowQ = where => env.DB.prepare(`SELECT c.id,c.summary,c.summary_upto,c.instructions,f.instructions fins,f.files fdocs FROM chats c LEFT JOIN folders f ON f.id=c.folder_id WHERE ${where}`);
+    if (!cid) { // แชตใหม่: สร้างแชต + บันทึกข้อความแรก + อ่านข้อมูลโฟลเดอร์ ใน batch เดียว · ประวัติ = ข้อความนี้ข้อความเดียว
+      const newest = '(SELECT MAX(id) FROM chats WHERE user_id=?)'; // ล็อกตอบทีละข้อความ: แชตล่าสุดของผู้ใช้ = แชตที่เพิ่งสร้างในทรานแซกชันนี้
+      const got = await env.DB.batch([
+        env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,?)').bind(u.id, text.slice(0, 40), Date.now(), pid, b.folder_id || null),
+        env.DB.prepare(`INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (${newest},?,?,?,?)`).bind(u.id, 'user', saved, m.id, Date.now()),
+        rowQ(`c.id=${newest}`).bind(u.id)]);
+      chatRow = got[2].results?.[0] || null; cid = chatRow.id;
+      hist = [{ role: 'user', content: saved }];
+    } else { // แชตเดิม: บันทึกข้อความ + อ่านข้อมูลแชต + ประวัติ (ตัดหัวตาม histStart ในคำสั่งเดียว) ใน batch เดียว · เดิมสี่รอบไป-กลับ
+      const after = 'COALESCE((SELECT summary_upto FROM chats WHERE id=?1),0)';
+      const got = await env.DB.batch([
+        ...(write ? [env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(cid, 'user', saved, m.id, Date.now())] : []),
+        rowQ('c.id=?').bind(cid),
+        env.DB.prepare(`SELECT role,content FROM messages WHERE chat_id=?1 AND id>${after} ORDER BY id LIMIT -1 OFFSET (SELECT CASE WHEN n>?2 THEN CAST((n-?2+?3-1)/?3 AS INTEGER)*?3 ELSE 0 END FROM (SELECT COUNT(*) n FROM messages WHERE chat_id=?1 AND id>${after}))`).bind(cid, hmax, hmax / 2)]); // = histStart(): ตัวเลขที่ผูกอาจเป็นทศนิยม จึง CAST ให้ปัดลงเป็นจำนวนเต็ม
+      chatRow = got.at(-2).results?.[0] || null;
+      hist = got.at(-1).results || [];
+    }
+    hist = hist.map(x => ({ ...x, content: String(x.content || '').replace(/⁣/g, '') })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
     while (hist.length && hist[0].role !== 'user') hist.shift();
     if (!pid) { const q = text; hist.forEach(x => { if (x.role === 'user' && x.content.length > FILE_FULL) x.content = excerptFiles(x.content, q); }); }
     if (pid) hist.forEach((x, i) => { if (i < hist.length - 1 && x.role === 'user') x.content = stripOpenFile(x.content); }); // เนื้อหาไฟล์ที่เปิดอยู่ส่งเฉพาะข้อความล่าสุด (ไม่ซ้ำทุกรอบ ประหยัด token)
@@ -539,23 +562,46 @@ export async function runChat(env, J, send, st) {
   const { u, plan, m, hist, cid, pid, effort, overflow, lock } = J;
   let imgs0 = J.images;
   let out = '', think = '', usage = null, model = m; const tStart = Date.now(); let ttft = 0; // เวลาจนได้ตัวอักษรแรก/ความคิดแรก (สุขภาพโมเดล)
+  const tPrep = Date.now();
   await send({ chat_id: cid, model: m.name, overflow: overflow === 'overflow', wallet: overflow === 'wallet' });
-  const sources = !pid && (J.search || await autoSearch(env, hist.at(-1).content)) ? await smartSearch(env, u, hist) : [];
+  const lastText = hist.at(-1).content;
+  // tools แบบ native: โหมด Code อ่าน/แก้ไฟล์ผ่าน tool · แชตค้นเว็บ/เปิดลิงก์ผ่าน tool เมื่อโมเดลเห็นว่าจำเป็น · โมเดลที่ไม่รองรับใช้แบบเดิม
+  let useTools = nativeTools(m);
+  // งานเตรียมทั้งหมดไม่ขึ้นต่อกัน: ทำพร้อมกันแทนการรอทีละขั้น (ค้นเว็บ, ลิงก์, กติกาโปรเจกต์, system, MCP, ตัวตัดวงจร, คลังความรู้, ไฟล์โปรเจกต์)
+  // ค้นล่วงหน้า (ไม่รอ): คำถามแรกของแชตที่ดูเหมือนต้องใช้ข้อมูลล่าสุด เริ่มค้นด้วยคำถามนั้นทันทีระหว่างที่โมเดลคิด
+  // ถ้าโมเดลเรียก web_search ได้ผลทันที (เหมือนค้นก่อนตอบแบบเดิม แต่ขนานกับโมเดล) · ถ้าโมเดลตอบเองได้ ก็ไม่ต้องรอผลค้นเลย
+  const qText = String(lastText || '').replace(/\n\n\[\[file:[\s\S]*$/, '').slice(0, 1500);
+  let spec = null;
+  const [searchOn, sources, projRows, systemBase, mcpSrvs, down, kb, links, codeRows, imgPrompt] = await Promise.all([
+    !pid && getSetting(env, 'search_enabled').then(async v => {
+      const on = v !== '0' && !!env.TAVILY_KEY;
+      if (on && useTools && !J.search && hist.length <= 1 && qText.length <= 120 && await autoSearch(env, lastText)) spec = webSearch(env, qText);
+      return on;
+    }),
+    // ค้นเว็บก่อนตอบเฉพาะเมื่อผู้ใช้กดค้นเอง หรือโมเดลใช้ tool ไม่ได้ (โมเดลที่ใช้ tool ได้ค้นเองเมื่อจำเป็น)
+    (async () => !pid && (J.search || (!useTools && await autoSearch(env, lastText))) ? smartSearch(env, u, hist) : [])(),
+    pid ? env.DB.batch([env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid), env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid)]).then(r => r.map(x => x.results?.[0])) : [],
+    systemFor(env, u, '', J.skill_ids),
+    J.mcp_ids?.length ? env.DB.prepare(`SELECT * FROM mcp_servers WHERE id IN (${J.mcp_ids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...J.mcp_ids, u.id).all().then(r => r.results).catch(() => []) : [],
+    model.fallback_id ? modelDown(env, model.id) : false,
+    J.kb ? kbBlock(env, u.id, lastText) : '',
+    !pid ? readLinks(lastText).catch(() => []) : [],
+    pid && useTools ? env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all().then(r => r.results) : null,
+    imagePrompt(env, !!pid),
+  ]);
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
-  const projFile = pid ? (await env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid).first())?.content?.trim() : ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์กับ GitHub ไปด้วย)
-  const projIns = pid ? [(await env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid).first())?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : ''].filter(Boolean).join('\n\n') : '';
-  const system = (await systemFor(env, u, pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM + (m.sys_prompt?.trim() ? '\n\n' + m.sys_prompt.trim() : ''), J.skill_ids)) + (J.summary ? `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.folder_ins ? `\n\nInstructions for every chat in this folder (follow them):\n${J.folder_ins}` : '') + folderDocs(J.folder_docs) + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + (await imagePrompt(env, !!pid)); // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+  const projFile = projRows[0]?.content?.trim() || ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์ GitHub ได้)
+  const projIns = pid ? [projRows[1]?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : ''].filter(Boolean).join('\n\n') : '';
+  // systemFor ต่อท้ายคำสั่งผู้ใช้/ความจำ/Skills หลังข้อความหลัก จึงคำนวณส่วนท้ายครั้งเดียวแล้ววางต่อจากข้อความหลักของโหมดนั้น
+  const system = (pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM + (m.sys_prompt?.trim() ? '\n\n' + m.sys_prompt.trim() : '')) + systemBase + (J.summary ?  `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.folder_ins ? `\n\nInstructions for every chat in this folder (follow them):\n${J.folder_ins}` : '') + folderDocs(J.folder_docs) + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + imgPrompt; // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
   const mcpTools = [], mcpMap = new Map();
-  if (J.mcp_ids?.length) {
-    const srvs = (await env.DB.prepare(`SELECT * FROM mcp_servers WHERE id IN (${J.mcp_ids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...J.mcp_ids, u.id).all().catch(() => ({ results: [] }))).results;
-    for (const sv of srvs) {
-      const tok = sv.token_enc ? await unseal(env, sv.token_enc).catch(() => null) : null;
-      let list = []; try { list = JSON.parse(sv.tools_json || '[]'); } catch {}
-      for (const t of list) {
-        const safe = `mcp_${sv.id}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48)}`;
-        mcpMap.set(safe, { url: sv.url, tok, name: t.name, server: sv.name });
-        mcpTools.push({ type: 'function', function: { name: safe, description: `[${sv.name}] ${t.description || t.name}`, parameters: t.inputSchema } });
-      }
+  for (const sv of mcpSrvs) {
+    const tok = sv.token_enc ? await unseal(env, sv.token_enc).catch(() => null) : null;
+    let list = []; try { list = JSON.parse(sv.tools_json || '[]'); } catch {}
+    for (const t of list) {
+      const safe = `mcp_${sv.id}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48)}`;
+      mcpMap.set(safe, { url: sv.url, tok, name: t.name, server: sv.name });
+      mcpTools.push({ type: 'function', function: { name: safe, description: `[${sv.name}] ${t.description || t.name}`, parameters: t.inputSchema } });
     }
   }
   // zip ที่แนบไว้ในแชต ([[zipref:id]] ในข้อความผู้ใช้): ให้ AI เปิดเฉพาะไฟล์ที่ต้องใช้ด้วย read_file / grep_files
@@ -563,16 +609,17 @@ export async function runChat(env, J, send, st) {
   let zipCache = null;
   const zipLoad = async () => zipCache ||= Object.assign({}, ...await Promise.all(zipIds.map(async id => { const o = await env.SLIPS.get(`zip/${u.id}/${id}.json`); return o ? await o.json().catch(() => ({})) : {}; })));
   const zipTools = zipIds.length ? ZIP_TOOLS : [];
-  const sysZ = (zipIds.length ? system + ZIP_SYS : system) + localSys(J.local, !!pid);
-  // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำต่อหน้าผู้ใช้
-  if (model.fallback_id && await modelDown(env, model.id)) {
+  const ws = codeRows ? codeWorkspace(codeRows) : null;
+  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools && !pid ? webTools(searchOn) : []), ...(useTools && ws ? CODE_TOOLS : [])];
+  const sysNow = () => (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + localSys(J.local, !!pid);
+  // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำ
+  if (down) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
     if (fb && !await modelDown(env, fb.id)) { model = fb; await send({ fallback: fb.name }); }
   }
-  const kb = J.kb ? await kbBlock(env, u.id, hist.at(-1).content) : '';
-  const links = !pid ? await readLinks(hist.at(-1).content).catch(() => []) : [];
   if (links.length) await send({ sources: [...sources, ...links].map(({ title, url }) => ({ title, url })) });
   const linkCtx = links.map(l => `[เนื้อหาจากลิงก์ ${l.url}${l.title ? ' · ' + l.title : ''}]\n${l.text}`).join('\n\n');
+  const prepMs = Date.now() - tPrep; // เวลาเตรียมก่อนเรียกโมเดล (บันทึกคู่กับ ttft ดูผลการปรับความเร็ว)
   let msgs = sources.length || kb || linkCtx ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: (kb ? kb + '\n\n' : '') + withSources(x.content, sources) + (linkCtx ? '\n\n' + linkCtx : '') } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
@@ -583,6 +630,7 @@ export async function runChat(env, J, send, st) {
     let part = '', ru = null;
     const tcs = new Map(), anthIdx = new Map();
     const fit = fitContext(system, msgs, ctxMax(model)); msgs = fit.msgs; ctxUsed = fit.used; if (fit.trimmed && !trimmedSent) { trimmedSent = true; await send({ trimmed: true }); } // ไม่ส่งเกิน context ของโมเดล (upstream จะ error)
+    let toolsSent = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       // นาฬิกาเฝ้าโมเดล: ไม่มีข้อความ/ความคิดตัวแรกภายใน 90 วิ (effort สูงสุด 150 วิ) หรือเงียบเกิน 60 วิกลางทาง = ตัดการเชื่อมต่อ แล้วใช้ทางสลับโมเดลสำรอง/แจ้งข้อผิดพลาด แทนที่ผู้ใช้จะรอไม่จบ
       const ac = new AbortController(); let stalled = 0, wd;
@@ -590,7 +638,8 @@ export async function runChat(env, J, send, st) {
       const firstMs = (model.first_token_s > 0 ? model.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 150 : 90) * 1000, idleMs = (model.idle_s > 0 ? model.idle_s : 60) * 1000; // ตั้งต่อโมเดลได้ในหลังบ้าน
       arm(firstMs); let stopR = '', rawT = '';
       try {
-        for await (const e of callModel(env, model, msgs, { effort, cacheTtl: '1h', images: imgs, system: sysZ, tools: mcpTools.length || zipTools.length ? [...mcpTools, ...zipTools] : undefined, userId: u.id, signal: ac.signal })) {
+        const tl = toolsNow(); toolsSent = tl.length > 0;
+        for await (const e of callModel(env, model, msgs, { effort, cacheTtl: '1h', images: imgs, system: sysNow(), tools: tl.length ? tl : undefined, userId: u.id, signal: ac.signal })) {
           arm(idleMs);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
@@ -615,6 +664,8 @@ export async function runChat(env, J, send, st) {
       } catch (e0) {
         clearTimeout(wd);
         const e = stalled ? new Error(`โมเดลไม่ตอบภายใน ${Math.round(stalled / 1000)} วินาที`) : e0;
+        // ผู้ให้บริการไม่รับ tools (400/422 ที่พูดถึง tool/function): ปิด tools แบบ native ของคำตอบนี้แล้วลองใหม่แบบเดิมทันที ไม่นับเป็นโมเดลล่ม
+        if (useTools && toolsSent && !stalled && !out.trim() && !think && !tcs.size && /\b4(00|04|22)\b/.test(e.message) && /tool|function/i.test(e.message)) { useTools = false; console.log('tools off for', model.name, e.message.slice(0, 120)); attempt--; continue; }
         console.log('AI error', model.name, e.message);
         await event(env, 'error', model.id, e.message.slice(0, 300));
         const fb = !out.trim() && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
@@ -626,10 +677,36 @@ export async function runChat(env, J, send, st) {
     cumIn += ru ? ru.fresh + ru.read + ru.write : ctxUsed;
     if (ru) usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : ru;
     const toolCalls = [...tcs.values()];
-    if (toolCalls.length && !st.gone && round < (zipTools.length ? 12 : 5)) {
+    if (toolCalls.length && !st.gone && round < (ws && useTools ? maxRounds + 2 : zipTools.length ? 12 : 5)) {
       msgs = [...msgs, { role: 'assistant', content: part || null, tool_calls: toolCalls }];
       imgs = [];
+      let onlyWrites = true, allOk = true; const doing = [];
       for (const tc of toolCalls) {
+        const tname = tc.function?.name || '';
+        if (!WRITE_TOOLS.has(tname)) onlyWrites = false;
+        if ((ws && CODE_TOOL_NAMES.has(tname)) || WEB_TOOL_NAMES.has(tname)) {
+          let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* อาร์กิวเมนต์เสีย: ให้เครื่องมือตอบ error */ }
+          let r;
+          if (cumIn >= inMax && !WRITE_TOOLS.has(tname)) r = { result: 'Reading budget for this answer is used up. Stop reading and finish the task with what you have.', ok: false, label: tname };
+          else if (ws && CODE_TOOL_NAMES.has(tname)) r = codeTool(ws, tname, args);
+          else if (tname === 'web_search') {
+            const q = String(args.query || '').slice(0, 400), pre = spec; spec = null; // ผลค้นล่วงหน้าใช้กับการค้นครั้งแรกเท่านั้น
+            let found = pre ? await pre : []; if (!found.length && searchOn && q) found = await webSearch(env, q);
+            for (const f of found) if (!sources.some(x => x.url === f.url)) sources.push(f);
+            if (found.length) await send({ sources: [...sources, ...links].map(({ title, url }) => ({ title, url })) });
+            r = { result: found.length ? found.map((f, i) => `[${i + 1}] ${f.title}\n${f.url}\n${f.content}`).join('\n\n') : 'No results.', ok: found.length > 0, label: 'ค้นเว็บ ' + q.slice(0, 60) };
+          } else {
+            const pg = (await readLinks(String(args.url || '')).catch(() => []))[0];
+            if (pg && !links.some(x => x.url === pg.url)) { links.push(pg); await send({ sources: [...sources, ...links].map(({ title, url }) => ({ title, url })) }); }
+            r = { result: pg ? `${pg.title ? pg.title + '\n' : ''}${pg.text}` : 'Error: could not open this page (blocked, not text, or not reachable).', ok: !!pg, label: 'เปิด ' + String(args.url || '').slice(0, 60) };
+          }
+          if (!r.ok) allOk = false;
+          if (r.emit) { out += r.emit; await send({ t: r.emit }); lastKind = 't'; }
+          doing.push(r.label);
+          await send({ mcp: { server: ws ? 'ไฟล์' : 'เว็บ', tool: r.label, ok: r.ok } });
+          msgs.push({ role: 'tool', tool_call_id: tc.id, content: r.result });
+          continue;
+        }
         if (ZIP_TOOL_NAMES.has(tc.function?.name) && zipTools.length) {
           let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch {}
           const resText = cumIn >= ANSWER_IN_MAX ? 'Reading budget for this answer is used up. Stop calling tools and answer now with what you have.' : zipTool(tc.function.name, args, await zipLoad());
@@ -648,6 +725,9 @@ export async function runChat(env, J, send, st) {
       }
       await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + LOCK_MS, lock).run();
       lastKind = 't';
+      // รอบที่มีแต่การแก้ไฟล์และสำเร็จทุกอัน = งานเสร็จ (โมเดลเขียนสรุปมาในรอบเดียวกันแล้ว) ไม่ต้องเรียกโมเดลอีกรอบให้ผู้ใช้รอ
+      if (ws && useTools && onlyWrites && allOk) break;
+      if (ws && useTools && doing.length) await send({ round: round + 2, of: maxRounds + 3, doing: doing.slice(0, 3).join(', ').slice(0, 120) });
       continue;
     }
     const reqs = pid && !st.gone && round < maxRounds && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
@@ -672,7 +752,7 @@ export async function runChat(env, J, send, st) {
   let mid = null;
   if ((out || think) && cid) mid = (await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id')
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null).first())?.id ?? null;
-  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet', ms: Date.now() - tStart, ttft, src: 'chat' }) : 0;
+  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet', ms: Date.now() - tStart, ttft, src: 'chat', prep: prepMs }) : 0;
   await unlimit(env, lock);
   const fin = await usageStatus(env, u, plan);
   await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: ctxUsed, max: ctxMax(model) }, ...fin });

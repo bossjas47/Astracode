@@ -197,13 +197,13 @@ export async function planOf(env, u) {
 }
 async function planOf0(env, u) {
   const now = Date.now();
-  let personal = null;
-  if (u.plan_id && u.plan_expires > now) {
-    personal = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(u.plan_id).first();
-  }
-  const tm = await env.DB.prepare(`SELECT t.id tid,t.name tname,t.owner_id,t.expires,t.invite_code,t.max_seats,t.shared_pool tshared,tm.role trole,tm.api_off tapioff,p.*
+  // แพลนส่วนตัวกับแพลนทีมอ่านพร้อมกัน (ไม่ขึ้นต่อกัน) ลดเวลารอฐานข้อมูลก่อนเริ่มตอบ
+  const [personal, tm] = await Promise.all([
+    u.plan_id && u.plan_expires > now ? env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(u.plan_id).first() : null,
+    env.DB.prepare(`SELECT t.id tid,t.name tname,t.owner_id,t.expires,t.invite_code,t.max_seats,t.shared_pool tshared,tm.role trole,tm.api_off tapioff,p.*
     FROM team_members tm JOIN teams t ON t.id=tm.team_id JOIN plans p ON p.id=t.plan_id
-    WHERE tm.user_id=? AND t.expires>? ORDER BY p.limit_week DESC, t.expires DESC LIMIT 1`).bind(u.id, now).first().catch(() => null);
+    WHERE tm.user_id=? AND t.expires>? ORDER BY p.limit_week DESC, t.expires DESC LIMIT 1`).bind(u.id, now).first().catch(() => null),
+  ]);
   if (tm && (!personal || tm.limit_week >= personal.limit_week)) {
     tm._team = { id: tm.tid, name: tm.tname, owner_id: tm.owner_id, expires: tm.expires, invite_code: tm.invite_code, max_seats: tm.max_seats, shared_pool: !!tm.tshared, role: tm.trole, api_off: !!tm.tapioff };
     return tm;
@@ -228,12 +228,13 @@ export async function usageStatus(env, u, plan) {
     if (cap > 0) { const mu = (await env.DB.prepare('SELECT COALESCE(SUM(units),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(u.id, sw).first()).x; pw = Math.max(pw, pct(mu, plan.limit_week * cap / 100)); }
     return win4(plan, { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pw, reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY });
   }
-  const w = await env.DB.prepare('SELECT sess_start,week_start FROM users WHERE id=?').bind(u.id).first() || {}; // อ่านใหม่เสมอ เพราะเพิ่งอาจเริ่มรอบตอนบันทึกการใช้งาน
+  // รอบเวลา + ยอดใช้ในรอบ อ่านในคำสั่งเดียว (เดิมสองรอบไป-กลับ) · อ่านรอบใหม่เสมอ เพราะเพิ่งอาจเริ่มรอบตอนบันทึกการใช้งาน
+  const w = await env.DB.prepare(`SELECT sess_start, week_start,
+      (SELECT COALESCE(SUM(units),0) FROM usage WHERE user_id=?1 AND created_at>=users.sess_start) u4,
+      (SELECT COALESCE(SUM(units),0) FROM usage WHERE user_id=?1 AND created_at>=users.week_start) uw
+    FROM users WHERE id=?1`).bind(u.id).first() || {};
   const s4 = w.sess_start && now < w.sess_start + H4 && w.sess_start >= r0 ? w.sess_start : null, sw = w.week_start && now < w.week_start + 7 * DAY && w.week_start >= r0 ? w.week_start : null;
-  const r = s4 || sw ? await env.DB.prepare(`SELECT
-      COALESCE(SUM(CASE WHEN created_at>=?1 THEN units END),0) u4,
-      COALESCE(SUM(CASE WHEN created_at>=?2 THEN units END),0) uw
-    FROM usage WHERE user_id=?3 AND created_at>=?4`).bind(s4 || 1e18, sw || 1e18, u.id, Math.min(s4 || 1e18, sw || 1e18)).first() : { u4: 0, uw: 0 };
+  const r = { u4: s4 ? w.u4 || 0 : 0, uw: sw ? w.uw || 0 : 0 };
   const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 1000) / 10) : 100;
   return win4(plan, { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pct(r.uw, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY });
 }
@@ -242,7 +243,7 @@ export const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 export let colsDone;
 // เดิมสั่ง ALTER ทีละคำสั่งทุกครั้งที่ isolate เริ่ม (13 รอบไป-กลับ D1 ก่อนตอบคำขอแรก) ตอนนี้ถามโครงสร้างครั้งเดียวแล้วเพิ่มเฉพาะที่ขาด
-const NEW_COLS = [['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['users', 'webhook_url', 'TEXT'], ['users', 'auto_compact', 'INTEGER'], ['users', 'totp_last', 'INTEGER'], ['chats', 'deleted_at', 'INTEGER'], ['chats', 'archived', 'INTEGER'], ['skills', 'as_text', 'INTEGER'], ['skills', 'model_id', 'INTEGER'], ['users', 'bill_info', 'TEXT'], ['usage', 'ms', 'INTEGER'], ['posts', 'changelog', 'INTEGER'], ['models', 'new_until', 'INTEGER'], ['models', 'sys_prompt', 'TEXT'], ['plans', 'days', 'INTEGER'], ['plans', 'once', 'INTEGER'], ['users', 'wallet_day_cap', 'REAL'], ['payments', 'review', 'INTEGER'], ['folders', 'instructions', 'TEXT'], ['folders', 'files', 'TEXT'], ['messages', 'starred', 'INTEGER'], ['users', 'vercel_token', 'TEXT'], ['chats', 'instructions', 'TEXT'], ['usage', 'ttft', 'INTEGER'], ['usage', 'src', 'TEXT'], ['usage', 'charge', 'REAL'], ['projects', 'featured', 'INTEGER'], ['projects', 'blurb', 'TEXT'], ['projects', 'env_sealed', 'TEXT'], ['users', 'digest_off', 'INTEGER'], ['projects', 'slug', 'TEXT'], ['skills', 'share_token', 'TEXT'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT'], ['models', 'cats', 'TEXT'], ['usage', 'flag', 'TEXT'], ['usage', 'pack', 'REAL'], ['plans', 'agent', 'INTEGER'], ['users', 'agent_pack_from', 'INTEGER'], ['users', 'agent_pack_until', 'INTEGER'], ['users', 'agent_pack_units', 'REAL']];
+const NEW_COLS = [['usage', 'prep', 'INTEGER'], ['models', 'tools', 'TEXT'], ['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['users', 'webhook_url', 'TEXT'], ['users', 'auto_compact', 'INTEGER'], ['users', 'totp_last', 'INTEGER'], ['chats', 'deleted_at', 'INTEGER'], ['chats', 'archived', 'INTEGER'], ['skills', 'as_text', 'INTEGER'], ['skills', 'model_id', 'INTEGER'], ['users', 'bill_info', 'TEXT'], ['usage', 'ms', 'INTEGER'], ['posts', 'changelog', 'INTEGER'], ['models', 'new_until', 'INTEGER'], ['models', 'sys_prompt', 'TEXT'], ['plans', 'days', 'INTEGER'], ['plans', 'once', 'INTEGER'], ['users', 'wallet_day_cap', 'REAL'], ['payments', 'review', 'INTEGER'], ['folders', 'instructions', 'TEXT'], ['folders', 'files', 'TEXT'], ['messages', 'starred', 'INTEGER'], ['users', 'vercel_token', 'TEXT'], ['chats', 'instructions', 'TEXT'], ['usage', 'ttft', 'INTEGER'], ['usage', 'src', 'TEXT'], ['usage', 'charge', 'REAL'], ['projects', 'featured', 'INTEGER'], ['projects', 'blurb', 'TEXT'], ['projects', 'env_sealed', 'TEXT'], ['users', 'digest_off', 'INTEGER'], ['projects', 'slug', 'TEXT'], ['skills', 'share_token', 'TEXT'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT'], ['models', 'cats', 'TEXT'], ['usage', 'flag', 'TEXT'], ['usage', 'pack', 'REAL'], ['plans', 'agent', 'INTEGER'], ['users', 'agent_pack_from', 'INTEGER'], ['users', 'agent_pack_until', 'INTEGER'], ['users', 'agent_pack_units', 'REAL']];
 const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
 const PAY_UQ = ["CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_key_uq ON payments(slip_key) WHERE slip_key LIKE 'slip/%'", "CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_ref_uq ON payments(slip_ref) WHERE slip_ref IS NOT NULL AND status<>'rejected'", "CREATE UNIQUE INDEX IF NOT EXISTS wallet_first_bonus_uq ON wallet_tx(user_id) WHERE kind='first_bonus'"]; // โบนัสเติมเงินครั้งแรกได้ครั้งเดียวต่อบัญชี แม้อนุมัติสองรายการพร้อมกัน
 // โปรเจกต์ที่ผู้ใช้เข้าถึงได้: เจ้าของ หรือสมาชิกที่ถูกเชิญให้แก้ (owner = true เฉพาะเจ้าของ)

@@ -223,9 +223,9 @@ export async function route(req, env, ctx, url, path, M) {
         if (shared) ctx.waitUntil(shared.put(ck, new Response(body, { headers: { 'cache-control': 'max-age=30' } })).catch(() => {}));
         return new Response(body, { headers: { 'content-type': 'application/json' } });
       }
-      const u = await getUser(req, env);
+      const [u, maint] = await Promise.all([getUser(req, env), getSetting(env, 'maintenance')]); // อ่านพร้อมกัน: ประหยัดหนึ่งรอบไป-กลับทุกคำขอ
       if (!u || u.banned) return err('กรุณาเข้าสู่ระบบ', 401);
-      if (u.role !== 'admin' && !['/api/me', '/api/logout'].includes(path) && (await getSetting(env, 'maintenance')) === '1') return json({ error: 'ระบบปิดปรับปรุงชั่วคราว', maintenance: true }, 503);
+      if (u.role !== 'admin' && !['/api/me', '/api/logout'].includes(path) && maint === '1') return json({ error: 'ระบบปิดปรับปรุงชั่วคราว', maintenance: true }, 503);
       const extra = await userRoutes(req, env, ctx, url, path, M, u); if (extra) return extra;
 
       if (path === '/api/feedback' && M === 'POST') { // 👍 = 1, 👎 = -1, 0 = ยกเลิก

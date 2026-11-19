@@ -8,7 +8,7 @@ import { ensureAgentTable, launch, workerModel } from './agent.js';
 // ---------- admin ----------
 export const TABLES = {
   plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'agent', 'description', 'sort', 'active'],
-  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'ctx_k', 'req_cap', 'bill', 'req_cost', 'req_price', 'code_prompt', 'sys_prompt', 'public', 'note', 'cats', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active', 'new_until'],
+  models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'ctx_k', 'req_cap', 'bill', 'req_cost', 'req_price', 'code_prompt', 'sys_prompt', 'public', 'note', 'cats', 'fallback_id', 'vision', 'tools', 'effort', 'effort_levels', 'sort', 'active', 'new_until'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published', 'changelog'],
 };
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
@@ -603,11 +603,11 @@ ${cheaper > 0 ? `ถูกกว่าซื้อ API ทางการปร�
   }
   if (path === '/api/admin/model-health') { // สุขภาพโมเดล 24 ชม.: ตอบสำเร็จ (จาก usage) เทียบ error (จาก events)
     const since = Date.now() - 864e5;
-    const ok = (await DB.prepare('SELECT model_id, COUNT(*) n, AVG(ttft) ttft, AVG(ms) ms FROM usage WHERE created_at>? AND model_id>0 GROUP BY model_id').bind(since).all()).results;
+    const ok = (await DB.prepare('SELECT model_id, COUNT(*) n, AVG(ttft) ttft, AVG(ms) ms, AVG(prep) prep FROM usage WHERE created_at>? AND model_id>0 GROUP BY model_id').bind(since).all()).results;
     const er = (await DB.prepare("SELECT model_id, COUNT(*) n, MAX(created_at) at FROM events WHERE kind='error' AND created_at>? GROUP BY model_id").bind(since).all()).results;
     const last = (await DB.prepare("SELECT model_id, detail FROM events WHERE id IN (SELECT MAX(id) FROM events WHERE kind='error' AND created_at>? GROUP BY model_id)").bind(since).all().catch(() => ({ results: [] }))).results;
     const ms = (await DB.prepare('SELECT id,name,active FROM models ORDER BY id').all()).results;
-    return json(ms.map(m => ({ id: m.id, name: m.name, active: m.active, ok: ok.find(x => x.model_id === m.id)?.n || 0, ttft: Math.round(ok.find(x => x.model_id === m.id)?.ttft || 0), ms: Math.round(ok.find(x => x.model_id === m.id)?.ms || 0), err: er.find(x => x.model_id === m.id)?.n || 0, last_at: er.find(x => x.model_id === m.id)?.at || null, last: last.find(x => x.model_id === m.id)?.detail || '' })).filter(x => x.ok || x.err));
+    return json(ms.map(m => ({ id: m.id, name: m.name, active: m.active, ok: ok.find(x => x.model_id === m.id)?.n || 0, ttft: Math.round(ok.find(x => x.model_id === m.id)?.ttft || 0), ms: Math.round(ok.find(x => x.model_id === m.id)?.ms || 0), prep: Math.round(ok.find(x => x.model_id === m.id)?.prep || 0), err: er.find(x => x.model_id === m.id)?.n || 0, last_at: er.find(x => x.model_id === m.id)?.at || null, last: last.find(x => x.model_id === m.id)?.detail || '' })).filter(x => x.ok || x.err));
   }
   if (path === '/api/admin/events') return json((await DB.prepare('SELECT e.*,m.name model FROM events e LEFT JOIN models m ON m.id=e.model_id ORDER BY e.id DESC LIMIT 200').all()).results);
   if (path === '/api/admin/backups') {
