@@ -231,7 +231,12 @@ export async function applyPayment(env, p) {
     const s = await getSettings(env, ['first_topup_pct', 'first_topup_max']), pct = +s.first_topup_pct || 0, cap = s.first_topup_max === '' ? 100 : +s.first_topup_max;
     if (real && pct > 0 && !await env.DB.prepare("SELECT 1 FROM wallet_tx WHERE user_id=? AND kind='first_bonus'").bind(u.id).first()) {
       const bonus = Math.round(Math.min(p.amount * pct / 100, cap) * 100) / 100;
-      if (bonus > 0) await walletAdd(env, u.id, bonus, 'first_bonus', 'payment#' + p.id);
+      // จองแถว first_bonus ก่อน (ดัชนี unique ต่อผู้ใช้) แล้วค่อยเพิ่มเงิน: อนุมัติสองรายการพร้อมกันได้โบนัสครั้งเดียว
+      const tx = bonus > 0 && await env.DB.prepare("INSERT OR IGNORE INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,0,'first_bonus',?,?) RETURNING id").bind(u.id, bonus, 'payment#' + p.id, Date.now()).first();
+      if (tx) {
+        const r = await env.DB.prepare('UPDATE users SET balance=ROUND(balance+?,4) WHERE id=? RETURNING balance').bind(bonus, u.id).first();
+        await env.DB.prepare('UPDATE wallet_tx SET balance_after=? WHERE id=?').bind(r?.balance ?? 0, tx.id).run();
+      }
     }
   } else {
     const pl = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(p.plan_id).first();
@@ -260,9 +265,9 @@ export async function applyPayment(env, p) {
     const s = await getSettings(env, ['aff_pct', 'aff_months']), pct = +s.aff_pct || 0, months = +s.aff_months || 12;
     if (pct > 0 && Date.now() - u.created_at < months * 30 * DAY) { const c = Math.round(p.amount * pct) / 100; if (c > 0) await walletAdd(env, u.referred_by, c, 'affiliate', 'user#' + u.id + ' payment#' + p.id); }
   }
-  if (u.referred_by && !u.ref_rewarded && !['wallet', 'coupon'].includes(p.slip_key)) { // คนที่ถูกชวนจ่ายเงินจริงครั้งแรก: ได้เครดิตทั้งคู่
+  // คนที่ถูกชวนจ่ายเงินจริงครั้งแรก: ได้เครดิตทั้งคู่ · ตั้ง ref_rewarded แบบมีเงื่อนไข อนุมัติสองรายการพร้อมกันจ่ายโบนัสครั้งเดียว
+  if (u.referred_by && !u.ref_rewarded && real && (await env.DB.prepare('UPDATE users SET ref_rewarded=1 WHERE id=? AND COALESCE(ref_rewarded,0)=0').bind(u.id).run()).meta.changes) {
     const bonus = +(await getSetting(env, 'referral_bonus')) || 0;
-    await env.DB.prepare('UPDATE users SET ref_rewarded=1 WHERE id=?').bind(u.id).run();
     if (bonus > 0) { await walletAdd(env, u.id, bonus, 'referral', 'ref'); await walletAdd(env, u.referred_by, bonus, 'referral', 'user#' + u.id); }
   }
   await mail(env, u.email, 'AstraCode: ชำระเงินสำเร็จ', mailBox('ชำระเงินสำเร็จ', p.kind === 'topup' ? `เติมเงิน ฿${p.amount} เข้า Wallet แล้ว` : 'เปิดแพลนให้แล้ว ใช้งานได้ทันที'));
@@ -318,7 +323,9 @@ export async function pay(req, env, u) {
   if (!type) return err('รองรับเฉพาะรูป JPG, PNG หรือ WEBP');
   const key = 'slip/' + hex(await crypto.subtle.digest('SHA-256', buf));
   if (await env.DB.prepare('SELECT 1 FROM payments WHERE slip_key=?').bind(key).first()) return err('สลิปนี้ถูกใช้แล้ว');
-  await slipPut(env, key, buf, type);
+  // จองสิทธิ์คูปองก่อนส่งสลิปไปตรวจ (กันคูปองจำกัดจำนวนถูกใช้เกินด้วยสลิปที่รอตรวจพร้อมกัน) · สลิปไม่ผ่าน/บันทึกไม่ได้ = คืนสิทธิ์
+  if (coupon && !await claimCoupon(env, coupon.code, u.id)) return err('คูปองใช้ไม่ได้หรือหมดอายุ');
+  await slipPut(env, key, buf, type).catch(async e => { await releaseCoupon(env, coupon?.code, u.id); throw e; });
   const c = await checkSlip(env, buf, type, amount, kind === 'topup');
   if (c.ref && await env.DB.prepare('SELECT 1 FROM payments WHERE slip_ref=?').bind(c.ref).first()) c.code = '200501'; // สลิปที่เคยสแกนแล้วใช้ซ้ำไม่ได้ แม้ครั้งก่อนถูกปฏิเสธ // เลขอ้างอิงธนาคารซ้ำในระบบเรา
   if (kind === 'topup' && c.flex && c.code === '200000') { // เติมเงินด้วย EasySlip: ได้ยอดตามสลิป (ไม่ต้องตรงกับที่กรอก) ขั้นต่ำตามที่ตั้ง
@@ -336,7 +343,8 @@ export async function pay(req, env, u) {
   const now = Date.now(), what = kind === 'topup' ? 'เติม Wallet' : plan.name + (period === 'year' ? ' รายปี' : '');
   // ดัชนี unique (slip_key, slip_ref) กันสลิปเดียวส่งพร้อมกันสองครั้งแล้วอนุมัติซ้ำ: ตัวที่สองชนดัชนีและถูกปฏิเสธก่อนถึง applyPayment
   const p = await env.DB.prepare('INSERT INTO payments (user_id,plan_id,amount,slip_key,slip_check,slip_amount,slip_ref,status,approved_at,created_at,kind,period,coupon,discount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *')
-    .bind(u.id, plan?.id || 0, amount, key, c.result, c.amount, c.ref || null, fail ? 'rejected' : pass ? 'approved' : 'pending', pass ? now : null, now, kind, period, fail ? null : coupon?.code || null, discount).first().catch(e => { if (/UNIQUE/i.test(e.message)) return null; throw e; });
+    .bind(u.id, plan?.id || 0, amount, key, c.result, c.amount, c.ref || null, fail ? 'rejected' : pass ? 'approved' : 'pending', pass ? now : null, now, kind, period, fail ? null : coupon?.code || null, discount).first().catch(async e => { if (/UNIQUE/i.test(e.message)) return null; await releaseCoupon(env, coupon?.code, u.id); throw e; });
+  if (!p || fail) await releaseCoupon(env, coupon?.code, u.id);
   if (!p) return err('สลิปนี้ถูกใช้แล้ว');
   if (fail) { await notify(env, `⛔ สลิปไม่ผ่าน ฿${amount} จาก ${u.email} (${what}): ${fail}`); return json({ error: fail + ' ถ้าคิดว่าผิดพลาด กด "ให้แอดมินตรวจ" ได้เลย', pay_id: p.id }, 400); }
   if (pass) { await applyPayment(env, p); await notify(env, `✅ อนุมัติอัตโนมัติ ฿${amount} จาก ${u.email} (${what})`); return json({ ok: true, approved: true, id: p.id }); }

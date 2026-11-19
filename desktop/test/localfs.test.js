@@ -63,3 +63,19 @@ test('isServer / portOf: dev servers run in the background and their port is fou
   assert.equal(portOf('Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/)'), 8000);
   assert.equal(portOf('compiled ok'), null);
 });
+
+test('safePath: a symlink inside the folder that points outside is refused; normal and new files still work', async () => {
+  const { safePath } = require('../tools');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'astra-')), out = fs.mkdtempSync(path.join(os.tmpdir(), 'astra-out-'));
+  fs.writeFileSync(path.join(out, 'secret.txt'), 'S');
+  fs.symlinkSync(out, path.join(root, 'link'), 'dir');
+  fs.symlinkSync(path.join(out, 'secret.txt'), path.join(root, 's.txt'));
+  fs.mkdirSync(path.join(root, 'src')); fs.symlinkSync(path.join(root, 'src'), path.join(root, 'inner'), 'dir');
+  assert.throws(() => safePath(root, 'link/secret.txt'), /symlink/);
+  assert.throws(() => safePath(root, 'link/new.txt'), /symlink/, 'creating a file through the link is refused too');
+  assert.throws(() => safePath(root, 's.txt'), /symlink/);
+  await assert.rejects(writeRel(root, 'link/x.txt', 'x'));
+  assert.ok(!fs.existsSync(path.join(out, 'x.txt')));
+  assert.equal(safePath(root, 'inner/a.js'), path.join(path.resolve(root), 'inner/a.js'), 'a link that stays inside is fine');
+  assert.equal(safePath(root, 'deep/new/file.txt'), path.join(path.resolve(root), 'deep/new/file.txt'));
+});

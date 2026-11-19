@@ -480,6 +480,7 @@ INSERT OR IGNORE INTO settings VALUES ('referral_bonus','20'); INSERT OR IGNORE 
 CREATE INDEX IF NOT EXISTS payments_slip_ref ON payments(slip_ref);
 CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_key_uq ON payments(slip_key) WHERE slip_key LIKE 'slip/%';
 CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_ref_uq ON payments(slip_ref) WHERE slip_ref IS NOT NULL AND status<>'rejected';
+CREATE UNIQUE INDEX IF NOT EXISTS wallet_first_bonus_uq ON wallet_tx(user_id) WHERE kind='first_bonus';
 INSERT OR IGNORE INTO settings VALUES ('slip_provider',''); INSERT OR IGNORE INTO settings VALUES ('slip_auto_approve','1'); INSERT OR IGNORE INTO settings VALUES ('slip2go_url',''); INSERT OR IGNORE INTO settings VALUES ('slip2go_receiver_type',''); INSERT OR IGNORE INTO settings VALUES ('slip2go_receiver_account','');
 
 CREATE TABLE IF NOT EXISTS teams (

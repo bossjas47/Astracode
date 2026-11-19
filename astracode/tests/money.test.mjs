@@ -128,3 +128,34 @@ test('slipLooksOk flags a rejected slip paid to the shop bank account; daily wal
   t.DB.raw.prepare('UPDATE models SET price_in=5, price_out=20 WHERE id=?').run(m.id);
   const bad = await lossModels(t.env); assert.equal(bad.length, 1); assert.match(bad[0].parts[0], /input/);
 });
+
+test('coupon with one use left: a second slip waiting for review cannot use it; rejecting the first gives it back', async () => {
+  const t = await makeEnv(), plan = addPlan(t.DB, { price: 100 }), admin = await t.user({ role: 'admin' }), a = await t.user(), b = await t.user();
+  t.DB.raw.prepare("INSERT INTO coupons (code,kind,value,max_uses,created_at) VALUES ('ONE','percent',50,1,?)").run(Date.now());
+  assert.equal((await form(t, a, { plan_id: plan.id, coupon: 'ONE' }, 11)).status, 200);
+  const r = await form(t, b, { plan_id: plan.id, coupon: 'ONE' }, 12);
+  assert.equal(r.status, 400, 'coupon already taken by the pending slip');
+  assert.equal(t.DB.raw.prepare("SELECT used FROM coupons WHERE code='ONE'").get().used, 1);
+  const pid = t.DB.raw.prepare("SELECT id FROM payments WHERE user_id=? AND status='pending'").get(a.id).id;
+  assert.equal((await t.json(`/api/admin/payments/${pid}/reject`, { method: 'POST', cookie: admin.cookie })).status, 200);
+  assert.equal(t.DB.raw.prepare("SELECT used FROM coupons WHERE code='ONE'").get().used, 0, 'rejected slip releases the coupon');
+  assert.equal((await form(t, b, { plan_id: plan.id, coupon: 'ONE' }, 13)).status, 200);
+  const pb = t.DB.raw.prepare("SELECT id,amount FROM payments WHERE user_id=? AND status='pending'").get(b.id);
+  assert.equal(pb.amount, 50);
+  assert.equal((await t.json(`/api/admin/payments/${pb.id}/approve`, { method: 'POST', cookie: admin.cookie })).status, 200);
+  assert.equal(t.DB.raw.prepare("SELECT used FROM coupons WHERE code='ONE'").get().used, 1, 'approval does not count it twice');
+});
+
+test('referral and first top-up bonus are paid once even when two payments are approved at the same moment', async () => {
+  const t = await makeEnv(); t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('referral_bonus','15'),('first_topup_pct','10')").run();
+  const admin = await t.user({ role: 'admin' }), inviter = await t.user(), u = await t.user();
+  t.DB.raw.prepare('UPDATE users SET referred_by=? WHERE id=?').run(inviter.id, u.id);
+  const ins = k => t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at) VALUES (?,0,100,?,'pending','topup','month',?) RETURNING id").get(u.id, k, Date.now()).id;
+  const ids = [ins('slip/r1'), ins('slip/r2')];
+  const rs = await Promise.all(ids.map(id => t.json(`/api/admin/payments/${id}/approve`, { method: 'POST', cookie: admin.cookie })));
+  assert.deepEqual(rs.map(r => r.status), [200, 200]);
+  assert.equal(row(t, inviter.id).balance, 15, 'inviter paid once');
+  assert.equal(row(t, u.id).balance, 200 + 10 + 15, 'two top-ups, one first-top-up bonus, one referral bonus');
+  assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM wallet_tx WHERE user_id=? AND kind='first_bonus'").get(u.id).n, 1);
+  assert.equal(t.DB.raw.prepare("SELECT balance_after FROM wallet_tx WHERE user_id=? AND kind='first_bonus'").get(u.id).balance_after > 0, true);
+});

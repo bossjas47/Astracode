@@ -1,12 +1,23 @@
 // เครื่องมือในเครื่อง: ดูโฟลเดอร์ อ่านไฟล์ และรันคำสั่ง จำกัดอยู่ในโฟลเดอร์งานที่ผู้ใช้เลือกเท่านั้น
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const path = require('path');
 const { exec, spawn } = require('child_process');
 
+// path จริงหลังตาม symlink: ส่วนที่ยังไม่มีบนดิสก์ (ไฟล์ที่กำลังจะสร้าง) ต่อท้ายโฟลเดอร์แม่ที่มีอยู่จริง
+function realOf(abs) {
+  const rest = [];
+  for (let cur = abs; ; cur = path.dirname(cur)) {
+    try { return path.join(fsSync.realpathSync.native(cur), ...rest.reverse()); }
+    catch (e) { if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw e; if (path.dirname(cur) === cur) return abs; rest.push(path.basename(cur)); }
+  }
+}
+const inside = (r, abs) => abs === r || abs.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
 function safePath(root, p) {
   if (!root) throw new Error('ยังไม่ได้เลือกโฟลเดอร์งาน');
   const r = path.resolve(root), abs = path.resolve(r, String(p ?? '.'));
-  if (abs !== r && !abs.startsWith(r + path.sep)) throw new Error('ไฟล์นี้อยู่นอกโฟลเดอร์งาน ไม่อนุญาต');
+  if (!inside(r, abs)) throw new Error('ไฟล์นี้อยู่นอกโฟลเดอร์งาน ไม่อนุญาต');
+  if (!inside(realOf(r), realOf(abs))) throw new Error('ไฟล์นี้ชี้ (symlink) ออกนอกโฟลเดอร์งาน ไม่อนุญาต'); // กัน symlink ในโฟลเดอร์ที่ชี้ไปไฟล์อื่นในเครื่อง
   return abs;
 }
 

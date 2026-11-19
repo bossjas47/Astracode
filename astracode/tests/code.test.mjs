@@ -88,3 +88,17 @@ test('long attached files are cut down to the parts that match the question; sho
   assert.match(ai.familyHint({ name: 'Gemini 4', api_model: 'gemini-4', provider: 'openai' }), /path=/);
   assert.notEqual(ai.familyHint({ name: 'Claude', api_model: 'claude-x', provider: 'anthropic' }), ai.familyHint({ name: 'DeepSeek', api_model: 'deepseek', provider: 'openai' }));
 });
+
+test('deleting a project also deletes its file history, checkpoints and every member\'s project chats', async () => {
+  const t = await makeEnv(), owner = await t.user(), member = await t.user();
+  const id = (await t.json('/api/projects', { method: 'POST', cookie: owner.cookie, body: { name: 'P' } })).data.id;
+  await t.json(`/api/projects/${id}/file`, { method: 'PUT', cookie: owner.cookie, body: { path: 'index.html', content: 'v2' } });
+  await t.json(`/api/projects/${id}/checkpoint`, { method: 'POST', cookie: owner.cookie, body: { name: 'cp' } });
+  assert.ok(t.DB.raw.prepare('SELECT COUNT(*) n FROM file_versions WHERE project_id=?').get(id).n > 0);
+  t.DB.raw.prepare('INSERT INTO project_members (project_id,user_id,created_at) VALUES (?,?,?)').run(id, member.id, Date.now());
+  const chat = t.DB.raw.prepare("INSERT INTO chats (user_id,title,created_at,project_id) VALUES (?,'c',?,?) RETURNING id").get(member.id, Date.now(), id).id;
+  assert.equal((await t.json(`/api/projects/${id}`, { method: 'DELETE', cookie: member.cookie })).status, 403, 'a member cannot delete');
+  assert.equal((await t.json(`/api/projects/${id}`, { method: 'DELETE', cookie: owner.cookie })).status, 200);
+  assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM file_versions WHERE project_id=?').get(id).n, 0);
+  assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM chats WHERE id=?').get(chat).n, 0);
+});

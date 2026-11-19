@@ -1,6 +1,6 @@
 import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, rand, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { callModel, ensureFb, isSafeMcpUrl, logUsage, mcpSync } from './ai.js';
-import { applyPayment, audit, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, walletAdd } from './billing.js';
+import { applyPayment, audit, releaseCoupon, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { slug } from './api.js';
 import { backup, lossModels, status, verifyBackup } from './jobs.js';
@@ -114,6 +114,7 @@ export async function admin(req, env, path, url, me) {
     if (!upd.meta.changes) return err('คำขอนี้ถูกจัดการไปแล้ว', 409); // กันกดอนุมัติซ้ำพร้อมกัน
     await ctxAudit(r[2] + ' payment', { id: p.id, amount: p.amount, user: p.user_id });
     if (r[2] === 'approve') await applyPayment(env, p);
+    else await releaseCoupon(env, p.coupon, p.user_id); // ปฏิเสธ: คืนสิทธิ์คูปองที่จองไว้ตอนส่งสลิป
     return json({ ok: true });
   }
   if ((r = path.match(/^\/api\/admin\/payments\/(\d+)\/refund$/)) && M === 'POST') { // คืนเงิน: ปิดแพลน/หักยอดเติม · wallet=1 = คืนเป็นเครดิต ไม่งั้นแอดมินโอนคืนเอง
