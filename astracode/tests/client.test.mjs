@@ -139,3 +139,18 @@ test('applyEdits: an insert-only edit (REPLACE contains SEARCH) applies once, no
   assert.equal(once, 'let a = 1;\nlet b = 2;\nrun();\n');
   assert.equal(ctx.applyEdits(once, body).content, once, 'second pass is a no-op');
 });
+
+test('APK attach: binary AndroidManifest/layout decode to XML, dex lists the app classes (real apktool-built APK)', async () => {
+  const chat = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/chat.js'), 'utf8');
+  const fns = new Function(chat.slice(chat.indexOf('function axmlToText'), chat.indexOf('async function apkFiles')) + '\nreturn { axmlToText, dexClasses };')();
+  const { execFileSync } = await import('node:child_process');
+  const apk = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/demo.apk');
+  const get = n => new Uint8Array(execFileSync('unzip', ['-p', apk, n]));
+  const man = fns.axmlToText(get('AndroidManifest.xml'));
+  assert.match(man, /<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android"/);
+  assert.match(man, /package="com.demo.app"/); assert.match(man, /android:name="android.permission.INTERNET"/); assert.match(man, /android:exported="true"/);
+  assert.match(man, /<\/application>/);
+  const lay = fns.axmlToText(get('res/layout/main.xml')); assert.match(lay, /android:layout_height="16dp"/); assert.match(lay, /<TextView .* \/>/);
+  assert.deepEqual(fns.dexClasses(get('classes.dex')), ['com.demo.app.MainActivity']);
+  assert.equal(fns.axmlToText(new TextEncoder().encode('<a/>')), null);
+});

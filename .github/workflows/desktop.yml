@@ -46,7 +46,7 @@ jobs:
       # astra CLI (Agent ในเทอร์มินัล): ไฟล์ชุดเดียวกับแอป ต้องมี Node.js 20+ ในเครื่อง
       - name: Pack CLI
         run: |
-          mkdir -p cli/astra && cp desktop/cli.js desktop/agent.js desktop/agenttools.js desktop/tools.js cli/astra/
+          mkdir -p cli/astra && cp desktop/cli.js desktop/agent.js desktop/agenttools.js desktop/tools.js desktop/android.js cli/astra/
           printf '{\n  "name": "astra-cli",\n  "private": true,\n  "bin": { "astra": "cli.js" }\n}\n' > cli/astra/package.json
           printf 'AstraCode Agent CLI\n\n1) ติดตั้ง Node.js 20+\n2) แตก zip แล้วรันในโฟลเดอร์ astra: npm link   (ได้คำสั่ง astra)\n3) ไปที่โฟลเดอร์โปรเจกต์ แล้วพิมพ์: astra "แก้บั๊ก..."   หรือ astra เฉยๆ เพื่อคุยต่อเนื่อง\n   ครั้งแรกจะถาม API key (สร้างที่ https://astracode.panderx.xyz/developers)\n   ตัวเลือก: --mode ask|edits|auto|plan  --model <ชื่อ>  --dir <โฟลเดอร์>\n' > cli/astra/README.txt
           (cd cli && zip -qr ../astra-cli.zip astra)

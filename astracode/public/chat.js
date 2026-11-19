@@ -617,9 +617,65 @@ async function genImage(auto, silent) { // auto = คำบรรยายที
   ai.streaming = false; setBusy(false); renderAll();
 }
 
+// ---------- APK: แปลงไฟล์ไบนารีของแอป Android ให้ AI อ่านได้ (ทำในเบราว์เซอร์) ----------
+// AndroidManifest.xml / res/*.xml เป็น binary XML (AXML) → XML ข้อความ · classes*.dex → รายชื่อคลาส
+function axmlToText(buf) {
+  const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength), u16 = o => v.getUint16(o, true), u32 = o => v.getUint32(o, true);
+  if (buf.length < 8 || u16(0) !== 3) return null;
+  let strs = [], ids = [], out = [], depth = 0, open = false; const ns = new Map();
+  const S = i => i === 0xffffffff ? '' : strs[i] ?? '';
+  const esc_ = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const val = (type, data, raw) => raw !== 0xffffffff ? S(raw) : type === 3 ? S(data) : type === 0x12 ? String(data !== 0) : type === 0x10 ? String(data | 0) : type === 0x11 ? '0x' + data.toString(16) : type === 1 ? '@0x' + data.toString(16).padStart(8, '0') : type === 2 ? '?0x' + data.toString(16).padStart(8, '0') : type === 4 ? String(new Float32Array(new Uint32Array([data]).buffer)[0]) : type === 5 ? (data >> 8) + ['px', 'dp', 'sp', 'pt', 'in', 'mm'][data & 15] : '0x' + data.toString(16);
+  for (let o = u16(2); o + 8 <= buf.length;) {
+    const type = u16(o), size = u32(o + 4); if (!size) break;
+    if (type === 1) { // string pool
+      const n = u32(o + 8), utf8 = (u32(o + 16) & 256) !== 0, start = o + u32(o + 20);
+      for (let i = 0; i < n; i++) {
+        let p = start + u32(o + u16(o + 2) + i * 4);
+        if (utf8) { p += (buf[p] & 128) ? 2 : 1; let len = buf[p]; if (len & 128) { len = ((len & 127) << 8) | buf[p + 1]; p += 2; } else p++; strs.push(new TextDecoder().decode(buf.subarray(p, p + len))); }
+        else { let len = u16(p); if (len & 0x8000) { len = ((len & 0x7fff) << 16) | u16(p + 2); p += 4; } else p += 2; let t = ''; for (let k = 0; k < len; k++) t += String.fromCharCode(u16(p + k * 2)); strs.push(t); }
+      }
+    } else if (type === 0x180) { for (let p = o + 8; p < o + size; p += 4) ids.push(u32(p)); }
+    else if (type === 0x100) ns.set(S(u32(o + 20)), S(u32(o + 16)));
+    else if (type === 0x102) {
+      if (open) out[out.length - 1] += '>';
+      const name = S(u32(o + 20)), aStart = u16(o + 24), aSize = u16(o + 26), n = u16(o + 28), attrs = [];
+      for (let k = 0; k < n; k++) {
+        const p = o + 16 + aStart + k * aSize, an = u32(p + 4), pre = ns.get(S(u32(p)));
+        attrs.push(` ${pre ? pre + ':' : ''}${S(an) || 'attr_0x' + (ids[an] ?? 0).toString(16)}="${esc_(val(buf[p + 15], u32(p + 16), u32(p + 8)))}"`);
+      }
+      out.push('  '.repeat(depth) + `<${name}${out.length ? '' : [...ns].map(([u, pf]) => ` xmlns:${pf}="${u}"`).join('')}${attrs.join('')}`); depth++; open = true;
+    } else if (type === 0x103) { depth--; if (open) { out[out.length - 1] += ' />'; open = false; } else out.push('  '.repeat(depth) + `</${S(u32(o + 20))}>`); }
+    else if (type === 0x104) { if (open) { out[out.length - 1] += '>'; open = false; } out.push('  '.repeat(depth) + esc_(S(u32(o + 16)))); }
+    o += size;
+  }
+  return out.join('\n');
+}
+function dexClasses(buf) {
+  const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength), u32 = o => v.getUint32(o, true);
+  if (String.fromCharCode(...buf.subarray(0, 3)) !== 'dex') return null;
+  const strOff = u32(0x3c), typeOff = u32(0x44), n = u32(0x60), clsOff = u32(0x64), dec = new TextDecoder();
+  const str = i => { let p = u32(strOff + i * 4); while (buf[p] & 128) p++; p++; let e = p; while (buf[e]) e++; return dec.decode(buf.subarray(p, e)); };
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(str(u32(typeOff + u32(clsOff + i * 32) * 4)).replace(/^L|;$/g, '').replace(/\//g, '.'));
+  return out.sort();
+}
+async function apkFiles(f) {
+  await lib('jszip'); const z = await JSZip.loadAsync(f), files = {}, bin = [];
+  for (const e of Object.values(z.files)) {
+    if (e.dir) continue; const nm = e.name;
+    if (/\.xml$/i.test(nm)) { const b = await e.async('uint8array'), t = axmlToText(b); if (t != null) { files[nm] = t; continue; } const s = new TextDecoder().decode(b); if (!s.includes('\u0000')) { files[nm] = s; continue; } }
+    else if (/(^|\/)classes\d*\.dex$/.test(nm)) { const c = dexClasses(await e.async('uint8array')); if (c) { const own = c.filter(x => !/^(android|androidx|kotlin|kotlinx|com\.google|org\.jetbrains|okhttp3|okio|retrofit2|io\.reactivex|dagger|javax)\./.test(x)); files[nm + '.classes.txt'] = `${c.length} คลาส (ไม่รวมไลบรารีทั่วไป ${own.length} คลาส)\n\n# คลาสของแอป\n${own.slice(0, 20000).join('\n')}`; continue; } }
+    else if (/\.(xapk|apk)$/i.test(nm)) { bin.push(nm + ' (APK ย่อย: แตกแล้วแนบแยก)'); continue; }
+    else if (TEXT_EXT.test(nm) || /\.(properties|json|txt|smali|js|html|css|cfg|ini)$/i.test(nm)) { const t = await e.async('string'); if (!t.includes('\u0000')) { files[nm] = t; continue; } }
+    bin.push(nm);
+  }
+  if (!Object.keys(files).length) throw new Error('อ่าน APK นี้ไม่ได้ (ไฟล์เสียหรือเข้ารหัส)');
+  return { files, bin };
+}
 async function readFile(f) {
   const n = f.name.toLowerCase(); let text;
-  if (f.size > RAW_MAX) throw new Error('ไฟล์ใหญ่เกิน 20MB');
+  if (f.size > (/\.(apk|aab|xapk|apks)$/.test(n) ? 300e6 : RAW_MAX)) throw new Error(/\.(apk|aab|xapk|apks)$/.test(n) ? 'APK ใหญ่เกิน 300MB' : 'ไฟล์ใหญ่เกิน 20MB');
   if (n.endsWith('.pdf')) {
     const pdf = await (await pdfLib()).getDocument({ data: await f.arrayBuffer(), cMapUrl: PDFJS + 'cmaps/', cMapPacked: true }).promise;
     const pages = [];
@@ -629,6 +685,13 @@ async function readFile(f) {
     }
     text = pages.join('\n');
     if (!text.replace(/--- หน้า \d+ ---/g, '').trim()) throw new Error('PDF นี้เป็นภาพสแกน ไม่มีข้อความให้อ่าน ลองแคปหน้าจอแล้วแนบเป็นรูปแทน');
+  } else if (/\.(apk|aab|xapk|apks)$/.test(n)) { // APK: แปลง Manifest/layout/dex ให้อ่านได้ แล้วเก็บแบบ zip ให้ AI เปิดทีละไฟล์ (ไม่ส่งตัว APK ขึ้นเซิร์ฟเวอร์)
+    const { files, bin } = await apkFiles(f), list = Object.keys(files);
+    const head = `[apk: ${f.name} · ${list.length} ไฟล์ที่อ่านได้ (Manifest/resource แปลงจากไบนารีแล้ว, dex เป็นรายชื่อคลาส)${bin.length ? `, ไฟล์ไบนารีอื่น ${bin.length} ไฟล์: ${bin.slice(0, 40).join(', ')}${bin.length > 40 ? '…' : ''}` : ''}] · แก้แล้วแพ็กกลับ/เซ็น APK ต้องทำในแอป AstraCode บนคอม (Agent มีเครื่องมือ android_tools)`;
+    let id = null;
+    try { const zz = new JSZip(); for (const p of list) zz.file(p, files[p]); const fd = new FormData(); fd.append('zip', new File([await zz.generateAsync({ type: 'blob', compression: 'DEFLATE' })], f.name + '.zip')); fd.append('files', JSON.stringify(files)); id = (await api('/zipref', { method: 'POST', body: fd })).id; }
+    catch (x) { if (!/R2|501/.test(x.message)) throw x; }
+    text = id ? `${head} [[zipref:${id}]]\nรายชื่อไฟล์ (AI เปิดอ่านเองได้):\n` + list.slice(0, 1500).map(p => `${p} · ${files[p].length.toLocaleString()} ตัวอักษร`).join('\n') : head + '\n\n' + list.map(p => `===== ${p} =====\n${files[p]}`).join('\n\n');
   } else if (n.endsWith('.zip')) { // zip: แตกในเบราว์เซอร์ · ส่งเก็บที่เซิร์ฟเวอร์ แล้วแนบแค่รายชื่อไฟล์ AI เปิดอ่านเองทีละไฟล์ (รับโปรเจกต์ใหญ่ได้)
     if (f.size > 25e6) throw new Error('zip ต้องไม่เกิน 25MB');
     await lib('jszip'); const z = await JSZip.loadAsync(f), files = {}, bin = [];

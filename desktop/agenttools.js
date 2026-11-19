@@ -3,6 +3,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const { runCmd, isDanger } = require('./tools');
+const { androidTools } = require('./android');
 
 const SKIP = /^(node_modules|\.git|dist|build|out|coverage|\.next|\.nuxt|\.venv|venv|__pycache__|\.cache|target|vendor)$/i;
 const fn = (name, description, properties, required = []) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } });
@@ -22,9 +23,10 @@ const AGENT_TOOLS = [
   fn('web_search', 'Search the web. Returns titles, URLs and snippets.', { query: S('Search query') }, ['query']),
   fn('screenshot_url', 'Open a web page (e.g. your dev server http://localhost:5173) in a hidden browser and look at a screenshot of it, to check the UI visually.', { url: S('http(s) URL'), width: N('Viewport width, default 1280') }, ['url']),
   fn('task', 'Hand a self-contained research sub-task to a helper agent that can only read files and search (no edits, no commands). Several task calls in one reply run in parallel. Returns the helper\'s report.', { description: S('3-6 word title'), prompt: S('Full instructions: what to find and what to report back') }, ['description', 'prompt']),
+  fn('android_tools', 'Prepare tools for Android APK work (apktool to decode/rebuild, jadx to read Java, a signer) and get the exact commands. Downloads/installs what is missing the first time. Call this before working on any .apk file.', {}),
   fn('todo_write', 'Keep a short task list for multi-step work; the user sees it live. Send the whole list each time.', { todos: { type: 'array', items: { type: 'object', properties: { content: S('Task'), status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] } }, required: ['content', 'status'] } } }, ['todos']),
 ];
-const KIND = { read_file: 'read', list_dir: 'read', glob: 'read', grep: 'read', web_fetch: 'net', web_search: 'net', screenshot_url: 'net', task: 'none', todo_write: 'none', bash_output: 'none', kill_bash: 'none', write_file: 'edit', edit_file: 'edit', bash: 'bash' };
+const KIND = { read_file: 'read', list_dir: 'read', glob: 'read', grep: 'read', web_fetch: 'net', web_search: 'net', screenshot_url: 'net', task: 'none', todo_write: 'none', android_tools: 'bash', bash_output: 'none', kill_bash: 'none', write_file: 'edit', edit_file: 'edit', bash: 'bash' };
 const READ_ONLY = new Set(['read_file', 'list_dir', 'glob', 'grep', 'web_fetch', 'web_search', 'screenshot_url', 'todo_write', 'task']); // โหมดวางแผน
 const SUB_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'web_fetch', 'web_search']); // ผู้ช่วยค้น (subagent)
 
@@ -73,7 +75,7 @@ class Workspace {
     const kind = KIND[name]; if (!kind) throw new Error('ไม่รู้จักเครื่องมือ ' + name);
     const target = ['read_file', 'write_file', 'edit_file', 'list_dir', 'glob', 'grep'].includes(name) ? this.abs(a.path ?? '.') : null;
     const diff = name === 'edit_file' ? diffLines(a.old_string, a.new_string) : name === 'write_file' ? diffLines(await fs.readFile(target, 'utf8').catch(() => ''), a.content) : null;
-    if (!await this.ask({ name, kind, args: a, outside: target ? !this.inside(target) : false, danger: name === 'bash' && isDanger(a.command), cwd: this.cwd, diff })) return 'Error: ผู้ใช้ไม่อนุญาต';
+    if (!await this.ask({ name, kind, args: name === 'android_tools' ? { command: 'เตรียมเครื่องมือแก้ APK: apktool, jadx, uber-apk-signer (และ Java ถ้ายังไม่มี) ไว้ที่ ~/.astra/tools' } : a, outside: target ? !this.inside(target) : false, danger: name === 'bash' && isDanger(a.command), cwd: this.cwd, diff })) return 'Error: ผู้ใช้ไม่อนุญาต';
     let out = await this[name](a, target);
     if (diff && !String(out).startsWith('Error')) {
       out += '\n' + diff;
@@ -81,6 +83,7 @@ class Workspace {
     }
     return out;
   }
+  async android_tools() { return androidTools({ log: t => this.onLog?.(t) }); }
   async read_file(a, f) {
     const st = await fs.stat(f); if (st.isDirectory()) return this.list_dir(a, f);
     if (st.size > 5e6) return `Error: ไฟล์ใหญ่ ${Math.round(st.size / 1e6)}MB`;
@@ -161,6 +164,7 @@ How to work:
 - Use the tools to look before you change anything: list_dir/glob/grep/read_file. Never guess file contents.
 - For multi-step work keep a todo list with todo_write and update it as you go.
 - Change existing files with edit_file (exact old_string copied from read_file output without the line-number prefix); use write_file only for new files or full rewrites.
+- Android .apk/.aab work: call android_tools first, then decode with apktool, edit, rebuild and sign; tell the user where the signed APK is. Only modify apps the user owns or is allowed to modify.
 - Run builds, tests and scripts with bash to verify your work; read real error output and fix the root cause. Use background=true for servers and watchers.
 - Make the smallest change that fully does the task; follow the project's existing style. No features nobody asked for.
 - Before risky or destructive actions (deleting files, force push, system changes), explain and only proceed if the user asked for it.
