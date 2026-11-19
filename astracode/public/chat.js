@@ -385,7 +385,7 @@ function toggleVoice() {
   modelUI();
 }
 // เมนู + : เรียงตามความนิยมโดยรวม แล้วดันอันที่ผู้ใช้คนนี้กดบ่อย (ตั้งแต่ 3 ครั้ง) ขึ้นบนสุด 3 อัน · ที่เหลือหลัง 6 อันแรกอยู่ใต้หัวข้อ "เพิ่มเติม"
-const TOOL_ORDER = ['pc', 'img', 'web', 'rsch', 'prm', 'voice', 'cmp', 'kb', 'skl', 'mcp', 'exp'];
+const TOOL_ORDER = ['pc', 'mcp', 'img', 'web', 'rsch', 'prm', 'voice', 'cmp', 'kb', 'skl', 'exp']; // MCP อยู่บน: ลูกค้าหาไม่เจอตอนอยู่ใต้ "เพิ่มเติม"
 const toolUse = () => { try { return JSON.parse(localStorage.getItem('toolUse') || '{}'); } catch { return {}; } };
 const toolUsed = v => { try { const u = toolUse(); u[v] = (u[v] || 0) + 1; localStorage.setItem('toolUse', JSON.stringify(u)); } catch { /* ไม่มีที่เก็บ */ } };
 function toolRows(web) {
@@ -399,7 +399,7 @@ function toolRows(web) {
     cmp: ['compare', 'Compare 2 models', 'ถามครั้งเดียว ได้คำตอบจาก 2 โมเดล', chat.compare],
     kb: ['book', 'คลังความรู้', 'เก็บเอกสารไว้ถาวร แล้วถามได้จากทุกแชต', localStorage.getItem('kb') === '1'],
     skl: ['sparkles', 'Skills', 'สอนวิธีทำงานให้ AI · เปิดปิดหรือสร้างเอง'],
-    mcp: ['server', 'Connect apps', 'ต่อ GitHub, Notion, n8n ผ่าน Remote MCP'],
+    mcp: ['server', 'MCP / ปลั๊กอิน', PCD ? 'ต่อแอปให้ AI ใช้: ปลั๊กอินสำเร็จรูป, MCP ในเครื่อง (Blender ฯลฯ), GitHub/Notion ออนไลน์' : 'ต่อแอปให้ AI ใช้: GitHub, Notion, n8n ผ่าน Remote MCP', (chat.mcps?.length || 0) > 0],
     exp: ['download', 'Export chat', 'บันทึกเป็น Markdown หรือ PDF'],
   }, use = toolUse();
   const avail = TOOL_ORDER.filter(v => defs[v]), mine = avail.filter(v => use[v] >= 3).sort((a, b) => use[b] - use[a]).slice(0, 3);
@@ -448,7 +448,7 @@ function toolSheet() {
     <div class="tlist">${toolRows(web)}</div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); toolUsed(b.dataset.v); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: enterImageMode, web: toggleWeb, cmp: toggleCompare, mcp: () => mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: enterImageMode, web: toggleWeb, cmp: toggleCompare, mcp: () => PCD ? mcpHub() : mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 // Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล
@@ -969,6 +969,20 @@ function pcSheet() {
 }
 // ตั้งค่า MCP ในเครื่องแบบกดเลือก (ไม่ต้องพิมพ์ JSON) · บันทึกแล้วแอปถามยืนยันด้วยหน้าต่าง Windows เพราะเป็นโปรแกรมที่จะรันในเครื่อง
 const MCP_PRESETS = [['blender', 'Blender', 'uvx', 'blender-mcp', 'ต้องมี uv และติดตั้ง addon ใน Blender ก่อน'], ['browser', 'เปิดเว็บ / กดหน้าเว็บ (Playwright)', 'npx', '-y @playwright/mcp@latest', 'ต้องมี Node.js'], ['memory', 'ความจำถาวร', 'npx', '-y @modelcontextprotocol/server-memory', 'ต้องมี Node.js']];
+// รวม MCP ทุกแบบไว้ที่เดียว (แอป Desktop): เลือกแบบที่ต้องการ · แบบในเครื่องต้องเลือกโฟลเดอร์ก่อน
+function mcpHub() {
+  const need = !pcOn() ? ' · ต้องเลือกโฟลเดอร์ก่อน' : '';
+  sheet('MCP / ปลั๊กอิน', `<p class="sheet-msg">MCP = ตัวเชื่อมให้ AI ใช้แอปอื่นได้ เลือกแบบที่ต้องการ</p>`
+    + (PCD.plugins ? optHTML('plug', ic('layers') + 'ปลั๊กอินสำเร็จรูป (แนะนำ)', 'กดติดตั้งคลิกเดียว: คุมเบราว์เซอร์, GitHub, ความจำ, เอกสาร' + need) : '')
+    + optHTML('local', ic('server') + 'MCP ในเครื่อง', 'ใส่คำสั่ง MCP เอง เช่น Blender, ฐานข้อมูล, ไฟล์ config จาก Claude Desktop' + need)
+    + optHTML('remote', ic('globe') + 'Remote MCP (ออนไลน์)', 'ต่อ GitHub, Notion, n8n ผ่านลิงก์ · ใช้ได้ทั้งเว็บและแอป' + (chat.mcps?.length ? ` · เปิดอยู่ ${chat.mcps.length}` : '')),
+  (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
+    close(); const v = b.dataset.v;
+    if (v === 'remote') return mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); });
+    if (!pcOn()) { toast('เลือกโฟลเดอร์งานก่อน แล้วกดปุ่ม ' + (v === 'plug' ? 'ปลั๊กอิน' : 'MCP ในเครื่อง') + ' ในหน้านี้'); return pcSheet(); }
+    return v === 'plug' ? pluginSheet() : mcpLocalSheet();
+  }));
+}
 async function mcpLocalSheet() {
   const cur = await PCD.mcp.get(); let cfg = {}; try { cfg = JSON.parse(cur.config || '{}'); } catch { cfg = {}; }
   const srv = cfg.mcpServers ||= {};
