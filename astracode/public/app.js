@@ -625,7 +625,7 @@ const EFFORT_INFO = {
   max: ['Max', 'คิดเต็มที่ · ช้าสุด ใช้ลิมิตมากสุด'],
   on: ['Thinking', 'เปิดโหมดคิดก่อนตอบ'],
 };
-const DEFAULT_EFFORTS = { openai: ['', 'minimal', 'low', 'medium', 'high', 'xhigh'], anthropic: ['', 'low', 'medium', 'high', 'max'], deepseek: ['', 'low', 'medium', 'high', 'max'], kimi: ['', 'on'], gemini: ['', 'minimal', 'low', 'medium', 'high'], auto: ['', 'low', 'medium', 'high', 'max'] };
+const DEFAULT_EFFORTS = { openai: ['', 'low', 'medium', 'high', 'xhigh'], anthropic: ['', 'low', 'medium', 'high', 'max'], deepseek: ['', 'low', 'medium', 'high', 'max'], kimi: ['', 'on'], gemini: ['', 'minimal', 'low', 'medium', 'high'], auto: ['', 'low', 'medium', 'high', 'max'] };
 function modelEfforts(m) {
   if (!m || m.effort === 'none') return [];
   if (m.effort_levels && m.effort_levels.trim()) {

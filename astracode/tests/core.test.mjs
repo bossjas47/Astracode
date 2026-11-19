@@ -110,7 +110,7 @@ test('effort rejected by the provider is retried with a supported level', async 
     fm.sse(res, 'fine');
   });
   const t = await makeEnv({ K: 'k' });
-  const m = addModel(t.DB, { name: 'E', base_url: fm.url, effort: 'openai' }); const plan = addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+  const m = addModel(t.DB, { name: 'E', base_url: fm.url, effort: 'gemini' }); const plan = addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
   const res = await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'hi', effort: 'minimal' } });
   const ev = await readSSE(res); assert.ok(ev.some(e => e.t === 'fine'), JSON.stringify(ev)); assert.equal(n, 2);
   assert.equal(fm.hits[1].body.reasoning_effort, 'low');
@@ -596,4 +596,23 @@ test('LINE OA bot: signature checked, link by 6-digit code, answers from the pla
     await hook('ช่วยด้วย'); assert.equal(sent.at(-1).messages[0].text, 'สวัสดี ครับ', 'markdown bold stripped for LINE');
     assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM usage WHERE src='line' AND user_id=?").get(u.id).n, 1);
   } finally { globalThis.fetch = realFetch; fm.close(); }
+});
+
+test('prompt cache: web chat asks Claude for a 1h cache (falls back to 5 min if refused); OpenAI gets prompt_cache_key and never "minimal"', async () => {
+  const seen = [];
+  const fm = await fakeModel((q, res, body) => {
+    seen.push(body);
+    if (body.system?.[0]?.cache_control?.ttl) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"error":{"message":"cache_control.ttl: Extra inputs are not permitted"}}'); }
+    if (q.url.endsWith('/messages')) { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.end(['{"type":"message_start","message":{"usage":{"input_tokens":5,"cache_creation_input_tokens":0}}}', '{"type":"content_block_delta","index":0,"delta":{"text":"ok"}}', '{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}'].map(x => 'data: ' + x + '\n\n').join('')); }
+    fm.sse(res, 'ok');
+  });
+  const t = await makeEnv({ K: 'k' });
+  const c = addModel(t.DB, { name: 'C', base_url: fm.url, provider: 'anthropic' }), o = addModel(t.DB, { name: 'O', base_url: fm.url, effort: 'openai' });
+  const plan = addPlan(t.DB, { models: [c.id, o.id], price: 0 }); const u = await t.user(); give(t.DB, u, plan);
+  assert.ok((await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: c.id, text: 'hi' } }))).some(e => e.t === 'ok'));
+  assert.equal(seen[0].system[0].cache_control.ttl, '1h'); assert.equal(seen[1].system[0].cache_control.ttl, undefined); // ปฏิเสธ ttl → ส่งใหม่แบบ 5 นาที
+  assert.equal(seen[1].messages.at(-1).content.at(-1).cache_control.type, 'ephemeral');
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: o.id, text: 'hi', effort: 'minimal' } }));
+  assert.equal(seen.at(-1).prompt_cache_key, 'astra-' + u.id); assert.equal(seen.at(-1).reasoning_effort, 'low');
+  fm.close();
 });

@@ -39,7 +39,7 @@ export function nearEffort(errText, cur) {
 // เพดาน output ตามค่ายของโมเดล (ไม่ส่ง = ผู้ให้บริการบางรายใช้ค่าน้อยจนคิดหมดก่อนตอบ) · ค่ายที่ไม่รู้เพดานไม่ส่ง เพราะค่าเกินอาจถูกปฏิเสธ
 export const gptMax = m => { const a = m.api_model || ''; return /^(gpt|o\d|gemini)/i.test(a) ? 256000 : /^deepseek/i.test(a) ? 356000 : undefined; };
 const capOut = (m, want) => { const cap = gptMax(m); return want && cap ? Math.min(want, cap) : want || cap; }; // ลูกค้า API ขอเกินเพดาน: ลดให้ ไม่ปล่อยให้ผู้ให้บริการปฏิเสธ
-export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false } = {}) {
+export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false, cacheTtl = null } = {}) {
   const key = env[m.key_name];
   const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
   if (!key) throw new Error('missing key ' + m.key_name);
@@ -66,15 +66,17 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       const content = Array.isArray(x.content) ? x.content.map(toAnthropicPart).filter(Boolean) : x.content;
       messages.push({ role: x.role, content });
     }
+    // แชตเว็บ: cache 1 ชม. (คนพิมพ์ห่างเกิน 5 นาทีบ่อย → cache 5 นาทีหมดก่อนข้อความถัดไป) · Agent/API ยิงถี่ใช้ 5 นาทีที่เขียนถูกกว่า
+    let cc = cacheTtl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
     const last = messages.at(-1); // cache ทั้งบทสนทนาถึงข้อความล่าสุด
     if (last) {
       const baseParts = Array.isArray(last.content) ? last.content : [{ type: 'text', text: String(last.content || '') }];
       const imgParts = images.map(d => ({ type: 'image', source: { type: 'base64', media_type: d.slice(5, d.indexOf(';')), data: d.slice(d.indexOf(',') + 1) } }));
       last.content = [...imgParts, ...baseParts];
-      if (last.content.length) last.content[last.content.length - 1] = { ...last.content.at(-1), cache_control: { type: 'ephemeral' } };
+      if (last.content.length) last.content[last.content.length - 1] = { ...last.content.at(-1), cache_control: cc };
     }
     const body = { model: m.api_model, max_tokens: Math.min(maxTokens || 128000, 128000), stream: true, messages }; // เพดาน output ของ Claude ทุกรุ่น · ค่าน้อยกว่านี้โมเดลคิดจนหมดก่อนได้ตอบ (คิดเงินตามที่ใช้จริง ไม่ใช่ตามเพดาน)
-    if (system) body.system = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
+    if (system) body.system = [{ type: 'text', text: system, cache_control: cc }];
     if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
       body.tools = tools.map(t => ({ name: t.function?.name || t.name, description: t.function?.description || t.description || '', input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));
       if (toolChoice === 'auto') body.tool_choice = { type: 'auto' };
@@ -88,15 +90,17 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       else if (extra.top_p !== undefined) body.top_p = extra.top_p;
     }
     if (extra.stop) body.stop_sequences = extra.stop;
-    const res = await fetch(m.base_url + '/messages', {
+    const postA = () => fetch(m.base_url + '/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify(body),
     });
+    let res = await postA();
+    if (res.status === 400 && cc.ttl) { const t = await res.text(); if (!/ttl|cache_control/i.test(t)) throw new Error(`upstream 400: ${t.slice(0, 300)}`); cc = { type: 'ephemeral' }; const strip = x => { if (Array.isArray(x)) x.forEach(strip); else if (x && typeof x === 'object') { if (x.cache_control) x.cache_control = cc; Object.values(x).forEach(strip); } }; strip(body); res = await postA(); } // ผู้ให้บริการไม่รองรับ ttl: ใช้ 5 นาที
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const u = { fresh: 0, read: 0, write: 0, out: 0 };
     for await (const e of sse(res)) {
-      if (e.type === 'message_start') { const x = e.message.usage; u.fresh = x.input_tokens || 0; u.read = x.cache_read_input_tokens || 0; u.write = x.cache_creation_input_tokens || 0; }
+      if (e.type === 'message_start') { const x = e.message.usage; u.fresh = x.input_tokens || 0; u.read = x.cache_read_input_tokens || 0; u.write = Math.round((x.cache_creation_input_tokens || 0) * (cc.ttl ? 1.6 : 1)); } // เขียน cache 1 ชม. แพงกว่า 5 นาที (2× เทียบ 1.25× ของราคา input) → คิดเป็นจำนวนเทียบเท่าตามราคาเขียน cache ที่ตั้งไว้
       else if (e.type === 'content_block_start' && e.content_block?.type === 'tool_use') yield { tc_start: { index: e.index, id: e.content_block.id, name: e.content_block.name } };
       else if (e.type === 'content_block_delta' && e.delta?.text) yield { t: e.delta.text };
       else if (e.type === 'content_block_delta' && e.delta?.thinking) yield { th: e.delta.thinking }; // เหตุผลที่ Claude คิด
@@ -187,7 +191,8 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       if (toolChoice) body.tool_choice = toolChoice;
     }
     const mt = capOut(m, maxTokens); if (mt) body[/api\.openai\.com/.test(m.base_url) ? 'max_completion_tokens' : 'max_tokens'] = mt; // OpenAI รุ่นคิด (GPT-5, o-series) ไม่รับ max_tokens
-    if (m.effort === 'openai' && effort) body.reasoning_effort = { on: 'medium', max: 'high' }[effort] || effort;
+    if (m.effort === 'openai' && effort) body.reasoning_effort = { on: 'medium', max: 'high', minimal: 'low' }[effort] || effort; // GPT รุ่นใหม่ไม่มี minimal
+    if (m.effort === 'openai' && userId) body.prompt_cache_key = 'astra-' + userId; // ให้คำขอของผู้ใช้คนเดิมไปเครื่องที่มี cache อยู่
     if (m.effort === 'gemini') body.reasoning_effort = effort ? ({ xhigh: 'high', max: 'high', on: 'medium' }[effort] || effort) : 'none';
     if (m.effort === 'deepseek') { // DeepSeek เปิดคิดเป็นค่าเริ่มต้น จึงต้องปิดเองเมื่อเลือก Instant
       body.thinking = { type: effort ? 'enabled' : 'disabled' };
@@ -198,6 +203,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     for (const k of ['seed', 'response_format', ...(thinking ? [] : ['temperature', 'top_p', 'presence_penalty', 'frequency_penalty', 'stop'])]) if (extra[k] !== undefined) body[k] = extra[k];
     const post = () => fetch(m.base_url + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
     let res = await post();
+    if (res.status === 400 && body.prompt_cache_key) { const t = await res.clone().text(); if (/prompt_cache_key/i.test(t)) { delete body.prompt_cache_key; res = await post(); } } // ตัวกลางบางรายไม่รู้จักช่องนี้
     if (res.status === 400 && body.reasoning_effort) { const t = await res.text(), ne = nearEffort(t, body.reasoning_effort); if (!ne) throw new Error(`upstream 400: ${t.slice(0, 300)}`); body.reasoning_effort = ne; res = await post(); }
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
     let usage = null, inThink = false, tagBuf = '';
@@ -578,7 +584,7 @@ export async function runChat(env, J, send, st) {
       const firstMs = (model.first_token_s > 0 ? model.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 150 : 90) * 1000, idleMs = (model.idle_s > 0 ? model.idle_s : 60) * 1000; // ตั้งต่อโมเดลได้ในหลังบ้าน
       arm(firstMs); let stopR = '', rawT = '';
       try {
-        for await (const e of callModel(env, model, msgs, { effort, images: imgs, system: sysZ, tools: mcpTools.length || zipTools.length ? [...mcpTools, ...zipTools] : undefined, userId: u.id, signal: ac.signal })) {
+        for await (const e of callModel(env, model, msgs, { effort, cacheTtl: '1h', images: imgs, system: sysZ, tools: mcpTools.length || zipTools.length ? [...mcpTools, ...zipTools] : undefined, userId: u.id, signal: ac.signal })) {
           arm(idleMs);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
