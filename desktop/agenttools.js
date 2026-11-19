@@ -146,7 +146,8 @@ class Workspace {
   async web_search(a) { const rs = await this.search(String(a.query || '')); return rs.length ? rs.map((x, i) => `[${i + 1}] ${x.title}\n${x.url}\n${x.content}`).join('\n\n') : 'ไม่พบผลลัพธ์'; }
   async screenshot_url(a) {
     if (!this.shot) return 'Error: จับภาพหน้าเว็บใช้ได้เฉพาะในแอป'; const u = String(a.url || ''); if (!/^https?:\/\//i.test(u)) return 'Error: ต้องเป็นลิงก์ http(s)';
-    const img = await this.shot(u, Math.min(1920, Math.max(360, +a.width || 1280))); return { text: `ภาพหน้าจอของ ${u} (แนบด้านล่าง)`, images: [img] };
+    const r = await this.shot(u, Math.min(1920, Math.max(360, +a.width || 1280))), img = typeof r === 'string' ? r : r.image, logs = r?.logs || [];
+    return { text: `ภาพหน้าจอของ ${u} (แนบด้านล่าง)${logs.length ? '\nข้อความใน console ของหน้าเว็บ:\n' + logs.join('\n') : '\nconsole ไม่มี error'}`, images: [img] };
   }
   async task(a) { if (!this.subagent) return 'Error: ไม่มีผู้ช่วย'; return await this.subagent(String(a.description || 'งานย่อย').slice(0, 60), String(a.prompt || '')); }
   async todo_write(a) { const t = (Array.isArray(a.todos) ? a.todos : []).slice(0, 30).map(x => ({ content: String(x.content || '').slice(0, 200), status: ['pending', 'in_progress', 'completed'].includes(x.status) ? x.status : 'pending' })); this.onTodos(t); return 'บันทึกรายการงานแล้ว'; }
@@ -175,4 +176,14 @@ async function projectHooks(root) { try { const h = JSON.parse(await fs.readFile
 // คำสั่งลัดของโปรเจกต์: .astra/commands/<ชื่อ>.md → /ชื่อ ($ARGUMENTS = ข้อความหลังคำสั่ง)
 async function projectCommands(root) { const dir = path.join(root, '.astra', 'commands'), out = []; for (const f of await fs.readdir(dir).catch(() => [])) if (/^[\w-]{1,30}\.md$/.test(f)) out.push({ name: f.slice(0, -3), text: (await fs.readFile(path.join(dir, f), 'utf8').catch(() => '')).slice(0, 8000) }); return out.slice(0, 50); }
 
-module.exports = { AGENT_TOOLS, KIND, READ_ONLY, SUB_TOOLS, Workspace, globRe, diffLines, agentSystem, projectRules, projectHooks, projectCommands };
+// ปลั๊กอิน: ตรวจ manifest ก่อนติดตั้ง (ชื่อ, MCP ไม่เกิน 5, คำสั่งลัดไม่เกิน 20, กติกา ≤ 4000 ตัวอักษร)
+const PLUGIN_NAME = /^[a-z0-9][a-z0-9-]{1,39}$/;
+function cleanPlugin(m) {
+  if (!m || !PLUGIN_NAME.test(m.name)) throw new Error('ชื่อปลั๊กอินไม่ถูกต้อง (a-z 0-9 -)');
+  const mcp = {}; for (const [n, c] of Object.entries(m.mcpServers || {}).slice(0, 5)) { if (!/^[\w-]{1,30}$/.test(n) || typeof c?.command !== 'string') throw new Error('mcpServers ไม่ถูกต้อง'); mcp[n] = { command: c.command.slice(0, 200), args: (Array.isArray(c.args) ? c.args : []).map(String).slice(0, 30), env: Object.fromEntries(Object.entries(c.env || {}).slice(0, 10).map(([k, v]) => [String(k), String(v)])) }; }
+  return { name: m.name, title: String(m.title || m.name).slice(0, 60), description: String(m.description || '').slice(0, 300), version: String(m.version || '1').slice(0, 20), mcpServers: mcp,
+    commands: (Array.isArray(m.commands) ? m.commands : []).filter(c => /^[\w-]{1,30}$/.test(c?.name) && typeof c.text === 'string').slice(0, 20).map(c => ({ name: c.name, text: c.text.slice(0, 8000) })),
+    rules: String(m.rules || '').slice(0, 4000), hooks: typeof m.hooks?.after_edit === 'string' ? { after_edit: m.hooks.after_edit.slice(0, 300) } : null, envAsk: (Array.isArray(m.envAsk) ? m.envAsk : []).filter(x => /^[A-Z][A-Z0-9_]{1,60}$/.test(x)).slice(0, 5) };
+}
+
+module.exports = { cleanPlugin, AGENT_TOOLS, KIND, READ_ONLY, SUB_TOOLS, Workspace, globRe, diffLines, agentSystem, projectRules, projectHooks, projectCommands };

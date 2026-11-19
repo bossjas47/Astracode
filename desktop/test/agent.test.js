@@ -95,3 +95,11 @@ test('workspace v2: diff shown with edits, undo back to a chosen step, hooks run
   assert.equal(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'one\nTWO\nthree\n'); assert.ok(!fs.existsSync(path.join(root, 'b.txt')));
   assert.equal(diffLines('x', 'x'), '(ไม่มีอะไรเปลี่ยน)');
 });
+
+test('plugins: manifest is validated and trimmed', () => {
+  const { cleanPlugin } = require('../agenttools');
+  const p = cleanPlugin({ name: 'browser', title: 'B', mcpServers: { playwright: { command: 'npx', args: ['-y', '@playwright/mcp@latest'] } }, commands: [{ name: 'e2e', text: 'test' }, { name: 'bad name!', text: 'x' }], envAsk: ['GITHUB_TOKEN', 'lower'], hooks: { after_edit: 'npx prettier --write {file}' } });
+  assert.deepEqual(p.mcpServers.playwright.args, ['-y', '@playwright/mcp@latest']); assert.deepEqual(p.commands.map(c => c.name), ['e2e']); assert.deepEqual(p.envAsk, ['GITHUB_TOKEN']); assert.equal(p.hooks.after_edit, 'npx prettier --write {file}');
+  assert.throws(() => cleanPlugin({ name: '../evil' }), /ชื่อปลั๊กอิน/); assert.throws(() => cleanPlugin({ name: 'x1', mcpServers: { a: { args: [] } } }), /mcpServers/);
+  const cat = require('../../astracode/public/plugins/catalog.json'); for (const c of cat.plugins) assert.equal(cleanPlugin(c).name, c.name); // แคตตาล็อกบนเว็บผ่านการตรวจทุกตัว
+});

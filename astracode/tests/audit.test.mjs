@@ -588,3 +588,25 @@ test('desktop agent remote: the app pushes progress and a question, the phone an
   const { data: k2 } = await t.json('/api/keys', { method: 'POST', cookie: other.cookie, body: { name: 'x' } });
   assert.equal((await t.json('/v1/remote/push', { method: 'POST', headers: { authorization: 'Bearer ' + k2.key }, body: { chat_id: chatId, events: [] } })).status, 404); // key คนอื่นยิงเข้าแชตเราไม่ได้
 });
+
+test('admin agent bench: a model that uses the tools correctly scores 4/4, one that only talks scores low', async () => {
+  const { fakeModel } = await import('./helpers.mjs');
+  const sse = (res, d) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); for (const x of [].concat(d)) res.write('data: ' + JSON.stringify(x) + '\n\n'); res.end('data: [DONE]\n\n'); };
+  const call = (name, args) => [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c' + Math.random().toString(36).slice(2, 6), type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] }, { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 100, completion_tokens: 10 } }];
+  const say = t => [{ choices: [{ delta: { content: t } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 5 } }];
+  const good = await fakeModel((q, res, body) => {
+    const task = body.messages.find(m => m.role === 'user').content, done = body.messages.some(m => m.role === 'tool');
+    if (/VAT rate used/.test(task)) return sse(res, done ? say('0.07') : call('read_file', { path: 'src/vat.js' }));
+    if (/Which file/.test(task)) return sse(res, done ? say('src/cart.js') : call('grep', { pattern: 'function total' }));
+    if (/Change the VAT/.test(task)) return sse(res, done ? say('done') : call('edit_file', { path: 'src/vat.js', old_string: 'RATE = 0.07', new_string: 'RATE = 0.1' }));
+    return sse(res, done ? say('fixed') : call('edit_file', { path: 'src/cart.js', old_string: '  return sum + vat(sum) - discount;', new_string: '  const net = sum - discount;\n  return net + vat(net);' }));
+  });
+  const lazy = await fakeModel((q, res) => sse(res, say('I think it is fine.')));
+  const t = await makeEnv({ K: 'k' }), a = await t.user({ role: 'admin' });
+  const g = addModel(t.DB, { name: 'Good', provider: 'openai', base_url: good.url, cost_in: 1000, cost_out: 1000 }), l = addModel(t.DB, { name: 'Lazy', provider: 'openai', base_url: lazy.url });
+  const rg = (await t.json('/api/admin/agent-bench', { method: 'POST', cookie: a.cookie, body: { model_id: g.id } })).data;
+  assert.equal(rg.score, 4, JSON.stringify(rg)); assert.ok(rg.cost > 0);
+  const rl = (await t.json('/api/admin/agent-bench', { method: 'POST', cookie: a.cookie, body: { model_id: l.id } })).data;
+  assert.equal(rl.score, 0, JSON.stringify(rl));
+  good.close(); lazy.close();
+});

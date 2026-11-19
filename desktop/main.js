@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 const { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel } = require('./localfs');
 const { startMcp } = require('./mcp');
 const { runAgent } = require('./agent');
-const { AGENT_TOOLS, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands } = require('./agenttools');
+const { AGENT_TOOLS, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin } = require('./agenttools');
 
 const SITE = 'https://astracode.panderx.xyz';
 let settings, mcp = null;
@@ -168,7 +168,8 @@ async function shot() {
   return { image: 'data:image/jpeg;base64,' + src.thumbnail.toJPEG(70).toString('base64'), w, h, sx: d.size.width * d.scaleFactor / w, sy: d.size.height * d.scaleFactor / h };
 }
 // ทำทีละชุด: ย่อหน้าต่างแอปไม่ให้บังจอ → ทำตามลำดับ → รอจอนิ่ง → จับภาพส่งกลับให้ AI → เปิดหน้าต่างแอปคืน
-h('desk:screenBatch', async (_, acts) => {
+h('desk:screenBatch', (_, acts) => screenRun(acts));
+async function screenRun(acts) {
   if (!screenOk) throw new Error('ยังไม่ได้อนุญาตให้ AI ควบคุมคอมพิวเตอร์ (หรือถูกหยุดแล้ว)');
   const log = []; let s = await shot(); const minimized = web.isMinimized(); web.minimize(); await new Promise(ok => setTimeout(ok, 400));
   try {
@@ -190,19 +191,30 @@ h('desk:screenBatch', async (_, acts) => {
   await new Promise(ok => setTimeout(ok, 600)); s = await shot();
   if (!minimized) { web.restore(); }
   return { image: s.image, w: s.w, h: s.h, log };
-});
+}
+// เครื่องมือ computer ของ Agent: ใช้ได้เมื่อผู้ใช้เปิด "ให้ AI ดูหน้าจอและคุมเมาส์" (ยืนยันด้วยหน้าต่าง Windows) · พิกัด = พิกเซลของภาพหน้าจอล่าสุด
+const COMPUTER_TOOL = { type: 'function', function: { name: 'computer', description: 'See and control the whole screen of the user\'s computer (any program: Excel, Blender, browsers, games). Give a list of actions; a fresh screenshot comes back after them. Start with [{"action":"screenshot"}]. Coordinates are pixels of the latest screenshot. Never type passwords or payment details, and never send messages or buy things unless the user asked in this task.', parameters: { type: 'object', properties: { actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', enum: ['screenshot', 'click', 'double_click', 'right_click', 'type', 'key', 'scroll', 'wait'] }, x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string', description: 'for type' }, keys: { type: 'string', description: 'for key, e.g. ctrl+s, enter, alt+tab' }, amount: { type: 'number', description: 'scroll notches, negative = up' }, ms: { type: 'number' } }, required: ['action'] } } }, required: ['actions'] } } };
+async function computerTool(a) {
+  const map = { screenshot: 'SCREEN', click: 'CLICK', double_click: 'DOUBLE', right_click: 'RIGHT', type: 'TYPE', key: 'KEY', scroll: 'SCROLL', wait: 'WAIT' };
+  const acts = (Array.isArray(a.actions) ? a.actions : []).slice(0, 10).map(x => { const k = map[x?.action]; if (!k) return ['?']; if (k === 'TYPE') return [k, String(x.text ?? '')]; if (k === 'KEY') return [k, String(x.keys ?? '')]; if (k === 'WAIT') return [k, x.ms ?? 1000]; if (k === 'SCROLL') return [k, x.x, x.y, x.amount ?? 3]; return [k, x.x, x.y]; });
+  const r = await screenRun(acts.length ? acts : [['SCREEN']]);
+  return { text: `หน้าจอ ${r.w}x${r.h} พิกเซล (ภาพล่าสุดแนบด้านล่าง)\n${r.log.join('\n')}`, images: [r.image] };
+}
 h('desk:kill', (_, id) => { jobs.get(String(id))?.abort(); return true; });
 
 // MCP ในเครื่อง (Blender ฯลฯ): หน้าเว็บตั้งค่าได้ แต่ต้องยืนยันด้วยหน้าต่างของ Windows เพราะค่า MCP คือคำสั่งที่จะรันในเครื่อง
 const mcpLog = [];
-const mcpUp = async () => mcp ||= await startMcp(JSON.parse(settings.mcp || '{}'), m => { mcpLog.push(m); mcpLog.splice(0, mcpLog.length - 20); });
+// MCP ที่ใช้จริง = ที่ผู้ใช้ตั้งเอง + ของปลั๊กอินที่ติดตั้ง (ชื่อ server นำหน้าด้วยชื่อปลั๊กอิน)
+const mcpConfig = () => { let own = {}; try { own = JSON.parse(settings.mcp || '{}').mcpServers || {}; } catch { /* ค่าเสีย */ } const all = { ...own }; for (const p of Object.values(settings.plugins || {})) for (const [n, c] of Object.entries(p.mcpServers || {})) all[`${p.name}-${n}`] = { ...c, env: { ...(c.env || {}), ...(p.envValues || {}) } }; return { mcpServers: all }; };
+const hasMcp = () => Object.keys(mcpConfig().mcpServers).length > 0;
+const mcpUp = async () => mcp ||= await startMcp(mcpConfig(), m => { mcpLog.push(m); mcpLog.splice(0, mcpLog.length - 20); });
 h('desk:mcpGet', () => ({ config: settings.mcp || '', log: mcpLog }));
 h('desk:mcpSet', async (_, text) => {
   const cfg = JSON.parse(text || '{}'), list = Object.entries(cfg.mcpServers || {}).map(([n, c]) => `• ${n}: ${c.command} ${(c.args || []).join(' ')}`).join('\n');
   if (list) { const a = await dialog.showMessageBox(web, { type: 'warning', title: 'ยืนยันการตั้งค่า MCP', message: 'แอปจะรันโปรแกรมเหล่านี้ในเครื่องของคุณ', detail: list.slice(0, 2000), buttons: ['บันทึก', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true }); if (a.response !== 0) return false; }
   settings.mcp = text ? JSON.stringify(cfg, null, 2) : ''; save(); await mcp?.close(); mcp = null; mcpLog.length = 0; return true;
 });
-h('desk:mcpTools', async () => settings.mcp ? (await mcpUp()).tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: t.function.parameters })) : []);
+h('desk:mcpTools', async () => hasMcp() ? (await mcpUp()).tools.map(t => ({ name: t.function.name, description: t.function.description, parameters: t.function.parameters })) : []);
 h('desk:mcpCall', async (_, name, args) => (await mcpUp()).call(String(name), args && typeof args === 'object' ? args : {}));
 
 // ---------- Agent แบบ Claude Code: วนทำงานในเครื่องนี้ด้วย tool calling ผ่าน /v1 (หักลิมิต/Wallet ตามจริง) ----------
@@ -219,7 +231,20 @@ h('desk:agentStop', (_, sid) => { const a = agents.get(String(sid)); a?.ac?.abor
 h('desk:agentSteer', (_, sid, text) => { const a = agents.get(String(sid)); if (!a?.ac) return false; a.inbox.push('[ผู้ใช้พิมพ์แทรกระหว่างทำงาน] ' + String(text).slice(0, 20000)); return true; });
 h('desk:agentUndo', async (_, sid, step) => { const a = agents.get(String(sid)); return a?.ws ? await (step != null ? a.ws.undoTo(+step) : a.ws.undo()) : []; });
 h('desk:agentReset', (_, sid) => { const a = agents.get(String(sid)); a?.ws?.stopAll(); agents.delete(String(sid)); try { fs.rmSync(agentFile(String(sid)), { force: true }); } catch { /* ไม่มีไฟล์ */ } return true; });
-h('desk:agentCommands', async (_, k) => projectCommands(rootOf(k || 'chat')));
+h('desk:agentCommands', async (_, k) => [...await projectCommands(rootOf(k || 'chat')), ...Object.values(settings.plugins || {}).flatMap(p => p.commands || [])]);
+// ---------- ปลั๊กอิน (แบบ Claude Code): ชุด MCP server + คำสั่งลัด + กติกา + hook ติดตั้งจากแคตตาล็อกของเว็บหรือลิงก์ manifest ----------
+h('desk:plugins', () => Object.values(settings.plugins || {}).map(p => ({ name: p.name, title: p.title, description: p.description, version: p.version, mcp: Object.keys(p.mcpServers), commands: p.commands.map(c => c.name), hasRules: !!p.rules, hook: p.hooks?.after_edit || null })));
+h('desk:pluginInstall', async (_, src, envValues = {}) => {
+  let m = src;
+  if (typeof src === 'string') { if (!/^https:\/\//.test(src)) throw new Error('ต้องเป็นลิงก์ https ของไฟล์ manifest (.json)'); const r = await fetch(src, { signal: AbortSignal.timeout(15e3) }); if (!r.ok) throw new Error('โหลด manifest ไม่ได้ HTTP ' + r.status); m = await r.json(); }
+  const p = cleanPlugin(m);
+  const what = [...Object.entries(p.mcpServers).map(([n, c]) => `• MCP ${n}: ${c.command} ${c.args.join(' ')}`), p.hooks ? `• รันหลังแก้ไฟล์ทุกครั้ง: ${p.hooks.after_edit}` : '', p.commands.length ? `• คำสั่งลัด: ${p.commands.map(c => '/' + c.name).join(' ')}` : '', p.rules ? '• เพิ่มกติกาให้ Agent' : ''].filter(Boolean).join('\n');
+  const r = await dialog.showMessageBox(web, { type: Object.keys(p.mcpServers).length || p.hooks ? 'warning' : 'question', title: 'ติดตั้งปลั๊กอิน', message: `ติดตั้ง "${p.title}"?`, detail: `${p.description}\n\n${what}\n\nโปรแกรมด้านบนจะรันในเครื่องคุณเมื่อ Agent ทำงาน ติดตั้งเฉพาะปลั๊กอินที่เชื่อถือได้`, buttons: ['ติดตั้ง', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
+  if (r.response !== 0) return false;
+  p.envValues = Object.fromEntries(p.envAsk.map(k => [k, String(envValues?.[k] ?? '').slice(0, 500)]));
+  settings.plugins = { ...settings.plugins, [p.name]: p }; save(); await mcp?.close(); mcp = null; return true;
+});
+h('desk:pluginRemove', async (_, name) => { if (settings.plugins?.[name]) { delete settings.plugins[name]; save(); await mcp?.close(); mcp = null; } return true; });
 // Git ของโฟลเดอร์งาน: ดูสถานะ / diff / commit (ปุ่มในแชต)
 h('desk:agentGit', async (_, k, action, msg) => {
   const r = rootOf(k || 'chat'), q = s => process.platform === 'win32' ? '"' + s.replace(/"/g, '""') + '"' : "'" + s.replace(/'/g, "'\\''") + "'";
@@ -247,7 +272,8 @@ async function askUser(a, { title, detail, warn, allowAllLabel }) {
 // จับภาพหน้าเว็บ (เช่น dev server) ในหน้าต่างซ่อน ให้ Agent ตรวจ UI ด้วยตา
 async function shotUrl(url, width) {
   const w = new BrowserWindow({ show: false, width, height: 900, webPreferences: { partition: 'preview', sandbox: true, contextIsolation: true, offscreen: true } });
-  try { await Promise.race([w.loadURL(url), new Promise((_, no) => setTimeout(() => no(new Error('โหลดหน้าเว็บไม่ทันใน 20 วินาที')), 20e3))]); await new Promise(ok => setTimeout(ok, 1500)); const img = await w.webContents.capturePage(); return 'data:image/jpeg;base64,' + img.resize({ width: Math.min(width, 1280) }).toJPEG(75).toString('base64'); }
+  const logs = []; w.webContents.on('console-message', (e, level, message, line, src) => { if (level >= 2 && logs.length < 30) logs.push(`[${level === 3 ? 'error' : 'warn'}] ${String(message).slice(0, 300)}${src ? ` (${String(src).split('/').pop()}:${line})` : ''}`); }); // error/warning ในหน้าเว็บ ให้ Agent เห็นโดยไม่ต้องให้ผู้ใช้แคป
+  try { const res = w.loadURL(url).catch(x => logs.push('[load] ' + x.message)); await Promise.race([res, new Promise((_, no) => setTimeout(() => no(new Error('โหลดหน้าเว็บไม่ทันใน 20 วินาที')), 20e3))]); await new Promise(ok => setTimeout(ok, 1500)); const img = await w.webContents.capturePage(); return { image: 'data:image/jpeg;base64,' + img.resize({ width: Math.min(width, 1280) }).toJPEG(75).toString('base64'), logs }; }
   finally { w.destroy(); }
 }
 h('desk:agentRun', async (e, o = {}) => {
@@ -266,8 +292,8 @@ h('desk:agentRun', async (e, o = {}) => {
     const saved = agentLoad(sid);
     a = { sid, messages: saved && path.resolve(saved.root) === path.resolve(root) ? saved.messages : [], mode, inbox: [] };
     // hooks ในโฟลเดอร์ (.astra/hooks.json) = คำสั่งที่จะรันเองหลังแก้ไฟล์ → ต้องยืนยันครั้งแรกต่อโฟลเดอร์/เนื้อหา
-    let hooks = await projectHooks(root);
-    if (hooks && settings.trustedHooks?.[path.resolve(root)] !== hooks.after_edit) {
+    let hooks = await projectHooks(root) || Object.values(settings.plugins || {}).find(p => p.hooks)?.hooks || null; // hook ของปลั๊กอินยืนยันแล้วตอนติดตั้ง
+    if (hooks && !Object.values(settings.plugins || {}).some(p => p.hooks?.after_edit === hooks.after_edit) && settings.trustedHooks?.[path.resolve(root)] !== hooks.after_edit) {
       const r = await dialog.showMessageBox(web, { type: 'warning', title: 'โปรเจกต์นี้มี hook', message: 'ให้รันคำสั่งนี้เองทุกครั้งหลัง Agent แก้ไฟล์?', detail: hooks.after_edit, buttons: ['อนุญาต', 'ไม่ใช้ hook'], defaultId: 1, cancelId: 1, noLink: true });
       if (r.response === 0) { settings.trustedHooks = { ...settings.trustedHooks, [path.resolve(root)]: hooks.after_edit }; save(); } else hooks = null;
     }
@@ -280,7 +306,7 @@ h('desk:agentRun', async (e, o = {}) => {
         return sub.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '(ผู้ช่วยไม่ได้รายงานอะไร)';
       } });
     if (!a.messages.length) {
-      a.messages.push({ role: 'system', content: agentSystem({ root: a.ws.root, os: `${process.platform} ${require('os').release()}`, rules: await projectRules(a.ws.root) }) });
+      a.messages.push({ role: 'system', content: agentSystem({ root: a.ws.root, os: `${process.platform} ${require('os').release()}`, rules: [await projectRules(a.ws.root), ...Object.values(settings.plugins || {}).filter(p => p.rules).map(p => `(ปลั๊กอิน ${p.title})\n${p.rules}`)].filter(Boolean).join('\n\n') }) });
       for (const m of (Array.isArray(o.history) ? o.history : []).slice(-10)) if (['user', 'assistant'].includes(m?.role) && typeof m.content === 'string') a.messages.push({ role: m.role, content: m.content.slice(0, 8000) }); // แชตเดิมที่ยังไม่เคยมีไฟล์ session
     }
     agents.set(sid, a);
@@ -296,11 +322,12 @@ h('desk:agentRun', async (e, o = {}) => {
   a.messages.push({ role: 'user', content: imgs.length ? [{ type: 'text', text }, ...imgs.map(url => ({ type: 'image_url', image_url: { url } }))] : text });
   const ac = a.ac = new AbortController(); a.ws.signal = ac.signal;
   if (o.remote && !a.remote) a.remote = await remoteStart(a, o.chatId).catch(x => { tell({ type: 'info', text: 'สั่งจากมือถือ: ' + x.message }); return null; });
-  let tools = mode === 'plan' ? AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)) : AGENT_TOOLS;
-  if (settings.mcp && mode !== 'plan') { try { await mcpUp(); tools = [...tools, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
-  const callTool = (name, args) => mcp?.has(name) ? mcp.call(name, args) : mode === 'plan' && !READ_ONLY.has(name) ? 'Error: โหมดวางแผน แก้ไฟล์/รันคำสั่งไม่ได้' : a.ws.call(name, args);
-  const budget = +o.budget > 0 ? +o.budget : 0;
+  let tools = mode === 'plan' ? AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)) : [...AGENT_TOOLS, ...(screenOk && process.platform === 'win32' ? [COMPUTER_TOOL] : [])];
+  if (hasMcp() && mode !== 'plan') { try { await mcpUp(); tools = [...tools, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
+  const callTool = (name, args) => name === 'computer' ? computerTool(args) : mcp?.has(name) ? mcp.call(name, args) : mode === 'plan' && !READ_ONLY.has(name) ? 'Error: โหมดวางแผน แก้ไฟล์/รันคำสั่งไม่ได้' : a.ws.call(name, args);
+  const budget = +o.budget > 0 ? +o.budget : 0, t0 = Date.now(), stat = { rounds: 0, tools: 0 };
   const onEvent = d => {
+    if (d.type === 'usage') stat.rounds++; if (d.type === 'tool') stat.tools++;
     if (d.type === 'usage' && d.usage?.astra) { a.cost.charge += d.usage.astra.charge_thb || 0; a.cost.pct += d.usage.astra.week_pct || 0; tell({ type: 'cost', ...a.cost }); if (budget && a.cost.charge >= budget && !ac.signal.aborted) { tell({ type: 'info', text: `ถึงเพดานงานนี้ ฿${budget} แล้ว หยุดให้ก่อน (สั่ง "ทำต่อ" ได้)` }); ac.abort(); } }
     tell(d);
   };
@@ -309,8 +336,13 @@ h('desk:agentRun', async (e, o = {}) => {
     tell({ type: 'done', changed: a.ws.changed(), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
   } catch (x) {
     tell({ type: 'error', text: ac.signal.aborted ? 'หยุดแล้ว' : x.message, changed: a.ws.changed(), runFrom: a.ws.runFrom });
+    if (!ac.signal.aborted) { stat.error = String(x.message).slice(0, 300); if (!/HTTP 4\d\d|ยอดเงิน|ลิมิต|API key/i.test(x.message)) report('agent', x); }
     if (/API key/i.test(x.message) && /ไม่ถูกต้อง|invalid/i.test(x.message)) { settings.key = ''; save(); } // key ถูกลบที่เว็บ: ให้สร้างใหม่รอบหน้า
-  } finally { a.ac = null; agentSave(a); a.remote?.flush(); }
+  } finally {
+    a.ac = null; agentSave(a); a.remote?.flush();
+    const err = stat.error; // สถิติไม่มีเนื้อหางาน: ใช้ดูว่าโมเดลไหนทำงาน Agent ได้ดี
+    fetch(SITE + '/v1/agent/stat', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ model, mode, rounds: stat.rounds, tools: stat.tools, ok: !err, ms: Date.now() - t0, charge: a.cost.charge, pct: a.cost.pct, error: err, version: app.getVersion(), os: process.platform }) }).catch(() => {});
+  }
   return true;
 });
 // ---------- สั่ง/อนุญาตจากมือถือ: แอปส่งความคืบหน้าขึ้นเซิร์ฟเวอร์ (ผูกกับแชต) มือถือเปิดแชตเดียวกันเห็นสด กดอนุญาต/พิมพ์แทรกได้ ----------
@@ -343,6 +375,14 @@ function autoUpdate() {
   try { const { autoUpdater } = require('electron-updater'); autoUpdater.checkForUpdatesAndNotify().catch(() => {}); setInterval(() => autoUpdater.checkForUpdatesAndNotify().catch(() => {}), 6 * 3600e3); } catch { /* ไม่มีโมดูล: ข้าม */ }
 }
 
+// ส่ง error ของแอปให้หลังบ้าน (ไม่มีเนื้อหางาน · ตัดชื่อผู้ใช้ในพาธออก) ไม่เกิน 20 ครั้งต่อการเปิดแอป
+let reported = 0;
+function report(where, e) {
+  if (reported++ > 20) return; const home = require('os').homedir(), clean = s => String(s || '').split(home).join('~').slice(0, 600);
+  fetch(SITE + '/api/clienterr', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ page: `desktop ${app.getVersion()} ${process.platform}`, msg: clean(e?.message || e), src: clean(where + ' ' + (e?.stack || '').split('\n').slice(1, 3).join(' ')) }) }).catch(() => {});
+}
+process.on('uncaughtException', e => report('main', e)); process.on('unhandledRejection', e => report('promise', e));
+app.on('render-process-gone', (_, wc, d) => report('renderer', new Error('หน้าเว็บในแอปปิดตัว: ' + d.reason)));
 app.setAppUserModelId('xyz.panderx.astracode.desktop'); // Windows: ให้แจ้งเตือนขึ้นในชื่อแอป
 if (!app.requestSingleInstanceLock()) app.quit(); // เปิดซ้ำ = กลับไปหน้าต่างเดิม (และรับลิงก์ astracode://)
 else {

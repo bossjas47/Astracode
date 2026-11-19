@@ -56,6 +56,14 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       await env.DB.prepare('INSERT OR REPLACE INTO agent_remote (chat_id,user_id,events,ask,answer,inbox,running,updated_at) VALUES (?,?,?,?,NULL,NULL,?,?)').bind(cid, k.id, JSON.stringify(ev).slice(-400000), b.ask ? JSON.stringify(b.ask).slice(0, 5000) : null, b.running ? 1 : 0, Date.now()).run();
       return out({ answer: row?.answer ? JSON.parse(row.answer) : null, inbox: row?.inbox ? JSON.parse(row.inbox) : [] });
     }
+    // สถิติ Agent ในแอป Desktop (ไม่มีเนื้อหางาน): สำเร็จไหม กี่รอบ ใช้เงินเท่าไร → หลังบ้านเลือกโมเดลเริ่มต้นจากข้อมูลจริง
+    if (path === '/v1/agent/stat' && req.method === 'POST') {
+      const b = await req.json().catch(() => ({})), n = (v, mx) => Math.max(0, Math.min(mx, +v || 0));
+      await env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, model TEXT, mode TEXT, rounds INTEGER, tools INTEGER, ok INTEGER, ms INTEGER, charge REAL, pct REAL, error TEXT, version TEXT, os TEXT, created_at INTEGER)').run();
+      if (await limited(env, 'astat:' + k.id, 200, 3600e3)) return out({ ok: false });
+      await env.DB.prepare('INSERT INTO agent_runs (user_id,model,mode,rounds,tools,ok,ms,charge,pct,error,version,os,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(k.id, String(b.model || '').slice(0, 80), String(b.mode || '').slice(0, 10), n(b.rounds, 1000), n(b.tools, 5000), b.ok ? 1 : 0, n(b.ms, 864e5), n(b.charge, 1e4), n(b.pct, 1e4), b.error ? String(b.error).slice(0, 300) : null, String(b.version || '').slice(0, 20), String(b.os || '').slice(0, 30), Date.now()).run();
+      return out({ ok: true });
+    }
     // ค้นเว็บให้ agent ในแอป Desktop (ไม่คิดเงิน จำกัด 60 ครั้ง/ชม. ต่อ key)
     if (path === '/v1/web_search' && req.method === 'POST') {
       if (await limited(env, 'vws:' + k.kid, 60, 3600e3)) return fail('ค้นเว็บบ่อยเกินไป (60 ครั้ง/ชม.)', 429, 'rate_limit_error');

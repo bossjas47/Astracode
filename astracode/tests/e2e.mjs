@@ -161,6 +161,20 @@ const FLOWS = [
     const ans = calls.find(c => c.p === '/api/remote/81/answer'), say = calls.find(c => c.p === '/api/remote/81/say');
     return [!errs.length || errs.join(' | '), /Agent บนคอม/.test(panel) && /edit_file/.test(panel) && /ขอรันคำสั่ง/.test(panel) || 'panel missing: ' + panel, /"v":"yes"/.test(ans?.body || '') || 'answer not sent', /ใช้ yarn/.test(say?.body || '') || 'message not sent'];
   }],
+  ['desktop app: plugin catalog installs a plugin through the app; the first agent toggle shows the guide', async () => {
+    const init = () => { try { localStorage.setItem('pc', '1'); } catch { return; } const log = window.__desk = [];
+      window.astraDesktop = { notify: async () => false, fs: { linked: async k => k === 'chat' ? { name: 'proj', path: 'C:/proj' } : null, link: async () => null }, mcp: { tools: async () => [] }, screen: { state: async () => false },
+        agent: { onEvent: () => () => {} }, plugins: { list: async () => [{ name: 'memory', title: 'ความจำถาวร', mcp: ['memory'], commands: [] }], install: async (p, env) => (log.push(['install', p.name, env]), true), remove: async n => (log.push(['remove', n]), true) } }; };
+    const { page, errs } = await open('/chat', { init });
+    await page.evaluate(() => pluginSheet()); await page.waitForTimeout(500);
+    const sheetText = await page.locator('.sheet').innerText();
+    await page.click('[data-pin="browser"]'); await page.waitForTimeout(300);
+    await page.evaluate(() => pluginSheet()); await page.waitForTimeout(400); await page.click('[data-prm="memory"]'); await page.waitForTimeout(300);
+    const log = await page.evaluate(() => window.__desk.slice());
+    await page.evaluate(() => pcSheet()); await page.waitForTimeout(300); await page.evaluate(() => document.querySelector('#pcag').click()); await page.waitForTimeout(400);
+    const tour = await page.locator('.sheet').innerText().catch(() => '');
+    return [!errs.length || errs.join(' | '), /Playwright/.test(sheetText) && /ติดตั้งแล้ว/.test(sheetText) || 'catalog not shown: ' + sheetText.slice(0, 200), log.some(x => x[0] === 'install' && x[1] === 'browser') || 'install not called', log.some(x => x[0] === 'remove' && x[1] === 'memory') || 'remove not called', /เริ่มใช้โหมด Agent/.test(tour) || 'guide not shown'];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);

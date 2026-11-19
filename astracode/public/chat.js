@@ -937,14 +937,14 @@ async function pcInit() { if (!PCD) return; chat.pc = await PCD.fs.linked('chat'
 function pcSheet() {
   sheet('ใช้คอมเครื่องนี้', `<div class="sheet-form"><p class="sheet-msg">AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP ในเครื่องนี้ได้ <b>เฉพาะในโฟลเดอร์ที่เลือก</b> · เขียนไฟล์ได้เองในโฟลเดอร์นี้ · รันคำสั่งถามในหน้าต่างของ Windows (เลือก "รันอัตโนมัติ" ได้ คำสั่งลบ/อันตรายยังถามเสมอ)</p>
     <p style="margin:0">${chat.pc ? `โฟลเดอร์: <b>${esc(chat.pc.path)}</b>${chat.pc.auto ? '<br>รันคำสั่งอัตโนมัติ: <b>เปิด</b> (ยกเว้นคำสั่งอันตราย) <button type="button" class="btn out sm" id="pcauto">ปิด</button>' : ''}` : 'ยังไม่ได้เลือกโฟลเดอร์'}</p>
-    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button></div>
+    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button>${PCD.plugins ? `<button type="button" class="btn out sm" id="pcplug">${ic('layers', 'sm')} ปลั๊กอิน</button>` : ''}</div>
     ${chat.pc && PCD.agent ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="pcag" ${localStorage.getItem('pcAgent') === '1' ? 'checked' : ''}><span></span></span> <span><b>โหมด Agent</b> · ทำงานเองต่อเนื่องแบบ Claude Code (อ่าน/แก้ไฟล์ รันคำสั่ง ค้นเว็บ จนเสร็จ) · ใช้ลิมิต/Wallet ผ่าน API</span></label>
       <div id="pcagopt" style="display:grid;gap:8px" ${localStorage.getItem('pcAgent') === '1' ? '' : 'hidden'}><div class="row"><select id="pcagm" style="width:auto">${AG_MODES.map(([k, l]) => `<option value="${k}" ${agMode() === k ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="pcagr" style="width:auto">${[30, 80, 150].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentMax') || 80) === n ? 'selected' : ''}>สูงสุด ${n} รอบ</option>`).join('')}</select>
         <select id="pcagb" style="width:auto">${[0, 5, 20, 50, 100].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentBudget') || 0) === n ? 'selected' : ''}>${n ? `เพดาน ฿${n}/งาน` : 'ไม่จำกัดเงินต่องาน'}</option>`).join('')}</select></div>
         <label class="sw-row"><span class="sw"><input type="checkbox" id="pcagrem" ${localStorage.getItem('pcAgentRemote') === '1' ? 'checked' : ''}><span></span></span> สั่งงานและกดอนุญาตจากมือถือได้ (เปิดแชตเดียวกันในมือถือ)</label>
         <p class="muted" style="margin:0;font-size:12.5px">คำสั่งลัด: ${AG_CMDS.map(c => `<code>/${c[0]}</code>`).join(' ')} · ของโปรเจกต์เอง: ไฟล์ <code>.astra/commands/ชื่อ.md</code> · อ้างไฟล์ด้วย <code>@src/app.js</code> · แปะรูปหน้าจอได้ · พิมพ์แทรกระหว่าง Agent ทำงานได้ (กด Enter) · hook หลังแก้ไฟล์: <code>.astra/hooks.json</code> เช่น <code>{"after_edit":"npx prettier --write {file}"}</code></p></div>` : ''}
     ${chat.pc ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="pcscr" ${chat.screen ? 'checked' : ''}><span></span></span> ให้ AI ดูหน้าจอและคุมเมาส์/คีย์บอร์ด (Windows · ต้องใช้โมเดลที่อ่านรูปได้ · หยุดทันที Ctrl+Alt+Esc)</label>` : ''}</div>`, (d, close) => {
-    d.querySelector('#pcag')?.addEventListener('change', e => { localStorage.setItem('pcAgent', e.target.checked ? '1' : '0'); d.querySelector('#pcagopt').hidden = !e.target.checked; if (e.target.checked) localStorage.setItem('pc', '1'); modelUI(); });
+    d.querySelector('#pcag')?.addEventListener('change', e => { localStorage.setItem('pcAgent', e.target.checked ? '1' : '0'); d.querySelector('#pcagopt').hidden = !e.target.checked; if (e.target.checked) { localStorage.setItem('pc', '1'); if (localStorage.getItem('agTour') !== '1') { close(); agentTour(); } } modelUI(); });
     d.querySelector('#pcagm')?.addEventListener('change', e => { localStorage.setItem('pcAgentMode', e.target.value); modelUI(); });
     d.querySelector('#pcagr')?.addEventListener('change', e => localStorage.setItem('pcAgentMax', e.target.value));
     d.querySelector('#pcagb')?.addEventListener('change', e => localStorage.setItem('pcAgentBudget', e.target.value));
@@ -955,6 +955,7 @@ function pcSheet() {
     d.querySelector('#pcopen')?.addEventListener('click', () => PCD.fs.open('chat'));
     d.querySelector('#pcauto')?.addEventListener('click', async () => { await PCD.fs.autoOff('chat'); chat.pc.auto = false; close(); toast('ปิดรันอัตโนมัติแล้ว ต่อไปจะถามทุกคำสั่ง'); });
     d.querySelector('#pcmcp').onclick = () => { close(); mcpLocalSheet(); };
+    d.querySelector('#pcplug')?.addEventListener('click', () => { close(); pluginSheet(); });
   });
 }
 // ตั้งค่า MCP ในเครื่องแบบกดเลือก (ไม่ต้องพิมพ์ JSON) · บันทึกแล้วแอปถามยืนยันด้วยหน้าต่าง Windows เพราะเป็นโปรแกรมที่จะรันในเครื่อง
@@ -1101,6 +1102,36 @@ document.addEventListener('click', async e => {
   const done = await PCD.agent.undo(agSid(), step).catch(x => { toast(x.message, 'bad'); return null; }); if (!done) return;
   const m = chat.msgs.findLast(x => x.agent); if (m) { if (step == null) m.changed = []; else m.steps.forEach(s => { if (s.step >= step && ['edit_file', 'write_file'].includes(s.name)) s.st = 'bad'; }); } renderAll(); toast(done.length ? `ย้อน ${done.length} ไฟล์แล้ว` : 'ไม่มีไฟล์ให้ย้อน', 'ok');
 });
+// ครั้งแรกที่เปิดโหมด Agent: อธิบายสั้นๆ 3 ข้อ + ตัวอย่างคำสั่ง (กดแล้วใส่ในช่องพิมพ์)
+function agentTour() {
+  const ex = ['/explain', 'หาว่าทำไมหน้า login กดแล้วไม่ไปต่อ แล้วแก้ให้', 'เพิ่มปุ่ม export เป็น Excel ในหน้ารายงาน แล้วรันเทสต์', '/init'];
+  sheet('เริ่มใช้โหมด Agent', `<div class="sheet-form agtour"><ol><li><b>สั่งเป็นงาน ไม่ต้องสั่งทีละขั้น</b> Agent จะอ่านโค้ด แก้ไฟล์ รันเทสต์ และแก้ error เองจนเสร็จ</li><li><b>เลือกระดับอนุญาต</b> เริ่มที่ "ถามก่อนทุกครั้ง" หรือ "วางแผนก่อน" แล้วค่อยปล่อยให้ทำเองเมื่อมั่นใจ · ย้อนไฟล์ได้ทุกขั้น</li><li><b>คุมระหว่างทาง</b> พิมพ์แทรกแล้วกด Enter ได้ตลอด · กดปุ่มหยุดเมื่อไรก็ได้ · ดู/อนุญาตจากมือถือได้</li></ol>
+    <b>ลองสั่ง</b><div class="row" style="flex-wrap:wrap">${ex.map(x => `<button type="button" class="btn out sm" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <p class="muted" style="margin:0;font-size:12.5px">ค่าใช้จ่ายหักลิมิต/Wallet ตาม token จริง ตั้งเพดานเงินต่องานได้ในเมนูนี้ · แนะนำโมเดล Claude Sonnet / Opus Eco</p><button class="btn blue" id="agtok">เข้าใจแล้ว</button></div>`, (d, close) => {
+    const done = () => { localStorage.setItem('agTour', '1'); close(); };
+    d.querySelector('#agtok').onclick = done;
+    d.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => { const t = $('#t'); t.value = b.dataset.ex; t.oninput?.(); done(); t.focus(); });
+  });
+}
+// ปลั๊กอิน (แบบ Claude Code): แคตตาล็อกจากเว็บ + ติดตั้งจากลิงก์ manifest · ติดตั้งจริงต้องยืนยันในหน้าต่าง Windows (เพราะ MCP คือโปรแกรมที่รันในเครื่อง)
+async function pluginSheet() {
+  const [cat, mine] = await Promise.all([fetch('/plugins/catalog.json').then(r => r.json()).catch(() => ({ plugins: [] })), PCD.plugins.list().catch(() => [])]);
+  const has = n => mine.some(p => p.name === n), extra = mine.filter(p => !cat.plugins.some(c => c.name === p.name));
+  const row = (p, inst) => `<div class="plug"><div><b>${esc(p.title || p.name)}</b>${inst ? ' <span class="pill ok">ติดตั้งแล้ว</span>' : ''}<br><small class="muted">${esc(p.description || '')}</small><br><small>${[...Object.keys(p.mcpServers || {}).map(x => 'MCP ' + x), ...(p.mcp || []).map(x => 'MCP ' + x), ...(p.commands || []).map(c => '/' + (c.name || c))].map(esc).join(' · ')}</small></div>${inst ? `<button type="button" class="btn out sm" data-prm="${esc(p.name)}">ถอน</button>` : `<button type="button" class="btn blue sm" data-pin="${esc(p.name)}">ติดตั้ง</button>`}</div>`;
+  sheet('ปลั๊กอิน', `<div class="sheet-form"><p class="sheet-msg">ปลั๊กอิน = ชุดเครื่องมือ (MCP) + คำสั่งลัด + กติกา ที่ Agent ใช้ได้ทันที · บางตัวต้องมี Node.js / uv ในเครื่อง</p>
+    ${cat.plugins.map(p => row(p, has(p.name))).join('')}${extra.map(p => row(p, true)).join('')}
+    <b>ติดตั้งจากลิงก์</b><div class="row" style="flex-wrap:nowrap"><input id="purl" placeholder="https://…/plugin.json" style="flex:1"><button type="button" class="btn out sm" id="pgo">ติดตั้ง</button></div>
+    <small class="muted">รูปแบบ manifest: { "name", "title", "description", "mcpServers": {…}, "commands": [{ "name", "text" }], "rules", "hooks": { "after_edit" }, "envAsk": ["TOKEN"] }</small></div>`, (d, close) => {
+    const done = ok => { if (ok) { close(); chat.pcTools = null; pcTools(); toast('ติดตั้งแล้ว', 'ok'); } };
+    d.querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => {
+      const p = cat.plugins.find(x => x.name === b.dataset.pin), env = {};
+      for (const k of p.envAsk || []) { const v = await promptSheet(`ใส่ค่า ${k} สำหรับ ${p.title} (เก็บในเครื่องนี้เท่านั้น)`, '', { title: p.title }); if (!v) return; env[k] = v; }
+      try { done(await PCD.plugins.install(p, env)); } catch (x) { toast(String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'bad'); }
+    });
+    d.querySelectorAll('[data-prm]').forEach(b => b.onclick = async () => { await PCD.plugins.remove(b.dataset.prm); close(); chat.pcTools = null; pcTools(); toast('ถอนแล้ว'); });
+    d.querySelector('#pgo').onclick = async () => { const u = d.querySelector('#purl').value.trim(); if (!u) return; try { done(await PCD.plugins.install(u)); } catch (x) { toast(String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'bad'); } };
+  });
+}
 // ---------- มือถือ/เครื่องอื่น: ดูและสั่ง Agent ที่ทำงานบนคอม (เปิดแชตเดียวกัน) ----------
 let remoteT = null;
 async function remoteWatch() {

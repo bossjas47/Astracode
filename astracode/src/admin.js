@@ -1,4 +1,4 @@
-import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
+import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, rand, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { callModel, ensureFb, isSafeMcpUrl, logUsage, mcpSync } from './ai.js';
 import { applyPayment, audit, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, walletAdd } from './billing.js';
 import { seal } from './projects.js';
@@ -302,7 +302,14 @@ export async function admin(req, env, path, url, me) {
     }
     for (const r of keyRows) r.acct = accounts.find(a => a.keys.includes(r.k))?.name || null;
     const lose = losers.results.map(x => ({ ...x, profit: x.paid - x.cost })).filter(x => x.role !== 'admin').sort((a, b) => a.profit - b.profit).slice(0, 15);
-    return json({ keys: keyRows, accounts, feed: feed.results, errs: errs.results, hot: hot.results, losers: lose, settings: await getSettings(env, ['alert_hour_cost', 'alert_user_hour', 'cost_alert_daily']) });
+    const agentRuns = await DB.prepare('SELECT model, COUNT(*) n, SUM(ok) ok, AVG(rounds) rounds, AVG(tools) tools, AVG(ms) ms, AVG(charge) charge, AVG(pct) pct FROM agent_runs WHERE created_at>? GROUP BY model ORDER BY n DESC').bind(now - 7 * DAY).all().then(r => r.results).catch(() => []);
+    const deskErrs = await DB.prepare("SELECT detail, created_at t FROM events WHERE kind='client' AND detail LIKE 'desktop%' AND created_at>? ORDER BY id DESC LIMIT 30").bind(now - 7 * DAY).all().then(r => r.results).catch(() => []);
+    return json({ agentRuns, deskErrs, keys: keyRows, accounts, feed: feed.results, errs: errs.results, hot: hot.results, losers: lose, settings: await getSettings(env, ['alert_hour_cost', 'alert_user_hour', 'cost_alert_daily']) });
+  }
+  // ทดสอบโมเดลกับงาน Agent: 4 งานที่ต้องใช้เครื่องมือ (ค้น/อ่าน/แก้ไฟล์) ในโฟลเดอร์จำลอง ตรวจผลจากไฟล์จริง ไม่ใช่จากคำพูดโมเดล
+  if (path === '/api/admin/agent-bench' && M === 'POST') {
+    const b = await req.json(), m = await DB.prepare('SELECT * FROM models WHERE id=?').bind(+b.model_id).first(); if (!m) return err('ไม่พบโมเดล', 404);
+    return json(await agentBench(env, me, m));
   }
   // บันทึกยอดเครดิตคงเหลือที่หน้าเจ้าของ key (เช่น maxplus) + อัตราเครดิตต่อบาท
   if (path === '/api/admin/key-funds' && M === 'PUT') {
@@ -622,3 +629,54 @@ export const BENCH = [
   ['ทำตามคำสั่ง', 'ตอบเป็น JSON เท่านั้น ไม่มีข้อความอื่น ไม่มี code fence: {"fruit": ชื่อผลไม้สีเหลืองภาษาอังกฤษตัวพิมพ์เล็ก 1 คำ}', /^\s*\{\s*"fruit"\s*:\s*"(banana|lemon|mango|pineapple)"\s*\}\s*$/],
   ['เหตุผล', 'นาย A สูงกว่า B, B สูงกว่า C, D เตี้ยกว่า C ใครเตี้ยที่สุด ตอบตัวอักษรเดียว', /\bD\b/],
 ];
+
+// ---------- ทดสอบโมเดลกับงาน Agent ----------
+const BENCH_FS = () => ({ 'src/cart.js': "import { vat } from './vat.js';\nexport function total(items, discount = 0) {\n  const sum = items.reduce((a, i) => a + i.price * i.qty, 0);\n  return sum + vat(sum) - discount;\n}\n", 'src/vat.js': 'export const RATE = 0.07;\nexport const vat = p => p * RATE;\n', 'README.md': '# shop\nRun tests with npm test\n' });
+// Workers ห้าม eval/new Function จึงตรวจจากโค้ด: ต้องคิด VAT จาก (sum - discount) ตรงๆ หรือผ่านตัวแปรที่เท่ากับ sum - discount และไม่เหลือ vat(sum)
+const vatAfterDiscount = c => {
+  const direct = /vat\(\s*\(?\s*sum\s*-\s*discount\s*\)?\s*\)/.test(c);
+  const viaVar = [...c.matchAll(/(?:const|let|var)\s+(\w+)\s*=\s*\(?\s*sum\s*-\s*discount/g)].some(m => new RegExp(`vat\\(\\s*${m[1]}\\s*\\)`).test(c));
+  return (direct || viaVar) && !/vat\(\s*sum\s*\)/.test(c);
+};
+const BENCH_TASKS = [
+  ['What is the VAT rate used in this project? Reply with just the number.', (fs, text) => /0\.07|7\s*%/.test(text)],
+  ['Which file contains the function that computes the cart total? Reply with just the path.', (fs, text) => /src\/cart\.js/.test(text)],
+  ['Change the VAT rate to 10%.', fs => /RATE\s*=\s*0?\.10?\b/.test(fs['src/vat.js']) && !/0\.07/.test(fs['src/vat.js'])],
+  ['Bug: VAT must be charged on the amount after the discount, not before. Fix it.', fs => vatAfterDiscount(fs['src/cart.js'])],
+];
+const BENCH_TOOLS = [
+  { type: 'function', function: { name: 'list_dir', description: 'List files in the project', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'grep', description: 'Search all files for text', parameters: { type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'] } } },
+  { type: 'function', function: { name: 'edit_file', description: 'Replace exact text in a file (old_string must appear once)', parameters: { type: 'object', properties: { path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } }, required: ['path', 'old_string', 'new_string'] } } },
+];
+async function agentBench(env, me, m) {
+  const t0 = Date.now(); let score = 0, cost = 0; const detail = [];
+  for (const [task, check] of BENCH_TASKS) {
+    const fs = BENCH_FS(), tool = (n, a) => {
+      if (n === 'list_dir') return Object.keys(fs).join('\n');
+      if (n === 'read_file') return fs[a.path] ?? 'Error: no such file';
+      if (n === 'grep') return Object.entries(fs).flatMap(([p, c]) => c.split('\n').map((l, i) => l.includes(a.pattern) ? `${p}:${i + 1}: ${l}` : null).filter(Boolean)).join('\n') || 'no match';
+      if (n === 'edit_file') { const c = fs[a.path]; if (c == null) return 'Error: no such file'; const k = a.old_string ? c.split(a.old_string).length - 1 : 0; if (k !== 1) return `Error: old_string found ${k} times`; fs[a.path] = c.replace(a.old_string, () => a.new_string); return 'ok'; }
+      return 'Error: unknown tool';
+    };
+    let msgs = [{ role: 'user', content: task }], text = '';
+    try {
+      for (let round = 0; round < 8; round++) {
+        let part = '', usage = null; const tcs = new Map(), idx = new Map();
+        for await (const e of callModel(env, m, msgs, { system: 'You are a coding agent working in a small JavaScript project. Use the tools to look at files before answering or editing. Be brief.', tools: BENCH_TOOLS, maxTokens: 2000, signal: AbortSignal.timeout(60e3) })) {
+          if (e.t) part += e.t; if (e.usage) usage = e.usage;
+          if (e.tc_start) { const i = tcs.size; idx.set(e.tc_start.index, i); tcs.set(i, { id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }); }
+          if (e.tc_delta) { const i = idx.get(e.tc_delta.index); if (i != null) tcs.get(i).function.arguments += e.tc_delta.args; }
+          if (e.tc) for (const d of e.tc) { const i = d.index ?? 0; if (!tcs.has(i)) tcs.set(i, { id: d.id || 'call_' + rand(8), type: 'function', function: { name: '', arguments: '' } }); const c = tcs.get(i); if (d.id) c.id = d.id; if (d.function?.name) c.function.name += d.function.name; if (d.function?.arguments) c.function.arguments += d.function.arguments; }
+        }
+        if (usage) { cost += (usage.fresh * m.cost_in + usage.read * (m.cost_cache || 0) + usage.write * (m.cost_cache_write || 0) + usage.out * m.cost_out) / 1e6; await logUsage(env, me.id, m, usage, { units: false, src: 'system' }); }
+        text += part; const calls = [...tcs.values()];
+        if (!calls.length) break;
+        msgs = [...msgs, { role: 'assistant', content: part || null, tool_calls: calls }, ...calls.map(c => { let a = {}; try { a = JSON.parse(c.function.arguments || '{}'); } catch { /* ว่าง */ } return { role: 'tool', tool_call_id: c.id, content: String(tool(c.function.name, a)) }; })];
+      }
+      const ok = check(fs, text); score += ok ? 1 : 0; detail.push((ok ? '✓ ' : '✕ ') + task.slice(0, 32));
+    } catch (x) { detail.push('✕ ' + task.slice(0, 24) + ' (' + String(x.message).slice(0, 60) + ')'); }
+  }
+  return { name: m.name, score, of: BENCH_TASKS.length, ms: Date.now() - t0, cost: Math.round(cost * 1e4) / 1e4, detail };
+}
