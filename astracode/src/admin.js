@@ -106,6 +106,9 @@ export async function admin(req, env, path, url, me) {
     const from = r[2] === 'approve' ? "status IN ('pending','rejected')" : "status='pending'";
     const p = await DB.prepare(`SELECT * FROM payments WHERE id=? AND ${from}`).bind(r[1]).first();
     if (!p) return err('ไม่พบคำขอที่จัดการได้', 404);
+    const fix = r[2] === 'approve' && p.kind === 'topup' ? +(await req.json().catch(() => ({}))).amount : 0; // เติมเงิน: แอดมินใส่ยอดตามสลิปจริง
+    if (fix && !(fix > 0 && fix <= 50000)) return err('ยอดเงินไม่ถูกต้อง');
+    if (fix) { p.amount = Math.round(fix * 100) / 100; await DB.prepare('UPDATE payments SET amount=? WHERE id=?').bind(p.amount, p.id).run(); }
     const upd = await DB.prepare(`UPDATE payments SET status=?, approved_at=?, review=NULL WHERE id=? AND ${from}`).bind(r[2] === 'approve' ? 'approved' : 'rejected', Date.now(), p.id).run().catch(e => { if (/UNIQUE/i.test(e.message)) return null; throw e; });
     if (!upd) return err('สลิปนี้ (เลขอ้างอิงเดียวกัน) ถูกอนุมัติกับรายการอื่นไปแล้ว', 409);
     if (!upd.meta.changes) return err('คำขอนี้ถูกจัดการไปแล้ว', 409); // กันกดอนุมัติซ้ำพร้อมกัน

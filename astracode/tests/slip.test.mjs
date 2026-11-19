@@ -145,3 +145,16 @@ test('CheckSlip: FOUND with right amount and receiver is approved; DUPLICATE and
   const c = await run({ status: 401, code: 'UNAUTHENTICATED', title: 'Invalid API key' }); const q = await c.topup(200);
   assert.equal(q.status, 200); assert.ok(!q.d.approved); assert.equal(c.pay().status, 'pending'); assert.match(c.pay().slip_check, /UNAUTHENTICATED/); c.fm.close();
 });
+
+test('CheckSlip: an empty reply is retried; a top-up is credited with the amount in the slip; admin approves a top-up with the slip amount', async () => {
+  let n = 0; const slip10 = () => ({ request_id: 'rq', outcome: 'FOUND', slip: { trans_ref: 'CS' + Math.random().toString(36).slice(2, 8), transferred_at: new Date(Date.now() - 60e3).toISOString(), amount: { satang: 1000, currency: 'THB' }, receiver: { kind: 'PROMPTPAY', name_th: 'x', account: '088-xxx-4567' } } });
+  const run = async reply => { const x = await setup(reply, { slip_provider: 'checkslip', topup_min: '10' }); x.t.env.CHECKSLIP_KEY = 'csk'; x.t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('checkslip_url',?)").run(x.fm.url); return x; };
+  const a = await run(() => (++n === 1 ? {} : slip10())); const r = await a.topup(100);
+  assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.equal(a.bal(), 10); assert.equal(n, 2); a.fm.close();
+  // API ใช้ไม่ได้ → รอแอดมิน · แอดมินใส่ยอดตามสลิป 10 บาท (ลูกค้ากรอก 100)
+  const b = await run({ status: 401, code: 'UNAUTHENTICATED' }); await b.topup(100);
+  const pid = b.t.DB.raw.prepare('SELECT id FROM payments ORDER BY id DESC').get().id;
+  const ap = await b.t.json(`/api/admin/payments/${pid}/approve`, { method: 'POST', cookie: b.admin.cookie, body: { amount: 10 } });
+  assert.equal(ap.status, 200, JSON.stringify(ap.data)); assert.equal(b.bal(), 10); assert.equal(b.t.DB.raw.prepare('SELECT amount FROM payments WHERE id=?').get(pid).amount, 10);
+  b.fm.close();
+});

@@ -146,11 +146,18 @@ export const CHECKSLIP_URL = 'https://api.checkslip.com';
 export async function checkSlipCo(env, s, buf, type, amount, flex = false) {
   if (!env.CHECKSLIP_KEY) return { result: null, amount: null };
   const fd = new FormData(); fd.append('image', new File([buf], 'slip.' + (type.split('/')[1] || 'jpg'), { type }));
-  const r = await fetch((s.checkslip_url || CHECKSLIP_URL).replace(/\/$/, '') + '/api/slips/lookup', { method: 'POST', body: fd, signal: AbortSignal.timeout(25000),
-    headers: { authorization: 'Bearer ' + env.CHECKSLIP_KEY, accept: 'application/json, application/problem+json', 'idempotency-key': hex(await crypto.subtle.digest('SHA-256', buf)).slice(0, 64) } }); // คีย์จากรูป: ส่งซ้ำไม่โดนคิดเครดิตซ้ำ
-  const c = await r.json().catch(() => ({})), sl = c.slip, rc = sl?.receiver || {};
+  const idem = hex(await crypto.subtle.digest('SHA-256', buf)).slice(0, 64); // คีย์จากรูป: ส่งซ้ำไม่โดนคิดเครดิตซ้ำ
+  let r, c = {}, raw = '';
+  for (let i = 0; i < 3; i++) { // บางครั้งตอบว่าง/ไม่ใช่ JSON/5xx/429 (ทำให้สลิปค้างรอแอดมินทั้งที่ตรวจได้): ลองใหม่ 2 ครั้ง
+    r = await fetch((s.checkslip_url || CHECKSLIP_URL).replace(/\/$/, '') + '/api/slips/lookup', { method: 'POST', body: fd, signal: AbortSignal.timeout(25000),
+      headers: { authorization: 'Bearer ' + env.CHECKSLIP_KEY, accept: 'application/json, application/problem+json', 'idempotency-key': idem } }).catch(e => ({ status: 0, text: async () => String(e.message) }));
+    raw = await r.text().catch(() => ''); try { c = JSON.parse(raw); } catch { c = {}; }
+    if (c.outcome || c.code || (r.status >= 400 && r.status < 500 && r.status !== 429)) break;
+    await new Promise(ok => setTimeout(ok, 1500 * (i + 1)));
+  }
+  const sl = c.slip, rc = sl?.receiver || {};
   const data = c.outcome === 'FOUND' && sl ? { transRef: sl.trans_ref, date: sl.transferred_at, amount: { amount: sl.amount ? sl.amount.satang / 100 : null }, receiver: { account: { name: { th: rc.name_th, en: rc.name_en }, bank: { account: rc.account } } } } : null;
-  const d = { provider: 'checkslip', success: !!data, outcome: c.outcome || null, code: c.code || null, message: c.detail || c.title || null, request_id: c.request_id || null, data };
+  const d = { provider: 'checkslip', success: !!data, outcome: c.outcome || null, code: c.code || null, message: c.detail || c.title || null, request_id: c.request_id || null, http: r.status, ...(c.outcome || c.code ? {} : { raw: raw.slice(0, 300) }), data };
   const code = { QR_TAMPERED: '200500', TOO_OLD: '200403' }[c.code];
   if (code) return { flex, result: JSON.stringify(d).slice(0, 4000), amount: null, ref: null, code };
   return judgeSlip(s, d, data ? 200 : r.status, c.outcome === 'DUPLICATE' ? 'duplicate' : String(c.code || c.outcome || ''), amount, flex);

@@ -195,7 +195,7 @@ const ADMIN = {
           <div><div class="muted">ตรวจสลิป</div>${slipResult(p)}</div></div>
           ${p.slip_check ? `<details class="tview"><summary>ผลดิบจาก API</summary><pre style="white-space:pre-wrap;font-size:12px">${esc(p.slip_check)}</pre></details>` : ''}
           <div class="row" style="margin-top:12px"><button class="btn out sm" data-slip="${p.id}">View slip</button>
-          ${p.status === 'pending' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}">Approve</button><button class="btn red sm" data-act="reject" data-id="${p.id}">Reject</button>` : ''}${p.status === 'rejected' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}">อนุมัติย้อนหลัง</button>` : ''}${p.status === 'approved' && !['wallet', 'coupon'].includes(p.slip_key) ? `<button class="btn out sm" data-refund="${p.id}" data-kind="${p.kind}">คืนเงิน</button>` : ''}</div>
+          ${p.status === 'pending' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}" ${p.kind === 'topup' ? `data-topup="${p.slip_amount ?? p.amount}"` : ''}>Approve</button><button class="btn red sm" data-act="reject" data-id="${p.id}">Reject</button>` : ''}${p.status === 'rejected' ? `<button class="btn blue sm" data-act="approve" data-id="${p.id}" ${p.kind === 'topup' ? `data-topup="${p.slip_amount ?? p.amount}"` : ''}>อนุมัติย้อนหลัง</button>` : ''}${p.status === 'approved' && !['wallet', 'coupon'].includes(p.slip_key) ? `<button class="btn out sm" data-refund="${p.id}" data-kind="${p.kind}">คืนเงิน</button>` : ''}</div>
           <div data-img="${p.id}"></div></div>`).join('') || '<div class="empty-s">ไม่มีรายการ</div>'}`;
       box.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; draw(); });
       box.querySelectorAll('[data-slip]').forEach(b => b.onclick = () => { const c = box.querySelector(`[data-img="${b.dataset.slip}"]`); c.innerHTML = c.innerHTML ? '' : `<img class="slipimg" style="margin-top:12px" src="/api/admin/slip/${b.dataset.slip}" alt="สลิป">`; });
@@ -205,9 +205,11 @@ const ADMIN = {
         b.disabled = true; try { await api(`/admin/payments/${b.dataset.refund}/refund`, { method: 'POST', body: { wallet } }); toast('คืนเงินแล้ว', 'ok'); reload(); } catch (x) { toast(x.message, 'bad'); b.disabled = false; }
       });
       box.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
-        if (!await confirmSheet(b.dataset.act === 'approve' ? 'อนุมัติและเปิดแพลนให้ผู้ใช้?' : 'ปฏิเสธคำขอนี้?', { title: 'ยืนยันรายการ', ok: 'Confirm', danger: b.dataset.act !== 'approve' })) return;
+        let body; // เติม Wallet: เติมตามยอดในสลิปจริง (แก้ได้) ไม่ใช่ยอดที่ลูกค้ากรอก
+        if (b.dataset.act === 'approve' && b.dataset.topup) { const v = await promptSheet('ยอดที่เห็นในสลิปจริง (บาท) · เติมเข้า Wallet ตามยอดนี้', b.dataset.topup, { title: 'อนุมัติเติมเงิน', ok: 'อนุมัติ', type: 'number' }); if (v == null || !(+v > 0)) return; body = { amount: +v }; }
+        else if (!await confirmSheet(b.dataset.act === 'approve' ? 'อนุมัติและเปิดแพลนให้ผู้ใช้?' : 'ปฏิเสธคำขอนี้?', { title: 'ยืนยันรายการ', ok: 'Confirm', danger: b.dataset.act !== 'approve' })) return;
         b.disabled = true;
-        try { await api(`/admin/payments/${b.dataset.id}/${b.dataset.act}`, { method: 'POST' }); reload(); } catch (x) { toast(x.message, 'bad'); b.disabled = false; }
+        try { await api(`/admin/payments/${b.dataset.id}/${b.dataset.act}`, { method: 'POST', body }); reload(); } catch (x) { toast(x.message, 'bad'); b.disabled = false; }
       });
     };
     draw();
