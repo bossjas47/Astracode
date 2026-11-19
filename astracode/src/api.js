@@ -44,8 +44,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (!(plan?.price > 0) && !(k.balance >= WALLET_MIN) && !(packLeft > 0)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿1)', 402, 'insufficient_quota'); // ไม่มีแพลนเสียเงิน: ใช้ได้ทุกโมเดลจาก Wallet ตามราคาขาย
     const canPlan = !!plan?.api_limit && k.use_plan !== 0 && !plan._team?.api_off; // หัวหน้าทีมปิด API ของสมาชิก = ใช้งบทีมไม่ได้ (ยังใช้ Wallet ของตัวเองได้)
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
-    const allPublic = (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results;
-    const planIds = canPlan ? new Set((await env.DB.prepare('SELECT model_id FROM plan_models WHERE plan_id=?').bind(plan.id).all()).results.map(x => x.model_id)) : null;
+    const [allPublic, planIds] = await Promise.all([modelsCached(env), canPlan ? planModelsCached(env, plan.id) : null]); // จำไว้ 30 วิ ต่อ isolate: ไม่ต้องถาม D1 ทุกคำขอ (ลดเวลาก่อนเริ่มตอบ)
     const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id)));
     if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
     if (path.startsWith('/v1/models/')) { const m = models.find(x => slug(x) === decodeURIComponent(path.slice(11))); return m ? out({ id: slug(m), object: 'model', created: 0, owned_by: m.provider }) : fail(`ไม่พบโมเดล "${decodeURIComponent(path.slice(11)).slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404); }
@@ -102,13 +101,14 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (path === '/v1/batches' || path.startsWith('/v1/batches/')) return await batchApi(req, env, k, models, path, out, fail);
     const isImg = path === '/v1/images/generations', isEmb = path === '/v1/embeddings';
     if ((path !== '/v1/chat/completions' && !isImg && !isEmb) || req.method !== 'POST') return fail('not found', 404);
-    const over = await limited(env, 'api:' + k.kid, 60, 60e3), rrow = await env.DB.prepare('SELECT n,reset FROM rate WHERE key=?').bind('api:' + k.kid).first();
+    const [over, b0] = await Promise.all([limited(env, 'api:' + k.kid, 60, 60e3), req.json().catch(() => null)]), rrow = await env.DB.prepare('SELECT n,reset FROM rate WHERE key=?').bind('api:' + k.kid).first();
     const secs = Math.max(1, Math.ceil(((rrow?.reset || 0) - Date.now()) / 1e3));
     rl = { 'x-ratelimit-limit-requests': '60', 'x-ratelimit-remaining-requests': String(Math.max(0, 60 - (rrow?.n || 0))), 'x-ratelimit-reset-requests': secs + 's' };
     if (over) return fail('ส่งคำขอเร็วเกินไป (60 ครั้ง/นาที)', 429, 'rate_limit_error', { 'retry-after': String(secs) });
-    const b = await req.json().catch(() => null) || {}, pool = allPublic.filter(x => (!allow || allow.includes(slug(x))) && (isImg ? x.provider === 'image' : isEmb ? x.provider === 'embedding' : x.provider !== 'embedding'));
+    const b = b0 || {}, pool = allPublic.filter(x => (!allow || allow.includes(slug(x))) && (isImg ? x.provider === 'image' : isEmb ? x.provider === 'embedding' : x.provider !== 'embedding'));
     const m = pool.find(x => slug(x) === b.model || x.api_model === b.model) || ((isImg || isEmb) && !b.model ? pool[0] : null);
     if (!m) return fail(`ไม่พบโมเดล "${String(b?.model ?? '').slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404);
+    Object.assign(m, await env.DB.prepare('SELECT * FROM models WHERE id=?').bind(m.id).first() || {}); // ราคา/ตั้งค่าล่าสุดเสมอ (รายการโมเดลอาจค้างจาก memo ได้ 30 วิ)
     if (await reqCapHit(env, k, m)) return fail(`${m.name} reached its request cap (${m.req_cap} per 4 hours).`, 429, 'rate_limit_error');
     let billingMode = 'wallet';
     if (canPlan && planIds.has(m.id) && (!isAgentKey || plan.agent)) { // Agent ใช้ลิมิตแพลนได้เฉพาะแพลนที่รวม Agent
@@ -313,6 +313,11 @@ export const ipAllowed = (list, addr) => list.split(',').some(e => {
   if (a6 != null && c6 != null) { const b = bits ?? 128; if (!(b >= 0 && b <= 128)) return false; const sh = BigInt(128 - b); return a6 >> sh === c6 >> sh; }
   return n == null && e === addr;
 });
+// รายการโมเดล/โมเดลในแพลน เปลี่ยนไม่บ่อย: จำไว้ใน isolate 30 วินาที (แก้ในหลังบ้านมีผลภายใน 30 วิ)
+const memo = new Map();
+const cached = async (key, ms, load) => { const h = memo.get(key); if (h && h.exp > Date.now()) return h.v; const v = await load(); memo.set(key, { v, exp: Date.now() + ms }); return v; };
+const modelsCached = env => cached('models', 30e3, async () => (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results);
+const planModelsCached = (env, pid) => cached('pm:' + pid, 30e3, async () => new Set((await env.DB.prepare('SELECT model_id FROM plan_models WHERE plan_id=?').bind(pid).all()).results.map(x => x.model_id)));
 export async function v1(req, env, ctx, path) {
   const lg = { t0: Date.now(), path };
   const res = path.startsWith('/v1/messages') ? await anthropicApi(req, env, ctx, path, lg) : path === '/v1/responses' ? await responsesApi(req, env, ctx, lg) : await v1core(req, env, ctx, path, lg);
