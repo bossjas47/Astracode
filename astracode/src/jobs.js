@@ -78,6 +78,7 @@ export async function cron(env) {
   });
   await runTasks(env, now).catch(e => console.log('tasks', e.message));
   await reapAgentJobs(env).catch(e => console.log('agent reap', e.message));
+  await import('./cloud.js').then(m => m.reapCloud(env)).catch(e => console.log('cloud reap', e.message));
   // สลิปค้างรออนุมัติเกิน 2 ชม.: เตือนแอดมินไม่เกินทุก 6 ชม. (ลูกค้าจ่ายแล้วรออยู่)
   const pend = await DB.prepare("SELECT COUNT(*) n, MIN(created_at) first FROM payments WHERE status='pending' AND created_at<?").bind(now - 2 * 3600e3).first();
   if (pend.n > 0 && now - (+(await getSetting(env, 'pend_alert_at')) || 0) > 6 * 3600e3) {

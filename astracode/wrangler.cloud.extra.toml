@@ -1,0 +1,12 @@
+
+# ---- ต่อท้าย wrangler.toml ตอน deploy รอบสอง (workflow สร้าง wrangler.cloud.toml) ----
+# Agent บนคลาวด์: Durable Object AgentBox คุมเครื่องเสมือน 1 เครื่องต่องาน (image จาก container/Dockerfile)
+[[durable_objects.bindings]]
+name = "AGENTBOX"
+class_name = "AgentBox"
+
+[[containers]]
+class_name = "AgentBox"
+image = "./container/Dockerfile"
+max_instances = 5
+instance_type = "basic"

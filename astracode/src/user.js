@@ -5,6 +5,7 @@ import { b64, projects, seal, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { ensureRemote, monthKey } from './api.js';
 import { status } from './jobs.js';
+import { cloudApi } from './cloud.js';
 export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
 export async function userRoutes(req, env, ctx, url, path, M, u) {
@@ -246,6 +247,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     return err('not found', 404);
   }
   // แพ็กเสริม Agent: ซื้อด้วย Wallet ได้โควตาใช้ Agent (แอป Desktop / คลาวด์) แยกจากลิมิตแชต · ปิดไว้จนแอดมินเปิด (agent_pack_enabled)
+  if (path.startsWith('/api/cloud-agent')) { const r = await cloudApi(req, env, u, path, M); if (r) return r; }
   if (path === '/api/agent-pack') {
     const s = await getSettings(env, ['agent_pack_enabled', 'agent_pack_price', 'agent_pack_units', 'agent_pack_days']), price = +s.agent_pack_price || 199, units = +s.agent_pack_units || 120, days = +s.agent_pack_days || 30, now = Date.now();
     const plan = await planOf(env, u), active = u.agent_pack_until > now, used = active ? (await DB.prepare('SELECT COALESCE(SUM(pack),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(u.id, u.agent_pack_from || 0).first()).x : 0;

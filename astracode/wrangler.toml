@@ -38,5 +38,10 @@ class_name = "ChatRun"
 tag = "v1"
 new_sqlite_classes = ["ChatRun"]
 
+# Agent บนคลาวด์: class มีเสมอ แต่ binding AGENTBOX + เครื่องเสมือนอยู่ใน wrangler.cloud.extra.toml (deploy แยก พังก็ไม่กระทบเว็บหลัก)
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AgentBox"]
+
 [triggers]
 crons = ["0 * * * *"]   # ทุกชั่วโมง: ต่ออายุจาก Wallet, เตือนหมดอายุ, แจ้งต้นทุน, backup ตี 3, ล้างข้อมูลเก่า

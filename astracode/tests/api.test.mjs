@@ -300,3 +300,33 @@ test('agent pack: Desktop Agent keys use the plan only on plans that include Age
   assert.equal((await t.json('/api/agent-pack', { method: 'POST', cookie: (await t.user({ balance: 10 })).cookie })).status, 402);
   fm.close();
 });
+
+test('cloud agent: starts a job in a fake container, streams events, writes changed files back and revokes the job key', async () => {
+  const t = await makeEnv({ K: 'k' }); addModel(t.DB, { name: 'Claude Sonnet X', base_url: 'http://x' });
+  const u = await t.user({ balance: 20 }), u2 = await t.user({ balance: 0 });
+  const p = await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'C', files: { 'a.js': 'old', 'gone.js': 'x' } } }); const pid = p.data.id ?? p.data.project?.id;
+  assert.equal((await t.json('/api/cloud-agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, prompt: 'go' } })).status, 503); // ยังไม่เปิด Containers
+  // เครื่องเสมือนปลอม: จำ /run แล้วตอบ events/result
+  let run = null; const box = { running: false, start() { this.running = true; }, destroy() { this.running = false; }, getTcpPort: () => ({ fetch: async (url, init) => {
+    const q = new URL(url);
+    if (q.pathname === '/run') { run = JSON.parse(init.body); return new Response('ok'); }
+    if (q.pathname === '/events') return Response.json({ status: 'done', events: [{ type: 'tool', name: 'bash', args: { command: 'npm test' } }] });
+    if (q.pathname === '/result') return Response.json({ status: 'done', final: 'เสร็จ', changed: [{ path: 'a.js', content: 'new' }], deleted: ['gone.js'] });
+    return new Response('', { status: 404 });
+  } }) };
+  const store = new Map(), state = { container: box, storage: { get: async k => store.get(k), put: async (k, v) => store.set(k, v), delete: async k => store.delete(k), setAlarm: async () => {} } };
+  const obj = new t.worker.AgentBox(state, t.env);
+  t.env.AGENTBOX = { idFromName: n => n, get: () => ({ fetch: (u2, init) => obj.fetch(new Request(u2, init)) }) };
+  assert.equal((await t.json('/api/cloud-agent', { method: 'POST', cookie: u2.cookie, body: { project_id: pid, prompt: 'go' } })).status, 404); // โปรเจกต์คนอื่น
+  const r = await t.json('/api/cloud-agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, prompt: 'แก้ a.js' } }); assert.equal(r.status, 200);
+  assert.equal(run.prompt, 'แก้ a.js'); assert.ok(run.key.startsWith('sk-astra-')); assert.equal(run.model, 'claude-sonnet-x'); assert.deepEqual(run.files.map(f => f.path).sort(), ['a.js', 'gone.js']);
+  assert.equal((await t.json('/api/cloud-agent', { method: 'POST', cookie: u.cookie, body: { project_id: pid, prompt: 'อีก' } })).status, 429); // งานเดียวต่อคน
+  await obj.alarm();
+  const j = await t.json('/api/cloud-agent/' + r.data.id, { cookie: u.cookie });
+  assert.equal(j.data.status, 'done'); assert.equal(j.data.events.length, 1); assert.deepEqual(j.data.changed.sort(), ['a.js', 'gone.js (ลบ)']);
+  const files = Object.fromEntries(t.DB.raw.prepare('SELECT path, content FROM project_files WHERE project_id=?').all(pid).map(f => [f.path, f.content]));
+  assert.deepEqual(files, { 'a.js': 'new' });
+  assert.equal(t.DB.raw.prepare("SELECT revoked FROM api_keys WHERE name='Cloud Agent'").get().revoked, 1);
+  assert.equal(box.running, false);
+  assert.equal((await t.json('/api/cloud-agent/' + r.data.id, { cookie: u2.cookie })).status, 404);
+});

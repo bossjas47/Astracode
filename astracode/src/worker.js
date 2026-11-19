@@ -420,6 +420,7 @@ export async function route(req, env, ctx, url, path, M) {
     }
 }
 export { ChatRun } from './jobs.js';
+export { AgentBox } from './cloud.js';
 
 // คำค้นที่ใกล้เคียง (ไทย + อังกฤษ) จากโมเดลถูกสุด · ล้ม/ช้า = ใช้คำเดิม
 async function searchTerms(env, u, q) {

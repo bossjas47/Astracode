@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['astracode/**']
+    paths: ['astracode/**', 'desktop/agent.js', 'desktop/agenttools.js', 'desktop/tools.js', 'desktop/localfs.js']
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -46,6 +46,20 @@ jobs:
           done
           echo "Live site is not running ${{ github.sha }}" >&2
           exit 1
+      # Agent บนคลาวด์: deploy ซ้ำพร้อมเครื่องเสมือน (Cloudflare Containers) · พัง = เว็บหลักยังเป็นเวอร์ชันที่ตรวจแล้วข้างบน แค่ไม่มี AGENTBOX (API ตอบ 503)
+      - name: Prepare cloud agent image
+        run: |
+          mkdir -p astracode/container/app
+          cp desktop/agent.js desktop/agenttools.js desktop/tools.js desktop/localfs.js astracode/container/app/
+          cat astracode/wrangler.toml astracode/wrangler.cloud.extra.toml > astracode/wrangler.cloud.toml
+      - uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
+        with:
+          wranglerVersion: '4.162.0'
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: astracode
+          command: deploy --config wrangler.cloud.toml --keep-vars --var VERSION:${{ github.sha }}
       - name: Smoke test
         env:
           KEY: ${{ secrets.ASTRA_TEST_KEY }}

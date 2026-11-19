@@ -803,6 +803,38 @@ async function bgAgentSheet() {
   };
   sheet('Agent บนเซิร์ฟเวอร์', '<p class="muted">กำลังโหลด...</p>', d => { draw(d); timer = setInterval(() => draw(d), 5000); new MutationObserver((_, o) => { if (!document.contains(d)) { clearInterval(timer); o.disconnect(); } }).observe(document.body, { childList: true }); });
 }
+// Agent บนคลาวด์: สั่งงาน → เครื่องเสมือนทำเอง (แก้ไฟล์ + รันคำสั่ง) → ดูความคืบหน้าสด → เสร็จแล้วโหลดไฟล์ใหม่
+const CL_LABEL = { running: 'กำลังทำ', done: 'เสร็จ', failed: 'ไม่สำเร็จ' };
+const clLine = e => e.type === 'tool' ? `⚙ ${esc(e.name)} ${esc(e.args?.command || e.args?.path || e.args?.pattern || e.args?.url || '')}` : e.type === 'tool_result' ? `<span class="${e.ok ? 'muted' : 'bad'}">  ${esc(String(e.preview || '').split('\n').slice(0, 3).join(' ⏎ ').slice(0, 240))}</span>` : e.type === 'text' ? esc(e.text) : e.type === 'info' ? `<span class="muted">${esc(e.text)}</span>` : '';
+function cloudSheet() {
+  let timer = 0, view = 0, was = '';
+  const draw = async d => {
+    if (!document.contains(d)) return clearInterval(timer);
+    const box = d.querySelector('#clb');
+    if (view) {
+      const j = await api('/cloud-agent/' + view).catch(x => ({ error: x.message })); if (j.error) { box.innerHTML = `<p class="bad">${esc(j.error)}</p>`; return; }
+      const log = j.events.map(clLine).filter(Boolean).join('\n');
+      box.innerHTML = `<button type="button" class="btn out sm" id="clback">← รายการงาน</button> <b>${CL_LABEL[j.status] || j.status}</b> · ${esc(j.model || '')}${j.status === 'running' ? ' <button type="button" class="btn out sm" id="clstop">หยุด</button>' : ''}
+        <p class="muted" style="margin:8px 0">${esc(j.prompt)}</p><pre class="cl-log" style="max-height:44vh;overflow:auto;white-space:pre-wrap;font-size:12px">${log || 'กำลังเปิดเครื่อง (ครั้งแรกอาจ ~20 วินาที)…'}</pre>
+        ${j.final ? `<div class="sheet-msg">${esc(j.final)}</div>` : ''}${j.error ? `<p class="bad">${esc(j.error)}</p>` : ''}${j.changed?.length ? `<p class="muted">ไฟล์ที่เปลี่ยน: ${j.changed.map(esc).join(', ')} · ย้อนได้ที่ ประวัติโปรเจกต์</p>` : ''}`;
+      const pre = box.querySelector('.cl-log'); pre.scrollTop = pre.scrollHeight;
+      box.querySelector('#clback').onclick = () => { view = 0; draw(d); };
+      box.querySelector('#clstop')?.addEventListener('click', async () => { await api(`/cloud-agent/${view}/stop`, { method: 'POST' }).catch(() => {}); toast('สั่งหยุดแล้ว ไฟล์ที่ทำถึงตรงนั้นจะเข้าโปรเจกต์'); });
+      if (was === 'running' && j.status !== 'running') { toast(`Agent บนคลาวด์${CL_LABEL[j.status]}: ${j.changed.length} ไฟล์`, j.status === 'done' ? 'ok' : 'bad'); if (j.changed.length && !IDE.busy) reloadFiles().catch(() => {}); }
+      was = j.status; return;
+    }
+    if (box.querySelector('#clf textarea')?.value || d.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return; // กำลังพิมพ์งาน: ไม่วาดทับ
+    const jobs = await api('/cloud-agent?project=' + IDE.pid).catch(() => []), busy = jobs.find(j => j.status === 'running');
+    box.innerHTML = (busy ? '' : `<form class="sheet-form" id="clf"><textarea name="prompt" rows="4" maxlength="20000" required placeholder="เช่น เพิ่มหน้า login แล้วรัน npm test ให้ผ่าน"></textarea><button class="btn blue">${ic('sparkles', 'sm')} เริ่มงานบนคลาวด์</button><p class="muted" style="margin:0">ทำเองทั้งหมดในเครื่องแยก (ลบทิ้งหลังจบ) สูงสุด 30 นาที · ค่าโมเดลหักตามจริง · ไฟล์ .env ไม่ถูกส่ง</p></form>`)
+      + (jobs.length ? jobs.map(j => optHTML(j.id, `${CL_LABEL[j.status] || j.status} · ${esc(j.prompt.slice(0, 60))}`, esc(j.model || '') + (j.error ? ' · ' + esc(j.error.slice(0, 80)) : ''))).join('') : '<p class="muted">ยังไม่มีงาน</p>');
+    box.querySelector('#clf')?.addEventListener('submit', async e => {
+      e.preventDefault(); const b = e.target.querySelector('button'); b.disabled = true;
+      try { await saveNow(); const r = await api('/cloud-agent', { method: 'POST', body: { project_id: IDE.pid, prompt: e.target.prompt.value, model_id: +$('#cmodel')?.value || 0 } }); view = r.id; was = 'running'; draw(d); } catch (x) { toast(x.message, 'bad'); b.disabled = false; }
+    });
+    box.querySelectorAll('.opt[data-v]').forEach(o => o.onclick = () => { view = +o.dataset.v; was = ''; draw(d); });
+  };
+  sheet('Agent บนคลาวด์', '<div id="clb"><p class="muted">กำลังโหลด...</p></div>', d => { draw(d); timer = setInterval(() => draw(d), 4000); });
+}
 // ดูสถานะงาน Agent ตลอดที่เปิดหน้า Code: ขึ้นป้าย + พอเสร็จโหลดไฟล์ใหม่ให้อัตโนมัติ
 let agPoll = 0;
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && IDE.pid) agWatch().catch(() => {}); }); // กลับมาที่แอป: เช็กงาน Agent ใหม่ทันที
@@ -855,6 +887,7 @@ function codeTools() {
   sheet('เครื่องมือ AI', optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
     + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
     + optHTML('bgagent', ic('server') + 'Agent / ทีม Agent บนเซิร์ฟเวอร์' + newPill('team'), me.plan.paid ? 'สั่งแล้วปิดแอปได้ Agent แก้ไฟล์และสร้างรูปให้เองสูงสุด 20 รอบ เสร็จแล้วส่งอีเมล · ไม่รันโค้ด ตรวจผลเองตอนจบ' : 'ใช้ได้กับแพลนที่ชำระเงิน')
+    + optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้)', 'เครื่องเสมือนแยกต่องาน: Agent แก้ไฟล์ รัน npm/python/git ทดสอบเอง ปิดแอปได้ เสร็จแล้วไฟล์เข้าโปรเจกต์ · Pro ขึ้นไป / แพ็ก Agent / Wallet')
     + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว)', me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง ปิดจอได้ กลับมาดูผล · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
@@ -875,6 +908,7 @@ function codeTools() {
       if (v === 'vercel') return vercelSheet();
       if (v === 'autotest') { const on = localStorage.getItem('autoTest') === '0'; localStorage.setItem('autoTest', on ? '1' : '0'); toast('รันเทสต์อัตโนมัติ: ' + (on ? 'เปิด' : 'ปิด')); }
       if (v === 'bgagent') { seen('team'); return bgAgentSheet(); }
+      if (v === 'cloud') return cloudSheet();
       if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); IDE.agent = !IDE.agent; localStorage.setItem('agent', IDE.agent ? '1' : '0'); cUI(); toast(IDE.agent ? 'เปิดโหมด Agent: งานยาวได้ถึง 20 รอบ' : 'ปิดโหมด Agent', 'ok'); if (IDE.agent && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); }
       if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
       if (v === 'mcp') mcpSheet(IDE.mcps, ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); cUI(); });

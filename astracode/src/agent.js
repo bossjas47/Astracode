@@ -57,7 +57,7 @@ let agentReady = false;
 const setJob = (env, id, f) => { const ks = Object.keys(f); return env.DB.prepare(`UPDATE agent_jobs SET ${ks.map(k => k + '=?').join(',')} WHERE id=?`).bind(...ks.map(k => f[k]), id).run(); };
 
 // เขียนผลลง project_files (เก็บเวอร์ชันเก่าไว้ย้อนได้) · คืน { applied: [path], problems: [ข้อความ] }
-async function applyChanges(env, pid, changes, raw = false) {
+export async function applyChanges(env, pid, changes, raw = false) {
   const DB = env.DB, files = (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pid).all()).results, cur = new Map(files.map(f => [f.path, f.content]));
   const applied = [], problems = [], warnings = [], writes = [], dels = [];
   for (const c of changes) {
