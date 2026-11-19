@@ -1,6 +1,10 @@
 const WHATS_NEW = 'whatsnew:2026-11'; // เปลี่ยนเลขเมื่อมีฟีเจอร์ใหม่ที่อยากบอกผู้ใช้เดิม
 // AstraCode: หน้าแชต
 let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], compare: false, cmp: [], skills: JSON.parse(localStorage.getItem('skills') || '[]'), mcps: JSON.parse(localStorage.getItem('mcps') || '[]') };
+{ // กลับจากหน้ายินยอมของ Google: เปิด MCP ของ Google ในแชตให้เลย
+  const q = new URLSearchParams(location.search), g = q.get('google');
+  if (g) { const id = +q.get('mcp_on'); if (id && !chat.mcps.includes(id)) { chat.mcps = [...chat.mcps, id].slice(-3); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); } setTimeout(() => toast(g === 'ok' ? 'เชื่อม Google แล้ว: สั่ง AI อ่าน/ส่ง Gmail, ค้น Drive, แก้ Sheets, ลงปฏิทินได้เลย' : g, g === 'ok' ? 'ok' : 'bad'), 800); history.replaceState(null, '', location.pathname); }
+}
 // ── กัน deploy ไม่ครบคู่ (chat.js ใหม่ + app.js เก่า): ไม่ให้แชตพังเงียบ ──
 // app.js ที่ตรงกันจะเป็นคนประกาศ parseAsk; ถ้าไม่มี ให้ใช้ตัวสำรองนี้แทน
 if (typeof globalThis.parseAsk !== 'function') {
@@ -947,7 +951,7 @@ function pcSheet() {
         <p class="muted" style="margin:0;font-size:12.5px">คำสั่งลัด: ${AG_CMDS.map(c => `<code>/${c[0]}</code>`).join(' ')} · ของโปรเจกต์เอง: ไฟล์ <code>.astra/commands/ชื่อ.md</code> · อ้างไฟล์ด้วย <code>@src/app.js</code> · แปะรูปหน้าจอได้ · พิมพ์แทรกระหว่าง Agent ทำงานได้ (กด Enter) · hook หลังแก้ไฟล์: <code>.astra/hooks.json</code> เช่น <code>{"after_edit":"npx prettier --write {file}"}</code></p></div>` : ''}
     ${chat.pc ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="pcscr" ${chat.screen ? 'checked' : ''}><span></span></span> ให้ AI ดูหน้าจอและคุมเมาส์/คีย์บอร์ด (Windows · ต้องใช้โมเดลที่อ่านรูปได้ · หยุดทันที Ctrl+Alt+Esc)</label>` : ''}</div>`, (d, close) => {
     d.querySelector('#pcag')?.addEventListener('change', e => { localStorage.setItem('pcAgent', e.target.checked ? '1' : '0'); d.querySelector('#pcagopt').hidden = !e.target.checked; if (e.target.checked) { localStorage.setItem('pc', '1'); if (localStorage.getItem('agTour') !== '1') { close(); agentTour(); } } modelUI(); });
-    d.querySelector('#pcagm')?.addEventListener('change', e => { localStorage.setItem('pcAgentMode', e.target.value); modelUI(); });
+    d.querySelector('#pcagm')?.addEventListener('change', async e => { if (e.target.value === 'yolo' && !await confirmSheet('Agent จะรันทุกคำสั่งโดยไม่ถาม รวมลบไฟล์ ติดตั้งโปรแกรม และแตะไฟล์นอกโฟลเดอร์ ถ้า AI เข้าใจผิด ข้อมูลอาจหายถาวร ใช้กับโฟลเดอร์ที่สำรองไว้แล้วเท่านั้น', { title: 'โหมดไม่ถามอะไรเลย', ok: 'เข้าใจแล้ว เปิดเลย', danger: true })) { e.target.value = agMode(); return; } localStorage.setItem('pcAgentMode', e.target.value); modelUI(); });
     d.querySelector('#pcagr')?.addEventListener('change', e => localStorage.setItem('pcAgentMax', e.target.value));
     d.querySelector('#pcagb')?.addEventListener('change', e => localStorage.setItem('pcAgentBudget', e.target.value));
     d.querySelector('#pcags')?.addEventListener('change', e => localStorage.setItem('pcAgentStyle', e.target.value));
@@ -1037,7 +1041,7 @@ async function pcAct(ai) {
 }
 
 // ---------- โหมด Agent แบบ Claude Code (แอป Desktop): แอปวนทำงานเองในเครื่องด้วย tool calling ผ่าน /v1 · หน้านี้แสดงขั้นตอนสด และบันทึกคำสั่ง+คำตอบลงแชต ----------
-const AG_MODES = [['plan', 'วางแผนก่อน (ยังไม่แก้อะไร)', 'วางแผน'], ['ask', 'ถามก่อนทุกครั้ง', 'ถามก่อน'], ['edits', 'แก้ไฟล์เอง · ถามก่อนรันคำสั่ง', 'แก้ไฟล์เอง'], ['auto', 'ทำเองทั้งหมด (คำสั่งอันตรายยังถาม)', 'ทำเองทั้งหมด']];
+const AG_MODES = [['plan', 'วางแผนก่อน (ยังไม่แก้อะไร)', 'วางแผน'], ['ask', 'ถามก่อนทุกครั้ง', 'ถามก่อน'], ['edits', 'แก้ไฟล์เอง · ถามก่อนรันคำสั่ง', 'แก้ไฟล์เอง'], ['auto', 'ทำเองทั้งหมด (คำสั่งอันตรายยังถาม)', 'ทำเองทั้งหมด'], ['yolo', 'ไม่ถามอะไรเลย ⚠ รวมลบไฟล์/นอกโฟลเดอร์', 'ไม่ถาม ⚠']];
 const AG_CMDS = [['review', 'รีวิวโค้ดที่เพิ่งเปลี่ยน (git diff) หาบั๊ก ช่องโหว่ และจุดที่ช้า เรียงตามความรุนแรง พร้อมวิธีแก้ ยังไม่ต้องแก้ไฟล์ $ARGUMENTS'], ['test', 'รันเทสต์ของโปรเจกต์ ถ้าไม่ผ่านให้หาสาเหตุจริงแล้วแก้โค้ดจนผ่าน (ห้ามแก้เทสต์ให้ผ่านเฉยๆ) $ARGUMENTS'], ['fix', 'หาสาเหตุและแก้ปัญหานี้ แล้วตรวจว่าหายจริง: $ARGUMENTS'], ['explain', 'อธิบายโปรเจกต์/โค้ดนี้แบบเข้าใจง่าย: โครงสร้าง ไฟล์สำคัญ และการทำงานหลัก $ARGUMENTS'], ['commit', 'ดู git diff แล้วเขียนข้อความ commit ที่ดี แล้ว commit ให้ $ARGUMENTS'], ['init', 'สำรวจโปรเจกต์แล้วเขียนไฟล์ ASTRA.md สรุปวิธี build/test โครงสร้าง และกติกาโค้ด ให้ Agent รอบหน้าอ่าน $ARGUMENTS']];
 const agentOn = () => pcOn() && !!PCD?.agent && localStorage.getItem('pcAgent') === '1';
 const agMode = () => AG_MODES.some(x => x[0] === localStorage.getItem('pcAgentMode')) ? localStorage.getItem('pcAgentMode') : 'auto'; // ค่าเริ่มต้น: ทำเองทั้งหมด (คำสั่งอันตราย/นอกโฟลเดอร์ยังถามเสมอ)

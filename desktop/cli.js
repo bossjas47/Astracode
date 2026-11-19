@@ -13,7 +13,7 @@ const SITE = process.env.ASTRA_SITE || 'https://astracode.panderx.xyz';
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i > 0 ? process.argv[i + 1] : d; };
 const keyFile = path.join(os.homedir(), '.astra', 'key');
 let key = process.env.ASTRA_KEY || arg('key') || (fs.existsSync(keyFile) ? fs.readFileSync(keyFile, 'utf8').trim() : '');
-let mode = ['ask', 'edits', 'auto', 'plan'].includes(arg('mode')) ? arg('mode') : 'ask';
+let mode = ['ask', 'edits', 'auto', 'plan', 'yolo'].includes(arg('mode')) ? arg('mode') : 'ask';
 const model = arg('model', 'claude-sonnet-5.5-eco'), root = path.resolve(arg('dir', '.'));
 const flags = new Set(['--mode', '--model', '--dir', '--key']), task = process.argv.slice(2).filter((x, i, a) => !flags.has(x) && !flags.has(a[i - 1])).join(' ').trim();
 const c = (n, s) => process.stdout.isTTY ? `\x1b[${n}m${s}\x1b[0m` : s, dim = s => c(2, s), red = s => c(31, s), green = s => c(32, s), yellow = s => c(33, s);
@@ -24,6 +24,7 @@ const q = s => new Promise(ok => rl.question(s, ok));
   if (!key) { key = (await q('ใส่ API key (สร้างที่ ' + SITE + '/developers): ')).trim(); if (!/^sk-astra-/.test(key)) { console.log(red('key ไม่ถูกต้อง')); process.exit(1); } fs.mkdirSync(path.dirname(keyFile), { recursive: true }); fs.writeFileSync(keyFile, key, { mode: 0o600 }); }
   const allow = new Set();
   const ask = async r => {
+    if (mode === 'yolo') return true; // --mode yolo: ไม่ถามอะไรเลย
     const auto = mode === 'auto', edits = mode === 'edits' || auto;
     if (['read', 'net', 'none'].includes(r.kind) && !r.outside) return true;
     if (!r.outside && !r.danger && ((r.kind === 'edit' && edits) || (r.kind === 'bash' && auto) || allow.has(r.kind))) return true;
@@ -39,7 +40,7 @@ const q = s => new Promise(ok => rl.question(s, ok));
   const messages = [{ role: 'system', content: agentSystem({ root, os: `${process.platform} ${os.release()}`, rules: await projectRules(root) }) }];
   let ac = null; process.on('SIGINT', () => { if (ac) { ac.abort(); ws.stopAll(); console.log(red('\n(หยุดแล้ว)')); } else process.exit(0); });
   const run = async text => {
-    if (/^\/mode\s+(ask|edits|auto|plan)$/.test(text)) { mode = text.split(/\s+/)[1]; return console.log(dim('โหมด: ' + mode)); }
+    if (/^\/mode\s+(ask|edits|auto|plan|yolo)$/.test(text)) { mode = text.split(/\s+/)[1]; return console.log(dim('โหมด: ' + mode)); }
     if (text === '/undo') return console.log(dim('ย้อน: ' + ((await ws.undo()).join(', ') || 'ไม่มี')));
     messages.push({ role: 'user', content: text + (mode === 'plan' ? '\n\n[โหมดวางแผน] ห้ามแก้ไฟล์หรือรันคำสั่ง เขียนแผนให้อนุมัติก่อน' : '') });
     ws.runFrom = ws.step + 1; ac = new AbortController(); ws.signal = ac.signal; let cost = 0;

@@ -897,7 +897,10 @@ async function mcpSheet(selectedIds, onChange) {
   const sel = new Set((selectedIds || []).map(Number));
   const draw = async (force) => {
     const list = await loadMcps(force);
+    const gs = await api('/google').catch(() => ({}));
     sheet('Remote MCP (เลือกได้สูงสุด 3)', `<div class="sheet-form">
+      ${gs.enabled ? `<div class="opt" style="cursor:default"><span class="opt-t">${ic('globe', 'sm')} Google: Gmail · Drive · Sheets · ปฏิทิน</span><span class="opt-d">${gs.connected ? `เชื่อมแล้ว ${esc(gs.email || '')} · แตะรายการ Google ด้านล่างเพื่อเปิดใช้ในแชต` : 'กดเชื่อมครั้งเดียว ให้ AI อ่าน/ส่งอีเมล ค้นไฟล์ แก้ตาราง ลงนัด แทนคุณ'}</span>
+        <span class="row" style="margin-top:6px">${gs.connected ? '<button type="button" class="btn out sm" id="gdis">ยกเลิกการเชื่อม</button>' : '<a class="btn blue sm" href="/api/google/connect">เชื่อม Google</a>'}</span></div>` : ''}
       <details class="ed" style="background:var(--obsidian);border:1px solid var(--hair);border-radius:16px"><summary style="padding:12px 14px"><b>+ เชื่อมต่อ Remote MCP</b></summary>
         <form id="mcf" class="sheet-form" style="padding:0 14px 14px">
           <input name="name" placeholder="ชื่อ (เช่น GitHub, Notion)" maxlength="60" required>
@@ -912,6 +915,7 @@ async function mcpSheet(selectedIds, onChange) {
         <i>${sel.has(s.id) ? ic('check') : ''}</i>
       </div>`).join('') || '<p class="muted">ยังไม่ได้เชื่อมต่อ MCP Server</p>'}
     </div>`, d => {
+      d.querySelector('#gdis')?.addEventListener('click', async () => { if (!await confirmSheet('ยกเลิกการเชื่อม Google? AI จะเข้า Gmail/Drive/ปฏิทินไม่ได้อีก', { title: 'Google', ok: 'ยกเลิกการเชื่อม' })) return; await api('/google', { method: 'DELETE' }).catch(() => {}); toast('ยกเลิกการเชื่อม Google แล้ว'); draw(true); });
       d.querySelector('#mcf').onsubmit = async e => {
         e.preventDefault(); const btn = d.querySelector('#mcb'); btn.disabled = true; btn.textContent = 'กำลังเชื่อมต่อ...';
         try {

@@ -1,6 +1,7 @@
 import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, histStart, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
+import { GOOGLE_TOOLS, GOOGLE_URL, googleCall } from './google.js';
 import { admin } from './admin.js';
 import { v1 } from './api.js';
 import { cron, status } from './jobs.js';
@@ -627,7 +628,7 @@ export async function runChat(env, J, send, st) {
         let resText = 'ไม่พบเครื่องมือนี้', ok = false;
         if (meta) {
           let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch {}
-          try { resText = await mcpCall(meta.url, meta.tok, meta.name, args); ok = true; }
+          try { resText = await mcpCall(meta.url, meta.tok, meta.name, args, env); ok = true; }
           catch (err) { resText = 'Error: ' + err.message; }
           await send({ mcp: { server: meta.server, tool: meta.name, ok } });
         }
@@ -752,6 +753,7 @@ export async function mcpRpc(url, token, method, params = {}, sessionId = null, 
   return { data: data.result, sessionId: sid };
 }
 export async function mcpSync(url, token) {
+  if (url === GOOGLE_URL) return GOOGLE_TOOLS;
   const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'AstraCode', version: '1.0.0' } });
   await mcpRpc(url, token, 'notifications/initialized', {}, init.sessionId, true).catch(() => {});
   const res = await mcpRpc(url, token, 'tools/list', {}, init.sessionId);
@@ -762,7 +764,8 @@ export async function mcpSync(url, token) {
   })).filter(t => t.name);
   return tools;
 }
-export async function mcpCall(url, token, name, args) {
+export async function mcpCall(url, token, name, args, env) {
+  if (url === GOOGLE_URL) return String(await googleCall(env, token, name, args || {})).slice(0, 12000); // เชื่อม Google แบบปุ่มเดียว: เรียกตรงในเซิร์ฟเวอร์
   const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'AstraCode', version: '1.0.0' } });
   await mcpRpc(url, token, 'notifications/initialized', {}, init.sessionId, true).catch(() => {});
   const res = await mcpRpc(url, token, 'tools/call', { name, arguments: args || {} }, init.sessionId);

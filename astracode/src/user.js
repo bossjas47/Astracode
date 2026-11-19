@@ -1,4 +1,4 @@
-import { BKK, DAY, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus, WALLET_MIN } from './core.js';
+import { BKK, DAY, getUser, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus, WALLET_MIN } from './core.js';
 import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
@@ -6,6 +6,7 @@ import { admin } from './admin.js';
 import { ensureRemote, monthKey } from './api.js';
 import { status } from './jobs.js';
 import { cloudApi } from './cloud.js';
+import { googleConnectFinish, googleConnectStart, googleDisconnect, googleStatus } from './google.js';
 export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
 export async function userRoutes(req, env, ctx, url, path, M, u) {
@@ -247,6 +248,9 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     return err('not found', 404);
   }
   // แพ็กเสริม Agent: ซื้อด้วย Wallet ได้โควตาใช้ Agent (แอป Desktop / คลาวด์) แยกจากลิมิตแชต · ปิดไว้จนแอดมินเปิด (agent_pack_enabled)
+  if (path === '/api/google' && M === 'GET') return googleStatus(env, u);
+  if (path === '/api/google' && M === 'DELETE') return googleDisconnect(env, u);
+  if (path === '/api/google/connect' && M === 'GET') return googleConnectStart(env, origin(req, env), u);
   if (path.startsWith('/api/cloud-agent')) { const r = await cloudApi(req, env, u, path, M); if (r) return r; }
   if (path === '/api/agent-pack') {
     const s = await getSettings(env, ['agent_pack_enabled', 'agent_pack_price', 'agent_pack_units', 'agent_pack_days']), price = +s.agent_pack_price || 199, units = +s.agent_pack_units || 120, days = +s.agent_pack_days || 30, now = Date.now();
@@ -570,6 +574,7 @@ export async function oauth(req, env, url, path) {
     return new Response(null, { status: 302, headers: { location: `${cfg.auth}?response_type=code&client_id=${encodeURIComponent(cfg.id)}&redirect_uri=${encodeURIComponent(cb)}&scope=${encodeURIComponent(cfg.scope)}&state=${state}${cfg.extra}`,
       'set-cookie': `oauth=${state}.${ref}; Path=/api/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600` } });
   }
+  if (who === 'google' && /(?:^|;\s*)gconn=/.test(req.headers.get('cookie') || '')) return googleConnectFinish(req, env, url, base, await getUser(req, env)); // เชื่อม Google ให้ AI ใช้ (ไม่ใช่ล็อกอิน)
   const [state, ref] = ((req.headers.get('cookie') || '').match(/(?:^|;\s*)oauth=([\w.]+)/)?.[1] || '').split('.');
   if (!state || !same(state, url.searchParams.get('state') || '')) return fail('หมดเวลา ลองใหม่อีกครั้ง'); // กันการปลอมคำขอ
   const tr = await fetch(cfg.token, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },

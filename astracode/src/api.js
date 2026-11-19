@@ -74,7 +74,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (path === '/v1/mcp/tools') return out({ tools: tools.map(({ name, description, parameters }) => ({ name, description, parameters })) });
       if (await limited(env, 'vmcp:' + k.kid, 300, 3600e3)) return fail('เรียก connector บ่อยเกินไป', 429, 'rate_limit_error');
       const b = await req.json().catch(() => ({})), t = tools.find(x => x.name === b.name); if (!t) return fail('ไม่พบเครื่องมือ ' + String(b.name || '').slice(0, 80), 404);
-      try { const tok = t.sv.token_enc ? await unseal(env, t.sv.token_enc).catch(() => null) : null; return out({ text: String(await mcpCall(t.sv.url, tok, t.tool, b.args && typeof b.args === 'object' ? b.args : {})).slice(0, 100000) }); }
+      try { const tok = t.sv.token_enc ? await unseal(env, t.sv.token_enc).catch(() => null) : null; return out({ text: String(await mcpCall(t.sv.url, tok, t.tool, b.args && typeof b.args === 'object' ? b.args : {}, env)).slice(0, 100000) }); }
       catch (e) { return out({ text: 'Error: ' + String(e.message).slice(0, 500) }); }
     }
     // ค้นเว็บให้ agent ในแอป Desktop (ไม่คิดเงิน จำกัด 60 ครั้ง/ชม. ต่อ key)

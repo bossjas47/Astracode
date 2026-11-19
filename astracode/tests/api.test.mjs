@@ -330,3 +330,38 @@ test('cloud agent: starts a job in a fake container, streams events, writes chan
   assert.equal(box.running, false);
   assert.equal((await t.json('/api/cloud-agent/' + r.data.id, { cookie: u2.cookie })).status, 404);
 });
+
+test('connect Google: consent flow stores a sealed refresh token, adds a Google MCP row, tools call Google with a refreshed access token, disconnect revokes', async () => {
+  const t = await makeEnv({ K: 'k', GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'sec', SECRET_KEY: 'x'.repeat(40) }), u = await t.user({ balance: 5 });
+  const start = await t.call('/api/google/connect', { cookie: u.cookie }); assert.equal(start.status, 302);
+  const loc = new URL(start.headers.get('location')); assert.match(loc.searchParams.get('scope'), /gmail\.modify/); assert.equal(loc.searchParams.get('access_type'), 'offline');
+  const gconn = start.headers.get('set-cookie').match(/gconn=([\w.]+)/)[1], state = loc.searchParams.get('state');
+  const real = globalThis.fetch, seen = []; let tokenCalls = 0;
+  globalThis.fetch = async (url, init = {}) => {
+    const s = String(url); seen.push([s, init.headers?.authorization]);
+    if (s.startsWith('https://oauth2.googleapis.com/token')) { tokenCalls++; const b = new URLSearchParams(init.body); return Response.json(b.get('grant_type') === 'authorization_code' ? { access_token: 'acc1', refresh_token: 'ref1', expires_in: -100, id_token: 'x.' + btoa(JSON.stringify({ email: 'me@gmail.com' })) + '.y' } : { access_token: 'acc2', expires_in: 3600 }); }
+    if (s.includes('gmail.googleapis.com') && s.includes('/messages?')) return Response.json({ messages: [{ id: 'm1' }] });
+    if (s.includes('gmail.googleapis.com') && s.includes('/messages/m1')) return Response.json({ snippet: 'hi', payload: { headers: [{ name: 'Subject', value: 'Hello' }, { name: 'From', value: 'a@b.c' }] } });
+    if (s.startsWith('https://oauth2.googleapis.com/revoke')) return new Response('');
+    return real(url, init);
+  };
+  try {
+    // คุกกี้ผิดคน/ผิด state = ไม่เชื่อม
+    const other = await t.user();
+    const bad = await t.call(`/api/oauth/google/callback?state=${state}&code=c`, { cookie: `${other.cookie}; gconn=${gconn}` }); assert.match(bad.headers.get('location'), /google=/);
+    assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM mcp_servers').get().n, 0);
+    const cb = await t.call(`/api/oauth/google/callback?state=${state}&code=c`, { cookie: `${u.cookie}; gconn=${gconn}` });
+    assert.match(cb.headers.get('location'), /google=ok&mcp_on=\d+/);
+    const link = t.DB.raw.prepare('SELECT * FROM google_links WHERE user_id=?').get(u.id); assert.ok(link && !link.refresh_enc.includes('ref1')); // เก็บแบบเข้ารหัส
+    const mcp = (await t.json('/api/mcp', { cookie: u.cookie })).data.find(x => x.name.startsWith('Google')); assert.ok(mcp.tools.includes('gmail_search'));
+    assert.equal((await t.json('/api/google', { cookie: u.cookie })).data.connected, true);
+    // เรียกผ่าน /v1/mcp (ทางที่ Agent ในแอป/คลาวด์ใช้) → access token หมดอายุ จึง refresh ก่อน
+    const key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+    t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'Desktop Agent', await sha(key), key.slice(0, 14), Date.now());
+    const r = await t.json('/v1/mcp/call', { method: 'POST', headers: { authorization: 'Bearer ' + key }, body: { name: `rmcp_${mcp.id}_gmail_search`, args: { query: 'newer_than:1d' } } });
+    assert.match(r.data.text, /Hello/); assert.equal(tokenCalls, 2); assert.ok(seen.some(([s, a]) => s.includes('gmail') && a === 'Bearer acc2'));
+    assert.equal((await t.json('/api/google', { method: 'DELETE', cookie: u.cookie })).status, 200);
+    assert.ok(seen.some(([s]) => s.startsWith('https://oauth2.googleapis.com/revoke')));
+    assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM mcp_servers WHERE url='astra://google'").get().n, 0);
+  } finally { globalThis.fetch = real; }
+});

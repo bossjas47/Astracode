@@ -222,7 +222,7 @@ h('desk:mcpCall', async (_, name, args) => (await mcpUp()).call(String(name), ar
 // key: หน้าเว็บที่ล็อกอินอยู่สร้าง API key ชื่อ "Desktop Agent" ส่งมาครั้งแรก
 // โหมด: plan = วางแผนอย่างเดียว (อ่านได้ แก้/รันไม่ได้) · ask = ถามทุกครั้ง · edits = แก้ไฟล์เอง ถามก่อนรันคำสั่ง · auto = ทำเองทั้งหมด (คำสั่งอันตราย/นอกโฟลเดอร์ยังถาม)
 const agents = new Map(); // sid → { messages, ws, ac, mode, okMode, inbox, cost, remote }
-const MODES = ['plan', 'ask', 'edits', 'auto'];
+const MODES = ['plan', 'ask', 'edits', 'auto', 'yolo']; // yolo = ไม่ถามอะไรเลย (ผู้ใช้ยืนยันในกล่องเตือนก่อนเปิด)
 const agentFile = sid => path.join(app.getPath('userData'), 'agents', sid.replace(/[^\w-]/g, '_') + '.json');
 const agentSave = a => { try { fs.mkdirSync(path.dirname(agentFile(a.sid)), { recursive: true }); fs.writeFileSync(agentFile(a.sid), JSON.stringify({ root: a.ws.root, messages: a.messages.slice(-400) })); } catch { /* ดิสก์เต็ม/สิทธิ์: ยังทำงานต่อได้ แค่ไม่จำหลังปิดแอป */ } };
 const agentLoad = sid => { try { return JSON.parse(fs.readFileSync(agentFile(sid), 'utf8')); } catch { return null; } };
@@ -256,6 +256,7 @@ h('desk:agentGit', async (_, k, action, msg) => {
   const x = await runCmd(r, cmd, { timeout: 60e3 }); return { code: x.code, out: (x.stdout + (x.stderr ? '\n' + x.stderr : '')).slice(0, 150000) };
 });
 async function approve(a, req) {
+  if (a.mode === 'yolo') return true;
   const auto = a.mode === 'auto', edits = a.mode === 'edits' || auto;
   if (req.kind === 'read' || req.kind === 'net' || req.kind === 'none') { if (!req.outside) return true; }
   else if (!req.outside && !req.danger && ((req.kind === 'edit' && edits) || (req.kind === 'bash' && auto))) return true;
@@ -302,8 +303,8 @@ async function runTask(o = {}, sender) {
   let a = agents.get(sid);
   if (a && a.ac) throw new Error('Agent กำลังทำงานอยู่ในแชตนี้');
   // เปิดโหมดทำเองครั้งแรกของงาน: ยืนยันด้วยหน้าต่าง Windows (หน้าเว็บสั่งเองไม่ได้)
-  if ((mode === 'edits' || mode === 'auto') && a?.okMode !== mode && !o.preApproved) {
-    const r = await dialog.showMessageBox(web, { type: 'warning', title: 'เปิดโหมดทำงานเอง?', message: mode === 'auto' ? 'Agent จะแก้ไฟล์และรันคำสั่งได้เองโดยไม่ถาม' : 'Agent จะแก้ไฟล์ได้เองโดยไม่ถาม (ยังถามก่อนรันคำสั่ง)', detail: `เฉพาะในโฟลเดอร์ ${root}\nคำสั่งอันตรายและไฟล์นอกโฟลเดอร์ยังถามทุกครั้ง · ย้อนไฟล์ที่ Agent แก้ได้จากปุ่มในแชต`, buttons: ['เปิดโหมดนี้', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
+  if (['edits', 'auto', 'yolo'].includes(mode) && a?.okMode !== mode && !o.preApproved) {
+    const r = await dialog.showMessageBox(web, { type: 'warning', title: 'เปิดโหมดทำงานเอง?', message: mode === 'yolo' ? '⚠ Agent จะทำทุกอย่างโดยไม่ถามเลย' : mode === 'auto' ? 'Agent จะแก้ไฟล์และรันคำสั่งได้เองโดยไม่ถาม' : 'Agent จะแก้ไฟล์ได้เองโดยไม่ถาม (ยังถามก่อนรันคำสั่ง)', detail: mode === 'yolo' ? `รวมคำสั่งลบไฟล์ ติดตั้งโปรแกรม git push และไฟล์นอกโฟลเดอร์ ${root} (ทั้งเครื่อง)\nถ้า AI เข้าใจผิด ข้อมูลอาจหายถาวรและย้อนไม่ได้ ควรใช้กับโฟลเดอร์ที่สำรองไว้แล้ว · หยุดได้ทุกเมื่อด้วยปุ่มหยุด` : `เฉพาะในโฟลเดอร์ ${root}\nคำสั่งอันตรายและไฟล์นอกโฟลเดอร์ยังถามทุกครั้ง · ย้อนไฟล์ที่ Agent แก้ได้จากปุ่มในแชต`, buttons: ['เปิดโหมดนี้', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
     if (r.response !== 0) throw new Error('ยกเลิกแล้ว');
   }
   const tell = d => { if (sender && !sender.isDestroyed()) sender.send('desk:agentEv', { sid, ...d }); a?.remote?.push({ sid, ...d }); };
