@@ -123,7 +123,13 @@ PAGES.developers = async () => {
     app.querySelectorAll('[data-dt]').forEach(b => b.onclick = () => setTab(b.dataset.dt));
     app.querySelectorAll('[data-goto]').forEach(b => b.onclick = e => { e.preventDefault(); setTab(b.dataset.goto); scrollTo(0, 0); });
     app.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => copy(b.dataset.cp, b));
-    const snip = () => { const [t, code] = TOOLS[ctool](newKey || 'sk-astra-...', cmodel); const box = $('#csnip'); if (!box) return; box.innerHTML = `<div style="margin-top:12px">${pre([t, code])}</div>`; bindCopy(); };
+    const auto = () => window.astraDesktop?.setupTool && me && ['Codex', 'Claude Code', 'OpenCode'].includes(ctool); // แอปคอม: เขียนไฟล์ตั้งค่าให้เลย
+    const snip = () => { const [t, code] = TOOLS[ctool](newKey || 'sk-astra-...', cmodel); const box = $('#csnip'); if (!box) return; box.innerHTML = `<div style="margin-top:12px">${auto() ? `<div class="card" style="margin-bottom:10px"><b>ตั้งค่าให้อัตโนมัติ</b><p class="muted" style="margin:4px 0 8px">สร้าง key ให้ ${esc(ctool)} แล้วแก้ไฟล์ตั้งค่าในเครื่องนี้ให้เลย ไม่ต้องคัดลอกเอง</p><button type="button" class="btn blue sm" id="autoset">ตั้งค่า ${esc(ctool)} ให้เลย</button></div>` : ''}${pre([t, code])}</div>`; bindCopy();
+      box.querySelector('#autoset')?.addEventListener('click', async e => {
+        e.target.disabled = true;
+        try { const k = newKey || (await api('/keys', { method: 'POST', body: { name: ctool } })).key; const f = await window.astraDesktop.setupTool(ctool, k, cmodel); if (f) toast(`ตั้งค่า ${ctool} แล้ว (${f}) · ปิดโปรแกรมแล้วเปิดใหม่`, 'ok'); }
+        catch (x) { toast(x.message, 'bad'); } e.target.disabled = false;
+      }); };
     $('#cm')?.addEventListener('change', e => { cmodel = e.target.value; snip(); });
     app.querySelectorAll('[data-ct]').forEach(b => b.onclick = () => { ctool = b.dataset.ct; app.querySelectorAll('[data-ct]').forEach(x => x.classList.toggle('on', x === b)); snip(); });
     snip();

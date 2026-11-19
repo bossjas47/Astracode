@@ -126,3 +126,20 @@ test('mcp launch: Windows runs npx through cmd.exe (npx.cmd cannot be spawned di
     assert.deepEqual(launch({ command: 'npx', args: ['y'] }), { command: 'npx', args: ['y'] });
   } finally { Object.defineProperty(process, 'platform', { value: real }); }
 });
+
+test('setupTool: Codex config keeps other settings, replaces the astra provider and top-level model; Claude Code merges env', async () => {
+  const { setupTool, codexToml } = require('../setuptools');
+  const old = 'model = "gpt-5"\nmodel_provider = "openai"\napproval_policy = "never"\n\n[mcp_servers.chrome]\ncommand = "npx"\n\n[model_providers.astra]\nname = "AstraCode"\nenv_key = "sk-astra-WRONG"\n\n[profiles.x]\nmodel = "o3"\n';
+  const t = codexToml(old, { site: 'https://a.b', key: 'sk-astra-1', model: 'claude-sonnet' });
+  assert.match(t, /^model = "claude-sonnet"\nmodel_provider = "astra"\n/);
+  assert.ok(t.includes('approval_policy = "never"') && t.includes('[mcp_servers.chrome]') && t.includes('[profiles.x]\nmodel = "o3"'));
+  assert.ok(!t.includes('sk-astra-WRONG') && !t.includes('model = "gpt-5"'));
+  assert.equal(t.match(/\[model_providers\.astra\]/g).length, 1); assert.match(t, /experimental_bearer_token = "sk-astra-1"/); assert.match(t, /base_url = "https:\/\/a.b\/v1"/);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'st-'));
+  fs.mkdirSync(path.join(home, '.claude')); fs.writeFileSync(path.join(home, '.claude', 'settings.json'), '{"permissions":{"allow":["Bash"]},"env":{"X":"1"}}');
+  await setupTool('Claude Code', { site: 'https://a.b', key: 'k', model: 'm', home });
+  const j = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8'));
+  assert.deepEqual(j.permissions, { allow: ['Bash'] }); assert.equal(j.env.X, '1'); assert.equal(j.env.ANTHROPIC_AUTH_TOKEN, 'k');
+  assert.ok(fs.existsSync(path.join(home, '.claude', 'settings.json.bak')));
+  await setupTool('Codex', { site: 'https://a.b', key: 'k', model: 'm', home }); assert.match(fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8'), /model_provider = "astra"/);
+});

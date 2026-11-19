@@ -1,6 +1,6 @@
 {
   "name": "astracode-desktop",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "AstraCode Desktop: the AstraCode website in an app window, with access to files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "AstraCode",
@@ -39,7 +39,8 @@
       "agenttools.js",
       "build/icon.png",
       "office.js",
-      "android.js"
+      "android.js",
+      "setuptools.js"
     ],
     "win": {
       "target": "nsis",

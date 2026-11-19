@@ -8,6 +8,7 @@ const { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel } = require
 const { startMcp } = require('./mcp');
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
+const { setupTool, SETUP_TOOLS } = require('./setuptools');
 const { AGENT_TOOLS, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin } = require('./agenttools');
 
 const SITE = 'https://astracode.panderx.xyz';
@@ -267,6 +268,13 @@ h('desk:pluginInstall', async (_, src, envValues = {}) => {
   settings.plugins = { ...settings.plugins, [p.name]: p }; save(); await mcp?.close(); mcp = null; return true;
 });
 h('desk:pluginRemove', async (_, name) => { if (settings.plugins?.[name]) { delete settings.plugins[name]; save(); await mcp?.close(); mcp = null; } return true; });
+// ตั้งค่า Codex / Claude Code / OpenCode ให้ใช้ AstraCode: เขียนไฟล์ config ให้ (ยืนยันด้วยหน้าต่างของแอปก่อน · สำรองไฟล์เดิมเป็น .bak)
+h('desk:setupTool', async (_, tool, key, model) => {
+  if (!SETUP_TOOLS.includes(tool) || !/^sk-astra-[0-9a-f]+$/.test(String(key)) || !/^[\w.:-]{1,120}$/.test(String(model))) throw new Error('ข้อมูลไม่ถูกต้อง');
+  const r = await dialog.showMessageBox(web, { type: 'question', title: 'ตั้งค่า ' + tool, message: `ให้ ${tool} ใช้ AstraCode (โมเดล ${model})?`, detail: 'แอปจะแก้ไฟล์ตั้งค่าของโปรแกรมนั้นให้ และสำรองไฟล์เดิมไว้เป็น .bak · ปิดโปรแกรมแล้วเปิดใหม่หลังตั้งค่า', buttons: ['ตั้งค่าเลย', 'ยกเลิก'], defaultId: 0, cancelId: 1, noLink: true });
+  if (r.response !== 0) return null;
+  return setupTool(tool, { site: SITE, key: String(key), model: String(model) });
+});
 // Git ของโฟลเดอร์งาน: ดูสถานะ / diff / commit (ปุ่มในแชต)
 h('desk:agentGit', async (_, k, action, msg) => {
   const r = rootOf(k || 'chat'), q = s => process.platform === 'win32' ? '"' + s.replace(/"/g, '""') + '"' : "'" + s.replace(/'/g, "'\\''") + "'";
