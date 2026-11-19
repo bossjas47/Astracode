@@ -1,3 +1,6 @@
+// Windows: npx/npm เป็นไฟล์ .cmd ที่ spawn ตรงๆ ไม่ได้ (ENOENT) → เรียกผ่าน cmd.exe · ต่อแต่ละตัวไม่เกิน 3 นาที (npx -y ครั้งแรกต้องดาวน์โหลด)
+const launch = c => process.platform === 'win32' && /^(npx|npm|pnpm|yarn|bunx|node)$/i.test(c.command) ? { command: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', c.command, ...(c.args || [])] } : { command: c.command, args: c.args || [] };
+const within = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(what + ' ช้าเกินไป')), ms))]);
 // ต่อ MCP server แบบ stdio ตามค่าที่ผู้ใช้ตั้ง ({ "mcpServers": { "blender": { "command": "uvx", "args": ["blender-mcp"] } } })
 async function startMcp(cfg, log = () => {}) {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -6,7 +9,7 @@ async function startMcp(cfg, log = () => {}) {
   for (const [srv, c] of Object.entries(cfg?.mcpServers || {})) {
     try {
       const client = new Client({ name: 'astracode-desktop', version: '0.1.0' }, { capabilities: {} });
-      await client.connect(new StdioClientTransport({ command: c.command, args: c.args || [], env: { ...process.env, ...(c.env || {}) } }));
+      await within(client.connect(new StdioClientTransport({ ...launch(c), env: { ...process.env, ...(c.env || {}) } })), 180e3, 'เปิด MCP');
       clients.push(client);
       for (const t of (await client.listTools()).tools || []) {
         const name = `mcp_${srv}_${t.name}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
@@ -26,4 +29,4 @@ async function startMcp(cfg, log = () => {}) {
   const close = async () => { for (const c of clients) await c.close().catch(() => {}); };
   return { tools, call, has: n => map.has(n), close };
 }
-module.exports = { startMcp };
+module.exports = { startMcp, launch };

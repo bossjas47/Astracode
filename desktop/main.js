@@ -150,13 +150,14 @@ h('desk:grep', (_, k, q) => grepRel(rootOf(k), q));
 h('desk:edit', (_, k, p, edits) => editRel(rootOf(k), p, Array.isArray(edits) ? edits.slice(0, 20).map(x => ({ search: String(x.search ?? ''), replace: String(x.replace ?? '') })) : []));
 
 // ให้ AI ดูหน้าจอและคุมเมาส์/คีย์บอร์ด (computer use): เปิดได้ด้วยหน้าต่างยืนยันของ Windows เท่านั้น จนปิดแอป · หยุดทันที: Ctrl+Alt+Esc หรือเมนูที่ถาด
-let screenOk = false;
-h('desk:screenOn', async () => {
+let screenOk = false; // ตั้งค่าเริ่มจาก settings.screenAlways ตอนโหลด settings
+const askScreen = async () => {
   if (process.platform !== 'win32') throw new Error('คุมเมาส์/คีย์บอร์ดใช้ได้เฉพาะ Windows ตอนนี้');
-  const a = await dialog.showMessageBox(web, { type: 'warning', title: 'ให้ AI ควบคุมคอมพิวเตอร์?', message: 'AI จะเห็นหน้าจอ และคลิก/พิมพ์แทนคุณได้ จนกว่าจะปิดแอป', detail: 'ระหว่างนั้นอย่าเปิดหน้าธนาคาร รหัสผ่าน หรือข้อมูลลับไว้บนจอ\nหยุดทันที: กด Ctrl+Alt+Esc หรือคลิกขวาไอคอนที่ถาด → หยุดให้ AI คุมเมาส์/คีย์บอร์ด', buttons: ['อนุญาต', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
-  screenOk = a.response === 0; return screenOk;
-});
-h('desk:screenOff', () => { screenOk = false; return true; });
+  const a = await dialog.showMessageBox(web, { checkboxLabel: 'จำไว้ ไม่ต้องถามอีก (ปิดได้ที่ไอคอนถาด หรือ Ctrl+Alt+Esc)', checkboxChecked: true, type: 'warning', title: 'ให้ AI ควบคุมคอมพิวเตอร์?', message: 'AI จะเห็นหน้าจอ และคลิก/พิมพ์แทนคุณได้ จนกว่าจะปิดแอป', detail: 'ระหว่างนั้นอย่าเปิดหน้าธนาคาร รหัสผ่าน หรือข้อมูลลับไว้บนจอ\nหยุดทันที: กด Ctrl+Alt+Esc หรือคลิกขวาไอคอนที่ถาด → หยุดให้ AI คุมเมาส์/คีย์บอร์ด', buttons: ['อนุญาต', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
+  screenOk = a.response === 0; if (screenOk && a.checkboxChecked) { settings.screenAlways = true; save(); } return screenOk;
+};
+h('desk:screenOn', askScreen);
+h('desk:screenOff', () => { screenOk = false; settings.screenAlways = false; save(); return true; });
 h('desk:screenState', () => screenOk);
 const ps = script => new Promise((ok, no) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, timeout: 20e3 }, (e, so, se) => e ? no(new Error((se || e.message).slice(0, 300))) : ok(so)));
 const U32 = `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class U{[DllImport("user32.dll")]public static extern bool SetProcessDPIAware();[DllImport("user32.dll")]public static extern bool SetCursorPos(int x,int y);[DllImport("user32.dll")]public static extern void mouse_event(uint f,uint x,uint y,int d,UIntPtr e);}';[U]::SetProcessDPIAware()|Out-Null;`;
@@ -177,13 +178,17 @@ async function screenRun(acts) {
     for (const a of [].concat(acts).slice(0, 10)) {
       if (!screenOk) { log.push('หยุดแล้ว (ผู้ใช้กดหยุด)'); break; }
       const [k, ...r] = a, X = n => Math.round(+r[n] * s.sx), Y = n => Math.round(+r[n] * s.sy);
-      if (['CLICK', 'DOUBLE', 'RIGHT', 'SCROLL'].includes(k) && !(isFinite(r[0]) && isFinite(r[1]))) { log.push(`${k}: ต้องมีพิกัด x y`); continue; }
+      if (['CLICK', 'DOUBLE', 'RIGHT', 'SCROLL', 'MOVE', 'DRAG'].includes(k) && !(isFinite(r[0]) && isFinite(r[1]))) { log.push(`${k}: ต้องมีพิกัด x y`); continue; }
+      if (k === 'DRAG' && !(isFinite(r[2]) && isFinite(r[3]))) { log.push('DRAG: ต้องมีพิกัดปลายทาง x2 y2'); continue; }
       if (k === 'CLICK') await ps(U32 + `[U]::SetCursorPos(${X(0)},${Y(1)})|Out-Null;[U]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[U]::mouse_event(4,0,0,0,[UIntPtr]::Zero)`);
       else if (k === 'DOUBLE') await ps(U32 + `[U]::SetCursorPos(${X(0)},${Y(1)})|Out-Null;1..2|%{[U]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[U]::mouse_event(4,0,0,0,[UIntPtr]::Zero);Start-Sleep -m 60}`);
       else if (k === 'RIGHT') await ps(U32 + `[U]::SetCursorPos(${X(0)},${Y(1)})|Out-Null;[U]::mouse_event(8,0,0,0,[UIntPtr]::Zero);[U]::mouse_event(16,0,0,0,[UIntPtr]::Zero)`);
       else if (k === 'SCROLL') await ps(U32 + `[U]::SetCursorPos(${X(0)},${Y(1)})|Out-Null;[U]::mouse_event(0x800,0,0,${-Math.round((+r[2] || 3) * 120)},[UIntPtr]::Zero)`);
       else if (k === 'TYPE') await ps(`Add-Type -AssemblyName System.Windows.Forms;[System.Windows.Forms.SendKeys]::SendWait([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(sendKeys(r.join(' ')), 'utf8').toString('base64')}')))`);
       else if (k === 'KEY') await ps(`Add-Type -AssemblyName System.Windows.Forms;[System.Windows.Forms.SendKeys]::SendWait('${keyCombo(r.join('')).replace(/'/g, "''")}')`);
+      else if (k === 'MOVE') await ps(U32 + `[U]::SetCursorPos(${X(0)},${Y(1)})|Out-Null`);
+      else if (k === 'DRAG') await ps(U32 + `[U]::SetCursorPos(${X(0)},${Y(1)})|Out-Null;[U]::mouse_event(2,0,0,0,[UIntPtr]::Zero);Start-Sleep -m 120;1..10|%{[U]::SetCursorPos(${X(0)}+(${X(2)}-${X(0)})*$_/10,${Y(1)}+(${Y(3)}-${Y(1)})*$_/10)|Out-Null;Start-Sleep -m 25};[U]::mouse_event(4,0,0,0,[UIntPtr]::Zero)`);
+      else if (k === 'OPEN') { if (!r[0]) { log.push('OPEN: ต้องบอกโปรแกรม/ไฟล์/ลิงก์'); continue; } await ps(`Start-Process -FilePath '${String(r[0]).replace(/'/g, "''")}'`); await new Promise(ok => setTimeout(ok, 2500)); }
       else if (k === 'WAIT') await new Promise(ok => setTimeout(ok, Math.min(10e3, +r[0] || 1000)));
       else if (k !== 'SCREEN') { log.push('ไม่รู้จักคำสั่ง ' + k); continue; }
       log.push(`${k} ${r.join(' ')}`.trim() + ' ✓'); await new Promise(ok => setTimeout(ok, 250));
@@ -194,10 +199,11 @@ async function screenRun(acts) {
   return { image: s.image, w: s.w, h: s.h, log };
 }
 // เครื่องมือ computer ของ Agent: ใช้ได้เมื่อผู้ใช้เปิด "ให้ AI ดูหน้าจอและคุมเมาส์" (ยืนยันด้วยหน้าต่าง Windows) · พิกัด = พิกเซลของภาพหน้าจอล่าสุด
-const COMPUTER_TOOL = { type: 'function', function: { name: 'computer', description: 'See and control the whole screen of the user\'s computer (any program: Excel, Blender, browsers, games). Give a list of actions; a fresh screenshot comes back after them. Start with [{"action":"screenshot"}]. Coordinates are pixels of the latest screenshot. Never type passwords or payment details, and never send messages or buy things unless the user asked in this task.', parameters: { type: 'object', properties: { actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', enum: ['screenshot', 'click', 'double_click', 'right_click', 'type', 'key', 'scroll', 'wait'] }, x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string', description: 'for type' }, keys: { type: 'string', description: 'for key, e.g. ctrl+s, enter, alt+tab' }, amount: { type: 'number', description: 'scroll notches, negative = up' }, ms: { type: 'number' } }, required: ['action'] } } }, required: ['actions'] } } };
+const COMPUTER_TOOL = { type: 'function', function: { name: 'computer', description: 'See and control the whole screen of the user\'s computer (any program: Excel, Blender, browsers, games). Give a list of actions; a fresh screenshot comes back after them. Start with [{"action":"screenshot"}]. Coordinates are pixels of the latest screenshot. Never type passwords or payment details, and never send messages or buy things unless the user asked in this task.', parameters: { type: 'object', properties: { actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', enum: ['screenshot', 'click', 'double_click', 'right_click', 'move', 'drag', 'type', 'key', 'scroll', 'wait', 'open'] }, x: { type: 'number' }, y: { type: 'number' }, x2: { type: 'number', description: 'drag end x' }, y2: { type: 'number', description: 'drag end y' }, target: { type: 'string', description: 'for open: program name (notepad, excel, chrome), file path or URL' }, text: { type: 'string', description: 'for type' }, keys: { type: 'string', description: 'for key, e.g. ctrl+s, enter, alt+tab' }, amount: { type: 'number', description: 'scroll notches, negative = up' }, ms: { type: 'number' } }, required: ['action'] } } }, required: ['actions'] } } };
 async function computerTool(a) {
-  const map = { screenshot: 'SCREEN', click: 'CLICK', double_click: 'DOUBLE', right_click: 'RIGHT', type: 'TYPE', key: 'KEY', scroll: 'SCROLL', wait: 'WAIT' };
-  const acts = (Array.isArray(a.actions) ? a.actions : []).slice(0, 10).map(x => { const k = map[x?.action]; if (!k) return ['?']; if (k === 'TYPE') return [k, String(x.text ?? '')]; if (k === 'KEY') return [k, String(x.keys ?? '')]; if (k === 'WAIT') return [k, x.ms ?? 1000]; if (k === 'SCROLL') return [k, x.x, x.y, x.amount ?? 3]; return [k, x.x, x.y]; });
+  if (!screenOk && !await askScreen().catch(() => false)) return 'Error: ผู้ใช้ไม่อนุญาตให้ควบคุมหน้าจอ (ใช้คำสั่ง bash หรือเครื่องมืออื่นแทน)';
+  const map = { screenshot: 'SCREEN', click: 'CLICK', double_click: 'DOUBLE', right_click: 'RIGHT', move: 'MOVE', drag: 'DRAG', type: 'TYPE', key: 'KEY', scroll: 'SCROLL', wait: 'WAIT', open: 'OPEN' };
+  const acts = (Array.isArray(a.actions) ? a.actions : []).slice(0, 10).map(x => { const k = map[x?.action]; if (!k) return ['?']; if (k === 'TYPE') return [k, String(x.text ?? '')]; if (k === 'KEY') return [k, String(x.keys ?? '')]; if (k === 'WAIT') return [k, x.ms ?? 1000]; if (k === 'SCROLL') return [k, x.x, x.y, x.amount ?? 3]; if (k === 'DRAG') return [k, x.x, x.y, x.x2, x.y2]; if (k === 'OPEN') return [k, String(x.target ?? '')]; return [k, x.x, x.y]; });
   const r = await screenRun(acts.length ? acts : [['SCREEN']]);
   return { text: `หน้าจอ ${r.w}x${r.h} พิกเซล (ภาพล่าสุดแนบด้านล่าง)\n${r.log.join('\n')}`, images: [r.image] };
 }
@@ -208,7 +214,19 @@ const mcpLog = [];
 // MCP ที่ใช้จริง = ที่ผู้ใช้ตั้งเอง + ของปลั๊กอินที่ติดตั้ง (ชื่อ server นำหน้าด้วยชื่อปลั๊กอิน)
 const mcpConfig = () => { let own = {}; try { own = JSON.parse(settings.mcp || '{}').mcpServers || {}; } catch { /* ค่าเสีย */ } const all = { ...own }; for (const p of Object.values(settings.plugins || {})) for (const [n, c] of Object.entries(p.mcpServers || {})) all[`${p.name}-${n}`] = { ...c, env: { ...(c.env || {}), ...(p.envValues || {}) } }; return { mcpServers: all }; };
 const hasMcp = () => Object.keys(mcpConfig().mcpServers).length > 0;
-const mcpUp = async () => mcp ||= await startMcp(mcpConfig(), m => { mcpLog.push(m); mcpLog.splice(0, mcpLog.length - 20); });
+const mcpUp = async () => { if (!mcp) await ensureNode(); return mcp ||= await startMcp(mcpConfig(), m => { mcpLog.push(m); mcpLog.splice(0, mcpLog.length - 20); }); };
+// ปลั๊กอินส่วนใหญ่รันด้วย npx: เครื่องที่ยังไม่มี Node.js → เสนอติดตั้งให้ (winget บน Windows) แล้วเติม PATH ให้โปรเซสนี้ใช้ได้ทันที
+let nodeAsked = false;
+async function ensureNode() {
+  const needs = Object.values(mcpConfig().mcpServers).some(c => /^(npx|npm|node)$/i.test(c.command)); if (!needs || nodeAsked) return;
+  const has = await runCmd(app.getPath('home'), 'node -v', { timeout: 15e3 }).then(x => x.code === 0).catch(() => false); if (has) return;
+  nodeAsked = true; if (process.platform !== 'win32') { mcpLog.push('ปลั๊กอินต้องใช้ Node.js: ติดตั้งจาก nodejs.org'); return; }
+  const r = await dialog.showMessageBox(web, { type: 'question', title: 'ปลั๊กอินต้องใช้ Node.js', message: 'ติดตั้ง Node.js ให้อัตโนมัติไหม? (ใช้ winget ของ Windows ประมาณ 1-2 นาที)', buttons: ['ติดตั้งเลย', 'ไม่ตอนนี้'], defaultId: 0, cancelId: 1, noLink: true });
+  if (r.response !== 0) return;
+  const x = await runCmd(app.getPath('home'), 'winget install -e --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements', { timeout: 600e3 });
+  process.env.PATH = `${process.env.PATH};${process.env.ProgramFiles || 'C:\\Program Files'}\\nodejs;${process.env.APPDATA || ''}\\npm`;
+  mcpLog.push(x.code === 0 ? 'ติดตั้ง Node.js แล้ว' : 'ติดตั้ง Node.js ไม่สำเร็จ: ' + String(x.stderr || x.stdout).slice(0, 200));
+}
 h('desk:mcpGet', () => ({ config: settings.mcp || '', log: mcpLog }));
 h('desk:mcpSet', async (_, text) => {
   const cfg = JSON.parse(text || '{}'), list = Object.entries(cfg.mcpServers || {}).map(([n, c]) => `• ${n}: ${c.command} ${(c.args || []).join(' ')}`).join('\n');
@@ -344,7 +362,7 @@ async function runTask(o = {}, sender) {
   const ac = a.ac = new AbortController(); a.ws.signal = ac.signal;
   if (o.remote && !a.remote) a.remote = await remoteStart(a, o.chatId).catch(x => { tell({ type: 'info', text: 'สั่งจากมือถือ: ' + x.message }); return null; });
   const rtools = await remoteTools().catch(() => []);
-  let tools = mode === 'plan' ? [...AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)), OFFICE_TOOLS[1], ASK_TOOL] : [...AGENT_TOOLS, ...OFFICE_TOOLS, ASK_TOOL, ...rtools, ...(screenOk && process.platform === 'win32' ? [COMPUTER_TOOL] : [])];
+  let tools = mode === 'plan' ? [...AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)), OFFICE_TOOLS[1], ASK_TOOL] : [...AGENT_TOOLS, ...OFFICE_TOOLS, ASK_TOOL, ...rtools, ...(process.platform === 'win32' && settings.screenNever !== true ? [COMPUTER_TOOL] : [])];
   if (hasMcp() && mode !== 'plan') { try { await mcpUp(); tools = [...tools, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
   a.asks = new Map(); a.outputs = new Set();
   const callTool = async (name, args) => {
@@ -449,7 +467,7 @@ else {
   app.on('second-instance', (_, argv) => { const p = deepPath(argv); if (p && web) web.loadURL(SITE + p); show(); });
   app.on('open-url', (e, u) => { e.preventDefault(); const p = deepPath([u]); if (web && p) { web.loadURL(SITE + p); show(); } else settings.openPath = p; }); // macOS
   app.whenReady().then(() => {
-    settings = { ...load(), openPath: deepPath(process.argv) };
+    settings = { ...load(), openPath: deepPath(process.argv) }; screenOk = process.platform === 'win32' && settings.screenAlways === true; // เคยกด "จำไว้" แล้ว: ไม่ต้องขอสิทธิ์คุมจอซ้ำทุกครั้งที่เปิดแอป
     appMenu(); makeTray(); openWeb(); if (process.argv.includes('--hidden') && tray) web.hide(); autoUpdate();
     globalShortcut.register('CommandOrControl+Alt+Escape', () => { if (screenOk) { screenOk = false; new Notification({ title: 'AstraCode', body: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ดแล้ว' }).show(); } }); // ปุ่มฉุกเฉิน
   });

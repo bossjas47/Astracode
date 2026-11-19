@@ -229,6 +229,8 @@ if (typeof MutationObserver !== 'undefined') new MutationObserver(() => { clearT
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
 // แอป AstraCode Desktop รุ่นเก่า (0.2.x): ปุ่มเปิดหน้าต่าง "ทำงานในเครื่อง" (ครั้งแรกสร้าง API key ชื่อ Desktop) · รุ่นใหม่ (มี .fs) ทำงานในเครื่องจากแชต/Code ได้เลย จึงไม่ต้องมีปุ่มนี้
+const osName = () => /Mac/i.test(navigator.platform) ? 'mac' : /Linux/i.test(navigator.platform) && !/Android/i.test(navigator.userAgent) ? 'linux' : 'win';
+const dlLink = (cls = '') => window.astraDesktop ? '' : `<a class="${cls}" href="/#download">${ic('download')}<span>ดาวน์โหลดแอปคอม</span></a>`;
 const deskLink = (cls = '') => window.astraDesktop && !window.astraDesktop.fs && me ? `<a class="${cls}" href="#" data-desk>${ic('code')}<span>💻 ทำงานในเครื่อง</span></a>` : '';
 document.addEventListener('click', async e => {
   const b = e.target.closest?.('[data-desk]'); if (!b || !window.astraDesktop) return; e.preventDefault();
@@ -263,8 +265,8 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-la
 const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
 const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${deskLink('l')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<a class="l" href="/blog?c=1" id="clnav">${ic('sparkles')}<span>มีอะไรใหม่</span></a>${navL('/support', 'ติดต่อเรา / แจ้งปัญหา', 'mail').replace('class="l', 'class="l contact-l')}${['admin', 'support', 'viewer'].includes(me.role) ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
-       : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
+  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${deskLink('l')}${dlLink('l')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<a class="l" href="/blog?c=1" id="clnav">${ic('sparkles')}<span>มีอะไรใหม่</span></a>${navL('/support', 'ติดต่อเรา / แจ้งปัญหา', 'mail').replace('class="l', 'class="l contact-l')}${['admin', 'support', 'viewer'].includes(me.role) ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
+       : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${window.astraDesktop ? '' : navL('/#download', 'ดาวน์โหลด', 'download')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
   if (e.target.closest?.('.nav-lim') && me) return limitSheet();
@@ -321,6 +323,23 @@ function bindInstall() {
   b.onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; b.remove(); };
 }
 
+// ส่วนดาวน์โหลดแอปคอม: ปุ่มหลักตามระบบของผู้เข้าชม + ตัวอย่าง Agent คุมเครื่อง
+function dlBand() {
+  if (window.astraDesktop) return '';
+  const os = osName(), P = { win: ['Windows', '/download/desktop', 'Windows 10 / 11 · ไฟล์ .exe'], mac: ['Mac', '/download/desktop?os=mac', 'macOS (Apple Silicon / Intel)'], linux: ['Linux', '/download/desktop?os=linux', 'AppImage'] };
+  const main = P[os], others = Object.entries(P).filter(([k]) => k !== os);
+  const feats = [['terminal', 'Agent ทำงานจนเสร็จ', 'แก้ไฟล์ รันคำสั่ง ทดสอบ แก้ซ้ำเองจนผ่าน เหมือน Claude Code'], ['cpu', 'คุมเมาส์ คีย์บอร์ด หน้าจอ', 'เปิดโปรแกรม คลิก พิมพ์ ใน Excel, Blender, เบราว์เซอร์ หยุดได้ทันทีด้วย Ctrl+Alt+Esc'], ['filetext', 'ทำไฟล์ Office ให้เลย', 'สร้าง Word, Excel, PowerPoint, PDF จากไฟล์ในโฟลเดอร์'], ['layers', 'ปลั๊กอิน MCP คลิกเดียว', 'คุมเบราว์เซอร์, GitHub, Google, ความจำถาวร ติดตั้ง Node.js ให้เอง'], ['smartphone', 'สั่งจากมือถือได้', 'คอมทำงาน มือถือดูความคืบหน้าและกดอนุญาต'], ['bell', 'งานตั้งเวลา', 'เช่น สรุปยอดขายทุกเช้า 07:30 เป็น Excel']];
+  return `<div class="band dlband" id="download"><h2>แอป AstraCode บนคอม</h2><p class="muted" style="text-align:center;margin:-8px auto 22px;max-width:620px">บัญชีเดียวกับเว็บ ลิมิตเดียวกัน แต่ AI ทำงานกับไฟล์และโปรแกรมในเครื่องคุณได้จริง</p>
+    <div class="dl-grid"><div class="dl-main">
+      <a class="btn blue dl-btn" href="${main[1]}">${ic('download')} ดาวน์โหลดสำหรับ ${main[0]}</a><div class="muted" style="font-size:13px;margin:6px 0 14px">${main[2]} · ฟรี · อัปเดตเอง</div>
+      <div class="dl-others">${others.map(([, p]) => `<a href="${p[1]}">${p[0]}</a>`).join('')}<a href="/download/cli" title="ใช้ใน VS Code / Terminal">CLI (เทอร์มินัล)</a></div>
+      <ul class="dl-feat">${feats.map(([i, t, d]) => `<li>${ic(i, 'sm')}<div><b>${t}</b><span class="muted">${d}</span></div></li>`).join('')}</ul></div>
+      <div class="showcase dl-shot" aria-hidden="true" inert><div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">${ic('folder', 'sm')} C:\\งานบัญชี</span><span class="sc-pill">Agent · ทำเองทั้งหมด</span></div>
+        <div class="sc-chat"><div class="sc-u">รวมใบเสร็จ PDF ทั้งโฟลเดอร์ ทำ Excel แล้วส่งสรุปเข้า Gmail</div>
+          <div class="sc-a"><div class="dl-step"><b>✓</b> read_document <code>ใบเสร็จ/*.pdf</code> <small>32 ไฟล์</small></div><div class="dl-step"><b>✓</b> bash <code>python รวมยอด.py</code></div><div class="dl-step"><b>✓</b> make_document <code>สรุปใบเสร็จ-พ.ย.xlsx</code></div><div class="dl-step"><b>✓</b> computer <code>open excel · ตรวจสูตร</code></div><div class="dl-step"><b>✓</b> gmail_draft <code>ถึง บัญชี@บริษัท</code></div>
+          <p style="margin:10px 0 0">เสร็จแล้ว รวม <b>฿184,250</b> จาก 32 ใบ · VAT ถูกต้องทุกใบ · ร่างอีเมลรอให้กดส่ง</p></div></div></div>
+    </div></div>`;
+}
 // ---------- หน้าแรก ----------
 async function landing() {
   const [plans, posts, pr, gal] = await Promise.all([api('/plans').catch(() => []), api('/blog').catch(() => []), api('/pricing').catch(() => ({ models: [] })), api('/gallery').catch(() => [])]);
@@ -329,9 +348,9 @@ async function landing() {
   const vs = pr.models.filter(m => m.official?.in > 0 && m.official?.out > 0 && m.out > 0).map(m => ({ m, pct: Math.round((1 - m.out / (m.official.out * usdRate())) * 100) })).filter(x => x.pct > 0).slice(0, 6);
   const vsRow = ({ m, pct }) => `<tr><td><b>${esc(m.name)}</b><div><span class="pill sale">ถูกกว่า <b>${pct}%</b></span></div></td><td class="vsp"><div>Input ${curSign()}${money(toCur(m.in))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.in * usdRate()))}</small></div><div>Output ${curSign()}${money(toCur(m.out))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.out * usdRate()))}</small></div></td></tr>`;
   page(nav() + `<section class="hero"><div class="name">AstraCode</div>
-    <h1>AI ทุกตัว<br>ในมือถือเครื่องเดียว</h1>
-    <p>Claude, ChatGPT, Gemini และ DeepSeek ในเว็บเดียว เปิดบนมือถือได้ทันที ไม่ต้องลงแอป${cheapest ? ` · เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''}</p>
-    <div class="row" style="justify-content:center">${me ? `<a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>` : `<a class="btn blue" href="/login">Get started free</a><a class="btn out" href="#plans">View plans</a>`}</div>
+    <h1>AI ทุกตัว<br>ที่ทำงานแทนคุณได้จริง</h1>
+    <p>Claude, ChatGPT, Gemini และ DeepSeek ในที่เดียว ใช้ได้ทั้งมือถือ เว็บ และแอปบนคอมที่ให้ Agent คุมเครื่องทำงานจนเสร็จ${cheapest ? ` · เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''}</p>
+    <div class="row" style="justify-content:center">${me ? `<a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>` : `<a class="btn blue" href="/login">Get started free</a><a class="btn out" href="#plans">View plans</a>`}${window.astraDesktop ? '' : `<a class="btn out" href="#download" data-dlgo>${ic('download', 'sm')} ดาวน์โหลดแอปคอม</a>`}</div>
     <a class="statusb" href="/status" id="stb" hidden></a>
     <div class="showcase" aria-hidden="true" inert>
       <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="ring" style="--p:24"></i>24%</span></div>
@@ -344,6 +363,7 @@ async function landing() {
     </div></section>
     <div class="wrap">
     <div class="band" id="plans"><h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}</div>
+    ${dlBand()}
     ${vs.length ? `<div class="band" id="vs"><h2>ถูกกว่าซื้อ API ทางการ</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">ราคาต่อ 1M token เทียบกับราคาทางการของเจ้าของโมเดล (คิดที่ $1 = ฿<b>${usdRate()}</b>)</p><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ราคาต่อ 1M token</th></tr>${vs.map(vsRow).join('')}</table></div><p style="text-align:center;margin-top:12px"><a href="/pricing">ดูราคาทุกโมเดล ›</a></p></div>` : ''}
     <div class="band facts"><h2>ทำไมต้อง AstraCode</h2><div class="grid">
       <div class="tile"><div class="stat">Web</div><div class="muted">เปิดในเบราว์เซอร์ได้ทันที ไม่ต้องติดตั้ง เพิ่มลงหน้าจอหลักได้</div></div>
@@ -378,6 +398,8 @@ async function landing() {
     const b = $('#stb'); if (!b || !d?.models?.length) return; const bad = d.models.filter(m => m.state !== 'ok').length;
     b.className = 'statusb ' + (bad ? 'warn' : 'ok'); b.innerHTML = bad ? `● โมเดลมีปัญหา <b>${bad}</b> ตัว · ดูสถานะ` : '● ทุกโมเดลทำงานปกติ'; b.hidden = false;
   }).catch(() => {});
+  app.querySelectorAll('[data-dlgo]').forEach(a => a.onclick = e => { e.preventDefault(); $('#download')?.scrollIntoView({ behavior: 'smooth' }); });
+  if (location.hash === '#download') setTimeout(() => $('#download')?.scrollIntoView(), 300);
   const plBtn = $('a[href="#plans"]'); if (plBtn) plBtn.onclick = e => { e.preventDefault(); $('#plans')?.scrollIntoView({ behavior: 'smooth' }); };
   // สลับสกุลเงิน: วาดใหม่เฉพาะส่วนแพลนกับตารางเทียบ ไม่โหลดทั้งหน้า (กันหน้าสะดุด/ภาพแตกบนมือถือ)
   const bindCur = () => app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => {
@@ -563,7 +585,7 @@ function terms() {
     <p class="muted" style="text-align:center;padding-bottom:48px">มีคำถามเกี่ยวกับเงื่อนไขนี้ ติดต่อแอดมิน</p></div>`);
 }
 const footer = () => `<footer class="foot"><div><b>AstraCode</b><span class="muted">AI ทุกตัวในมือถือเครื่องเดียว</span></div>
-  <div><a href="/pricing">ราคาต่อ token</a><a href="/developers">API สำหรับนักพัฒนา</a><a href="/blog">บล็อก</a></div>
+  <div><a href="/#download">ดาวน์โหลดแอป Windows / Mac</a><a href="/pricing">ราคาต่อ token</a><a href="/developers">API สำหรับนักพัฒนา</a><a href="/blog">บล็อก</a></div>
   <div><a href="/status">สถานะระบบ</a><a href="/support">Contact us</a><a href="/terms">เงื่อนไขและความเป็นส่วนตัว</a></div>
   <p class="muted">© ${new Date().getFullYear()} AstraCode</p></footer>`;
 

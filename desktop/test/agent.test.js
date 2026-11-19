@@ -115,3 +115,14 @@ test('office: Word/Excel/PowerPoint are created from JSON and read back; Thai te
   await assert.rejects(makeDocument(path.join(d, 'x.pdf'), { blocks: [] }), /เฉพาะในแอป/);
   assert.match(blocksHtml('หัวเรื่อง', [{ type: 'bullets', items: ['<script>'] }]), /<h1>หัวเรื่อง<\/h1><ul><li>&lt;script&gt;<\/li><\/ul>/);
 });
+
+test('mcp launch: Windows runs npx through cmd.exe (npx.cmd cannot be spawned directly), other commands untouched', () => {
+  const { launch } = require('../mcp'), real = process.platform;
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const l = launch({ command: 'npx', args: ['-y', 'x'] }); assert.match(l.command, /cmd/i); assert.deepEqual(l.args.slice(-3), ['npx', '-y', 'x']);
+    assert.deepEqual(launch({ command: 'uvx', args: ['blender-mcp'] }), { command: 'uvx', args: ['blender-mcp'] });
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    assert.deepEqual(launch({ command: 'npx', args: ['y'] }), { command: 'npx', args: ['y'] });
+  } finally { Object.defineProperty(process, 'platform', { value: real }); }
+});

@@ -73,7 +73,7 @@ async function chatView(id) {
       <div class="side-search" id="sbox" hidden><input id="search" placeholder="Search chats…" aria-label="Search chats"></div>
       <nav class="side-nav">
         <a href="/support" class="contact-l">${ic('mail')}<span>ติดต่อเรา / แจ้งปัญหา</span></a>
-        <a href="/code">${ic('code')}<span>Code</span></a>${deskLink()}
+        <a href="/code">${ic('code')}<span>Code</span></a>${deskLink()}${dlLink()}
         <a href="/plans">${ic('layers')}<span>Plans · ${esc(me.plan.name)}</span></a>
         <a href="/plans?topup=1">${ic('wallet')}<span>เติมเงิน · ฿${baht(me.balance)}</span></a>
         <a href="/pricing">${ic('tag')}<span>Pricing</span></a>
