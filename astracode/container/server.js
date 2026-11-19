@@ -23,7 +23,8 @@ async function start(o) {
   }
   const ac = new AbortController(), events = []; job = { status: 'running', events, before, ac, final: '', error: null };
   let text = ''; // รวมตัวหนังสือที่สตรีมมาเป็นก้อนเดียว ไม่ให้เหตุการณ์บวม
-  const onEvent = e => { if (e.type === 'delta') { text += e.text; return; } if (e.type === 'text_end' && text) { events.push({ type: 'text', text: text.slice(0, 4000), t: Date.now() }); job.final = text; text = ''; return; } if (['tool', 'tool_result', 'todos', 'usage', 'info'].includes(e.type)) events.push({ ...e, preview: e.preview?.slice(0, 1500), t: Date.now() }); };
+  let th = ''; const flushTh = () => { if (th) { events.push({ type: 'think', text: th.slice(0, 6000), t: Date.now() }); th = ''; } };
+  const onEvent = e => { if (e.type === 'think') { th += e.text; return; } flushTh(); if (e.type === 'delta') { text += e.text; return; } if (e.type === 'text_end' && text) { events.push({ type: 'text', text: text.slice(0, 4000), t: Date.now() }); job.final = text; text = ''; return; } if (['tool', 'tool_result', 'todos', 'usage', 'info'].includes(e.type)) events.push({ ...e, preview: e.preview?.slice(0, 1500), t: Date.now() }); };
   const ws = new Workspace(ROOT, { ask: async () => true, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
     search: async q => { const r = await fetch(o.site + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key }, body: JSON.stringify({ query: q }) }); return (await r.json()).results || []; } });
   ws.signal = ac.signal;

@@ -687,6 +687,7 @@ function cUI() {
   $('#bmdl').innerHTML = $('#cmdl').innerHTML; $('#beff').innerHTML = $('#ceff').innerHTML; $('#beff').hidden = !efs.length; // แถบสั่งเร็วใช้ค่าเดียวกับกล่อง AI
   $('#cflags').innerHTML = ''
     + (IDE.bgJob ? `<button type="button" class="flag agent-on" data-flag="bgagent" title="Agent กำลังทำงานบนเซิร์ฟเวอร์ · แตะเพื่อดู">${ic('server', 'sm')}${IDE.bgJob.role === 'lead' ? `ทีม Agent · ${AG_LABEL[IDE.bgJob.status]} · เสร็จ ${(IDE.bgJob.team || []).filter(k => k.role === 'worker' && !['waiting', 'queued', 'running', 'stopping'].includes(k.status)).length}/${(IDE.bgJob.team || []).filter(k => k.role === 'worker').length}` : `Agent ทำงานอยู่ · รอบ ${IDE.bgJob.rounds}/20`}</button>` : '')
+    + (IDE.cloud ? `<button type="button" class="flag agent-on" data-flag="cloud" title="ข้อความที่ส่งจะไปให้ Agent บนคลาวด์ทำ · แตะเพื่อปิด">${ic('terminal', 'sm')}Agent บนคลาวด์${ic('x', 'sm')}</button>` : '')
     + (IDE.agent ? `<button type="button" class="flag agent-on" data-flag="agent" title="โหมด Agent เปิดอยู่: ทำงานต่อเนื่องได้ถึง 20 รอบ · แตะเพื่อปิด">${ic('sparkles', 'sm')}Agent ON</button>` : '')
     + (IDE.skills.length && _skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
     + (IDE.mcps.length && _mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
@@ -806,6 +807,46 @@ async function bgAgentSheet() {
 // Agent บนคลาวด์: สั่งงาน → เครื่องเสมือนทำเอง (แก้ไฟล์ + รันคำสั่ง) → ดูความคืบหน้าสด → เสร็จแล้วโหลดไฟล์ใหม่
 const CL_LABEL = { running: 'กำลังทำ', done: 'เสร็จ', failed: 'ไม่สำเร็จ' };
 const clLine = e => e.type === 'tool' ? `⚙ ${esc(e.name)} ${esc(e.args?.command || e.args?.path || e.args?.pattern || e.args?.url || '')}` : e.type === 'tool_result' ? `<span class="${e.ok ? 'muted' : 'bad'}">  ${esc(String(e.preview || '').split('\n').slice(0, 3).join(' ⏎ ').slice(0, 240))}</span>` : e.type === 'text' ? esc(e.text) : e.type === 'info' ? `<span class="muted">${esc(e.text)}</span>` : '';
+// ข้อความของงานคลาวด์ในแชต: Thinking + ขั้นตอน (เปิดดูผลคำสั่งได้) + คำตอบ + ไฟล์ที่เปลี่ยน · สร้างใหม่จาก events ทุกครั้งที่ดึง
+function cloudApply(m, j) {
+  const steps = new Map(); let th = '', txt = [], todos = null;
+  for (const e of j.events || []) {
+    if (e.type === 'think') th += e.text;
+    else if (e.type === 'text') txt.push(e.text);
+    else if (e.type === 'todos') todos = e.todos;
+    else if (e.type === 'tool') steps.set(e.id, { name: e.name, args: e.args || {}, st: 'run' });
+    else if (e.type === 'tool_result' && steps.has(e.id)) Object.assign(steps.get(e.id), { st: e.ok ? 'ok' : 'bad', out: e.preview });
+    else if (e.type === 'info') steps.set('i' + steps.size, { name: 'info', text: e.text });
+  }
+  Object.assign(m, { thinking: th, content: txt.join('\n\n') || j.final || '', steps: [...steps.values()], todos, status: j.status, error: j.error, changed: j.changed || [], streaming: j.status === 'running', model: j.model || m.model });
+}
+function cloudMsgHTML(m) {
+  const arg = a => a.command || a.path || a.pattern || a.url || a.query || '';
+  const st = s => s.st === 'run' ? '<span class="agsp" aria-label="กำลังทำ"></span>' : s.st === 'bad' ? '<b class="bad">✕</b>' : '<b class="ok">✓</b>';
+  const steps = (m.steps || []).map(s => s.name === 'info' ? `<div class="agstep muted">${esc(s.text)}</div>` : `<details class="agstep"><summary>${st(s)} <b>${esc(s.name)}</b> <code>${esc(String(arg(s.args)).slice(0, 140))}</code></summary>${s.out ? `<pre>${esc(s.out)}</pre>` : ''}</details>`).join('');
+  const todos = m.todos?.length ? `<div class="agtodo">${m.todos.map(t => `<div class="${t.status}">${t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '▶' : '☐'} ${esc(t.content)}</div>`).join('')}</div>` : '';
+  const n = (m.steps || []).filter(s => s.name !== 'info').length;
+  return `<div class="msg ai">${thinkHTML(m)}<div class="agent">${todos}${steps ? `<details class="agsteps" ${m.streaming ? 'open' : ''}><summary>${ic('terminal', 'sm')} Agent บนคลาวด์ ${n} ขั้นตอน</summary>${steps}</details>` : m.streaming ? `<div class="agstep muted"><span class="agsp"></span> กำลังเปิดเครื่องบนคลาวด์ (ครั้งแรก ~20 วินาที)…</div>` : ''}</div>
+    <div class="b">${m.content ? md(m.content) : ''}</div>${m.error ? `<p class="bad" style="margin:6px 0">${esc(m.error)}</p>` : ''}
+    ${m.streaming ? '' : `<div class="acts"><span class="muted">${esc(m.model || '')} · คลาวด์${m.changed?.length ? ` · แก้ ${m.changed.length} ไฟล์: ${m.changed.slice(0, 6).map(esc).join(', ')} (ย้อนได้ที่ ประวัติโปรเจกต์)` : ''}</span></div>`}</div>`;
+}
+async function cloudSend(job) {
+  const t = $('#ct'), text = job ? job.prompt : t.value.trim(); if (!text) return;
+  const ai = { role: 'assistant', cloud: true, content: '', streaming: true, steps: [] };
+  try {
+    if (!job) { await saveNow(); job = await api('/cloud-agent', { method: 'POST', body: { project_id: IDE.pid, prompt: text, model_id: +$('#cmodel')?.value || 0, effort: $('#ceffort')?.value || null } }); t.value = ''; }
+  } catch (x) { return toast(x.message, 'bad'); }
+  IDE.msgs.push({ role: 'user', content: text }, ai); IDE.busy = true; IDE.cloudJob = job.id; $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop'); drawAI();
+  let fails = 0;
+  for (;;) {
+    const j = await api('/cloud-agent/' + job.id).catch(() => null);
+    if (j) { fails = 0; cloudApply(ai, j); const b = $('#cmsgs'), stick = b && nearBottom(b), last = b?.lastElementChild; if (last && IDE.msgs.at(-1) === ai) { last.outerHTML = cloudMsgHTML(ai); renderRich(b); if (stick) b.scrollTop = b.scrollHeight; } if (j.status !== 'running') break; }
+    else if (++fails > 20) { ai.streaming = false; ai.error = 'ติดต่อเซิร์ฟเวอร์ไม่ได้ · งานยังทำต่อบนคลาวด์ ดูได้ที่ ประวัติงานบนคลาวด์'; break; }
+    await new Promise(ok => setTimeout(ok, 2500));
+  }
+  IDE.busy = false; IDE.cloudJob = null; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
+  if (ai.changed?.length && !IDE.busy) reloadFiles().catch(() => {});
+}
 function cloudSheet() {
   let timer = 0, view = 0, was = '';
   const draw = async d => {
@@ -887,7 +928,8 @@ function codeTools() {
   sheet('เครื่องมือ AI', optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
     + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
     + optHTML('bgagent', ic('server') + 'Agent / ทีม Agent บนเซิร์ฟเวอร์' + newPill('team'), me.plan.paid ? 'สั่งแล้วปิดแอปได้ Agent แก้ไฟล์และสร้างรูปให้เองสูงสุด 20 รอบ เสร็จแล้วส่งอีเมล · ไม่รันโค้ด ตรวจผลเองตอนจบ' : 'ใช้ได้กับแพลนที่ชำระเงิน')
-    + optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้)', 'เครื่องเสมือนแยกต่องาน: Agent แก้ไฟล์ รัน npm/python/git ทดสอบเอง ปิดแอปได้ เสร็จแล้วไฟล์เข้าโปรเจกต์ · Pro ขึ้นไป / แพ็ก Agent / Wallet')
+    + optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้): ' + (IDE.cloud ? 'เปิด' : 'ปิด'), 'เปิดแล้วพิมพ์สั่งในแชตได้เลย: Agent แก้ไฟล์ รัน npm/python/git ทดสอบเองในเครื่องแยก ปิดแอปได้ · Pro ขึ้นไป / แพ็ก Agent / Wallet', IDE.cloud)
+    + optHTML('cloudlog', ic('undo') + 'ประวัติงานบนคลาวด์', 'ดูงานเก่า / log เต็ม')
     + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว)', me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง ปิดจอได้ กลับมาดูผล · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
@@ -908,7 +950,8 @@ function codeTools() {
       if (v === 'vercel') return vercelSheet();
       if (v === 'autotest') { const on = localStorage.getItem('autoTest') === '0'; localStorage.setItem('autoTest', on ? '1' : '0'); toast('รันเทสต์อัตโนมัติ: ' + (on ? 'เปิด' : 'ปิด')); }
       if (v === 'bgagent') { seen('team'); return bgAgentSheet(); }
-      if (v === 'cloud') return cloudSheet();
+      if (v === 'cloud') { IDE.cloud = !IDE.cloud; localStorage.setItem('ccloud', IDE.cloud ? '1' : '0'); cUI(); return toast(IDE.cloud ? 'Agent บนคลาวด์: พิมพ์งานในแชตแล้วส่งได้เลย' : 'ปิด Agent บนคลาวด์', 'ok'); }
+      if (v === 'cloudlog') return cloudSheet();
       if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); IDE.agent = !IDE.agent; localStorage.setItem('agent', IDE.agent ? '1' : '0'); cUI(); toast(IDE.agent ? 'เปิดโหมด Agent: งานยาวได้ถึง 20 รอบ' : 'ปิดโหมด Agent', 'ok'); if (IDE.agent && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); }
       if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
       if (v === 'mcp') mcpSheet(IDE.mcps, ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); cUI(); });
@@ -1157,6 +1200,7 @@ function stepsBar(m, i) {
 const runCard = (m, i) => { const r = runsOf(m.content); return r.length ? `<div class="changes runs"><span class="muted">AI ขอรันคำสั่ง</span>${r.map(c => `<code>${esc(c)}</code>`).join('')}${m.ran ? '<span class="muted">รันแล้ว ✓</span>' : `<button class="btn blue sm" data-runai="${i}">${ic('terminal', 'sm')} รันแล้วส่งผลให้ AI</button>`}</div>` : ''; };
 const ktok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 function aiMsgHTML(m, i) {
+  if (m.cloud) return cloudMsgHTML(m);
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
     return `<div class="msg user ${m.auto ? 'auto' : ''}"><div class="b">${m.imgs ? `<div class="mimgs shot">${m.imgs.map(d => `<img src="${d}" alt="ภาพหน้าจอผลลัพธ์">`).join('')}</div>` : ''}${esc(m.content.replace(FILE_RE, '').replace(TREE_RE, '').replace(CHECK_RE, '').replace(/\n\n\[แนบรูป \d+ รูป\]/, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${icon(f[1])} <span>${esc(f[1])}</span></span>`).join('')}</div>` : ''}</div></div>`;
@@ -1180,6 +1224,8 @@ function codeStop() {
   IDE.ctrl?.abort();
 }
 async function codeSend(auto) {
+  if (IDE.busy && IDE.cloudJob) return api(`/cloud-agent/${IDE.cloudJob}/stop`, { method: 'POST' }).then(() => toast('สั่งหยุดแล้ว ไฟล์ที่ทำถึงตรงนั้นจะเข้าโปรเจกต์')).catch(() => {});
+  if (IDE.cloud && !auto && !IDE.busy) return cloudSend();
   if (IDE.busy) return codeStop(); // กดหยุด = หยุดโหมดอัตโนมัติและหยุดฝั่งเซิร์ฟเวอร์ด้วย
   const resume = !!auto?.resume;
   if (resume && IDE.msgs.at(-1)?.role !== 'user') return;
@@ -1474,9 +1520,11 @@ async function codeView(id) {
 
   $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); ctxMeter(); };
   $('#cctx').onclick = () => ctxSheet({ chatId: IDE.chatId, projectId: IDE.pid, modelId: +$('#cmodel')?.value || null, skills: IDE.skills, onCompact: ctxMeter, onPickModel: id => { $('#cmodel').value = id; $('#cmodel').onchange({ target: $('#cmodel') }); } });
+  IDE.cloud = localStorage.getItem('ccloud') === '1';
+  if (!window.DEMO) api('/cloud-agent?project=' + IDE.pid).then(l => { const j = l.find(x => x.status === 'running'); if (j && !IDE.busy) { IDE.cloud = true; cUI(); cloudSend(j); } }).catch(() => {});
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
   $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools; $('#cup').onclick = () => $('#uplf').click();
-  $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'bgagent') { bgAgentSheet(); return; } if (f === 'agent') { IDE.agent = false; localStorage.setItem('agent', '0'); toast('ปิดโหมด Agent', 'ok'); cUI(); return; } if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
+  $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'cloud') { IDE.cloud = false; localStorage.setItem('ccloud', '0'); cUI(); return; } if (f === 'bgagent') { bgAgentSheet(); return; } if (f === 'agent') { IDE.agent = false; localStorage.setItem('agent', '0'); toast('ปิดโหมด Agent', 'ok'); cUI(); return; } if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
     else if (f === 'mc') { IDE.mcps = IDE.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('cmcps', JSON.stringify(IDE.mcps)); cUI(); } else if (f) { setOpt(f, false); cUI(); } };
   $('#clim').innerHTML = limHTML(me.usage); lowWarn(me.usage); agWatch().catch(() => {}); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();
   document.querySelectorAll('[data-pane-btn]').forEach(b => b.onclick = () => { if (b.dataset.paneBtn === 'files') return drawer(true); if (b.dataset.paneBtn === 'run') showRun(true); if (b.dataset.paneBtn === 'ai') return openAI(!(aiMode() !== 'page' && isPhone() && $('.ide').dataset.ai)); setPane(b.dataset.paneBtn); });
