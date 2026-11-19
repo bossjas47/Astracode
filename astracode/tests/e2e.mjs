@@ -162,7 +162,7 @@ const FLOWS = [
     return [!errs.length || errs.join(' | '), /Agent บนคอม/.test(panel) && /edit_file/.test(panel) && /ขอรันคำสั่ง/.test(panel) || 'panel missing: ' + panel, /"v":"yes"/.test(ans?.body || '') || 'answer not sent', /ใช้ yarn/.test(say?.body || '') || 'message not sent'];
   }],
   ['desktop app: plugin catalog installs a plugin through the app; the first agent toggle shows the guide', async () => {
-    const init = () => { try { localStorage.setItem('pc', '1'); } catch { return; } const log = window.__desk = [];
+    const init = () => { try { localStorage.setItem('pc', '1'); localStorage.setItem('pcAgent', '0'); } catch { return; } const log = window.__desk = [];
       window.astraDesktop = { notify: async () => false, fs: { linked: async k => k === 'chat' ? { name: 'proj', path: 'C:/proj' } : null, link: async () => null }, mcp: { tools: async () => [] }, screen: { state: async () => false },
         agent: { onEvent: () => () => {} }, plugins: { list: async () => [{ name: 'memory', title: 'ความจำถาวร', mcp: ['memory'], commands: [] }], install: async (p, env) => (log.push(['install', p.name, env]), true), remove: async n => (log.push(['remove', n]), true) } }; };
     const { page, errs } = await open('/chat', { init });

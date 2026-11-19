@@ -467,7 +467,8 @@ else {
   app.on('second-instance', (_, argv) => { const p = deepPath(argv); if (p && web) web.loadURL(SITE + p); show(); });
   app.on('open-url', (e, u) => { e.preventDefault(); const p = deepPath([u]); if (web && p) { web.loadURL(SITE + p); show(); } else settings.openPath = p; }); // macOS
   app.whenReady().then(() => {
-    settings = { ...load(), openPath: deepPath(process.argv) }; screenOk = process.platform === 'win32' && settings.screenAlways === true; // เคยกด "จำไว้" แล้ว: ไม่ต้องขอสิทธิ์คุมจอซ้ำทุกครั้งที่เปิดแอป
+    settings = { ...load(), openPath: deepPath(process.argv) }; screenOk = process.platform === 'win32' && settings.screenAlways === true;
+    if (!settings.links?.chat) { settings.links = { ...settings.links, chat: app.getPath('home') }; save(); } // แชตในแอปทำงานในเครื่องได้ทันที (โฟลเดอร์ผู้ใช้ เหมือนเปิด terminal) · เปลี่ยนโฟลเดอร์ได้ในหน้า ใช้คอมเครื่องนี้ // เคยกด "จำไว้" แล้ว: ไม่ต้องขอสิทธิ์คุมจอซ้ำทุกครั้งที่เปิดแอป
     appMenu(); makeTray(); openWeb(); if (process.argv.includes('--hidden') && tray) web.hide(); autoUpdate();
     globalShortcut.register('CommandOrControl+Alt+Escape', () => { if (screenOk) { screenOk = false; new Notification({ title: 'AstraCode', body: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ดแล้ว' }).show(); } }); // ปุ่มฉุกเฉิน
   });
