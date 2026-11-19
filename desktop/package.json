@@ -1,6 +1,6 @@
 {
   "name": "astracode-desktop",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "AstraCode Desktop: the AstraCode website in an app window, with access to files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "AstraCode",
@@ -15,7 +15,12 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.0.4",
-    "electron-updater": "6.3.9"
+    "docx": "9.0.2",
+    "electron-updater": "6.3.9",
+    "exceljs": "4.4.0",
+    "mammoth": "1.8.0",
+    "pdf-parse": "1.1.1",
+    "pptxgenjs": "3.12.0"
   },
   "devDependencies": {
     "electron": "33.2.1",
@@ -32,7 +37,8 @@
       "localfs.js",
       "agent.js",
       "agenttools.js",
-      "build/icon.png"
+      "build/icon.png",
+      "office.js"
     ],
     "win": {
       "target": "nsis",

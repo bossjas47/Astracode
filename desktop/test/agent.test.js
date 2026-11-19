@@ -103,3 +103,15 @@ test('plugins: manifest is validated and trimmed', () => {
   assert.throws(() => cleanPlugin({ name: '../evil' }), /ชื่อปลั๊กอิน/); assert.throws(() => cleanPlugin({ name: 'x1', mcpServers: { a: { args: [] } } }), /mcpServers/);
   const cat = require('../../astracode/public/plugins/catalog.json'); for (const c of cat.plugins) assert.equal(cleanPlugin(c).name, c.name); // แคตตาล็อกบนเว็บผ่านการตรวจทุกตัว
 });
+
+test('office: Word/Excel/PowerPoint are created from JSON and read back; Thai text survives', async () => {
+  const { makeDocument, readDocument, blocksHtml } = require('../office');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'astra-off-'));
+  await makeDocument(path.join(d, 'r.docx'), { title: 'รายงาน', blocks: [{ type: 'paragraph', text: 'ยอดขาย **เพิ่ม** 12%' }, { type: 'table', rows: [['สินค้า', 'ยอด'], ['A', '100']] }] });
+  assert.match(await readDocument(path.join(d, 'r.docx')), /รายงาน[\s\S]*ยอดขาย เพิ่ม 12%[\s\S]*สินค้า/);
+  await makeDocument(path.join(d, 'r.xlsx'), { sheets: [{ name: 'ยอด', rows: [['สินค้า', 'ราคา'], ['A', '100'], ['รวม', '=SUM(B2:B2)']] }] });
+  assert.match(await readDocument(path.join(d, 'r.xlsx')), /# ยอด\nสินค้า,ราคา\nA,100\nรวม,=SUM\(B2:B2\)/);
+  assert.match(await makeDocument(path.join(d, 's.pptx'), { slides: [{ title: 'สไลด์', bullets: ['ข้อ 1'] }] }), /สร้าง s.pptx/);
+  await assert.rejects(makeDocument(path.join(d, 'x.pdf'), { blocks: [] }), /เฉพาะในแอป/);
+  assert.match(blocksHtml('หัวเรื่อง', [{ type: 'bullets', items: ['<script>'] }]), /<h1>หัวเรื่อง<\/h1><ul><li>&lt;script&gt;<\/li><\/ul>/);
+});

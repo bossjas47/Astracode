@@ -7,6 +7,7 @@ const { execFile } = require('child_process');
 const { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel } = require('./localfs');
 const { startMcp } = require('./mcp');
 const { runAgent } = require('./agent');
+const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { AGENT_TOOLS, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin } = require('./agenttools');
 
 const SITE = 'https://astracode.panderx.xyz';
@@ -230,6 +231,9 @@ h('desk:agentSetKey', (_, key) => { if (!/^sk-astra-[0-9a-f]+$/.test(String(key)
 h('desk:agentStop', (_, sid) => { const a = agents.get(String(sid)); a?.ac?.abort(); a?.ws?.stopAll(); return true; });
 h('desk:agentSteer', (_, sid, text) => { const a = agents.get(String(sid)); if (!a?.ac) return false; a.inbox.push('[ผู้ใช้พิมพ์แทรกระหว่างทำงาน] ' + String(text).slice(0, 20000)); return true; });
 h('desk:agentUndo', async (_, sid, step) => { const a = agents.get(String(sid)); return a?.ws ? await (step != null ? a.ws.undoTo(+step) : a.ws.undo()) : []; });
+h('desk:agentAnswer', (_, sid, id, text) => { const a = agents.get(String(sid)), f = a?.asks?.get(String(id)); if (!f) return false; a.asks.delete(String(id)); f(String(text ?? '').slice(0, 4000)); return true; });
+// เปิดไฟล์ผลลัพธ์ที่ Agent ทำ (เฉพาะในโฟลเดอร์งาน) ด้วยโปรแกรมของเครื่อง
+h('desk:agentOpen', async (_, k, p) => { const r = rootOf(k || 'chat'), f = path.resolve(r, String(p || '.')); if (f !== r && !f.startsWith(r + path.sep)) throw new Error('ไฟล์อยู่นอกโฟลเดอร์งาน'); const e = await shell.openPath(f); if (e) throw new Error(e); return true; });
 h('desk:agentReset', (_, sid) => { const a = agents.get(String(sid)); a?.ws?.stopAll(); agents.delete(String(sid)); try { fs.rmSync(agentFile(String(sid)), { force: true }); } catch { /* ไม่มีไฟล์ */ } return true; });
 h('desk:agentCommands', async (_, k) => [...await projectCommands(rootOf(k || 'chat')), ...Object.values(settings.plugins || {}).flatMap(p => p.commands || [])]);
 // ---------- ปลั๊กอิน (แบบ Claude Code): ชุด MCP server + คำสั่งลัด + กติกา + hook ติดตั้งจากแคตตาล็อกของเว็บหรือลิงก์ manifest ----------
@@ -269,6 +273,20 @@ async function askUser(a, { title, detail, warn, allowAllLabel }) {
   const remote = a.remote ? a.remote.ask({ title, detail: detail.slice(0, 3000), allowAll: !!allowAllLabel }) : new Promise(() => {});
   const ans = await Promise.race([local, remote]); ac.abort(); a.remote?.cancelAsk(); return ans;
 }
+// HTML → PDF ด้วย Chromium ของแอป (ฟอนต์ไทยของเครื่องใช้ได้เลย)
+async function htmlToPdf(html) {
+  const w = new BrowserWindow({ show: false, webPreferences: { partition: 'preview', sandbox: true, javascript: false } });
+  try { await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)); return await w.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'default' } }); } finally { w.destroy(); }
+}
+// Connector ออนไลน์ (Remote MCP ที่เชื่อมบนเว็บ) ผ่านเซิร์ฟเวอร์: token อยู่ที่เซิร์ฟเวอร์ ไม่ลงเครื่อง
+let rmcpCache = { at: 0, tools: [] };
+async function remoteTools() {
+  if (Date.now() - rmcpCache.at < 5 * 60e3) return rmcpCache.tools;
+  const r = await fetch(SITE + '/v1/mcp/tools', { headers: { authorization: 'Bearer ' + settings.key } }).catch(() => null), d = r?.ok ? await r.json().catch(() => ({})) : {};
+  rmcpCache = { at: Date.now(), tools: (d.tools || []).slice(0, 60).map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) }; return rmcpCache.tools;
+}
+const remoteCall = async (name, args) => { const r = await fetch(SITE + '/v1/mcp/call', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ name, args }) }); const d = await r.json().catch(() => ({})); return d.text ?? ('Error: ' + (d.error?.message_th || d.error?.message || 'HTTP ' + r.status)); };
+const ASK_TOOL = { type: 'function', function: { name: 'ask_user', description: 'Ask the user ONE question when the task is unclear or a decision is theirs (which file, which option, missing info). Prefer 2-4 short options. Waits for the answer. Do not ask about things you can find out yourself.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'] } } };
 // จับภาพหน้าเว็บ (เช่น dev server) ในหน้าต่างซ่อน ให้ Agent ตรวจ UI ด้วยตา
 async function shotUrl(url, width) {
   const w = new BrowserWindow({ show: false, width, height: 900, webPreferences: { partition: 'preview', sandbox: true, contextIsolation: true, offscreen: true } });
@@ -276,18 +294,19 @@ async function shotUrl(url, width) {
   try { const res = w.loadURL(url).catch(x => logs.push('[load] ' + x.message)); await Promise.race([res, new Promise((_, no) => setTimeout(() => no(new Error('โหลดหน้าเว็บไม่ทันใน 20 วินาที')), 20e3))]); await new Promise(ok => setTimeout(ok, 1500)); const img = await w.webContents.capturePage(); return { image: 'data:image/jpeg;base64,' + img.resize({ width: Math.min(width, 1280) }).toJPEG(75).toString('base64'), logs }; }
   finally { w.destroy(); }
 }
-h('desk:agentRun', async (e, o = {}) => {
+h('desk:agentRun', (e, o = {}) => runTask(o, e.sender));
+async function runTask(o = {}, sender) {
   if (!settings.key) throw new Error('ยังไม่ได้เชื่อม API key ของแอป');
   const sid = String(o.sid || '').slice(0, 80), mode = MODES.includes(o.mode) ? o.mode : 'ask', model = String(o.model || '').slice(0, 120), root = rootOf(o.slot || 'chat');
   if (!sid || !model) throw new Error('ข้อมูลไม่ครบ');
   let a = agents.get(sid);
   if (a && a.ac) throw new Error('Agent กำลังทำงานอยู่ในแชตนี้');
   // เปิดโหมดทำเองครั้งแรกของงาน: ยืนยันด้วยหน้าต่าง Windows (หน้าเว็บสั่งเองไม่ได้)
-  if ((mode === 'edits' || mode === 'auto') && a?.okMode !== mode) {
+  if ((mode === 'edits' || mode === 'auto') && a?.okMode !== mode && !o.preApproved) {
     const r = await dialog.showMessageBox(web, { type: 'warning', title: 'เปิดโหมดทำงานเอง?', message: mode === 'auto' ? 'Agent จะแก้ไฟล์และรันคำสั่งได้เองโดยไม่ถาม' : 'Agent จะแก้ไฟล์ได้เองโดยไม่ถาม (ยังถามก่อนรันคำสั่ง)', detail: `เฉพาะในโฟลเดอร์ ${root}\nคำสั่งอันตรายและไฟล์นอกโฟลเดอร์ยังถามทุกครั้ง · ย้อนไฟล์ที่ Agent แก้ได้จากปุ่มในแชต`, buttons: ['เปิดโหมดนี้', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
     if (r.response !== 0) throw new Error('ยกเลิกแล้ว');
   }
-  const tell = d => { if (!e.sender.isDestroyed()) e.sender.send('desk:agentEv', { sid, ...d }); a?.remote?.push({ sid, ...d }); };
+  const tell = d => { if (sender && !sender.isDestroyed()) sender.send('desk:agentEv', { sid, ...d }); a?.remote?.push({ sid, ...d }); };
   if (!a || a.ws.root !== path.resolve(root)) {
     const saved = agentLoad(sid);
     a = { sid, messages: saved && path.resolve(saved.root) === path.resolve(root) ? saved.messages : [], mode, inbox: [] };
@@ -317,14 +336,31 @@ h('desk:agentRun', async (e, o = {}) => {
   let text = String(o.text || '').slice(0, 100000);
   const refs = [...new Set([...text.matchAll(/(?:^|\s)@([\w./\\-]+)/g)].map(m => m[1]))].slice(0, 5);
   for (const p of refs) { const f = path.resolve(a.ws.root, p); if (f.startsWith(a.ws.root) && fs.existsSync(f) && fs.statSync(f).isFile() && fs.statSync(f).size < 300e3) text += `\n\n[ไฟล์ ${p}]\n${fs.readFileSync(f, 'utf8').slice(0, 30000)}`; }
+  if (o.style === 'work') text += '\n\n[โหมดงานทั่วไป] ผู้ใช้ไม่ใช่โปรแกรมเมอร์: อธิบายด้วยภาษาง่าย ไม่โชว์โค้ดถ้าไม่จำเป็น ทำผลลัพธ์เป็นไฟล์ที่เปิดใช้ได้เลย (Word/Excel/PowerPoint/PDF ด้วย make_document) บอกชื่อไฟล์ที่ได้ตอนจบ ถามด้วย ask_user เมื่อข้อมูลไม่พอ';
   if (mode === 'plan') text += '\n\n[โหมดวางแผน] ห้ามแก้ไฟล์หรือรันคำสั่ง: สำรวจโค้ดด้วยเครื่องมืออ่าน แล้วเขียนแผนเป็นขั้นตอนชัดเจน (ไฟล์ที่จะแก้ แก้อะไร ตรวจผลอย่างไร) ให้ผู้ใช้อนุมัติก่อนลงมือ';
   const imgs = (Array.isArray(o.images) ? o.images : []).filter(x => typeof x === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(x) && x.length < 4e6).slice(0, 4);
   a.messages.push({ role: 'user', content: imgs.length ? [{ type: 'text', text }, ...imgs.map(url => ({ type: 'image_url', image_url: { url } }))] : text });
   const ac = a.ac = new AbortController(); a.ws.signal = ac.signal;
   if (o.remote && !a.remote) a.remote = await remoteStart(a, o.chatId).catch(x => { tell({ type: 'info', text: 'สั่งจากมือถือ: ' + x.message }); return null; });
-  let tools = mode === 'plan' ? AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)) : [...AGENT_TOOLS, ...(screenOk && process.platform === 'win32' ? [COMPUTER_TOOL] : [])];
+  const rtools = await remoteTools().catch(() => []);
+  let tools = mode === 'plan' ? [...AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)), OFFICE_TOOLS[1], ASK_TOOL] : [...AGENT_TOOLS, ...OFFICE_TOOLS, ASK_TOOL, ...rtools, ...(screenOk && process.platform === 'win32' ? [COMPUTER_TOOL] : [])];
   if (hasMcp() && mode !== 'plan') { try { await mcpUp(); tools = [...tools, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
-  const callTool = (name, args) => name === 'computer' ? computerTool(args) : mcp?.has(name) ? mcp.call(name, args) : mode === 'plan' && !READ_ONLY.has(name) ? 'Error: โหมดวางแผน แก้ไฟล์/รันคำสั่งไม่ได้' : a.ws.call(name, args);
+  a.asks = new Map(); a.outputs = new Set();
+  const callTool = async (name, args) => {
+    if (name === 'computer') return computerTool(args);
+    if (name === 'ask_user') { const id = 'q' + Date.now(); tell({ type: 'ask', id, question: String(args.question || '').slice(0, 1000), options: (Array.isArray(args.options) ? args.options : []).map(String).slice(0, 6) }); const ans = await new Promise((ok, no) => { a.asks.set(id, ok); ac.signal.addEventListener('abort', () => no(new Error('หยุดแล้ว'))); }); tell({ type: 'answered', id, text: ans }); return 'คำตอบของผู้ใช้: ' + ans; }
+    if (name === 'make_document' || name === 'read_document') {
+      const f = a.ws.abs(args.path), out = !a.ws.inside(f), kind = name === 'make_document' ? 'edit' : 'read';
+      if (mode === 'plan' && kind === 'edit') return 'Error: โหมดวางแผน สร้างไฟล์ไม่ได้';
+      if (!await approve(a, { name, kind, args, outside: out, danger: false, cwd: a.ws.cwd })) return 'Error: ผู้ใช้ไม่อนุญาต';
+      if (kind === 'read') return readDocument(f);
+      await a.ws.keep(f); const r = await makeDocument(f, args, { pdf: htmlToPdf }); a.outputs.add(a.ws.rel(f)); return r;
+    }
+    if (name.startsWith('rmcp_')) return remoteCall(name, args);
+    if (mcp?.has(name)) return mcp.call(name, args);
+    if (mode === 'plan' && !READ_ONLY.has(name)) return 'Error: โหมดวางแผน แก้ไฟล์/รันคำสั่งไม่ได้';
+    return a.ws.call(name, args);
+  };
   const budget = +o.budget > 0 ? +o.budget : 0, t0 = Date.now(), stat = { rounds: 0, tools: 0 };
   const onEvent = d => {
     if (d.type === 'usage') stat.rounds++; if (d.type === 'tool') stat.tools++;
@@ -333,7 +369,7 @@ h('desk:agentRun', async (e, o = {}) => {
   };
   try {
     await runAgent({ base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step });
-    tell({ type: 'done', changed: a.ws.changed(), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
+    tell({ type: 'done', changed: a.ws.changed(), outputs: [...new Set([...a.outputs, ...a.ws.changed()])].filter(p => !/\.(js|ts|py|css|json|lock|map)$/i.test(p) || a.outputs.has(p)).slice(0, 20), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
   } catch (x) {
     tell({ type: 'error', text: ac.signal.aborted ? 'หยุดแล้ว' : x.message, changed: a.ws.changed(), runFrom: a.ws.runFrom });
     if (!ac.signal.aborted) { stat.error = String(x.message).slice(0, 300); if (!/HTTP 4\d\d|ยอดเงิน|ลิมิต|API key/i.test(x.message)) report('agent', x); }
@@ -344,7 +380,29 @@ h('desk:agentRun', async (e, o = {}) => {
     fetch(SITE + '/v1/agent/stat', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ model, mode, rounds: stat.rounds, tools: stat.tools, ok: !err, ms: Date.now() - t0, charge: a.cost.charge, pct: a.cost.pct, error: err, version: app.getVersion(), os: process.platform }) }).catch(() => {});
   }
   return true;
+}
+// ---------- งานตั้งเวลาบนเครื่อง (แบบ Cowork): แอปอยู่ที่ถาดแล้วรัน Agent เองตามเวลา บันทึกผลลงแชตใหม่ แจ้งเตือนเมื่อเสร็จ ----------
+h('desk:schedules', () => settings.schedules || []);
+h('desk:setSchedules', async (_, list) => {
+  const clean = (Array.isArray(list) ? list : []).slice(0, 20).map(x => ({ id: String(x.id || Math.random().toString(36).slice(2, 8)).slice(0, 20), name: String(x.name || '').slice(0, 60), time: /^\d{2}:\d{2}$/.test(x.time) ? x.time : '08:00', days: (Array.isArray(x.days) ? x.days : [0, 1, 2, 3, 4, 5, 6]).map(Number).filter(d => d >= 0 && d <= 6), text: String(x.text || '').slice(0, 4000), model: String(x.model || '').slice(0, 120), mode: ['ask', 'edits', 'auto'].includes(x.mode) ? x.mode : 'edits', style: x.style === 'code' ? 'code' : 'work', on: x.on !== false }));
+  const risky = clean.filter(x => x.on && x.mode !== 'ask' && !(settings.schedules || []).some(y => y.id === x.id && y.mode === x.mode && y.text === x.text));
+  if (risky.length) { const r = await dialog.showMessageBox(web, { type: 'warning', title: 'งานตั้งเวลา', message: 'ให้ Agent ทำงานเองตามเวลาโดยไม่ถาม?', detail: risky.map(x => `• ${x.time} ${x.name || x.text.slice(0, 60)} (${x.mode === 'auto' ? 'ทำเองทั้งหมด' : 'แก้ไฟล์เอง'})`).join('\n') + '\n\nทำในโฟลเดอร์ที่เลือกไว้ในแชต · คำสั่งอันตรายยังถาม', buttons: ['อนุญาต', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true }); if (r.response !== 0) return false; }
+  settings.schedules = clean; save(); return true;
 });
+setInterval(async () => {
+  const now = new Date(), hm = now.toTimeString().slice(0, 5), day = now.toDateString();
+  for (const x of settings?.schedules || []) {
+    if (!x.on || x.time !== hm || !x.days.includes(now.getDay()) || x.last === day || !settings.key || !(settings.links || {}).chat) continue;
+    x.last = day; save();
+    const ses = web.webContents.session, post = (u, body) => ses.fetch(SITE + u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).catch(() => ({}));
+    const c = await post('/api/chats/append', { title: '⏰ ' + (x.name || x.text), messages: [{ role: 'user', content: x.text }] });
+    const sid = 'c' + (c.chat_id || 'sched-' + x.id), t0 = Date.now();
+    try { await runTask({ sid, chatId: c.chat_id, text: x.text, model: x.model || 'claude-sonnet-5.5-eco', mode: x.mode, style: x.style, slot: 'chat', preApproved: true, maxRounds: 80 }, web?.webContents); } catch (e) { report('schedule', e); }
+    const a = agents.get(sid), final = a?.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '(ไม่มีข้อความ)';
+    if (c.chat_id) await post('/api/chats/append', { chat_id: c.chat_id, messages: [{ role: 'assistant', content: final }] });
+    const n = new Notification({ title: '⏰ ' + (x.name || 'งานตั้งเวลา') + ' เสร็จแล้ว', body: String(final).replace(/[#*`>]/g, '').slice(0, 160) }); n.on('click', () => { show(); if (c.chat_id) web.loadURL(SITE + '/chat?id=' + c.chat_id); }); n.show(); void t0;
+  }
+}, 30e3);
 // ---------- สั่ง/อนุญาตจากมือถือ: แอปส่งความคืบหน้าขึ้นเซิร์ฟเวอร์ (ผูกกับแชต) มือถือเปิดแชตเดียวกันเห็นสด กดอนุญาต/พิมพ์แทรกได้ ----------
 async function remoteStart(a, chatId) {
   if (!(+chatId > 0)) throw new Error('ต้องมีแชตก่อน');

@@ -175,6 +175,27 @@ const FLOWS = [
     const tour = await page.locator('.sheet').innerText().catch(() => '');
     return [!errs.length || errs.join(' | '), /Playwright/.test(sheetText) && /ติดตั้งแล้ว/.test(sheetText) || 'catalog not shown: ' + sheetText.slice(0, 200), log.some(x => x[0] === 'install' && x[1] === 'browser') || 'install not called', log.some(x => x[0] === 'remove' && x[1] === 'memory') || 'remove not called', /เริ่มใช้โหมด Agent/.test(tour) || 'guide not shown'];
   }],
+  ['desktop app: agent asks with choice buttons, shows output files that open, and schedules tasks', async () => {
+    const init = () => { try { localStorage.setItem('pc', '1'); localStorage.setItem('pcAgent', '1'); localStorage.setItem('pcAgentMode', 'edits'); localStorage.setItem('pcAgentStyle', 'work'); localStorage.setItem('agTour', '1'); } catch { return; } const subs = new Set(), log = window.__desk = []; let sched = [];
+      window.astraDesktop = { notify: async () => false, fs: { linked: async k => k === 'chat' ? { name: 'งาน', path: 'C:/work' } : null }, mcp: { tools: async () => [] }, screen: { state: async () => false },
+        agent: { needKey: async () => false, commands: async () => [], onEvent: f => (subs.add(f), () => subs.delete(f)), stop: async () => true,
+          answer: async (sid, id, t) => { log.push(['answer', id, t]); subs.forEach(f => f({ sid, type: 'answered', id, text: t })); window.__ans?.(); return true; },
+          open: async (k, p) => (log.push(['open', p]), true), schedules: async () => sched, setSchedules: async l => { sched = l; log.push(['sched', l.length, l[0]?.time]); return true; },
+          run: async o => { log.push(['run', o.style]); const ev = d => subs.forEach(f => f({ sid: o.sid, ...d }));
+            ev({ type: 'ask', id: 'q1', question: 'ทำรายงานเป็นไฟล์อะไร?', options: ['Excel', 'Word'] });
+            await new Promise(r => { window.__ans = r; });
+            ev({ type: 'tool', id: 't1', name: 'make_document', args: { path: 'รายงาน.xlsx' } }); ev({ type: 'tool_result', id: 't1', ok: true, preview: 'สร้าง รายงาน.xlsx แล้ว' });
+            ev({ type: 'delta', text: 'ทำรายงานเสร็จแล้ว' }); ev({ type: 'done', changed: ['รายงาน.xlsx'], outputs: ['รายงาน.xlsx'] }); return true; } } }; };
+    const { page, errs } = await open('/chat', { init, '/api/chats/append': { chat_id: 66 } });
+    await page.fill('#t', 'สรุปยอดขาย'); await page.press('#t', 'Enter'); await page.waitForTimeout(700);
+    const askText = await page.locator('.agask').innerText().catch(() => '');
+    await page.click('[data-agans="Excel"]'); await page.waitForTimeout(700);
+    await page.click('[data-agopen="รายงาน.xlsx"]'); await page.waitForTimeout(200);
+    await page.evaluate(() => scheduleSheet()); await page.waitForTimeout(400);
+    await page.fill('#stx', 'สรุปยอดขายเมื่อวานเป็น Word'); await page.fill('#stm', '07:30'); await page.click('#sadd'); await page.waitForTimeout(400);
+    const log = await page.evaluate(() => window.__desk.slice());
+    return [!errs.length || errs.join(' | '), /ทำรายงานเป็นไฟล์อะไร/.test(askText) || 'ask not shown', log.some(x => x[0] === 'answer' && x[2] === 'Excel') || 'answer not sent', log.some(x => x[0] === 'open' && x[1] === 'รายงาน.xlsx') || 'output not opened', log.some(x => x[0] === 'run' && x[1] === 'work') || 'work style not passed', log.some(x => x[0] === 'sched' && x[2] === '07:30') || 'schedule not saved: ' + JSON.stringify(log)];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);

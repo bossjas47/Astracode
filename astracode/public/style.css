@@ -1444,3 +1444,6 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .rmt-say input { flex: 1; }
 .plug { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid var(--steel); padding: 8px 0; }
 .plug > div { flex: 1; min-width: 0; } .agtour ol { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.agask { border: 1px solid var(--yellow, #e0af68); border-radius: 12px; padding: 10px; margin: 6px 0; display: grid; gap: 8px; }
+.agout { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; } .agout .fchip { cursor: pointer; border: 1px solid var(--steel); background: var(--carbon); }
+.chk { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; }

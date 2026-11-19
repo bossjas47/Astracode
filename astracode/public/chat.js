@@ -937,10 +937,10 @@ async function pcInit() { if (!PCD) return; chat.pc = await PCD.fs.linked('chat'
 function pcSheet() {
   sheet('ใช้คอมเครื่องนี้', `<div class="sheet-form"><p class="sheet-msg">AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP ในเครื่องนี้ได้ <b>เฉพาะในโฟลเดอร์ที่เลือก</b> · เขียนไฟล์ได้เองในโฟลเดอร์นี้ · รันคำสั่งถามในหน้าต่างของ Windows (เลือก "รันอัตโนมัติ" ได้ คำสั่งลบ/อันตรายยังถามเสมอ)</p>
     <p style="margin:0">${chat.pc ? `โฟลเดอร์: <b>${esc(chat.pc.path)}</b>${chat.pc.auto ? '<br>รันคำสั่งอัตโนมัติ: <b>เปิด</b> (ยกเว้นคำสั่งอันตราย) <button type="button" class="btn out sm" id="pcauto">ปิด</button>' : ''}` : 'ยังไม่ได้เลือกโฟลเดอร์'}</p>
-    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button>${PCD.plugins ? `<button type="button" class="btn out sm" id="pcplug">${ic('layers', 'sm')} ปลั๊กอิน</button>` : ''}</div>
+    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button>${PCD.plugins ? `<button type="button" class="btn out sm" id="pcplug">${ic('layers', 'sm')} ปลั๊กอิน</button>` : ''}${PCD.agent?.schedules ? `<button type="button" class="btn out sm" id="pcsch">${ic('bell', 'sm')} งานตั้งเวลา</button>` : ''}</div>
     ${chat.pc && PCD.agent ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="pcag" ${localStorage.getItem('pcAgent') === '1' ? 'checked' : ''}><span></span></span> <span><b>โหมด Agent</b> · ทำงานเองต่อเนื่องแบบ Claude Code (อ่าน/แก้ไฟล์ รันคำสั่ง ค้นเว็บ จนเสร็จ) · ใช้ลิมิต/Wallet ผ่าน API</span></label>
       <div id="pcagopt" style="display:grid;gap:8px" ${localStorage.getItem('pcAgent') === '1' ? '' : 'hidden'}><div class="row"><select id="pcagm" style="width:auto">${AG_MODES.map(([k, l]) => `<option value="${k}" ${agMode() === k ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="pcagr" style="width:auto">${[30, 80, 150].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentMax') || 80) === n ? 'selected' : ''}>สูงสุด ${n} รอบ</option>`).join('')}</select>
-        <select id="pcagb" style="width:auto">${[0, 5, 20, 50, 100].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentBudget') || 0) === n ? 'selected' : ''}>${n ? `เพดาน ฿${n}/งาน` : 'ไม่จำกัดเงินต่องาน'}</option>`).join('')}</select></div>
+        <select id="pcags" style="width:auto"><option value="code" ${localStorage.getItem('pcAgentStyle') !== 'work' ? 'selected' : ''}>งานโค้ด</option><option value="work" ${localStorage.getItem('pcAgentStyle') === 'work' ? 'selected' : ''}>งานทั่วไป / เอกสาร</option></select><select id="pcagb" style="width:auto">${[0, 5, 20, 50, 100].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentBudget') || 0) === n ? 'selected' : ''}>${n ? `เพดาน ฿${n}/งาน` : 'ไม่จำกัดเงินต่องาน'}</option>`).join('')}</select></div>
         <div id="pcpack" class="muted" style="font-size:12.5px"></div>
         <label class="sw-row"><span class="sw"><input type="checkbox" id="pcagrem" ${localStorage.getItem('pcAgentRemote') === '1' ? 'checked' : ''}><span></span></span> สั่งงานและกดอนุญาตจากมือถือได้ (เปิดแชตเดียวกันในมือถือ)</label>
         <p class="muted" style="margin:0;font-size:12.5px">คำสั่งลัด: ${AG_CMDS.map(c => `<code>/${c[0]}</code>`).join(' ')} · ของโปรเจกต์เอง: ไฟล์ <code>.astra/commands/ชื่อ.md</code> · อ้างไฟล์ด้วย <code>@src/app.js</code> · แปะรูปหน้าจอได้ · พิมพ์แทรกระหว่าง Agent ทำงานได้ (กด Enter) · hook หลังแก้ไฟล์: <code>.astra/hooks.json</code> เช่น <code>{"after_edit":"npx prettier --write {file}"}</code></p></div>` : ''}
@@ -949,6 +949,7 @@ function pcSheet() {
     d.querySelector('#pcagm')?.addEventListener('change', e => { localStorage.setItem('pcAgentMode', e.target.value); modelUI(); });
     d.querySelector('#pcagr')?.addEventListener('change', e => localStorage.setItem('pcAgentMax', e.target.value));
     d.querySelector('#pcagb')?.addEventListener('change', e => localStorage.setItem('pcAgentBudget', e.target.value));
+    d.querySelector('#pcags')?.addEventListener('change', e => localStorage.setItem('pcAgentStyle', e.target.value));
     const pk = d.querySelector('#pcpack'); // ค่าใช้ Agent: แพลนที่รวม Agent / แพ็กเสริม / Wallet
     if (pk) api('/agent-pack').then(p => {
       pk.innerHTML = p.inPlan ? `${ic('check', 'sm')} แพลนของคุณรวม Agent แล้ว (หักลิมิตแพลน)` : p.active ? `${ic('check', 'sm')} แพ็ก Agent ใช้ไป ${p.pct.toFixed(1)}% · หมดอายุ ${when(p.until)}` : p.enabled ? `Agent หักจาก Wallet ตามจริง · หรือซื้อ<b>แพ็ก Agent ฿${p.price}/${p.days} วัน</b> <button type="button" class="btn blue sm" id="pcbuy">ซื้อด้วย Wallet</button>` : 'Agent หักจาก Wallet ตามจริง (แพลน Pro ขึ้นไปใช้ลิมิตแพลนได้)';
@@ -962,6 +963,7 @@ function pcSheet() {
     d.querySelector('#pcauto')?.addEventListener('click', async () => { await PCD.fs.autoOff('chat'); chat.pc.auto = false; close(); toast('ปิดรันอัตโนมัติแล้ว ต่อไปจะถามทุกคำสั่ง'); });
     d.querySelector('#pcmcp').onclick = () => { close(); mcpLocalSheet(); };
     d.querySelector('#pcplug')?.addEventListener('click', () => { close(); pluginSheet(); });
+    d.querySelector('#pcsch')?.addEventListener('click', () => { close(); scheduleSheet(); });
   });
 }
 // ตั้งค่า MCP ในเครื่องแบบกดเลือก (ไม่ต้องพิมพ์ JSON) · บันทึกแล้วแอปถามยืนยันด้วยหน้าต่าง Windows เพราะเป็นโปรแกรมที่จะรันในเครื่อง
@@ -1025,7 +1027,7 @@ const AG_CMDS = [['review', 'รีวิวโค้ดที่เพิ่ง
 const agentOn = () => pcOn() && !!PCD?.agent && localStorage.getItem('pcAgent') === '1';
 const agMode = () => AG_MODES.some(x => x[0] === localStorage.getItem('pcAgentMode')) ? localStorage.getItem('pcAgentMode') : 'ask';
 const vslug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, ''); // ชื่อโมเดลใน /v1 (ตรงกับ slug ฝั่งเซิร์ฟเวอร์)
-const AG_ICON = { read_file: 'filetext', write_file: 'pen', edit_file: 'pen', list_dir: 'folder', glob: 'search', grep: 'search', bash: 'terminal', bash_output: 'terminal', kill_bash: 'stop', web_fetch: 'globe', web_search: 'globe', screenshot_url: 'camera', task: 'users', todo_write: 'check', sub: 'users' };
+const AG_ICON = { read_file: 'filetext', write_file: 'pen', edit_file: 'pen', list_dir: 'folder', glob: 'search', grep: 'search', bash: 'terminal', bash_output: 'terminal', kill_bash: 'stop', web_fetch: 'globe', web_search: 'globe', screenshot_url: 'camera', task: 'users', todo_write: 'check', sub: 'users', make_document: 'filetext', read_document: 'filetext', ask_user: 'msg', computer: 'camera' };
 const agArg = s => { const a = s.args || {}; return a.command || a.path || a.pattern || a.url || a.query || a.description || a.id || ''; };
 const diffPre = t => esc(t).split('\n').map(l => /^\+ /.test(l) ? `<span class="dadd">${l}</span>` : /^- /.test(l) ? `<span class="ddel">${l}</span>` : l).join('\n');
 function agentHTML(m, i) {
@@ -1036,7 +1038,9 @@ function agentHTML(m, i) {
   const todos = m.todos?.length ? `<div class="agtodo">${m.todos.map(t => `<div class="${t.status}">${t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '▶' : '☐'} ${esc(t.content)}</div>`).join('')}</div>` : '';
   const n = (m.steps || []).filter(s => !['info', 'sub'].includes(s.name)).length, cost = m.cost ? ` · ${m.cost.charge ? '฿' + m.cost.charge.toFixed(2) : ''}${m.cost.charge && m.cost.pct ? ' + ' : ''}${m.cost.pct ? 'ลิมิต ' + m.cost.pct.toFixed(2) + '%' : ''}` : '';
   return `<div class="agent">${todos}${steps ? `<details class="agsteps" ${m.streaming ? 'open' : ''}><summary>${ic('sparkles', 'sm')} Agent ${n} ขั้นตอน${m.tin ? ` · ↑${kTok(m.tin)} ↓${kTok(m.tout)} token` : ''}${cost}</summary>${steps}</details>` : m.streaming ? `<div class="agstep muted"><span class="agsp"></span> Agent กำลังเริ่ม…</div>` : ''}
+    ${m.ask ? `<div class="agask"><b>${esc(m.ask.question)}</b><div class="row" style="flex-wrap:wrap">${m.ask.options.map(o => `<button type="button" class="btn out sm" data-agans="${esc(o)}">${esc(o)}</button>`).join('')}</div><form class="row" data-agansf style="flex-wrap:nowrap"><input placeholder="หรือพิมพ์คำตอบ…" style="flex:1"><button class="btn blue sm">ตอบ</button></form></div>` : ''}
     ${m.error ? `<p class="bad" style="margin:6px 0">${esc(m.error)}</p>` : ''}
+    ${m.outputs?.length ? `<div class="agout">${m.outputs.map(p => `<button type="button" class="fchip" data-agopen="${esc(p)}">${ic('filetext', 'sm')}<span>${esc(p.split('/').pop())}</span><small>เปิด</small></button>`).join('')}</div>` : ''}
     ${done && last ? `<div class="acts">${m.mode === 'plan' && !m.error ? `<button class="btn blue sm" data-agplan>${ic('play', 'sm')} อนุมัติแผน ลงมือเลย</button>` : ''}${m.changed?.length ? `<span class="muted">แก้ ${m.changed.length} ไฟล์: ${m.changed.slice(0, 6).map(esc).join(', ')}${m.changed.length > 6 ? '…' : ''}</span><button data-agundo="${i}">${ic('undo', 'sm')} ย้อนทั้งรอบ</button>` : ''}<button data-aggit="status">${ic('branch', 'sm')} Git</button></div>` : ''}</div>`;
 }
 let agSub = null;
@@ -1079,10 +1083,12 @@ async function agentSend(text0, { mode = agMode() } = {}) {
     if (d.type === 'cost') ai.cost = { charge: d.charge, pct: d.pct };
     if (d.type === 'info') ai.steps.push({ name: 'info', text: d.text });
     if (d.type === 'text_end' && ai.content && !/\n$/.test(ai.content)) ai.content += '\n\n';
-    if (d.type === 'done' || d.type === 'error') { ai.changed = d.changed; if (d.type === 'error') ai.error = d.text; }
+    if (d.type === 'ask') ai.ask = { id: d.id, question: d.question, options: d.options || [] };
+    if (d.type === 'answered') { ai.ask = null; ai.steps.push({ name: 'info', text: 'คุณตอบ: ' + d.text }); }
+    if (d.type === 'done' || d.type === 'error') { ai.changed = d.changed; ai.outputs = d.outputs || []; ai.ask = null; if (d.type === 'error') ai.error = d.text; }
     paint();
   });
-  try { await PCD.agent.run({ sid, chatId: chat.id, text, images, model: vslug(m), subModel: cheap ? vslug(cheap) : null, mode, effort: m.effort !== 'none' ? $('#effort')?.value || null : null, budget: +localStorage.getItem('pcAgentBudget') || 0, remote: localStorage.getItem('pcAgentRemote') === '1', maxRounds: +localStorage.getItem('pcAgentMax') || 80, slot: 'chat', history }); }
+  try { await PCD.agent.run({ sid, chatId: chat.id, text, images, style: localStorage.getItem('pcAgentStyle') === 'work' ? 'work' : 'code', model: vslug(m), subModel: cheap ? vslug(cheap) : null, mode, effort: m.effort !== 'none' ? $('#effort')?.value || null : null, budget: +localStorage.getItem('pcAgentBudget') || 0, remote: localStorage.getItem('pcAgentRemote') === '1', maxRounds: +localStorage.getItem('pcAgentMax') || 80, slot: 'chat', history }); }
   catch (x) { ai.error = String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
   agSub?.(); agSub = null; cancelAnimationFrame(raf); ai.streaming = false; ai.content = ai.content.trim(); setBusy(false); chat.agentBusy = false; chat.ctrl = null;
   for (const s of ai.steps) if (s.st === 'run') s.st = 'bad';
@@ -1091,6 +1097,14 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   renderAll(); api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {});
   if (Date.now() - t0 > 15000) PCD.notify('Agent ทำงานเสร็จแล้ว', (ai.content || ai.error || '').replace(/[#*`>]/g, '').slice(0, 140));
 }
+document.addEventListener('click', e => {
+  const o = e.target.closest?.('[data-agopen]'); if (o && PCD?.agent) { PCD.agent.open('chat', o.dataset.agopen).catch(x => toast(String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'bad')); return; }
+  const an = e.target.closest?.('[data-agans]'); if (an && PCD?.agent) { const m = chat.msgs.findLast(x => x.agent && x.ask); if (m) PCD.agent.answer(agSid(), m.ask.id, an.dataset.agans); }
+});
+document.addEventListener('submit', e => {
+  const f = e.target.closest?.('[data-agansf]'); if (!f || !PCD?.agent) return; e.preventDefault();
+  const v = f.querySelector('input').value.trim(), m = chat.msgs.findLast(x => x.agent && x.ask); if (v && m) PCD.agent.answer(agSid(), m.ask.id, v);
+});
 document.addEventListener('click', async e => {
   const b = e.target.closest?.('[data-agundo], [data-agstep], [data-agplan], [data-aggit]'); if (!b || !PCD?.agent || !chat.id) return;
   e.preventDefault(); e.stopPropagation();
@@ -1108,9 +1122,28 @@ document.addEventListener('click', async e => {
   const done = await PCD.agent.undo(agSid(), step).catch(x => { toast(x.message, 'bad'); return null; }); if (!done) return;
   const m = chat.msgs.findLast(x => x.agent); if (m) { if (step == null) m.changed = []; else m.steps.forEach(s => { if (s.step >= step && ['edit_file', 'write_file'].includes(s.name)) s.st = 'bad'; }); } renderAll(); toast(done.length ? `ย้อน ${done.length} ไฟล์แล้ว` : 'ไม่มีไฟล์ให้ย้อน', 'ok');
 });
+// ตัวอย่างงานตามอาชีพ (โหมดงานทั่วไป): Agent ทำไฟล์ออฟฟิศจากไฟล์ในโฟลเดอร์
+const AG_ROLES = [['ขาย/การตลาด', ['สรุปยอดขายจากไฟล์ Excel ในโฟลเดอร์ ทำรายงาน Excel มีกราฟรวมรายเดือน', 'ทำสไลด์ PowerPoint 8 หน้า นำเสนอสินค้าจากข้อมูลในโฟลเดอร์']], ['บัญชี/การเงิน', ['รวมใบเสร็จ PDF ในโฟลเดอร์เป็นตาราง Excel (วันที่ ร้าน ยอด VAT)', 'เช็คยอดใน Excel ว่าตรงกับใบแจ้งหนี้ PDF ไหม สรุปจุดที่ไม่ตรง']], ['HR/ธุรการ', ['ร่างประกาศบริษัทเป็นไฟล์ Word จากโน้ตในโฟลเดอร์', 'สรุปเอกสารทุกไฟล์ในโฟลเดอร์เป็น Word หน้าเดียว']], ['ทั่วไป', ['จัดไฟล์ในโฟลเดอร์ให้เป็นหมวดหมู่ (ถามก่อนย้าย)', 'แปลงไฟล์ Word นี้เป็น PDF และทำสรุป 5 บรรทัด']]];
+// งานตั้งเวลา: แอปที่ถาดรัน Agent เองตามเวลา (เครื่องต้องเปิดอยู่) · โหมดทำเองต้องยืนยันในหน้าต่าง Windows ตอนบันทึก
+async function scheduleSheet() {
+  let list = await PCD.agent.schedules().catch(() => []);
+  const DAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'], m = curModel(), slug = m && m.id !== 'auto' ? vslug(m) : 'claude-sonnet-5.5-eco';
+  const draw = () => `<div class="sheet-form"><p class="sheet-msg">Agent ทำงานเองตามเวลา ในโฟลเดอร์ที่เลือกไว้ · ต้องเปิดเครื่องและแอป (อยู่ที่ถาดได้) · ผลขึ้นเป็นแชตใหม่ + แจ้งเตือน</p>
+    ${list.map((x, i) => `<div class="plug"><div><b>${esc(x.time)}</b> ${x.days.length === 7 ? 'ทุกวัน' : x.days.map(d => DAYS[d]).join(' ')} · ${esc(x.name || x.text.slice(0, 40))}<br><small class="muted">${x.mode === 'auto' ? 'ทำเองทั้งหมด' : x.mode === 'edits' ? 'แก้ไฟล์เอง' : 'ถามก่อน'} · ${esc(x.model)}</small></div><label class="sw"><input type="checkbox" data-son="${i}" ${x.on ? 'checked' : ''}><span></span></label><button type="button" class="icon-btn xs ghost" data-sdel="${i}" aria-label="ลบ">${ic('x')}</button></div>`).join('') || '<p class="muted" style="margin:0">ยังไม่มีงานตั้งเวลา</p>'}
+    <b>เพิ่มงาน</b><input id="snm" placeholder="ชื่องาน เช่น สรุปยอดขายเช้า"><textarea id="stx" rows="3" placeholder="สั่งงาน เช่น อ่านไฟล์ Excel ยอดขายเมื่อวานในโฟลเดอร์ แล้วทำสรุปเป็น Word"></textarea>
+    <div class="row"><input id="stm" type="time" value="08:00" style="width:auto"><select id="smd" style="width:auto"><option value="edits">แก้ไฟล์เอง</option><option value="auto">ทำเองทั้งหมด</option><option value="ask">ถามก่อน (ต้องอยู่หน้าจอ)</option></select></div>
+    <div class="row">${DAYS.map((d, i) => `<label class="chk"><input type="checkbox" data-sday="${i}" checked> ${d}</label>`).join('')}</div>
+    <button type="button" class="btn blue" id="sadd">เพิ่ม</button></div>`;
+  sheet('งานตั้งเวลา', draw(), function bind(d, close) {
+    const saveL = async l => { try { if (await PCD.agent.setSchedules(l)) { list = await PCD.agent.schedules(); d.querySelector('.sheet-b').innerHTML = draw(); bind(d, close); toast('บันทึกแล้ว', 'ok'); } } catch (x) { toast(x.message, 'bad'); } };
+    d.querySelectorAll('[data-sdel]').forEach(b => b.onclick = () => saveL(list.filter((_, i) => i !== +b.dataset.sdel)));
+    d.querySelectorAll('[data-son]').forEach(b => b.onchange = () => saveL(list.map((x, i) => i === +b.dataset.son ? { ...x, on: b.checked } : x)));
+    d.querySelector('#sadd').onclick = () => { const text = d.querySelector('#stx').value.trim(); if (!text) return toast('พิมพ์งานที่จะสั่งก่อน', 'bad'); saveL([...list, { name: d.querySelector('#snm').value.trim(), text, time: d.querySelector('#stm').value, mode: d.querySelector('#smd').value, days: [...d.querySelectorAll('[data-sday]:checked')].map(x => +x.dataset.sday), model: slug, style: localStorage.getItem('pcAgentStyle') === 'code' ? 'code' : 'work', on: true }]); };
+  });
+}
 // ครั้งแรกที่เปิดโหมด Agent: อธิบายสั้นๆ 3 ข้อ + ตัวอย่างคำสั่ง (กดแล้วใส่ในช่องพิมพ์)
 function agentTour() {
-  const ex = ['/explain', 'หาว่าทำไมหน้า login กดแล้วไม่ไปต่อ แล้วแก้ให้', 'เพิ่มปุ่ม export เป็น Excel ในหน้ารายงาน แล้วรันเทสต์', '/init'];
+  const ex = localStorage.getItem('pcAgentStyle') === 'work' ? AG_ROLES.flatMap(r => r[1]).slice(0, 6) : ['/explain', 'หาว่าทำไมหน้า login กดแล้วไม่ไปต่อ แล้วแก้ให้', 'เพิ่มปุ่ม export เป็น Excel ในหน้ารายงาน แล้วรันเทสต์', '/init'];
   sheet('เริ่มใช้โหมด Agent', `<div class="sheet-form agtour"><ol><li><b>สั่งเป็นงาน ไม่ต้องสั่งทีละขั้น</b> Agent จะอ่านโค้ด แก้ไฟล์ รันเทสต์ และแก้ error เองจนเสร็จ</li><li><b>เลือกระดับอนุญาต</b> เริ่มที่ "ถามก่อนทุกครั้ง" หรือ "วางแผนก่อน" แล้วค่อยปล่อยให้ทำเองเมื่อมั่นใจ · ย้อนไฟล์ได้ทุกขั้น</li><li><b>คุมระหว่างทาง</b> พิมพ์แทรกแล้วกด Enter ได้ตลอด · กดปุ่มหยุดเมื่อไรก็ได้ · ดู/อนุญาตจากมือถือได้</li></ol>
     <b>ลองสั่ง</b><div class="row" style="flex-wrap:wrap">${ex.map(x => `<button type="button" class="btn out sm" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div>
     <p class="muted" style="margin:0;font-size:12.5px">ค่าใช้จ่ายหักลิมิต/Wallet ตาม token จริง ตั้งเพดานเงินต่องานได้ในเมนูนี้ · แนะนำโมเดล Claude Sonnet / Opus Eco</p><button class="btn blue" id="agtok">เข้าใจแล้ว</button></div>`, (d, close) => {
