@@ -28,8 +28,10 @@ async function codeHome() {
       <button class="btn blue">+ New project</button>${DESK ? `<button type="button" class="btn out" id="openlocal">${ic('folder', 'sm')} เปิดโฟลเดอร์ในเครื่อง</button>` : ''}</form>
     <details class="card clone"><summary><b>${ic('branch')} Clone จาก GitHub</b> <span class="muted">ดึง repo มาเป็นโปรเจกต์ใหม่</span></summary>
       <form id="cf2" class="form2" style="margin-top:12px"><div><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required></div>
-      <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">Clone</button></div></form>
-      <p class="muted" id="cmsg">ต้องเชื่อม GitHub ก่อน (ปุ่ม Git ในโปรเจกต์ไหนก็ได้)</p></details>
+      <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div>
+      <div id="cftok" hidden style="grid-column:1/-1"><label>GitHub token (ครั้งแรกครั้งเดียว · จำเป็นสำหรับ repo ส่วนตัว)</label><input name="token" type="password" autocomplete="off" placeholder="github_pat_... หรือ ghp_..."><small class="muted">สร้างที่ github.com → Settings → Developer settings → Fine-grained tokens · ให้สิทธิ์ Contents: Read and write</small></div>
+      <div style="align-self:end"><button class="btn blue">Clone</button></div></form>
+      <p class="muted" id="cmsg"></p></details>
     <div class="err" id="e"></div>
     ${list.length > 4 ? '<input id="psearch" type="search" placeholder="ค้นหาโปรเจกต์" aria-label="ค้นหาโปรเจกต์" autocomplete="off" style="margin-bottom:12px">' : ''}
     <div class="grid" id="pgrid">${list.map(p => `<div class="tile proj" data-name="${esc(p.name.toLowerCase())}"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}${p.shared ? ' <span class="pill">แชร์กับฉัน</span>' : ''}</div>
@@ -52,10 +54,14 @@ async function codeHome() {
       await api('/projects/' + id, { method: 'PUT', body: { name: l.name.slice(0, 60) } }); go('/code?p=' + id);
     } catch (x) { $('#e').textContent = x.message; e.target.disabled = false; }
   });
+  // ยังไม่เชื่อม GitHub: ใส่ token ในฟอร์ม Clone ได้เลย ไม่ต้องไปหาปุ่ม Git ในโปรเจกต์อื่นก่อน
+  api('/github').then(g => { $('#cftok').hidden = g.connected; $('#cmsg').textContent = g.connected ? `เชื่อม GitHub แล้ว (${g.login || ''})` : ''; }).catch(() => {});
   $('#cf2').onsubmit = async e => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), msg = $('#cmsg'); e.submitter.disabled = true;
     let id;
     try {
+      if (f.token?.trim()) { msg.textContent = 'กำลังเชื่อม GitHub...'; await api('/github', { method: 'PUT', body: { token: f.token.trim() } }); $('#cftok').hidden = true; }
+      delete f.token;
       msg.textContent = 'กำลังสร้างโปรเจกต์...';
       id = (await api('/projects', { method: 'POST', body: { name: f.repo.replace(/^https:\/\/github\.com\//, '').split('/').pop().replace(/\.git$/, '') || 'repo', empty: true } })).id;
       msg.textContent = 'กำลังเชื่อม repo...'; await api(`/projects/${id}/github`, { method: 'POST', body: f });
