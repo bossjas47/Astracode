@@ -245,6 +245,21 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (r[2] === '/say') { const t = String(b.text || '').trim().slice(0, 20000); if (!t) return err('ข้อความว่าง'); const inbox = [...JSON.parse(row.inbox || '[]'), t].slice(-10); await DB.prepare('UPDATE agent_remote SET inbox=? WHERE chat_id=?').bind(JSON.stringify(inbox), +r[1]).run(); return json({ ok: true }); }
     return err('not found', 404);
   }
+  // แพ็กเสริม Agent: ซื้อด้วย Wallet ได้โควตาใช้ Agent (แอป Desktop / คลาวด์) แยกจากลิมิตแชต · ปิดไว้จนแอดมินเปิด (agent_pack_enabled)
+  if (path === '/api/agent-pack') {
+    const s = await getSettings(env, ['agent_pack_enabled', 'agent_pack_price', 'agent_pack_units', 'agent_pack_days']), price = +s.agent_pack_price || 199, units = +s.agent_pack_units || 120, days = +s.agent_pack_days || 30, now = Date.now();
+    const plan = await planOf(env, u), active = u.agent_pack_until > now, used = active ? (await DB.prepare('SELECT COALESCE(SUM(pack),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(u.id, u.agent_pack_from || 0).first()).x : 0;
+    const info = { enabled: s.agent_pack_enabled === '1', price, days, inPlan: !!plan?.agent, active, until: u.agent_pack_until || null, pct: active ? Math.min(100, used / (u.agent_pack_units || units) * 100) : 0 };
+    if (M === 'GET') return json(info);
+    if (M === 'POST') {
+      if (!info.enabled) return err('ยังไม่เปิดขายแพ็ก Agent', 403);
+      if (await limited(env, 'apack:' + u.id, 5, 3600e3)) return err('ลองใหม่ภายหลัง', 429);
+      const took = await DB.prepare('UPDATE users SET balance=balance-?1, agent_pack_from=?2, agent_pack_until=?3, agent_pack_units=?4 WHERE id=?5 AND balance>=?1 RETURNING balance').bind(price, now, now + days * DAY, units, u.id).first();
+      if (!took) return err(`ยอดเงินใน Wallet ไม่พอ (ต้องมี ฿${price}) เติมเงินก่อน`, 402);
+      await DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -price, took.balance, 'agentpack', `แพ็ก Agent ${days} วัน`, now).run();
+      return json({ ...info, active: true, until: now + days * DAY, pct: 0, balance: took.balance });
+    }
+  }
   // แอป Desktop โหมด Agent: บันทึกคำสั่งและคำตอบลงแชต (โมเดลทำงานผ่าน /v1 ซึ่งคิดเงินแยกแล้ว ตรงนี้เก็บประวัติเท่านั้น) · เปิดดูจากมือถือได้
   if (path === '/api/chats/append' && M === 'POST') {
     if (await limited(env, 'append:' + u.id, 300, 3600e3)) return err('บันทึกบ่อยเกินไป', 429);

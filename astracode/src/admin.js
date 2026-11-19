@@ -7,12 +7,12 @@ import { backup, lossModels, status, verifyBackup } from './jobs.js';
 import { ensureAgentTable, launch, workerModel } from './agent.js';
 // ---------- admin ----------
 export const TABLES = {
-  plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'description', 'sort', 'active'],
+  plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'agent', 'description', 'sort', 'active'],
   models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'ctx_k', 'req_cap', 'bill', 'req_cost', 'req_price', 'code_prompt', 'sys_prompt', 'public', 'note', 'cats', 'fallback_id', 'vision', 'effort', 'effort_levels', 'sort', 'active', 'new_until'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published', 'changelog'],
 };
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
-  'alert_discord', 'alert_line_to', 'cost_alert_daily', 'alert_hour_cost', 'alert_user_hour', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
+  'alert_discord', 'alert_line_to', 'cost_alert_daily', 'alert_hour_cost', 'alert_user_hour', 'agent_pack_enabled', 'agent_pack_price', 'agent_pack_units', 'agent_pack_days', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
   'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'batch_discount_pct', 'line_oa_id', 'line_bot_model', 'canned_replies', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'checkslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
 
@@ -333,10 +333,10 @@ export async function admin(req, env, path, url, me) {
       DB.prepare(`SELECT u.id,u.email,pl.name plan,
         COALESCE((SELECT SUM(cost) FROM usage WHERE user_id=u.id AND created_at>=?1),0) cost,
         COALESCE((SELECT SUM(amount) FROM payments WHERE user_id=u.id AND kind='plan' AND status='approved' AND COALESCE(approved_at,created_at)>=?1),0) rev_plan,
-        COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE user_id=u.id AND kind IN ('api','overflow') AND created_at>=?1),0) rev_wallet
+        COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE user_id=u.id AND kind IN ('api','overflow','agentpack') AND created_at>=?1),0) rev_wallet
         FROM users u LEFT JOIN plans pl ON pl.id=u.plan_id AND u.plan_expires>?2
         WHERE EXISTS (SELECT 1 FROM usage WHERE user_id=u.id AND created_at>=?1) OR EXISTS (SELECT 1 FROM payments WHERE user_id=u.id AND status='approved' AND created_at>=?1)`).bind(from, now).all(),
-      DB.prepare(`SELECT COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow') AND created_at>=?1),0) charges,
+      DB.prepare(`SELECT COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack') AND created_at>=?1),0) charges,
         COALESCE((SELECT SUM(cost) FROM usage WHERE units=0 AND model_id>0 AND created_at>=?1),0) api_cost,
         COALESCE((SELECT SUM(amount) FROM payments WHERE kind='topup' AND status='approved' AND COALESCE(approved_at,created_at)>=?1),0) topups,
         COALESCE((SELECT SUM(balance) FROM users WHERE balance>0),0) liability`).bind(from).first(),
@@ -348,7 +348,7 @@ export async function admin(req, env, path, url, me) {
       DB.prepare('SELECT g.model_id id, md.name, COUNT(*) n, COALESCE(SUM(g.cost),0) cost, COALESCE(SUM(g.tokens_in),0) tin, COALESCE(SUM(g.tokens_out),0) tout, COALESCE(SUM(g.tokens_cache),0) tcache FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? AND g.model_id>0 GROUP BY g.model_id ORDER BY cost DESC').bind(from).all(),
       DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(SUM(cost),0) cost FROM usage WHERE created_at>=? GROUP BY d`).bind(from).all(),
       DB.prepare(`SELECT ${dayOf('COALESCE(approved_at,created_at)')} d, COALESCE(SUM(amount),0) rev FROM payments WHERE kind='plan' AND status='approved' AND COALESCE(approved_at,created_at)>=? GROUP BY d`).bind(from).all(),
-      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(-SUM(amount),0) rev FROM wallet_tx WHERE kind IN ('api','overflow') AND created_at>=? GROUP BY d`).bind(from).all(),
+      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(-SUM(amount),0) rev FROM wallet_tx WHERE kind IN ('api','overflow','agentpack') AND created_at>=? GROUP BY d`).bind(from).all(),
     ]);
     const dayMap = new Map(); const put = (rows, k) => rows.results.forEach(r => { const o = dayMap.get(r.d) || { d: r.d, cost: 0, rev: 0 }; o[k] += r[k]; dayMap.set(r.d, o); }); put(pd, 'cost'); put(pr, 'rev'); put(pw, 'rev');
     const daily = [...dayMap.values()].sort((a, b) => b.d - a.d).slice(0, 60).map(x => ({ ...x, date: new Date(x.d * DAY).toISOString().slice(0, 10), profit: x.rev - x.cost }));

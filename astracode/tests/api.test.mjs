@@ -277,3 +277,26 @@ test('api: /v1/messages client that disconnects is billed; a provider error mid-
   assert.equal(rows(), 2, 'mid-answer provider error not billed');
   fm.close();
 });
+
+test('agent pack: Desktop Agent keys use the plan only on plans that include Agent, else the pack, else the wallet; pack is bought with the wallet', async () => {
+  const fm = await fakeModel((q, res) => fm.sse(res, 'ok', { prompt_tokens: 1000, completion_tokens: 100 }));
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Ag One', base_url: fm.url, cost_in: 1000, cost_out: 2000 });
+  const plus = addPlan(t.DB, { name: 'Plus', price: 349, models: [m.id] }), pro = addPlan(t.DB, { name: 'Pro', price: 790, models: [m.id] });
+  t.DB.raw.prepare('UPDATE plans SET api_limit=1, limit_week=100, agent=? WHERE id=?').run(0, plus.id); t.DB.raw.prepare('UPDATE plans SET api_limit=1, limit_week=100, agent=1 WHERE id=?').run(pro.id);
+  const mk = async (planId, balance) => { const u = await t.user({ balance }); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(planId, Date.now() + 864e5, u.id); const key = 'sk-astra-' + Math.random().toString(36).slice(2, 12); t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'Desktop Agent', await sha(key), key.slice(0, 14), Date.now()); return { u, key }; };
+  const ask = key => t.json('/v1/chat/completions', { method: 'POST', headers: { authorization: 'Bearer ' + key }, body: { model: 'ag-one', messages: [{ role: 'user', content: 'hi' }] } });
+  const row = uid => t.DB.raw.prepare('SELECT units, charge, pack FROM usage WHERE user_id=? ORDER BY id DESC').get(uid);
+  // Pro (รวม Agent): หักลิมิตแพลน
+  const a = await mk(pro.id, 0); assert.equal((await ask(a.key)).status, 200); await Promise.all(t.ctx.pending); assert.ok(row(a.u.id).units > 0 && !row(a.u.id).pack);
+  // Plus ไม่มีแพ็ก ไม่มีเงิน: ใช้ลิมิตแพลนกับ Agent ไม่ได้
+  const b = await mk(plus.id, 0); assert.equal((await ask(b.key)).status, 402);
+  // เปิดขายแพ็ก แล้วซื้อด้วย Wallet → หักแพ็ก ไม่หักลิมิต/เงิน
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('agent_pack_enabled','1'),('agent_pack_price','199'),('agent_pack_units','120')").run();
+  const c = await mk(plus.id, 250);
+  const buy = await t.json('/api/agent-pack', { method: 'POST', cookie: c.u.cookie }); assert.equal(buy.status, 200); assert.equal(buy.data.balance, 51);
+  assert.equal((await ask(c.key)).status, 200); await Promise.all(t.ctx.pending);
+  const r = row(c.u.id); assert.equal(r.units, 0); assert.ok(r.pack > 0); assert.ok(!r.charge);
+  assert.ok((await t.json('/api/agent-pack', { cookie: c.u.cookie })).data.pct > 0);
+  assert.equal((await t.json('/api/agent-pack', { method: 'POST', cookie: (await t.user({ balance: 10 })).cookie })).status, 402);
+  fm.close();
+});

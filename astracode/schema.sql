@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
   , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
   , wallet_day_cap REAL                   -- เพดานใช้ Wallet ต่อวัน (บาท) ที่ผู้ใช้ตั้งเอง
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
+  , agent_pack_from INTEGER, agent_pack_until INTEGER, agent_pack_units REAL -- แพ็กเสริม Agent ที่ซื้อด้วย Wallet
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS plans (
   once INTEGER,                             -- 1 = ซื้อได้ครั้งเดียวต่อบัญชี ไม่ต่ออายุอัตโนมัติ
   sort INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
+  , agent INTEGER                           -- 1 = Agent (แอป Desktop/คลาวด์) ใช้ลิมิตแพลนได้
 );
 
 CREATE TABLE IF NOT EXISTS models (
@@ -134,6 +136,7 @@ CREATE TABLE IF NOT EXISTS usage (
   , src TEXT                                -- chat/api/agent/task/complete/image/system
   , charge REAL                             -- บาทที่หักจาก Wallet
   , flag TEXT                               -- gone = ลูกค้าตัดกลางทาง · est = token ประมาณ (ผู้ให้บริการไม่ส่ง usage) · part = ผู้ให้บริการ error กลางคำตอบ
+  , pack REAL                               -- โควตาแพ็ก Agent ที่ใช้ไป (แทนหน่วยลิมิตแพลน)
 );
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, created_at);
 
@@ -259,6 +262,7 @@ CREATE TABLE IF NOT EXISTS users (
   , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
   , wallet_day_cap REAL                   -- เพดานใช้ Wallet ต่อวัน (บาท) ที่ผู้ใช้ตั้งเอง
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
+  , agent_pack_from INTEGER, agent_pack_until INTEGER, agent_pack_units REAL -- แพ็กเสริม Agent ที่ซื้อด้วย Wallet
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -285,6 +289,7 @@ CREATE TABLE IF NOT EXISTS plans (
   once INTEGER,                             -- 1 = ซื้อได้ครั้งเดียวต่อบัญชี ไม่ต่ออายุอัตโนมัติ
   sort INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
+  , agent INTEGER                           -- 1 = Agent (แอป Desktop/คลาวด์) ใช้ลิมิตแพลนได้
 );
 
 CREATE TABLE IF NOT EXISTS models (
@@ -370,6 +375,7 @@ CREATE TABLE IF NOT EXISTS usage (
   , src TEXT                                -- chat/api/agent/task/complete/image/system
   , charge REAL                             -- บาทที่หักจาก Wallet
   , flag TEXT                               -- gone = ลูกค้าตัดกลางทาง · est = token ประมาณ (ผู้ให้บริการไม่ส่ง usage) · part = ผู้ให้บริการ error กลางคำตอบ
+  , pack REAL                               -- โควตาแพ็ก Agent ที่ใช้ไป (แทนหน่วยลิมิตแพลน)
 );
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, created_at);
 
