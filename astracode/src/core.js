@@ -84,6 +84,13 @@ export async function limited(env, key, max, ms) {
     ON CONFLICT(key) DO UPDATE SET n=CASE WHEN reset<?3 THEN 1 ELSE n+1 END, reset=CASE WHEN reset<?3 THEN ?2 ELSE reset END RETURNING n`).bind(key, now + ms, now).first();
   return r.n > max;
 }
+// แบบเดียวกับ limited แต่คืนตัวนับและเวลารีเซ็ตด้วย (ใช้ทำหัว x-ratelimit-*) ในคำสั่งเดียว
+export async function limitedInfo(env, key, max, ms) {
+  const now = Date.now();
+  const r = await env.DB.prepare(`INSERT INTO rate (key,n,reset) VALUES (?1,1,?2)
+    ON CONFLICT(key) DO UPDATE SET n=CASE WHEN reset<?3 THEN 1 ELSE n+1 END, reset=CASE WHEN reset<?3 THEN ?2 ELSE reset END RETURNING n, reset`).bind(key, now + ms, now).first();
+  return { over: r.n > max, n: r.n, reset: r.reset };
+}
 export const unlimit = (env, key) => env.DB.prepare('DELETE FROM rate WHERE key=?').bind(key).run();
 
 export async function getUser(req, env) {
@@ -195,6 +202,7 @@ export async function planOf(env, u) {
   const p = await planOf0(env, u), b = p?.price > 0 && !p.once && await limitBoost(env); // แพลนทดลอง (ซื้อได้ครั้งเดียว) ไม่ได้โปรเพิ่มลิมิต
   return b && b.until > Date.now() ? Object.assign(p, { limit_4h: p.limit_4h * b.x4h, limit_week: p.limit_week * b.xweek, boost: b }) : p;
 }
+let freeCache = null;
 async function planOf0(env, u) {
   const now = Date.now();
   // แพลนส่วนตัวกับแพลนทีมอ่านพร้อมกัน (ไม่ขึ้นต่อกัน) ลดเวลารอฐานข้อมูลก่อนเริ่มตอบ
@@ -209,7 +217,9 @@ async function planOf0(env, u) {
     return tm;
   }
   if (personal) return personal;
-  return env.DB.prepare('SELECT * FROM plans WHERE price=0 AND active=1 ORDER BY sort LIMIT 1').first();
+  // แพลนฟรีแทบไม่เปลี่ยน: จำไว้ 30 วิ ต่อ isolate (ผู้ใช้แพลนฟรี/จ่ายจาก Wallet ไม่ต้องรอฐานข้อมูลเพิ่มอีกรอบ) · คืนสำเนา เพราะผู้เรียกแก้ค่าในวัตถุได้
+  if (!(freeCache?.db === env.DB && freeCache.exp > now)) freeCache = { db: env.DB, exp: now + 30e3, v: await env.DB.prepare('SELECT * FROM plans WHERE price=0 AND active=1 ORDER BY sort LIMIT 1').first() };
+  return freeCache.v && { ...freeCache.v };
 }
 // ลิมิตหักตามต้นทุนจริง (บาท) แบบเดียวกับ Claude: รอบสั้นเริ่มนับตอนส่งข้อความแรกและยาว 4 ชม. · รอบสัปดาห์เริ่มตอนใช้ครั้งแรกแล้วรีเซ็ตหลัง 7 วัน
 export async function usageStatus(env, u, plan) {

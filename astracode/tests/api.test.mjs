@@ -365,3 +365,20 @@ test('connect Google: consent flow stores a sealed refresh token, adds a Google 
     assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM mcp_servers WHERE url='astra://google'").get().n, 0);
   } finally { globalThis.fetch = real; }
 });
+
+test('/v1 after reading everything in parallel: rate-limit counter, blocked words, price markup and the daily wallet cap still apply', async () => {
+  const { t, v1, bal } = await setup();
+  const a = await v1('/v1/chat/completions', msg), b = await v1('/v1/chat/completions', msg);
+  assert.equal(a.h.get('x-ratelimit-remaining-requests'), '59'); assert.equal(b.h.get('x-ratelimit-remaining-requests'), '58');
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('block_words','badword')").run();
+  const blocked = await v1('/v1/chat/completions', { model: 'chat-one', messages: [{ role: 'user', content: 'a BadWord here' }] });
+  assert.equal(blocked.status, 400);
+  t.DB.raw.prepare("DELETE FROM settings WHERE key='block_words'").run();
+  const c0 = bal(); await v1('/v1/chat/completions', msg); const plain = c0 - bal();
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('price_markup','100')").run();
+  const c1 = bal(); await v1('/v1/chat/completions', msg); const marked = c1 - bal();
+  assert.ok(marked > plain * 1.4, `markup raises the charge: ${plain} → ${marked}`); // ส่วนบวกใช้กับราคาที่ไม่ได้ตั้งเอง (ผลเท่ากับโค้ดก่อนปรับ)
+  t.DB.raw.prepare('UPDATE users SET wallet_day_cap=0.000001').run();
+  const capped = await v1('/v1/chat/completions', msg);
+  assert.equal(capped.status, 429); assert.match(capped.d.error.message, /Daily wallet limit/);
+});

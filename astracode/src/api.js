@@ -1,4 +1,4 @@
-import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
+import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
 import { SSE, callModel, chat, logUsage, mcpCall, webSearch } from './ai.js';
 import { unseal } from './projects.js';
 import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl, walletAdd } from './billing.js';
@@ -38,9 +38,15 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (!k || k.banned) return fail('API key ไม่ถูกต้อง', 401, 'invalid_api_key');
     lg.kid = k.kid; lg.uid = k.id;
     if (k.ip_allow && !ipAllowed(k.ip_allow, ip(req, env))) return fail('This IP address is not allowed for this API key.', 403, 'permission_error');
-    const plan = await planOf(env, k);
+    // คำขอเรียกโมเดล: อ่านแพลน, นับ rate limit (คำสั่งเดียวได้ทั้งตัวนับและเวลารีเซ็ต), อ่าน body, แพ็ก Agent, เพดาน Wallet ต่อวัน พร้อมกัน · เดิมรอทีละคำสั่ง
+    const isCall = req.method === 'POST' && ['/v1/chat/completions', '/v1/images/generations', '/v1/embeddings'].includes(path);
+    const isAgentKey = /^(Desktop|Cloud) Agent/.test(k.kname || '');
+    const [plan, packUsed, rate, b0, dayCapped] = await Promise.all([planOf(env, k),
+      isAgentKey && k.agent_pack_until > Date.now() ? env.DB.prepare('SELECT COALESCE(SUM(pack),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(k.id, k.agent_pack_from || 0).first().then(r => r.x) : null,
+      isCall ? limitedInfo(env, 'api:' + k.kid, 60, 60e3) : null, isCall ? req.json().catch(() => null) : null,
+      isCall && k.balance >= WALLET_MIN ? dayCapHit(env, k.id) : false]);
     // แอป Desktop / Agent บนคลาวด์ ใช้ key ชื่อ "Desktop Agent" / "Cloud Agent": แพลนที่รวม Agent (Pro ขึ้นไป) ใช้ลิมิตแพลน · แพลนอื่นใช้แพ็ก Agent ก่อน แล้วค่อย Wallet
-    const isAgentKey = /^(Desktop|Cloud) Agent/.test(k.kname || ''), packLeft = isAgentKey && k.agent_pack_until > Date.now() ? (k.agent_pack_units || 0) - (await env.DB.prepare('SELECT COALESCE(SUM(pack),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(k.id, k.agent_pack_from || 0).first()).x : 0;
+    const packLeft = packUsed == null ? 0 : (k.agent_pack_units || 0) - packUsed;
     if (!(plan?.price > 0) && !(k.balance >= WALLET_MIN) && !(packLeft > 0)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿1)', 402, 'insufficient_quota'); // ไม่มีแพลนเสียเงิน: ใช้ได้ทุกโมเดลจาก Wallet ตามราคาขาย
     const canPlan = !!plan?.api_limit && k.use_plan !== 0 && !plan._team?.api_off; // หัวหน้าทีมปิด API ของสมาชิก = ใช้งบทีมไม่ได้ (ยังใช้ Wallet ของตัวเองได้)
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
@@ -101,19 +107,22 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (path === '/v1/batches' || path.startsWith('/v1/batches/')) return await batchApi(req, env, k, models, path, out, fail);
     const isImg = path === '/v1/images/generations', isEmb = path === '/v1/embeddings';
     if ((path !== '/v1/chat/completions' && !isImg && !isEmb) || req.method !== 'POST') return fail('not found', 404);
-    const [over, b0] = await Promise.all([limited(env, 'api:' + k.kid, 60, 60e3), req.json().catch(() => null)]), rrow = await env.DB.prepare('SELECT n,reset FROM rate WHERE key=?').bind('api:' + k.kid).first();
+    const over = rate.over, rrow = rate;
     const secs = Math.max(1, Math.ceil(((rrow?.reset || 0) - Date.now()) / 1e3));
     rl = { 'x-ratelimit-limit-requests': '60', 'x-ratelimit-remaining-requests': String(Math.max(0, 60 - (rrow?.n || 0))), 'x-ratelimit-reset-requests': secs + 's' };
     if (over) return fail('ส่งคำขอเร็วเกินไป (60 ครั้ง/นาที)', 429, 'rate_limit_error', { 'retry-after': String(secs) });
     const b = b0 || {}, pool = allPublic.filter(x => (!allow || allow.includes(slug(x))) && (isImg ? x.provider === 'image' : isEmb ? x.provider === 'embedding' : x.provider !== 'embedding'));
     const m = pool.find(x => slug(x) === b.model || x.api_model === b.model) || ((isImg || isEmb) && !b.model ? pool[0] : null);
     if (!m) return fail(`ไม่พบโมเดล "${String(b?.model ?? '').slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404);
-    Object.assign(m, await env.DB.prepare('SELECT * FROM models WHERE id=?').bind(m.id).first() || {}); // ราคา/ตั้งค่าล่าสุดเสมอ (รายการโมเดลอาจค้างจาก memo ได้ 30 วิ)
-    if (await reqCapHit(env, k, m)) return fail(`${m.name} reached its request cap (${m.req_cap} per 4 hours).`, 429, 'rate_limit_error');
+    // อ่านค่าล่าสุดของโมเดล + เพดานคำขอ/สัปดาห์ + ลิมิตแพลน + คำต้องห้าม + ส่วนบวกราคา พร้อมกัน · เพดานใช้ค่าจากรายการโมเดลที่จำไว้ (ค้างได้ไม่เกิน 30 วิ)
+    const onPlan = canPlan && planIds.has(m.id) && (!isAgentKey || plan.agent); // Agent ใช้ลิมิตแพลนได้เฉพาะแพลนที่รวม Agent
+    const [fresh, reqCapped, capped, st, blockWords, markup] = await Promise.all([env.DB.prepare('SELECT * FROM models WHERE id=?').bind(m.id).first(), reqCapHit(env, k, m),
+      onPlan ? capHit(env, k, plan, m) : false, onPlan ? usageStatus(env, k, plan) : null, getSetting(env, 'block_words'), getSetting(env, 'price_markup')]);
+    Object.assign(m, fresh || {}); // ราคา/ตั้งค่าล่าสุดเสมอ (รายการโมเดลอาจค้างจาก memo ได้ 30 วิ)
+    if (reqCapped) return fail(`${m.name} reached its request cap (${m.req_cap} per 4 hours).`, 429, 'rate_limit_error');
     let billingMode = 'wallet';
-    if (canPlan && planIds.has(m.id) && (!isAgentKey || plan.agent)) { // Agent ใช้ลิมิตแพลนได้เฉพาะแพลนที่รวม Agent
-      if (await capHit(env, k, plan, m)) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');
-      const st = await usageStatus(env, k, plan);
+    if (onPlan) {
+      if (capped) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');
       if (st.pct4h < 100 && st.pctWeek < 100) billingMode = 'plan';
       else if (k.wallet_overflow && k.balance >= WALLET_MIN) billingMode = 'wallet';
       else return fail('ลิมิตแพลนเต็มแล้ว (4 ชม. / สัปดาห์)', 429, 'insufficient_quota');
@@ -121,7 +130,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     else if (!(k.balance >= WALLET_MIN)) {
       return fail(canPlan ? `แพลน ${plan.name} ไม่รวมโมเดลนี้ และยอดเงินใน Wallet ไม่พอ` : 'ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans', 402, 'insufficient_quota');
     }
-    if (billingMode === 'wallet' && await dayCapHit(env, k.id)) return fail('Daily wallet limit reached (set on the account page).', 429, 'insufficient_quota');
+    if (billingMode === 'wallet' && dayCapped) return fail('Daily wallet limit reached (set on the account page).', 429, 'insufficient_quota');
     const month = monthKey(), spent = k.spent_month === month ? k.spent : 0;
     if (k.budget != null && spent >= k.budget) return fail(`key นี้ใช้ครบงบเดือนนี้แล้ว (฿${k.budget})`, 429, 'insufficient_quota');
     // พารามิเตอร์แบบ OpenAI: ตรวจแล้วส่งต่อให้โมเดล (ค่าผิดรูปแบบ = 400 ไม่ทิ้งเงียบๆ)
@@ -155,7 +164,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       : x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.length
         ? { role: 'assistant', content: text(x.content) || null, tool_calls: x.tool_calls }
         : { role: x.role, content: normContent(x.content) }).filter(x => x.role === 'tool' || (x.tool_calls?.length) || (Array.isArray(x.content) ? x.content.length : x.content));
-    if (await blockedText(env, hist.map(x => typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '')).join('\n'))) return fail('This request contains content that is not accepted.', 400, 'invalid_request_error');
+    if (await blockedText(env, hist.map(x => typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '')).join('\n'), blockWords)) return fail('This request contains content that is not accepted.', 400, 'invalid_request_error');
     if (extra.response_format && m.provider !== 'openai') { // Claude/Responses ไม่มี JSON mode แบบ chat/completions: สั่งผ่านคำสั่งระบบ
       system += (system ? '\n\n' : '') + 'Respond with a single valid JSON value only: no prose, no code fences.' + (extra.response_format.json_schema?.schema ? ' It must match this JSON Schema: ' + JSON.stringify(extra.response_format.json_schema.schema).slice(0, 4000) : '');
       delete extra.response_format;
@@ -167,7 +176,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const tools = Array.isArray(b.tools) && b.tools.length ? b.tools : undefined, toolChoice = b.tool_choice;
     let maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined;
     if (billingMode === 'wallet') { // ตัดเงินหลังตอบ: จำกัดผลลัพธ์ไม่ให้เกินยอดที่เหลือ และให้ใช้ Wallet ทีละคำขอต่อผู้ใช้ กันยิงขนานจนยอดติดลบ
-      const pr = await priceOf(env, m), need = Math.ceil((JSON.stringify(hist).length + system.length) / 2) * pr.in / 1e6, room = k.balance - need;
+      const pr = await priceOf(env, m, false, markup), need = Math.ceil((JSON.stringify(hist).length + system.length) / 2) * pr.in / 1e6, room = k.balance - need;
       if (pr.req > 0 ? k.balance < pr.req : (!(room > 0) || (isImg && room < pr.out))) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
       // ยิงพร้อมกันได้ 4 คำขอต่อบัญชี (เครื่องมือเขียนโค้ดยิงขนาน) · ช่องที่ k ได้งบ 1/2^(k+1) ของยอดที่เหลือ รวมทุกช่องไม่เกินยอดจริง Wallet จึงไม่ติดลบ
       for (let slot = 0; slot < 4 && !walletKey; slot++) {

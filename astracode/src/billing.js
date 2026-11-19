@@ -11,13 +11,13 @@ export const r4 = v => Math.round(v * 10000) / 10000;
 export const promoOn = (m, now = Date.now()) => m.promo_pct > 0 && (!m.promo_start || m.promo_start <= now) && (!m.promo_end || now <= m.promo_end);
 // ราคาขาย/1M token: ตั้งเอง หรือ ทุน + markup; base = ก่อนหักโปร
 // คำต้องห้ามที่แอดมินตั้ง (คั่นด้วย , หรือขึ้นบรรทัดใหม่): กันเนื้อหาที่ทำให้คีย์ upstream โดนแบน · เทียบแบบไม่สนตัวพิมพ์
-export async function blockedText(env, text) {
-  const words = String(await getSetting(env, 'block_words') || '').split(/[,\n]/).map(x => x.trim().toLowerCase()).filter(x => x.length >= 2);
+export async function blockedText(env, text, preset) { // preset = ค่า block_words ที่อ่านมาแล้ว (ไม่ต้องอ่านซ้ำ)
+  const words = String((preset ?? await getSetting(env, 'block_words')) || '').split(/[,\n]/).map(x => x.trim().toLowerCase()).filter(x => x.length >= 2);
   if (!words.length) return false; const t = String(text || '').toLowerCase();
   return words.some(w => t.includes(w));
 }
-export async function priceOf(env, m, base) {
-  const mk = +(await getSetting(env, 'price_markup')) || 0, off = !base && promoOn(m) ? 1 - Math.min(m.promo_pct, 100) / 100 : 1;
+export async function priceOf(env, m, base, markup) { // markup = ค่า price_markup ที่อ่านมาแล้ว (ไม่ต้องอ่านซ้ำ)
+  const mk = +(markup ?? await getSetting(env, 'price_markup')) || 0, off = !base && promoOn(m) ? 1 - Math.min(m.promo_pct, 100) / 100 : 1;
   const p = (v, c) => r4((v ?? c * (1 + mk / 100)) * off);
   return { in: p(m.price_in, m.cost_in), out: p(m.price_out, m.cost_out), cache: p(m.price_cache, m.cost_cache), write: p(m.price_cache_write, m.cost_cache_write), req: flat(m) ? p(m.req_price, m.req_cost) : 0 }; // req > 0 = คิดเหมาต่อ request
 }
