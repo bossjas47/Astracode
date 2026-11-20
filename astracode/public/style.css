@@ -1702,3 +1702,4 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .pushnote.st-bad > .ic { color: var(--red); }
 .gauto { margin: 10px 0; }
 .chg .cpath[data-openf] { cursor: pointer; } @media (hover: hover) { .chg .cpath[data-openf]:hover { text-decoration: underline; } }
+.imp-skip { border: 1px solid var(--hair); border-radius: 12px; padding: 8px 12px; } .imp-skip summary { cursor: pointer; } .imp-skip ul { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; max-height: 200px; overflow: auto; word-break: break-all; }

@@ -48,7 +48,7 @@ export function codeTool(ws, name, a = {}) {
     const label = 'อ่าน ' + path;
     if (!F.has(path)) return fail(`file not found: ${path}. Use list_dir or glob to see the files.`, label);
     const c = F.get(path);
-    if (isImg(c)) return { result: `${path} is an image (~${Math.round(c.length / 1365)}KB). Use it in HTML with <img src="${path}"> or in CSS with url(${path}).`, emit: '', ok: true, label };
+    if (isImg(c)) return { result: c.startsWith('data:image/') ? `${path} is an image (~${Math.round(c.length / 1365)}KB). Use it in HTML with <img src="${path}"> or in CSS with url(${path}).` : `${path} is a binary file (${c.slice(5, c.indexOf(';'))}, ~${Math.round(c.length / 1365)}KB). It cannot be read as text; refer to it by its path.`, emit: '', ok: true, label };
     const L = c.split('\n'), from = Math.max(1, Math.floor(+a.offset || 1)), n = Math.min(Math.max(1, Math.floor(+a.limit || 2000)), 5000);
     let text = L.slice(from - 1, from - 1 + n).map((l, i) => `${String(from + i).padStart(6)}\t${l}`).join('\n');
     const cap = Math.max(4000, Math.min(100e3, ws.budget)); if (text.length > cap) text = text.slice(0, cap) + '\n…(cut: read the rest with offset)';

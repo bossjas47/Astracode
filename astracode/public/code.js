@@ -285,8 +285,14 @@ function openFile(path) {
 // ดูรูปในโปรเจกต์ (แทนตัวแก้ไขข้อความ)
 function showImg(path) {
   const v = $('#imgview'), main = $('.ide-main'); if (!v || !main) return;
-  const d = path && isImg(path) ? IDE.files.get(path) : '', on = isDataImg(d);
-  v.hidden = !on; main.classList.toggle('isimg', on); if (!on) return;
+  const raw = path ? IDE.files.get(path) : '', d = isImg(path || '') ? raw : '', on = isDataImg(d), bin = !on && isDataBin(raw);
+  v.hidden = !on && !bin; main.classList.toggle('isimg', on || bin);
+  if (bin) { // ไฟล์ไบนารี (ฟอนต์ เสียง PDF ...): แสดงข้อมูลแทนตัวแก้ข้อความ
+    v.innerHTML = `<div class="iv-box"><div class="iv-meta"><b>${esc(path)}</b><span class="muted">ไฟล์ไบนารี · ~${Math.round(raw.length / 1365)}KB</span></div><p class="muted" style="margin:0 0 10px;font-size:12.5px">แก้ในตัวแก้โค้ดไม่ได้ ใช้ในโค้ดด้วยพาธ ${esc(path)} · ส่งออก zip ได้ไฟล์จริง</p><div class="row"><a class="btn out sm" href="${raw}" download="${esc(path.split('/').pop())}">Download</a><button class="btn red sm" id="ivdel">Delete</button></div></div>`;
+    $('#ivdel').onclick = async () => { if (!await confirmSheet(`ลบ ${path} ?`, { title: 'ยืนยันการลบ', ok: 'Delete', danger: true })) return; try { await delFile(path); dropFile(path); refresh(); } catch (x) { setStatus(x.message, true); } };
+    return;
+  }
+  if (!on) return;
   v.innerHTML = `<div class="iv-box"><img alt="${esc(path)}" src="${d}"><div class="iv-meta"><b>${esc(path)}</b><span class="muted" id="ivsz">~${Math.round(d.length / 1365)}KB</span></div>
     <p class="muted" style="margin:0 0 10px;font-size:12.5px">ใช้ในโค้ดด้วย &lt;img src="${esc(path)}"&gt; หรือ url(${esc(path)})</p><div class="row"><button class="btn out sm" id="ivcp">Copy path</button><button class="btn red sm" id="ivdel">Delete</button></div></div>`;
   const im = v.querySelector('img'); im.onload = () => { const z = $('#ivsz'); if (z) z.textContent = `${im.naturalWidth}×${im.naturalHeight}px · ~${Math.round(d.length / 1365)}KB`; };
@@ -402,34 +408,80 @@ async function readText(f) {
 }
 async function uploadFiles(list) {
   const out = [], skip = [];
-  for (const f of list) try { out.push(/^image\/(?!svg)/.test(f.type) || IMG_RE.test(f.name) ? await imageFile(f) : { path: f.name, content: await readText(f) }); } catch (x) { skip.push(x.message); }
-  if (out.length) await writeFiles(out);
-  setStatus(`อัปโหลด ${out.length} ไฟล์` + (skip.length ? ` · ข้าม: ${skip.join(', ')}` : ''), skip.length > 0);
+  for (const f of list) try { if (/^image\/(?!svg)/.test(f.type) || IMG_RE.test(f.name)) { out.push(await imageFile(f)); continue; } const r = await fileEntry(f.name, new Uint8Array(await f.arrayBuffer())); r.file ? out.push(r.file) : skip.push([f.name, r.why]); } catch (x) { skip.push([f.name, x.message]); }
+  importReport('อัปโหลดไฟล์', out.length ? await writeChunks(out, skip) : 0, skip);
+}
+// ไฟล์ไบนารีอื่นที่ไม่ใช่รูป (ฟอนต์ เสียง วิดีโอ PDF ...) เก็บเป็น data URL ถ้าไม่ใหญ่เกิน ไม่ให้หายตอนนำเข้า · ส่งออก zip เป็นไฟล์จริงเหมือนเดิม
+const BIN_MIME = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf', eot: 'application/vnd.ms-fontobject', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', pdf: 'application/pdf', wasm: 'application/wasm', zip: 'application/zip' };
+const BIN_RE = /\.(woff2?|ttf|otf|eot|mp3|wav|ogg|m4a|mp4|webm|mov|pdf|wasm|zip|gz|tgz|rar|7z|jar|class|exe|dll|so|dylib|bin|dat|db|sqlite3?|psd|ai|sketch|fig|xlsx?|docx?|pptx?|keystore|jks|p12|pfx)$/i;
+const BIN_MAX = 370e3; // base64 แล้วยังไม่เกิน 500KB ต่อไฟล์
+const isDataBin = t => typeof t === 'string' && /^data:[\w.+/-]*;base64,/.test(t);
+const b64u8 = u => { let x = ''; for (let i = 0; i < u.length; i += 0x8000) x += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(x); };
+const looksBinary = u => { const n = Math.min(u.length, 8000); for (let i = 0; i < n; i++) if (u[i] === 0) return true; return false; };
+// แปลงไฟล์หนึ่งไฟล์ (bytes) เป็นรายการที่เก็บในโปรเจกต์ได้ · คืน { file } หรือ { why }
+async function fileEntry(path, u) {
+  if (IMG_RE.test(path)) {
+    const ext = path.split('.').pop().toLowerCase(), mime = { jpg: 'jpeg', jpeg: 'jpeg', ico: 'x-icon' }[ext] || ext;
+    let d = `data:image/${mime};base64,` + b64u8(u);
+    if (d.length > 420000) try { d = (await shrinkImage(d)).data; } catch { return { why: 'รูปเปิดไม่ได้' }; }
+    return d.length > PF_MAX ? { why: 'รูปใหญ่เกิน ย่อแล้วยังเกิน 500KB' } : { file: { path, content: d } };
+  }
+  if (BIN_RE.test(path) || looksBinary(u)) {
+    if (u.length > BIN_MAX) return { why: 'ไฟล์ไบนารีใหญ่เกิน 370KB' };
+    return { file: { path, content: `data:${BIN_MIME[path.split('.').pop().toLowerCase()] || 'application/octet-stream'};base64,` + b64u8(u) } };
+  }
+  const t = new TextDecoder('utf-8').decode(u).replace(/^﻿/, '');
+  return t.length > PF_MAX ? { why: 'ไฟล์ข้อความใหญ่เกิน 500KB' } : { file: { path, content: t } };
+}
+const PF_MAX = 500e3, PF_COUNT = 600, PF_BYTES = 10e6;
+// ส่งขึ้นเซิร์ฟเวอร์ทีละชุด (กันคำขอใหญ่เกิน) · ชุดที่ไม่ผ่านไม่ทำให้ชุดอื่นหาย
+async function writeChunks(files, skip) {
+  let done = 0, chunk = [], size = 0;
+  const flush = async () => {
+    if (!chunk.length) return; const c = chunk; chunk = []; size = 0;
+    try { await writeFiles(c); done += c.length; } catch (x) { for (const f of c) skip.push([f.path, x.message]); }
+    setStatus(`กำลังนำเข้า ${done}/${files.length} ไฟล์...`);
+  };
+  for (const f of files) { if (chunk.length >= 60 || size + f.content.length > 2.5e6) await flush(); chunk.push(f); size += f.content.length; }
+  await flush(); return done;
+}
+// สรุปหลังนำเข้า: บอกทุกไฟล์ที่ไม่ได้เข้า พร้อมเหตุผล (เดิมขึ้นแค่แถบสถานะแป๊บเดียว ผู้ใช้เลยคิดว่าไฟล์หาย)
+function importReport(title, done, skip) {
+  setStatus(`นำเข้า ${done} ไฟล์` + (skip.length ? ` · ไม่ได้นำเข้า ${skip.length}` : ''), skip.length > 0 && !done);
+  if (!skip.length) return toast(`นำเข้า ${done} ไฟล์แล้ว`, 'ok');
+  const by = new Map(); for (const [p, why] of skip) (by.get(why) || by.set(why, []).get(why)).push(p);
+  sheet(title, `<div class="sheet-form"><p class="sheet-msg">นำเข้าแล้ว <b>${done}</b> ไฟล์ · ไม่ได้นำเข้า <b>${skip.length}</b> ไฟล์</p>
+    ${[...by].map(([why, ps]) => `<details class="imp-skip"${by.size === 1 ? ' open' : ''}><summary><b>${esc(why)}</b> <span class="muted">${ps.length} ไฟล์</span></summary><ul>${ps.slice(0, 80).map(x => `<li>${esc(x)}</li>`).join('')}${ps.length > 80 ? `<li class="muted">และอีก ${ps.length - 80} ไฟล์</li>` : ''}</ul></details>`).join('')}
+    <p class="muted" style="font-size:12.5px;margin:0">node_modules / ไฟล์ build ติดตั้งหรือสร้างใหม่ได้ด้วย npm install / npm run build ในเทอร์มินัล</p></div>`);
 }
 async function importZip(file) {
   setStatus('กำลังแตก zip...');
   await lib('jszip');
-  const z = await JSZip.loadAsync(file), out = [], skip = [];
-  const entries = Object.values(z.files).filter(e => !e.dir && !IGNORE.test(e.name));
-  const roots = new Set(entries.map(e => e.name.split('/')[0]));
-  const strip = roots.size === 1 && entries.every(e => e.name.includes('/')); // zip ที่มีโฟลเดอร์ครอบชั้นเดียว
-  for (const e of entries) {
-    const path = strip ? e.name.split('/').slice(1).join('/') : e.name;
-    if (IMG_RE.test(path)) { // รูปใน zip: เก็บเป็น data URL (ย่อถ้าใหญ่)
-      try { const ext = path.split('.').pop().toLowerCase(), mime = { jpg: 'jpeg', jpeg: 'jpeg', svg: 'svg+xml', ico: 'x-icon' }[ext] || ext; let d = `data:image/${mime};base64,` + await e.async('base64'); if (d.length > 420000) d = (await shrinkImage(d)).data; out.push({ path, content: d }); } catch { skip.push(path); }
-      continue;
-    }
-    const t = await e.async('string');
-    if (t.length > 500e3 || t.includes('\u0000')) { skip.push(path); continue; }
-    out.push({ path, content: t });
+  let z; try { z = await JSZip.loadAsync(file); } catch { return setStatus('เปิด zip ไม่ได้ (ไฟล์เสียหรือไม่ใช่ zip)', true); }
+  const skip = [], ALWAYS = /(^|\/)(__MACOSX|\.git|node_modules|\.DS_Store|Thumbs\.db|desktop\.ini)(\/|$)/;
+  const norm = n => n.replace(/\\/g, '/').replace(/^(\.?\/)+/, '').split('/').map(seg => seg.replace(/[<>:"|?*\x00-\x1f]/g, '_').trim()).filter(Boolean).join('/'); // zip จาก Windows ใช้ \ · ตัดอักษรที่ใช้ในชื่อไฟล์ไม่ได้
+  let entries = Object.values(z.files).filter(e => !e.dir).map(e => ({ e, name: norm(e.name) })).filter(x => x.name);
+  let junk = 0; entries = entries.filter(x => ALWAYS.test(x.name) ? (junk++, false) : true);
+  const roots = new Set(entries.map(x => x.name.split('/')[0]));
+  if (roots.size === 1 && entries.every(x => x.name.includes('/'))) for (const x of entries) x.name = x.name.split('/').slice(1).join('/'); // zip ที่มีโฟลเดอร์ครอบชั้นเดียว
+  const isNode = entries.some(x => /(^|\/)package\.json$/.test(x.name)), BUILT = /(^|\/)(dist|build|\.next|\.nuxt|\.output|\.svelte-kit|coverage|\.cache|\.parcel-cache|\.turbo)\//;
+  const out = [], have = new Map([...IDE.files].map(([k, v]) => [k, v.length]));
+  for (const { e, name } of entries) {
+    if (isNode && BUILT.test(name)) { skip.push([name, 'ไฟล์ที่ build แล้ว (สร้างใหม่ได้)']); continue; } // โปรเจกต์ Node: dist/build เป็นผลลัพธ์ ไม่ใช่โค้ดต้นฉบับ
+    if (name.length > 200) { skip.push([name, 'ชื่อไฟล์/พาธยาวเกิน 200 ตัวอักษร']); continue; }
+    const r = await fileEntry(name, await e.async('uint8array'));
+    if (!r.file) { skip.push([name, r.why]); continue; }
+    const next = new Map(have); next.set(name, r.file.content.length);
+    if (next.size > PF_COUNT || [...next.values()].reduce((a, b) => a + b, 0) > PF_BYTES) { skip.push([name, 'เกินขีดจำกัดโปรเจกต์ (600 ไฟล์ / 10MB)']); continue; }
+    have.set(name, r.file.content.length); out.push(r.file);
   }
-  if (!out.length) return setStatus('ไม่พบไฟล์ข้อความใน zip', true);
-  await writeFiles(out);
-  setStatus(`นำเข้า ${out.length} ไฟล์` + (skip.length ? ` · ข้าม ${skip.length} ไฟล์ (รูป/ไบนารี/ใหญ่เกิน)` : ''));
+  if (junk) skip.push([`${junk} ไฟล์ใน node_modules / .git / __MACOSX`, 'ไฟล์ระบบ / แพ็กเกจ (ไม่ต้องนำเข้า)']);
+  if (!out.length) return importReport('นำเข้า zip', 0, skip.length ? skip : [['(zip ว่าง)', 'ไม่พบไฟล์']]);
+  importReport('นำเข้า zip', await writeChunks(out, skip), skip);
 }
 async function exportZip() {
   await saveNow(); await lib('jszip');
-  const z = new JSZip(); for (const p of IDE.files.keys()) isImg(p) && isDataImg(content(p)) ? z.file(p, content(p).split(',')[1], { base64: true }) : z.file(p, content(p));
+  const z = new JSZip(); for (const p of IDE.files.keys()) isDataBin(content(p)) && (isImg(p) || BIN_RE.test(p) || !/\.(txt|md|html?|css|js|json|svg)$/i.test(p)) ? z.file(p, content(p).split(',')[1], { base64: true }) : z.file(p, content(p));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(await z.generateAsync({ type: 'blob' })); a.download = IDE.name.replace(/[^\wก-๙-]+/g, '_') + '.zip';
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
@@ -482,7 +534,7 @@ function buildHtml(htmlPath, jsPath, forExport = false) {
     })
     .replace(/<script\b([^>]*\btype\s*=\s*["']module["'][^>]*)>([\s\S]*?)<\/script>/gi, (m, attrs, body) => /src=/.test(attrs) ? m : `<script${attrs}>${rewriteMod(body, dir).replace(/<\/script/gi, '<\\/script')}</script>`);
   if (deferred.length) html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, deferred.join('\n') + '\n</body>') : html + deferred.join('\n');
-  html = html.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, ref) => { const fp = resolveFrom(dir, ref); return fp && isImg(fp) && isDataImg(IDE.files.get(fp)) ? `url(${q}${IDE.files.get(fp)}${q})` : m; }); // รูปใน CSS
+  html = html.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, ref) => { const fp = resolveFrom(dir, ref); return fp && isDataBin(IDE.files.get(fp)) ? `url(${q}${IDE.files.get(fp)}${q})` : m; }); // รูป / ฟอนต์ใน CSS
   const headAdd = (forExport ? '' : STORAGE_SHIM + CAPTURE) + importMap;
   return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + headAdd) : headAdd + html;
 }
