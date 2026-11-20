@@ -94,6 +94,7 @@ test('Code mode with native tools: a failed edit goes back to the model, which f
   const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'แก้', model_id: m.id, project_id: pid } }));
   assert.equal(fm.hits.length, 2);
   assert.match(fm.hits[1].body.messages.find(x => x.role === 'tool').content, /^Error: old_string not found/);
+  assert.match(fm.hits[1].body.messages.find(x => x.role === 'tool').content, /Closest lines in the file now[\s\S]*1\tlet a = 1/, 'the closest lines come back so the model can fix it without reading again');
   assert.ok(ev.some(e => e.mcp && !e.mcp.ok) && ev.some(e => e.mcp?.ok));
   const text = ev.filter(e => e.t).map(e => e.t).join('');
   assert.deepEqual(changesOf(text, () => 'let a = 1\n').map(c => c.content), ['let a = 2\n']);
@@ -272,5 +273,43 @@ test('Code mode: todo_write streams a live checklist (not a tool step); plan mod
   assert.match(req.messages[0].content, /PLAN MODE IS ON/);
   assert.match(fm.hits[n + 1].body.messages.filter(x => x.role === 'tool').at(-1).content, /plan mode is on/);
   assert.ok(!ev2.filter(e => e.t).map(e => e.t).join('').includes('path=a.js'), 'no edit block in plan mode');
+  fm.close();
+});
+
+test('Code mode self-check: an edit that leaves a function never called, or a checklist with open items, gets one more round to finish before the answer ends', async () => {
+  const { t, m, u, fm } = await setup((fm, res, body) => {
+    const last = body.messages.at(-1), tools = body.messages.filter(x => x.role === 'tool');
+    if (!tools.length) return toolSSE(res, [['todo_write', { todos: [{ content: 'สร้างทะเล', status: 'completed' }, { content: 'เชื่อมทะเลกับฉาก', status: 'pending' }] }], ['edit_file', { path: 'app.js', old_string: 'function start() {}', new_string: 'function makeOcean() { return 1 }\nfunction start() {}' }]], 'เพิ่มทะเลแล้ว');
+    if (last.role === 'user' && /Automatic check/.test(last.content)) return toolSSE(res, [['edit_file', { path: 'app.js', old_string: 'function start() {}', new_string: 'function start() { makeOcean() }' }], ['todo_write', { todos: [{ content: 'สร้างทะเล', status: 'completed' }, { content: 'เชื่อมทะเลกับฉาก', status: 'completed' }] }]], 'เชื่อมแล้ว');
+    return fm.sse(res, 'เสร็จ');
+  });
+  const pid = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'p', empty: true } })).data.id;
+  await t.json(`/api/projects/${pid}/file`, { method: 'PUT', cookie: u.cookie, body: { path: 'app.js', content: 'function start() {}\nstart()\n' } });
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ทำทะเล', model_id: m.id, project_id: pid } }));
+  const note = fm.hits[1]?.body.messages.at(-1).content || '';
+  assert.match(note, /Automatic check/); assert.match(note, /makeOcean/); assert.match(note, /เชื่อมทะเลกับฉาก/);
+  assert.equal(fm.hits.length, 2, 'the fix round finishes cleanly: no third call');
+  assert.ok(ev.some(e => e.done));
+  fm.close();
+});
+
+test('Code mode history: older user messages drop the project file list and attached file contents; the newest keeps them', async () => {
+  const { stripOpenFile } = await import('../src/ai.js');
+  assert.equal(stripOpenFile('ทำปุ่ม\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js\nb.js\n\n[เนื้อหาไฟล์ที่เปิดอยู่]\na.js:\nx'), 'ทำปุ่ม');
+  assert.equal(stripOpenFile('แค่ข้อความ'), 'แค่ข้อความ');
+});
+
+test('Code mode: a round that only writes the checklist does not end the answer', async () => {
+  const { t, m, u, fm } = await setup((fm, res, body) => {
+    const tools = body.messages.filter(x => x.role === 'tool');
+    if (!tools.length) return toolSSE(res, [['todo_write', { todos: [{ content: 'แก้ a', status: 'in_progress' }] }]]);
+    if (tools.length === 1) return toolSSE(res, [['edit_file', { path: 'a.js', old_string: 'let a = 1', new_string: 'let a = 2' }], ['todo_write', { todos: [{ content: 'แก้ a', status: 'completed' }] }]], 'แก้แล้ว');
+    return fm.sse(res, 'should not be called');
+  });
+  const pid = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'p', empty: true } })).data.id;
+  await t.json(`/api/projects/${pid}/file`, { method: 'PUT', cookie: u.cookie, body: { path: 'a.js', content: 'let a = 1\n' } });
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'แก้', model_id: m.id, project_id: pid } }));
+  assert.equal(fm.hits.length, 2, 'checklist round, then the edit round ends it');
+  assert.ok(ev.filter(e => e.t).map(e => e.t).join('').includes('path=a.js'));
   fm.close();
 });

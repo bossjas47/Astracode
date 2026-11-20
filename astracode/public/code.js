@@ -1239,11 +1239,23 @@ function changeCards(m, i) {
 const activeRef = () => IDE.active && has(IDE.active) && !isImg(IDE.active) ? { path: IDE.active } : null;
 const needsApply = c => !c.error && !c.guess && (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content);
 // ใช้การแก้ไขทั้งหมดของข้อความนี้ · คืนรายการที่ใช้ไม่ได้ (SEARCH ไม่ตรง / ไฟล์ไม่ผ่านการตรวจ) เพื่อส่งกลับให้ AI แก้เอง
+// แก้ไม่ได้เพราะ SEARCH ไม่ตรง: แนบบรรทัดที่ใกล้ที่สุดในไฟล์ปัจจุบัน (พร้อมเลขบรรทัด) ไปกับข้อความให้ AI แก้ในรอบเดียว ไม่ต้องอ่านทั้งไฟล์ใหม่
+function nearHint(c, msg) {
+  if (!has(c.path) || !/SEARCH/.test(c.error || '')) return '';
+  const body = [...String(msg?.content || '').matchAll(/```[^\n`]*\bpath=([^\s`]+)[^\n]*\n([\s\S]*?)```/g)].find(m => m[1] === c.path)?.[2] || '';
+  const key = (body.match(/^<{5,9} SEARCH[ \t]*\n([\s\S]*?)\n={5,9}/m)?.[1] || '').split('\n').map(l => l.trim()).filter(l => l.length >= 6).sort((a, b) => b.length - a.length)[0];
+  if (!key) return '';
+  const L = content(c.path).split('\n'), words = new Set(key.toLowerCase().match(/[\w$]+/g) || []); let best = -1, score = 1;
+  L.forEach((l, i) => { const t = l.trim(); let s = t.includes(key) ? 1e5 : 0; if (!s) for (const w of t.toLowerCase().match(/[\w$]+/g) || []) if (words.has(w)) s++; if (s > score) { score = s; best = i; } });
+  if (best < 0) return '';
+  const from = Math.max(0, best - 5), to = Math.min(L.length, best + 6);
+  return `\n  บรรทัดที่ใกล้ที่สุดในไฟล์ตอนนี้ (คัดลอก SEARCH จากตรงนี้ให้ตรงทุกตัวอักษร):\n${L.slice(from, to).map((l, i) => `  ${from + i + 1}| ${l}`).join('\n')}`;
+}
 async function applyChanges(ch, msg) {
   const bad = [];
   for (const c of ch) {
     if (msg && appliedSet(msg).has(c.path)) continue; // ใช้ไปแล้ว (จำไว้ในฐานข้อมูล): ไม่ทำซ้ำ ไม่แจ้งว่าแก้ไม่ได้
-    if (c.error) { bad.push(`${c.path}: ${c.error}`); continue; }
+    if (c.error) { bad.push(`${c.path}: ${c.error}${nearHint(c, msg)}`); continue; }
     if (!needsApply(c)) { if (msg) markApplied(msg, c.path); continue; }
     try { await apply(c, msg, false); } catch (x) { if (x.problem) bad.push(`${c.path}: ${x.message}`); else throw x; }
   }
@@ -1254,7 +1266,7 @@ async function applyChanges(ch, msg) {
 async function feedBack(bad) {
   if (!bad.length || (IDE.round ?? 0) >= 3) return;
   IDE.round = (IDE.round ?? 0) + 1;
-  await codeSend({ auto: { text: `การแก้ไขบางไฟล์ยังไม่ถูกใช้ ไม่มีอะไรถูกเขียนทับในไฟล์เหล่านี้:\n${bad.map(x => '- ' + x).join('\n')}\n\nใช้ READ อ่านไฟล์ที่เกี่ยวข้องก่อน แล้วส่งการแก้ที่ถูกต้องใหม่ (ถ้าแก้ไฟล์ที่มีอยู่ ให้ SEARCH ตรงกับเนื้อหาจริงของไฟล์ ถ้าเปลี่ยนเกือบทั้งไฟล์ให้ส่งทั้งไฟล์)` } });
+  await codeSend({ auto: { text: `การแก้ไขบางไฟล์ยังไม่ถูกใช้ ไม่มีอะไรถูกเขียนทับในไฟล์เหล่านี้:\n${bad.map(x => '- ' + x).join('\n')}\n\nถ้ามีบรรทัดที่ใกล้ที่สุดแนบมา ใช้ตรงนั้นเป็น SEARCH ได้เลยไม่ต้องอ่านใหม่ ไม่งั้นใช้ READ อ่านไฟล์ที่เกี่ยวข้องก่อน แล้วส่งการแก้ที่ถูกต้องใหม่ (ถ้าแก้ไฟล์ที่มีอยู่ ให้ SEARCH ตรงกับเนื้อหาจริงของไฟล์ ถ้าเปลี่ยนเกือบทั้งไฟล์ให้ส่งทั้งไฟล์)` } });
 }
 async function apply(c, msg, force = true) {
   if (!c.del && !force) { const why = problemOf(c.path, c.content, has(c.path) ? content(c.path) : null); if (why) throw Object.assign(new Error(why), { problem: true }); }

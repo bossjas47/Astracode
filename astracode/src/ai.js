@@ -1,7 +1,7 @@
 import { DAY, HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
-import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, PLAN_NOTE, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, todosOf, webTools } from './codetools.js';
+import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, PLAN_NOTE, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, todosOf, verifyWork, webTools } from './codetools.js';
 import { GOOGLE_TOOLS, GOOGLE_URL, googleCall } from './google.js';
 import { askApproval, connCall, connTools } from './connectors.js';
 import { admin } from './admin.js';
@@ -618,6 +618,15 @@ export async function runChat(env, J, send, st) {
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
   const maxRounds = J.agent ? AGENT_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า
+  // ตรวจงานก่อนจบคำตอบ (โหมด Code): ไฟล์ที่แก้ในคำตอบนี้ + รายการงานล่าสุด · ตรวจได้ไม่เกิน 2 ครั้งต่อคำตอบ กันวนไม่จบ
+  const touched = new Set(); let lastTodo = null, checks = 0;
+  const reviewNote = () => {
+    if (!ws || !touched.size || checks >= 2 || st.gone || J.perm === 'plan') return '';
+    const probs = verifyWork(ws, touched), open = (lastTodo || []).filter(t => t.status !== 'completed').map(t => t.content);
+    if (!probs.length && !open.length) return '';
+    checks++;
+    return `[Automatic check before you finish]\n${probs.length ? 'Problems found in the files you changed:\n' + probs.map(x => '- ' + x).join('\n') + '\n' : ''}${open.length ? 'Your checklist still has unfinished items:\n' + open.map(x => '- ' + x).join('\n') + '\n' : ''}Fix these now with the tools (read the exact lines first if needed), then update the checklist and give a short summary. If an item is truly not needed, say why in one line.`;
+  };
   let ctxUsed = 0, lastCtx = 0, cumIn = 0, capped = false, trimmedSent = false; // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     round_ = round + 1;
@@ -684,17 +693,17 @@ export async function runChat(env, J, send, st) {
     if (toolCalls.length && !st.gone && round < (ws && useTools ? maxRounds + 2 : zipTools.length ? 12 : 5)) {
       msgs = [...msgs, { role: 'assistant', content: part || null, tool_calls: toolCalls }];
       imgs = [];
-      let onlyWrites = true, allOk = true; const doing = [];
+      let onlyWrites = true, allOk = true, wrote = false; const doing = [];
       for (const tc of toolCalls) {
         const tname = tc.function?.name || '';
-        if (!WRITE_TOOLS.has(tname)) onlyWrites = false;
+        if (WRITE_TOOLS.has(tname)) wrote = true; else if (tname !== 'todo_write') onlyWrites = false; // อัปเดตรายการงานไม่ใช่การอ่าน: รอบที่แก้ไฟล์ + อัปเดตรายการ ยังนับว่าจบงานได้
         if ((ws && CODE_TOOL_NAMES.has(tname)) || WEB_TOOL_NAMES.has(tname) || (!pid && CHAT_TOOL_NAMES.has(tname))) {
           let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* อาร์กิวเมนต์เสีย: ให้เครื่องมือตอบ error */ }
           let r;
           if (cumIn >= inMax && !WRITE_TOOLS.has(tname)) r = { result: 'Reading budget for this answer is used up. Stop reading and finish the task with what you have.', ok: false, label: tname };
-          else if (tname === 'todo_write') { const todo = todosOf(args); await send({ todo }); r = { result: todo.length ? 'Checklist updated.' : 'Error: todos is empty.', ok: todo.length > 0, label: '' }; }
+          else if (tname === 'todo_write') { const todo = todosOf(args); lastTodo = todo; await send({ todo }); r = { result: todo.length ? 'Checklist updated.' : 'Error: todos is empty.', ok: todo.length > 0, label: '' }; }
           else if (J.perm === 'plan' && WRITE_TOOLS.has(tname)) r = { result: 'Error: plan mode is on, files cannot be changed. Reply with the plan instead.', ok: false, label: 'ข้าม (โหมด Plan)' };
-          else if (ws && CODE_TOOL_NAMES.has(tname)) r = codeTool(ws, tname, args);
+          else if (ws && CODE_TOOL_NAMES.has(tname)) { r = codeTool(ws, tname, args); if (r.ok && WRITE_TOOLS.has(tname) && args.path) touched.add(String(args.path).replace(/^\.?\//, '')); }
           else if (CHAT_TOOL_NAMES.has(tname)) r = await chatTool(env, u, cid, tname, args, { imgUsed, pyStop, image: !!imgPrompt });
           else if (tname === 'web_search') {
             const q = String(args.query || '').slice(0, 400), pre = spec; spec = null; // ผลค้นล่วงหน้าใช้กับการค้นครั้งแรกเท่านั้น
@@ -741,13 +750,22 @@ export async function runChat(env, J, send, st) {
       await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + LOCK_MS, lock).run();
       lastKind = 't';
       // รอบที่มีแต่การแก้ไฟล์และสำเร็จทุกอัน = งานเสร็จ (โมเดลเขียนสรุปมาในรอบเดียวกันแล้ว) ไม่ต้องเรียกโมเดลอีกรอบให้ผู้ใช้รอ
-      if (ws && useTools && onlyWrites && allOk) break;
+      if (ws && useTools && onlyWrites && wrote && allOk) { // รอบที่มีแต่การแก้ไฟล์: เดิมจบทันที → ตอนนี้ตรวจก่อน ถ้ายังมีปัญหา/งานค้างให้ทำต่อ
+        const note = reviewNote(); if (!note) break;
+        msgs.push({ role: 'user', content: note }); await send({ round: round + 2, of: maxRounds + 3, doing: 'ตรวจงานที่แก้' }); continue;
+      }
       if (pyStop || askStop) break; // หน้าเว็บรัน Python / รอผู้ใช้อนุญาต แล้วส่งผลกลับเป็นข้อความถัดไป
       if (ws && useTools && doing.length) await send({ round: round + 2, of: maxRounds + 3, doing: doing.slice(0, 3).join(', ').slice(0, 120) });
       continue;
     }
     const reqs = pid && !st.gone && round < maxRounds && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
-    if (!reqs.length) break;
+    if (!reqs.length) { // โมเดลตอบจบ: ตรวจไฟล์ที่แก้ในคำตอบนี้ก่อน ถ้าเจอปัญหา/งานค้างให้แก้ต่ออีกรอบ
+      const note = round < maxRounds + 2 ? reviewNote() : '';
+      if (!note) break;
+      await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
+      msgs = [...msgs, { role: 'assistant', content: part || '(done)' }, { role: 'user', content: note }]; imgs = [];
+      await send({ round: round + 2, of: maxRounds + 3, doing: 'ตรวจงานที่แก้' }); continue;
+    }
     if (cumIn >= inMax) { // คำตอบเดียวใช้ input เกินเพดาน: ไม่อ่านไฟล์เพิ่ม ให้ทำต่อจากที่มี (รอบถัดไปถ้ายังขออ่านอีกก็จบเลย)
       if (capped) break; capped = true;
       await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
@@ -918,7 +936,9 @@ export function zipTool(name, a, files) {
 }
 export const TOOL_ROUNDS = 6, READ_MAX = 100e3, ANSWER_IN_MAX = 400e3; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
 // หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
-export const stripOpenFile = t => String(t || '').replace(/\n\n\[(?:เนื้อหาไฟล์ที่เปิดอยู่|เนื้อหาไฟล์ในโปรเจกต์)\][\s\S]*$/, '');
+// ข้อความเก่าของผู้ใช้ในโหมด Code: ตัดรายชื่อไฟล์ทั้งโปรเจกต์ (สูงสุด 15,000 ตัวอักษร) และเนื้อหาไฟล์ที่แนบไว้ออก เหลือเฉพาะในข้อความล่าสุด
+// เดิมรายชื่อไฟล์ถูกส่งซ้ำทุกข้อความในประวัติ = context โตเร็วและเสีย token ทุกครั้งที่ส่ง
+export const stripOpenFile = t => String(t || '').replace(/\n\n\[(?:ไฟล์ทั้งหมดในโปรเจกต์|เนื้อหาไฟล์ที่เปิดอยู่|เนื้อหาไฟล์ในโปรเจกต์)\][\s\S]*$/, '');
 // โมเดลบางตัวเขียนคำสั่งติดกับข้อความ (เช่น "...ครับREAD path=a.js" หรือ "READ path=a.jsกำลังอ่าน...") → แยกบรรทัด และอ่านพาธเฉพาะตัวอักษรที่เป็นพาธ ไม่เอาข้อความไทยที่ติดมา (เดิมทำให้หาไฟล์ไม่พบแล้วโมเดลสั่งอ่านซ้ำวน)
 export const toolReqs = text => [...text.replace(/```[\s\S]*?```/g, '').replace(/(\S)(READ path=)/g, '$1\n$2').matchAll(/^\s*(READ|GREP|LIST)\b[ \t]*(?:path=)?(.*)$/gm)].map(m => {
   let arg = m[2].trim().replace(/^`|`$/g, '');

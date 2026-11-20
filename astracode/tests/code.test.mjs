@@ -63,15 +63,15 @@ test('code chat: ASTRA.md reaches the system prompt, edit-block rules are taught
   fm.close();
 });
 
-test('stripOpenFile removes the open-file tail only', async () => {
+test('stripOpenFile removes the file list and the open-file tail from older messages', async () => {
   const { ai } = await load();
-  assert.equal(ai.stripOpenFile('แก้\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js\n\n[เนื้อหาไฟล์ที่เปิดอยู่]\na.js:\nx'), 'แก้\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js');
+  assert.equal(ai.stripOpenFile('แก้\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js\n\n[เนื้อหาไฟล์ที่เปิดอยู่]\na.js:\nx'), 'แก้');
   assert.equal(ai.stripOpenFile('ธรรมดา'), 'ธรรมดา');
 });
 
 test('small-project file block is stripped from older messages, and the round status line summarizes the tool calls', async () => {
   const { ai } = await load();
-  assert.equal(ai.stripOpenFile('ทำต่อ\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js\nb.js\n\n[เนื้อหาไฟล์ในโปรเจกต์]\nb.js:\nxxx'), 'ทำต่อ\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js\nb.js');
+  assert.equal(ai.stripOpenFile('ทำต่อ\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js\nb.js\n\n[เนื้อหาไฟล์ในโปรเจกต์]\nb.js:\nxxx'), 'ทำต่อ');
   assert.equal(ai.doingOf([{ op: 'READ', arg: 'a.js' }, { op: 'READ', arg: 'b.js' }, { op: 'GREP', arg: 'btn' }]), 'อ่าน a.js, b.js · ค้นหา btn');
   assert.equal(ai.doingOf(['1', '2', '3', '4', '5'].map(n => ({ op: 'READ', arg: n + '.js' }))), 'อ่าน 1.js, 2.js, 3.js +2');
   assert.equal(ai.doingOf([]), '');

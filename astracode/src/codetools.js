@@ -2,7 +2,7 @@
 // โหมด Code: อ่าน/ค้น/แก้ไฟล์โปรเจกต์ผ่าน tool แทนบรรทัด READ/GREP/LIST และบล็อก path= ที่โมเดลต้องพิมพ์เอง
 // การแก้ไฟล์ไม่เขียนลงฐานข้อมูลตรงๆ: แปลงเป็นบล็อก path= / SEARCH-REPLACE / DELETE ต่อท้ายคำตอบ หน้าเว็บจึงตรวจ/นำไปใช้/ย้อนกลับได้เหมือนเดิม
 // แต่ตรวจกับไฟล์จริงก่อน (ข้อความเดิมต้องพบที่เดียว) ผิดก็บอกโมเดลให้แก้ในคำตอบเดียวกัน ไม่ต้องให้ผู้ใช้ส่งข้อความตามอีกรอบ
-import { findBlock, problemOf } from './edits.js';
+import { findBlock, problemOf, syntaxWarning } from './edits.js';
 import { FILE_LIMIT, PATH_RE } from './projects.js';
 
 const fn = (name, description, properties, required = []) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } });
@@ -50,6 +50,43 @@ export const globRe = g => new RegExp('^' + String(g).replace(/[.+^${}()|[\]\\]/
 const clean = p => String(p ?? '').trim().replace(/^\.\//, '').replace(/^\/+/, '');
 
 // ไฟล์ของคำตอบนี้: เนื้อหาปัจจุบัน + การแก้ที่ทำไปแล้วในคำตอบเดียวกัน (อ่านซ้ำแล้วเห็นของที่แก้)
+// แก้ไฟล์ไม่สำเร็จเพราะหา old_string ไม่เจอ: ส่งบรรทัดที่ใกล้ที่สุดพร้อมเลขบรรทัดกลับไปด้วย โมเดลแก้ได้ในรอบเดียว ไม่ต้อง read_file ใหม่ทั้งไฟล์
+export function nearestLines(cur, oldS, pad = 6) {
+  const L = cur.split('\n'), key = oldS.split('\n').map(l => l.trim()).filter(l => l.length >= 6).sort((a, b) => b.length - a.length)[0];
+  if (!key) return '';
+  const words = new Set(key.toLowerCase().match(/[\w$]+/g) || []);
+  let best = -1, score = 0;
+  L.forEach((l, i) => { const t = l.trim(); let s = t === key ? 1e6 : t.includes(key) || (t.length > 5 && key.includes(t)) ? 1e5 : 0; if (!s) for (const w of t.toLowerCase().match(/[\w$]+/g) || []) if (words.has(w)) s++; if (s > score) { score = s; best = i; } });
+  if (best < 0 || score < 2) return '';
+  const from = Math.max(0, best - pad), to = Math.min(L.length, best + pad + 1);
+  return `\nClosest lines in the file now (copy old_string exactly from here, without the line-number prefix):\n${L.slice(from, to).map((l, i) => `${String(from + i + 1).padStart(6)}\t${l}`).join('\n')}`;
+}
+// ตรวจงานหลัง AI แก้ไฟล์ (เฉพาะไฟล์ที่แก้ในคำตอบนี้): ไวยากรณ์เสีย · HTML อ้างไฟล์ที่ไม่มี · ฟังก์ชันที่ประกาศแต่ไม่มีที่ไหนเรียกใช้
+// (อาการ "บอกว่าเสร็จแต่ยังไม่ได้ต่อ" เช่น มี makeOcean() แต่ไม่เคยเรียก) · คืนรายการปัญหาเป็นข้อความสั้นๆ ให้โมเดลแก้ต่อก่อนสรุป
+const LOCAL_REF = /\b(?:src|href)\s*=\s*["']([^"'#?]+)(?:[?#][^"']*)?["']/gi;
+const FN_DECL = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(|\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/g;
+export function verifyWork(ws, touched) {
+  const F = ws.files, out = [], text = [...F].filter(([, c]) => typeof c === 'string' && !isImg(c)), all = text.map(([, c]) => c).join('\n');
+  const count = n => (all.match(new RegExp(`(?<![\\w$])${n.replace(/\$/g, '\\$')}(?![\\w$])`, 'g')) || []).length;
+  for (const path of touched) {
+    const c = F.get(path); if (typeof c !== 'string' || isImg(c)) continue;
+    const bad = problemOf(path, c, null) || syntaxWarning(path, c); if (bad) out.push(`${path}: ${bad}`);
+    if (/\.html?$/i.test(path)) {
+      const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '', miss = new Set();
+      for (const m of c.matchAll(LOCAL_REF)) {
+        const ref = m[1].trim(); if (!ref || /^(?:[a-z][\w+.-]*:|\/\/|\$\{|\{\{)/i.test(ref)) continue; // http:, data:, mailto:, //cdn, template
+        let full = ref.startsWith('/') ? ref.slice(1) : dir + ref; const parts = []; for (const s of full.split('/')) { if (s === '..') parts.pop(); else if (s && s !== '.') parts.push(s); } full = parts.join('/');
+        if (full && !F.has(full) && !F.has(full.replace(/\/$/, '') + '/index.html') && /\.\w{1,6}$/.test(full)) miss.add(ref);
+      }
+      if (miss.size) out.push(`${path} references files that do not exist in the project: ${[...miss].slice(0, 8).join(', ')}`);
+    }
+    if (/\.(?:m?js|jsx|tsx?|html?)$/i.test(path)) {
+      const unused = [...new Set([...c.matchAll(FN_DECL)].map(m => m[1] || m[2]))].filter(n => n.length > 2 && count(n) <= 1);
+      if (unused.length) out.push(`${path}: declared but never called anywhere: ${unused.slice(0, 8).join(', ')} (wire them up, or remove them if not needed)`);
+    }
+  }
+  return out;
+}
 export const codeWorkspace = rows => ({ files: new Map(rows.map(r => [r.path, r.content])), budget: 200e3 });
 
 // คืน { result: ข้อความให้โมเดล, emit: ข้อความต่อท้ายคำตอบ (การแก้ไฟล์), ok, label: ป้ายให้หน้าเว็บ }
@@ -106,8 +143,8 @@ export function codeTool(ws, name, a = {}) {
       next = cur.split(oldS).join(newS); emit = fence(path, next);
     } else {
       const at = findBlock(cur, oldS);
-      if (at === -1) return fail(`old_string matches several places in ${path}; add more neighbouring lines so it matches one place, or set replace_all`, label);
-      if (!at) return fail(`old_string not found in ${path}. read_file it again and copy the text exactly (without the line-number prefix).`, label);
+      if (at === -1) { const hits = cur.split('\n').map((l, i) => l.includes(oldS.split('\n')[0]) ? i + 1 : 0).filter(Boolean).slice(0, 8); return fail(`old_string matches several places in ${path}${hits.length ? ' (around lines ' + hits.join(', ') + ')' : ''}; add more neighbouring lines so it matches one place, or set replace_all`, label); }
+      if (!at) return fail(`old_string not found in ${path}.${nearestLines(cur, oldS) || ' read_file it again and copy the text exactly (without the line-number prefix).'}`, label);
       const exact = cur.slice(at.from, at.to); // ข้อความจริงในไฟล์ (findBlock ยอมช่องว่าง/เยื้องต่างได้) ให้หน้าเว็บหาเจอแน่นอน
       next = cur.slice(0, at.from) + newS + cur.slice(at.to);
       emit = `\n\n\`\`\`${langOf(path)} path=${path}\n<<<<<<< SEARCH\n${exact}\n=======\n${newS}\n>>>>>>> REPLACE\n\`\`\`\n`;
