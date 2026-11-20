@@ -65,29 +65,42 @@ async function chatView(id) {
   autoRetry = 0;
   for (const m of chat.msgs) if (typeof m.sources === 'string') try { m.sources = JSON.parse(m.sources); } catch { m.sources = null; }
   const saved = localStorage.getItem('model'), opt = sel => me.models.filter(m => !m.locked).map(m => `<option value="${m.id}" ${String(m.id) === sel ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
+  const sideMode = localStorage.getItem('sideMode') === 'code' ? 'code' : 'chat';
   app.innerHTML = `<div class="chat view"><aside class="side" id="side">
       <div class="side-top">
         <a class="logo" href="/">AstraCode</a>
-        <button type="button" class="icon-btn sm ghost" id="sbtn" aria-label="Search chats">${ic('search')}</button>
+        <span class="side-top-acts">
+          <button type="button" class="icon-btn sm ghost" id="sbtn" aria-label="Search chats">${ic('search')}</button>
+          <button type="button" class="icon-btn sm ghost side-x" id="sclose" aria-label="ปิดแถบข้าง">${ic('x')}</button>
+        </span>
       </div>
       <div class="side-search" id="sbox" hidden><input id="search" placeholder="Search chats…" aria-label="Search chats"></div>
-      <nav class="side-nav">
-        <a href="/support" class="contact-l">${ic('mail')}<span>ติดต่อเรา / แจ้งปัญหา</span></a>
-        <a href="/code">${ic('code')}<span>Code</span></a>${deskLink()}${dlLink()}
-        <a href="/plans">${ic('layers')}<span>Plans · ${esc(me.plan.name)}</span></a>
-        <a href="/plans?topup=1">${ic('wallet')}<span>เติมเงิน · ฿${baht(me.balance)}</span></a>
-        <a href="/pricing">${ic('tag')}<span>Pricing</span></a>
-        <a href="/developers">${ic('braces')}<span>Developer API</span></a>
-        ${['admin', 'support', 'viewer'].includes(me.role) ? `<a href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
-      </nav>
-      <div class="side-sec"><span>Folders &amp; recent</span><span><button type="button" class="icon-btn xs ghost" id="bmk" aria-label="บุ๊กมาร์ก" title="บุ๊กมาร์ก">${ic('star', 'sm')}</button><button type="button" class="icon-btn xs ghost" id="bin" aria-label="เก็บถาวรและถังขยะ" title="เก็บถาวร / ถังขยะ">${ic('trash')}</button><button type="button" class="icon-btn xs ghost" id="newf" aria-label="สร้างโฟลเดอร์ใหม่" title="สร้างโฟลเดอร์">${ic('plus')}</button></span></div>
-      <div class="list" id="list"></div>
+      <div class="mode-seg" role="group" aria-label="โหมด">
+        <button type="button" data-mode="chat" class="${sideMode === 'chat' ? 'on' : ''}" aria-pressed="${sideMode === 'chat'}">${ic('msg', 'sm')}<span>Chat</span></button>
+        <button type="button" data-mode="code" class="${sideMode === 'code' ? 'on' : ''}" aria-pressed="${sideMode === 'code'}">${ic('code', 'sm')}<span>Code</span></button>
+      </div>
+      <div class="side-pane" id="paneChat" ${sideMode === 'chat' ? '' : 'hidden'}>
+        <a class="side-new" href="/chat" data-chat="">${ic('plus', 'sm')}<span>แชตใหม่</span></a>
+        <nav class="side-nav">${deskLink()}
+          <button type="button" id="bmk">${ic('star')}<span>บุ๊กมาร์ก</span></button>
+          <button type="button" id="bin">${ic('trash')}<span>เก็บถาวร / ถังขยะ</span></button>
+          <button type="button" id="newf">${ic('folder')}<span>สร้างโฟลเดอร์</span></button>
+        </nav>
+        <div class="side-sec"><span>Folders &amp; recent</span></div>
+        <div class="list" id="list"></div>
+      </div>
+      <div class="side-pane" id="paneCode" ${sideMode === 'code' ? '' : 'hidden'}>
+        <a class="side-new" href="/code">${ic('plus', 'sm')}<span>โปรเจกต์ใหม่</span></a>
+        <nav class="side-nav"><a href="/code">${ic('code')}<span>เปิดหน้า Code ทั้งหมด</span></a></nav>
+        <div class="side-sec"><span>โปรเจกต์</span></div>
+        <div class="list" id="plist"><p class="muted" style="padding:8px 12px">กำลังโหลด…</p></div>
+      </div>
       <div class="side-foot">
-        <a class="side-user" href="/account" title="${esc(me.email)}">
+        <button type="button" class="side-user" id="acct" aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}">
           <span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span>
-          <span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan.name)}</small></span>
-        </a>
-        <a class="btn-new-chat" href="/chat" data-chat="">${ic('plus', 'sm')} New chat</a>
+          <span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan.name)} · ใช้ไป ${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}%</small></span>
+          ${ic('up', 'sm')}
+        </button>
       </div>
     </aside>
     <div class="main"><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
@@ -112,6 +125,17 @@ async function chatView(id) {
     </aside></div>`;
   const side = $('#side');
   side.addEventListener('click', e => { const a = e.target.closest('a[data-chat]'); if (!a) return; e.preventDefault(); openChat(+a.dataset.chat || null); });
+  // แถบข้าง: สลับ Chat / Code (จำไว้ต่อเครื่อง) · ปุ่มปิดบนมือถือ · เมนูบัญชีที่ชื่อผู้ใช้
+  const setMode = mode => {
+    try { localStorage.setItem('sideMode', mode); } catch { /* ไม่มีที่เก็บ */ }
+    side.querySelectorAll('[data-mode]').forEach(b => { b.classList.toggle('on', b.dataset.mode === mode); b.setAttribute('aria-pressed', b.dataset.mode === mode); });
+    $('#paneChat').hidden = mode !== 'chat'; $('#paneCode').hidden = mode !== 'code';
+    if (mode === 'code') drawProjects();
+  };
+  side.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+  if (sideMode === 'code') drawProjects();
+  $('#sclose').onclick = () => { side.classList.remove('open'); side.parentElement.querySelector('.shade')?.remove(); };
+  $('#acct').onclick = e => { e.stopPropagation(); acctMenu(); };
   $('#menu').onclick = () => { side.classList.add('open'); const s = document.createElement('div'); s.className = 'shade'; s.onclick = () => { side.classList.remove('open'); s.remove(); }; side.parentElement.append(s); }; // ใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
   if (!window.DEMO && !id) try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
@@ -161,7 +185,7 @@ async function chatView(id) {
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
   $('#search').oninput = () => {
-    drawSide();
+    drawSide(); if (!$('#paneCode').hidden) drawProjects(true);
     clearTimeout(srchT);
     const q = $('#search').value.trim();
     if (q.length < 2) { chat.hits = null; return drawSide(); }
@@ -499,6 +523,64 @@ function head() {
   const cb = $('#cmpct'); if (cb) cb.onclick = async () => { cb.disabled = true; cb.textContent = 'กำลังย่อ...'; try { const r = await api(`/chats/${chat.id}/compact`, { method: 'POST' }); toast(r.ok ? 'ย่อแชตแล้ว ข้อความเก่าถูกสรุปไว้' : 'แชตยังสั้นเกินกว่าจะย่อ', r.ok ? 'ok' : ''); if (r.ok) chat.ctx = null; } catch (x) { toast(x.message, 'bad'); } head(); };
 }
 const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace(/0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+// แถบข้างโหมด Code: รายการโปรเจกต์ (เปิดในหน้า Code) · โหลดครั้งแรกที่เปิดแท็บ แล้วกรองด้วยช่องค้นหาเดียวกับแชต
+async function drawProjects(cached) {
+  const box = $('#plist'); if (!box) return;
+  if (!cached || !chat.projects) chat.projects = await api('/projects').catch(() => null);
+  if (!$('#plist')) return;
+  const q = ($('#search')?.value || '').toLowerCase(), ps = (chat.projects || []).filter(p => p.name.toLowerCase().includes(q));
+  box.innerHTML = !chat.projects ? '<p class="muted" style="padding:8px 12px">โหลดโปรเจกต์ไม่สำเร็จ</p>'
+    : ps.length ? ps.map(p => `<div class="item"><a href="/code?p=${p.id}">${ic(p.shared ? 'users' : 'code', 'sm ci')}<span class="pi"><b>${esc(p.name)}</b><small>${when(p.updated_at)} · ${p.files} ไฟล์${p.shared ? ' · แชร์กับฉัน' : ''}</small></span></a></div>`).join('')
+    : `<p class="muted" style="padding:8px 12px">${q ? 'ไม่พบโปรเจกต์' : 'ยังไม่มีโปรเจกต์ · กด "โปรเจกต์ใหม่"'}</p>`;
+}
+// เมนูบัญชี (กดชื่อผู้ใช้ล่างแถบข้าง): ลิมิต, ตั้งค่า, แพลน, เติมเงิน, ติดต่อ, หลังบ้าน, ออกจากระบบ
+function acctMenu() {
+  const side = $('#side'), old = side?.querySelector('.acct-pop'), btn = $('#acct');
+  if (old) { old.remove(); btn?.setAttribute('aria-expanded', 'false'); return; }
+  const u = me.usage || {}, bar = (label, v) => `<div class="ap-bar"><span>${label}</span><span>${Math.round(v || 0)}%</span><i><b style="width:${Math.min(100, Math.max(2, v || 0))}%"></b></i></div>`;
+  const pop = document.createElement('div'); pop.className = 'acct-pop'; pop.setAttribute('role', 'menu'); pop.setAttribute('aria-label', 'เมนูบัญชี');
+  pop.innerHTML = `<div class="ap-head"><div class="ap-who"><span>${esc(me.email)}</span><em>${esc(me.plan.name)}</em></div>${u.use4h === false ? '' : bar('รอบ 4 ชม.', u.pct4h)}${bar('สัปดาห์นี้', u.pctWeek)}</div>
+    <button type="button" role="menuitem" data-ap="settings">${ic('settings')}<span>ตั้งค่า</span></button>
+    <a role="menuitem" href="/plans">${ic('layers')}<span>แพลนและอัปเกรด</span></a>
+    <a role="menuitem" href="/plans?topup=1">${ic('wallet')}<span>เติมเงิน</span><small>฿${baht(me.balance)}</small></a>
+    <hr>
+    <a role="menuitem" href="/support">${ic('mail')}<span>ติดต่อเรา / แจ้งปัญหา</span></a>
+    ${['admin', 'support', 'viewer'].includes(me.role) ? `<a role="menuitem" href="/admin">${ic('dash')}<span>หลังบ้าน (Admin)</span></a>` : ''}
+    <button type="button" role="menuitem" data-ap="out" class="ap-out">${ic('logout')}<span>ออกจากระบบ</span></button>`;
+  side.append(pop); btn?.setAttribute('aria-expanded', 'true'); pop.querySelector('[role=menuitem]')?.focus();
+  const close = () => { pop.remove(); btn?.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', outside, true); };
+  const outside = e => { if (!pop.contains(e.target) && !btn?.contains(e.target)) close(); };
+  setTimeout(() => document.addEventListener('click', outside, true));
+  pop.onkeydown = e => { if (e.key === 'Escape') { close(); btn?.focus(); } };
+  pop.onclick = async e => {
+    const it = e.target.closest('[role=menuitem]'); if (!it) return;
+    close();
+    if (it.dataset.ap === 'settings') { e.preventDefault(); settingsSheet(); }
+    if (it.dataset.ap === 'out') { e.preventDefault(); await api('/logout', { method: 'POST' }).catch(() => {}); me = null; go('/'); }
+  };
+}
+// ตั้งค่า: รวมเมนูที่ย้ายออกจากแถบข้าง (แพลน, เติมเงิน, Pricing, Developer API, แอปคอม, ติดต่อเรา) + บัญชี
+function settingsSheet() {
+  const row = (href, icon, t, d = '') => `<a class="opt" href="${href}"><span class="opt-t">${ic(icon)}${t}</span>${d ? `<span class="opt-d">${d}</span>` : ''}</a>`;
+  const dl = window.astraDesktop ? '' : row('/#download', 'download', 'ดาวน์โหลดแอปคอม', 'Windows · Mac · Linux: ให้ AI ทำงานกับไฟล์ในเครื่อง');
+  sheet('ตั้งค่า', `<div class="sheet-form set-sheet">
+    <h4>แพลนและการใช้งาน</h4>
+    ${row('/plans', 'layers', 'แพลน · ' + esc(me.plan.name), 'ดูหรือเปลี่ยนแพลน')}
+    ${row('/plans?topup=1', 'wallet', 'เติมเงิน · ฿' + baht(me.balance), 'PromptPay · ใช้กับโมเดลนอกแพลนและเมื่อลิมิตเต็ม')}
+    <button type="button" class="opt" data-lim><span class="opt-t">${ic('clock')}ลิมิตการใช้งาน</span><span class="opt-d">รอบ 4 ชม. และรายสัปดาห์</span></button>
+    <h4>บัญชี</h4>
+    ${row('/account', 'user', 'บัญชีและความปลอดภัย', 'โปรไฟล์ 2FA Passkey คำสั่งส่วนตัว ความจำ ธีม')}
+    <h4>นักพัฒนาและแอป</h4>
+    ${row('/developers', 'braces', 'Developer API', 'API key และวิธีใช้แบบ OpenAI')}
+    ${dl}
+    <h4>ช่วยเหลือ</h4>
+    ${row('/support', 'mail', 'ติดต่อเรา / แจ้งปัญหา')}
+    ${row('/pricing', 'tag', 'Pricing', 'ราคาโมเดลต่อ 1M token')}
+  </div>`, (d, close) => {
+    d.querySelectorAll('a.opt').forEach(a => a.addEventListener('click', close));
+    d.querySelector('[data-lim]').onclick = () => { close(); limitSheet(); };
+  });
+}
 function drawSide() {
   const q = ($('#search')?.value || '').toLowerCase(), list = $('#list'); if (!list) return;
   const item = c => `<div class="item ${c.id === chat.id ? 'on' : ''}" data-id="${c.id}"><a href="/chat?id=${c.id}" data-chat="${c.id}">${ic(c.pinned ? 'pin' : { '🤖': 'server', '⏰': 'bell', '📥': 'inbox', '🎨': 'palette' }[[...c.title][0]] || (c.has_code ? 'code' : 'msg'), 'sm ci')}<span>${esc(c.title.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''))}</span></a>
@@ -818,6 +900,7 @@ function renderAll() {
   const box = $('#msgs'); if (!box) return;
   box.innerHTML = chat.compare ? compareHTML() : chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
     : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>เลือกโมเดลที่มุมซ้ายล่าง แล้วพิมพ์ได้เลย</div>
+       <div class="mode-seg sm" role="group" aria-label="โหมด"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a></div>
        <div class="chips">${SUGGEST.map(([icon, s], i) => `<button data-s="${i}">${ic(icon, 'sm')} ${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight; head(); renderRich(box);
 }

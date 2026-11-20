@@ -196,6 +196,18 @@ const FLOWS = [
     const log = await page.evaluate(() => window.__desk.slice());
     return [!errs.length || errs.join(' | '), /ทำรายงานเป็นไฟล์อะไร/.test(askText) || 'ask not shown', log.some(x => x[0] === 'answer' && x[2] === 'Excel') || 'answer not sent', log.some(x => x[0] === 'open' && x[1] === 'รายงาน.xlsx') || 'output not opened', log.some(x => x[0] === 'run' && x[1] === 'work') || 'work style not passed', log.some(x => x[0] === 'sched' && x[2] === '07:30') || 'schedule not saved: ' + JSON.stringify(log)];
   }],
+  ['phone: new sidebar switches to Code projects; the account menu and settings keep plans, top-up, API, desktop app, pricing and support', async () => {
+    const { page, errs } = await open('/chat', { '/api/projects': [{ id: 7, name: 'โปรเจกต์ทดสอบ', updated_at: Date.now(), files: 3, shared: 0 }] });
+    await page.click('#menu'); await page.waitForTimeout(200);
+    await page.click('[data-mode=code]'); await page.waitForTimeout(300);
+    const proj = await page.locator('#plist a[href="/code?p=7"]').count();
+    await page.click('[data-mode=chat]'); await page.click('#acct'); await page.waitForTimeout(200);
+    const menu = await page.locator('.acct-pop').innerText().catch(() => '');
+    await page.click('[data-ap=settings]'); await page.waitForTimeout(200);
+    const hrefs = await page.$$eval('.sheet-bg a.opt', as => as.map(a => a.getAttribute('href')));
+    const need = ['/plans', '/plans?topup=1', '/account', '/developers', '/#download', '/support', '/pricing'].filter(h => !hrefs.includes(h));
+    return [!errs.length || errs.join(' | '), proj === 1 || 'project not listed in the Code tab', /ออกจากระบบ/.test(menu) && /เติมเงิน/.test(menu) || 'account menu incomplete', !need.length || 'settings missing ' + need.join(', ')];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);
