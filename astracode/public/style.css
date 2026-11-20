@@ -1588,3 +1588,16 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .auth-inline h1 { font-size: 22px; text-align: center; margin: 0 0 12px; }
 
 .mode-seg .on, .mode-seg .on:hover, .mode-seg .on:focus, .mode-seg .on span, .mode-seg .on .ic { color: var(--on-porcelain); } /* ปุ่มที่เลือก: ตัวหนังสือ/ไอคอนสีตรงข้ามพื้นเสมอ */
+/* tools ของแชต: ปุ่มดาวน์โหลดไฟล์ที่ AI สร้าง, โค้ด Python ที่รัน และผลลัพธ์ */
+.tool-cards { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+.dl-card { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 420px; min-height: 56px; padding: 10px 14px; border: 1px solid var(--hair); border-radius: 14px; background: var(--carbon); color: var(--porcelain); font: inherit; text-align: left; cursor: pointer; }
+.dl-card:hover { background: rgba(var(--ov), .05); }
+.dl-card .ic { width: 20px; height: 20px; color: var(--blue); flex: none; }
+.dl-card span { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.dl-card b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-card small { font-size: 12px; color: var(--ash); }
+.pyrun { border: 1px solid var(--hair); border-radius: 12px; background: rgba(var(--ov), .03); }
+.pyrun summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--ash); list-style: none; }
+.pyrun pre { margin: 0; padding: 10px 12px; max-height: 320px; overflow: auto; font-size: 12.5px; background: #14110f; color: #f4efe8; border-radius: 0 0 12px 12px; }
+.pyout pre { margin: 0; padding: 10px 12px; max-height: 260px; overflow: auto; font-size: 12.5px; white-space: pre-wrap; border: 1px solid var(--hair); border-radius: 12px; background: var(--carbon); }
+.pyout img { display: block; max-width: 100%; margin-top: 8px; border-radius: 12px; border: 1px solid var(--hair); background: #fff; }

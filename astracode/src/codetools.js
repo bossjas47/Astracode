@@ -133,3 +133,23 @@ export const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch']);
 // ตระกูลโมเดลที่รองรับ function calling แน่นอน · แอดมินบังคับเปิด/ปิดต่อโมเดลได้ (models.tools = on/off)
 const TOOL_FAMILY = /\b(gpt|o\d|claude|gemini|deepseek|qwen|kimi|glm|grok|mistral|devstral|codestral|llama|minimax)/i;
 export const nativeTools = m => m.tools === 'on' || (m.tools !== 'off' && !['image', 'embedding'].includes(m.provider) && (['anthropic', 'responses'].includes(m.provider) || TOOL_FAMILY.test(`${m.api_model || ''} ${m.name || ''}`)));
+
+// ---------- แชต: tools เพิ่ม (สร้างรูป, ความจำ, ค้นแชตเก่า, ค้นคลังความรู้, สร้างไฟล์ให้ดาวน์โหลด, รัน Python) ----------
+// สร้างรูป/ความจำ/รัน Python ทำผ่านหน้าเว็บ: เซิร์ฟเวอร์ใส่บล็อก/เครื่องหมายลงคำตอบ แล้วหน้าเว็บทำต่อ (ผู้ใช้กดยืนยันความจำเอง · Python รันในเบราว์เซอร์ผู้ใช้)
+export const FILE_EXT = /\.(csv|txt|md|json|html|xlsx|docx|pdf)$/i;
+export const chatTools = ({ image, docs }) => [
+  ...(image ? [fn('generate_image', 'Create a picture with the image generator when the user asks you to draw, design or generate an image. One image per answer. It appears under your answer; do not paste a link.', { prompt: S('Detailed English description of the image') }, ['prompt'])] : []),
+  fn('save_memory', 'Suggest one short fact to remember about the user across all chats (name, preferences, job, ongoing project). The user confirms it with one tap; nothing is saved without them. Use it only when the user shares something lasting about themselves.', { text: S('The fact, in one short sentence in the user\'s language') }, ['text']),
+  fn('search_chats', 'Search the user\'s earlier chats when they refer to something discussed before ("what we talked about yesterday", "the plan from last week").', { query: S('Words to look for') }, ['query']),
+  ...(docs ? [fn('search_docs', 'Search the user\'s knowledge-base documents for passages relevant to the question. Cite the document name you use.', { query: S('What to look for') }, ['query'])] : []),
+  fn('create_file', 'Make a file the user can download from the chat: report, table, quotation, letter, data export. Formats by extension: .xlsx (content = CSV, first row headers; or JSON {"sheets":[{"name","rows":[[...]]}]}), .csv, .docx and .pdf (content = Markdown with headings, lists and tables), .md, .txt, .html, .json. Write the complete content.', { filename: S('File name with extension, e.g. quote.xlsx'), content: S('Complete file content as described') }, ['filename', 'content']),
+  fn('run_python', 'Run Python 3 (Pyodide, in the user\'s browser) to calculate exactly, analyse data or draw charts with matplotlib. Files the user attached in this chat are in /data/<name>. Print the results you need. pandas, numpy and matplotlib are available. Your answer pauses here; the output comes back to you in the next message, so put nothing after this call.', { code: S('Complete Python code') }, ['code']),
+];
+export const CHAT_TOOL_NAMES = new Set(['generate_image', 'save_memory', 'search_chats', 'search_docs', 'create_file', 'run_python']);
+const b64u8 = s => { const b = new TextEncoder().encode(s); let o = ''; for (let i = 0; i < b.length; i += 0x8000) o += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(o); };
+// เครื่องหมายไฟล์ในคำตอบ: [[dl:ชื่อไฟล์|base64]] หน้าเว็บแสดงปุ่มดาวน์โหลด · ตัดออกก่อนส่งประวัติให้โมเดล (ไม่เปลือง token)
+export const dlMarker = (name, content) => `\n\n[[dl:${name}|${b64u8(content)}]]\n`;
+export const pyMarker = code => `\n\n[[py:${b64u8(code)}]]\n`;
+const unb64u8 = s => { try { return new TextDecoder().decode(Uint8Array.from(atob(s), c => c.charCodeAt(0))); } catch { return ''; } };
+export const stripMarkers = t => String(t || '').replace(/\[\[dl:([^|\]\n]{1,120})\|[A-Za-z0-9+/=]+\]\]/g, '[file created: $1]')
+  .replace(/\[\[py:([A-Za-z0-9+/=]+)\]\]/g, (_, b) => 'Python code I ran:\n```python\n' + unb64u8(b).slice(0, 6000) + '\n```'); // โมเดลเห็นโค้ดที่เคยรัน (แก้ต่อได้) แต่ไม่เห็นไฟล์ base64

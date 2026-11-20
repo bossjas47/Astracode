@@ -255,6 +255,19 @@ const FLOWS = [
     const cta = await u.page.locator('a.btn.blue[href="/chat"]').count(), noForm = await u.page.locator('#homeAuth').count();
     return [!g.errs.length || g.errs.join(' | '), form === 1 || 'no login form on home', reg === 1 || 'sign up tab does not switch', !!sent || 'sign up did not call /api/auth', cta === 1 && noForm === 0 || 'logged-in home changed'];
   }],
+  ['chat tools: a file the AI made shows a download button; run_python runs in the browser and sends the output back', async () => {
+    const b64 = s => Buffer.from(s, 'utf8').toString('base64');
+    let n = 0;
+    const { page, errs, calls } = await open('/chat', { chat: () => (++n === 1
+      ? [{ chat_id: 7 }, { t: 'ไฟล์พร้อมแล้ว' }, { t: '\n\n[[dl:price.csv|' + b64('item,price\nA,10') + ']]\n' }, { t: '\n\n[[py:' + b64('print(2+2)') + ']]\n' }, { done: true, pct4h: 1, pctWeek: 1, mid: 5 }]
+      : [{ chat_id: 7 }, { t: 'ได้ 4' }, { done: true, pct4h: 1, pctWeek: 1, mid: 6 }]) });
+    await page.fill('#t', 'ทำไฟล์'); await page.evaluate(() => document.querySelector('#go').click()); await page.waitForTimeout(1500);
+    const card = await page.locator('.dl-card').innerText().catch(() => '');
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 5000 }).catch(() => null), page.evaluate(() => document.querySelector('.dl-card')?.click())]);
+    await page.waitForTimeout(3000); const toastT = await page.locator('.toast').allInnerTexts().catch(() => []); const dlAttr = await page.locator('.dl-card').getAttribute('data-dl').catch(() => null);
+    const back = calls.filter(c => c.m === 'POST' && c.p === '/api/chat').map(c => JSON.parse(c.body).text || '');
+    return [!errs.length || errs.join(' | '), /price\.csv/.test(card) || 'no download card', dl?.suggestedFilename() === 'price.csv' || 'download did not start ' + JSON.stringify({ toastT, dlAttr, name: dl?.suggestedFilename() }), back.length === 2 && back[1].startsWith('[ผลรัน Python]') || 'python output not sent back: ' + JSON.stringify(back)];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);

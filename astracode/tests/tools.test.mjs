@@ -164,3 +164,30 @@ test('a new chat can be started in your own space, never in someone else\'s', as
   assert.doesNotMatch(JSON.stringify(fm.hits[1].body.messages), /SECRET-RULES/);
   fm.close();
 });
+
+test('chat tools: create_file, save_memory, generate_image, run_python and search_chats; markers are stripped from history', async () => {
+  let turn = 0;
+  const { t, m, u, fm } = await setup((fm, res, body) => {
+    turn++; const tools = body.messages.filter(x => x.role === 'tool').length;
+    if (turn === 1 && !tools) return toolSSE(res, [['create_file', { filename: 'quote.xlsx', content: 'item,price\nA,10' }], ['save_memory', { text: 'ชื่อบอส' }], ['search_chats', { query: 'งบประมาณ' }]]);
+    if (turn === 2) return fm.sse(res, 'ทำไฟล์ให้แล้ว');
+    if (turn === 3 && !tools) return toolSSE(res, [['run_python', { code: 'print(1+1)' }]], 'คำนวณให้');
+    return fm.sse(res, 'ok');
+  });
+  const old = t.DB.raw.prepare("INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id").get(u.id, 'งบเก่า', Date.now()).id;
+  t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)").run(old, 'user', 'สรุปงบประมาณปีนี้ 5 ล้าน', Date.now());
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ทำใบเสนอราคา', model_id: m.id } }));
+  const text = ev.filter(e => e.t).map(e => e.t).join(''), cid = ev.find(e => e.chat_id).chat_id;
+  assert.match(text, /\[\[dl:quote\.xlsx\|[A-Za-z0-9+/=]+\]\]/); assert.match(text, /```remember\nชื่อบอส\n```/);
+  assert.match(fm.hits[1].body.messages.filter(x => x.role === 'tool').map(x => x.content).join('\n'), /สรุปงบประมาณปีนี้/, 'search_chats found the old chat');
+  const names = fm.hits[0].body.tools.map(x => x.function.name);
+  for (const n of ['create_file', 'save_memory', 'search_chats', 'run_python']) assert.ok(names.includes(n), n);
+  assert.ok(!names.includes('search_docs'), 'no docs = no search_docs tool');
+  t.DB.raw.exec('DELETE FROM rate');
+  const ev2 = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'คำนวณ', model_id: m.id, chat_id: cid } }));
+  assert.match(ev2.filter(e => e.t).map(e => e.t).join(''), /\[\[py:[A-Za-z0-9+/=]+\]\]/);
+  assert.equal(fm.hits.length, 3, 'run_python ends the answer without another model call');
+  assert.doesNotMatch(JSON.stringify(fm.hits[2].body.messages), /\[\[dl:/, 'file base64 is not sent back to the model');
+  assert.match(JSON.stringify(fm.hits[2].body.messages), /file created: quote\.xlsx/);
+  fm.close();
+});

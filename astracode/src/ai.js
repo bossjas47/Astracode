@@ -1,7 +1,7 @@
 import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
-import { CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, WEB_TOOL_NAMES, WRITE_TOOLS, codeTool, codeWorkspace, nativeTools, webTools } from './codetools.js';
+import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, webTools } from './codetools.js';
 import { GOOGLE_TOOLS, GOOGLE_URL, googleCall } from './google.js';
 import { admin } from './admin.js';
 import { v1 } from './api.js';
@@ -535,7 +535,7 @@ export async function chat(req, env, u, ctx) {
       chatRow = got.at(-2).results?.[0] || null;
       hist = got.at(-1).results || [];
     }
-    hist = hist.map(x => ({ ...x, content: String(x.content || '').replace(/⁣/g, '') })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
+    hist = hist.map(x => ({ ...x, content: stripMarkers(String(x.content || '').replace(/⁣/g, '')) })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
     while (hist.length && hist[0].role !== 'user') hist.shift();
     if (!pid) { const q = text; hist.forEach(x => { if (x.role === 'user' && x.content.length > FILE_FULL) x.content = excerptFiles(x.content, q); }); }
     if (pid) hist.forEach((x, i) => { if (i < hist.length - 1 && x.role === 'user') x.content = stripOpenFile(x.content); }); // เนื้อหาไฟล์ที่เปิดอยู่ส่งเฉพาะข้อความล่าสุด (ไม่ซ้ำทุกรอบ ประหยัด token)
@@ -572,7 +572,7 @@ export async function runChat(env, J, send, st) {
   // ถ้าโมเดลเรียก web_search ได้ผลทันที (เหมือนค้นก่อนตอบแบบเดิม แต่ขนานกับโมเดล) · ถ้าโมเดลตอบเองได้ ก็ไม่ต้องรอผลค้นเลย
   const qText = String(lastText || '').replace(/\n\n\[\[file:[\s\S]*$/, '').slice(0, 1500);
   let spec = null;
-  const [searchOn, sources, projRows, systemBase, mcpSrvs, down, kb, links, codeRows, imgPrompt] = await Promise.all([
+  const [searchOn, sources, projRows, systemBase, mcpSrvs, down, kb, links, codeRows, imgPrompt, hasDocs] = await Promise.all([
     !pid && getSetting(env, 'search_enabled').then(async v => {
       const on = v !== '0' && !!env.TAVILY_KEY;
       if (on && useTools && !J.search && hist.length <= 1 && qText.length <= 120 && await autoSearch(env, lastText)) spec = webSearch(env, qText);
@@ -588,6 +588,7 @@ export async function runChat(env, J, send, st) {
     !pid ? readLinks(lastText).catch(() => []) : [],
     pid && useTools ? env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all().then(r => r.results) : null,
     imagePrompt(env, !!pid),
+    !pid && useTools ? env.DB.prepare('SELECT 1 FROM user_docs WHERE user_id=? LIMIT 1').bind(u.id).first().catch(() => null) : null,
   ]);
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
   const projFile = projRows[0]?.content?.trim() || ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์ GitHub ได้)
@@ -610,7 +611,8 @@ export async function runChat(env, J, send, st) {
   const zipLoad = async () => zipCache ||= Object.assign({}, ...await Promise.all(zipIds.map(async id => { const o = await env.SLIPS.get(`zip/${u.id}/${id}.json`); return o ? await o.json().catch(() => ({})) : {}; })));
   const zipTools = zipIds.length ? ZIP_TOOLS : [];
   const ws = codeRows ? codeWorkspace(codeRows) : null;
-  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools && !pid ? webTools(searchOn) : []), ...(useTools && ws ? CODE_TOOLS : [])];
+  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt, docs: !!hasDocs })] : []), ...(useTools && ws ? CODE_TOOLS : [])];
+  let imgUsed = false, pyStop = false; // รูป 1 รูปต่อคำตอบ · run_python = จบคำตอบให้หน้าเว็บรันแล้วส่งผลกลับ
   const sysNow = () => (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + localSys(J.local, !!pid);
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำ
   if (down) {
@@ -684,11 +686,12 @@ export async function runChat(env, J, send, st) {
       for (const tc of toolCalls) {
         const tname = tc.function?.name || '';
         if (!WRITE_TOOLS.has(tname)) onlyWrites = false;
-        if ((ws && CODE_TOOL_NAMES.has(tname)) || WEB_TOOL_NAMES.has(tname)) {
+        if ((ws && CODE_TOOL_NAMES.has(tname)) || WEB_TOOL_NAMES.has(tname) || (!pid && CHAT_TOOL_NAMES.has(tname))) {
           let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* อาร์กิวเมนต์เสีย: ให้เครื่องมือตอบ error */ }
           let r;
           if (cumIn >= inMax && !WRITE_TOOLS.has(tname)) r = { result: 'Reading budget for this answer is used up. Stop reading and finish the task with what you have.', ok: false, label: tname };
           else if (ws && CODE_TOOL_NAMES.has(tname)) r = codeTool(ws, tname, args);
+          else if (CHAT_TOOL_NAMES.has(tname)) r = await chatTool(env, u, cid, tname, args, { imgUsed, pyStop, image: !!imgPrompt });
           else if (tname === 'web_search') {
             const q = String(args.query || '').slice(0, 400), pre = spec; spec = null; // ผลค้นล่วงหน้าใช้กับการค้นครั้งแรกเท่านั้น
             let found = pre ? await pre : []; if (!found.length && searchOn && q) found = await webSearch(env, q);
@@ -701,6 +704,8 @@ export async function runChat(env, J, send, st) {
             r = { result: pg ? `${pg.title ? pg.title + '\n' : ''}${pg.text}` : 'Error: could not open this page (blocked, not text, or not reachable).', ok: !!pg, label: 'เปิด ' + String(args.url || '').slice(0, 60) };
           }
           if (!r.ok) allOk = false;
+          if (r.ok && tname === 'generate_image') imgUsed = true;
+          if (r.ok && tname === 'run_python') pyStop = true;
           if (r.emit) { out += r.emit; await send({ t: r.emit }); lastKind = 't'; }
           doing.push(r.label);
           await send({ mcp: { server: ws ? 'ไฟล์' : 'เว็บ', tool: r.label, ok: r.ok } });
@@ -727,6 +732,7 @@ export async function runChat(env, J, send, st) {
       lastKind = 't';
       // รอบที่มีแต่การแก้ไฟล์และสำเร็จทุกอัน = งานเสร็จ (โมเดลเขียนสรุปมาในรอบเดียวกันแล้ว) ไม่ต้องเรียกโมเดลอีกรอบให้ผู้ใช้รอ
       if (ws && useTools && onlyWrites && allOk) break;
+      if (pyStop) break; // หน้าเว็บรัน Python แล้วส่งผลกลับเป็นข้อความถัดไป
       if (ws && useTools && doing.length) await send({ round: round + 2, of: maxRounds + 3, doing: doing.slice(0, 3).join(', ').slice(0, 120) });
       continue;
     }
@@ -935,4 +941,48 @@ export async function runTools(env, pid, reqs) {
 export function folderDocs(raw) {
   let fs = []; try { fs = JSON.parse(raw || '[]'); } catch {} if (!fs.length) return '';
   return '\n\nReference documents shared by every chat in this folder (use them when relevant; cite the file name):\n' + fs.map(f => `[[file:${f.name}]]\n${f.text}\n[[/file]]`).join('\n');
+}
+
+// tools ของแชต (ดู chatTools ใน codetools.js) · คืน { result, emit, ok, label }
+export async function chatTool(env, u, cid, name, a, st) {
+  const fail = (msg, label) => ({ result: 'Error: ' + msg, ok: false, label });
+  const noFence = t => String(t || '').replace(/`{3,}/g, '``'); // กันบล็อกปิดก่อนเวลา
+  if (name === 'generate_image') {
+    if (!st.image) return fail('image generation is turned off', 'สร้างรูป');
+    if (st.imgUsed) return fail('only one image per answer', 'สร้างรูป');
+    const p = noFence(a.prompt).trim().slice(0, 1500); if (!p) return fail('prompt is empty', 'สร้างรูป');
+    return { result: 'The image is being created and will appear under your answer. Do not paste a link or describe it as already visible.', emit: '\n\n```image\n' + p + '\n```\n', ok: true, label: 'สร้างรูป' };
+  }
+  if (name === 'save_memory') {
+    const t = noFence(a.text).trim().slice(0, 200); if (!t) return fail('text is empty', 'ความจำ');
+    return { result: 'Suggested. The user sees a button to save it; it is not saved until they tap it.', emit: '\n\n```remember\n' + t + '\n```\n', ok: true, label: 'เสนอให้จำ' };
+  }
+  if (name === 'search_chats') {
+    const q = String(a.query || '').trim().slice(0, 100), label = 'ค้นแชตเก่า ' + q.slice(0, 40);
+    const terms = q.split(/\s+/).filter(x => x.length >= 2).slice(0, 4); if (!terms.length) return fail('query is too short', label);
+    const like = terms.map(x => '%' + x.replace(/[%_]/g, '') + '%');
+    const rows = (await env.DB.prepare(`SELECT m.chat_id, c.title, m.role, m.content, m.created_at FROM messages m JOIN chats c ON c.id=m.chat_id
+      WHERE c.user_id=? AND c.id<>? AND c.project_id IS NULL AND c.deleted_at IS NULL AND (${like.map(() => 'm.content LIKE ?').join(' OR ')}) ORDER BY m.id DESC LIMIT 8`).bind(u.id, cid || 0, ...like).all().catch(() => ({ results: [] }))).results;
+    if (!rows.length) return { result: 'No earlier chats match.', ok: true, label };
+    const snip = t => { const s = stripMarkers(t).replace(/\s+/g, ' '), i = Math.max(0, s.toLowerCase().indexOf(terms[0].toLowerCase()) - 120); return s.slice(i, i + 400); };
+    return { result: rows.map(r => `[${r.title} · ${new Date(r.created_at + 7 * 3600e3).toISOString().slice(0, 10)} · ${r.role}]\n${snip(r.content)}`).join('\n\n'), ok: true, label };
+  }
+  if (name === 'search_docs') {
+    const q = String(a.query || '').trim().slice(0, 300), label = 'ค้นคลังความรู้ ' + q.slice(0, 40);
+    const r = q ? await kbBlock(env, u.id, q) : ''; return { result: r || 'No matching passages in the knowledge base.', ok: true, label };
+  }
+  if (name === 'create_file') {
+    const fname = String(a.filename || '').replace(/[\\/:*?"<>|[\]\n\r]+/g, '_').trim().slice(0, 100), content = String(a.content ?? '');
+    if (!FILE_EXT.test(fname)) return fail('use one of: .xlsx .csv .docx .pdf .md .txt .html .json', 'สร้างไฟล์');
+    if (!content.trim()) return fail('content is empty', 'สร้างไฟล์ ' + fname);
+    if (content.length > 200e3) return fail('content is over 200,000 characters; split it into smaller files', 'สร้างไฟล์ ' + fname);
+    return { result: `File ready: ${fname}. The user can download it from the button under your answer.`, emit: dlMarker(fname, content), ok: true, label: 'สร้างไฟล์ ' + fname };
+  }
+  if (name === 'run_python') {
+    const code = String(a.code || ''); if (!code.trim()) return fail('code is empty', 'รัน Python');
+    if (st.pyStop) return fail('one run_python per answer', 'รัน Python');
+    if (code.length > 30e3) return fail('code is too long (30,000 characters max)', 'รัน Python');
+    return { result: 'Sent to run in the browser. The output comes back in the next message; stop here.', emit: pyMarker(code), ok: true, label: 'รัน Python' };
+  }
+  return fail('unknown tool', name);
 }

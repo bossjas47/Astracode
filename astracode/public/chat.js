@@ -864,6 +864,7 @@ function bubbleText(el) {
 }
 // รูปแบบเดียวกับที่เซิร์ฟเวอร์บันทึก: [[file:ชื่อ]] ... [[/file]]
 function msgHTML(m, i, isNew) {
+  if (m.role === 'user' && m.content.startsWith(PY_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('terminal', 'sm')} ผลรัน Python</summary>${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}<pre>${esc(m.content.slice(PY_RES.length).trim())}</pre></details></div>`;
   if (m.role === 'user' && m.content.startsWith(PC_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('folder', 'sm')} ผลจากเครื่อง</summary>${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}<pre>${esc(m.content.slice(PC_RES.length).trim())}</pre></details></div>`;
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
@@ -871,9 +872,11 @@ function msgHTML(m, i, isNew) {
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts"><button data-copy="${i}" aria-label="คัดลอกข้อความ">${ic('copy', 'sm')}</button>${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}" class="${MEM_RE.test(m.content) ? 'memhint' : ''}">${MEM_RE.test(m.content) ? ic('bulb') + ' ให้ AI จำเรื่องนี้?' : 'Remember'}</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  const { text: t00, mem } = parseMem(m.content, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
+  const { text: tTools, files: dlFiles, py: pyCodes } = parseTools(m.content);
+  const { text: t00, mem } = parseMem(tTools, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
+    ${toolCards(m, i, dlFiles, pyCodes)}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
@@ -999,7 +1002,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   if (edit_id) { /* already sliced */ } else if (resume) { if (chat.msgs.at(-1)?.role !== 'user') return; } // ต่อคำตอบ: ต้องมีคำถามค้างอยู่
   else if (regenerate) { if (chat.msgs.at(-1)?.role === 'assistant') chat.msgs.pop(); }
   else {
-    autoRetry = 0; if (!chat.pcAuto) chat.pcRound = 0; chat.pcAuto = false;
+    autoRetry = 0; if (!chat.pcAuto) chat.pcRound = 0; chat.pcAuto = false; if (!chat.pyAuto) chat.pyRound = 0; chat.pyAuto = false;
     t.value = ''; t.style.height = 'auto'; chat.images = []; chat.files = []; drawThumbs();
     chat.msgs.push({ role: 'user', content: withFiles(text || (files.length ? 'อ่านไฟล์นี้' : 'อธิบายรูปนี้'), files), imgs: imgs.length ? imgs : null });
     appendMsg(chat.msgs.at(-1));
@@ -1061,6 +1064,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   }
   loadSide();
   if (!streamErr && !aborted && !empty && !chat.compare && pcOn() && (pcCalls(ai.content).length || fileBlocks(ai.content).length)) return pcAct(ai);
+  if (!streamErr && !aborted && !empty && !chat.compare && parseTools(ai.content).py.length) return pyRun(ai); // AI เรียก run_python: รันในเบราว์เซอร์แล้วส่งผลกลับให้ทำต่อ
   if (!streamErr && !aborted && Date.now() - t0 > 15000) PCD?.notify('AstraCode ตอบเสร็จแล้ว', ai.content.replace(/[#*`>\[\]]/g, '').slice(0, 140)); // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่นระหว่างรอ
 }
 
@@ -1367,4 +1371,64 @@ async function folderSheet(id) {
       try { await api('/folders/' + id, { method: 'PUT', body: { name: fd.get('name'), instructions: fd.get('ins'), files: files.map(x => x.text != null ? x : { name: x.name }) } }); toast('Saved', 'ok'); close(); loadSide(); } catch (x) { toast(x.message, 'bad'); }
     };
   });
+}
+
+// ---------- tools ของแชต: ไฟล์ให้ดาวน์โหลด [[dl:ชื่อ|base64]] และรัน Python [[py:base64]] (เซิร์ฟเวอร์ใส่ไว้ในคำตอบ) ----------
+const DL_RE = /\[\[dl:([^|\]\n]{1,120})\|([A-Za-z0-9+/=]+)\]\]/g, PY_RE = /\[\[py:([A-Za-z0-9+/=]+)\]\]/g, PY_RES = '[ผลรัน Python]', PY_MAX = 4;
+const unb64t = b => { try { return new TextDecoder().decode(Uint8Array.from(atob(b), c => c.charCodeAt(0))); } catch { return ''; } };
+function parseTools(content) {
+  const files = [], py = [];
+  const text = String(content || '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; });
+  return { text, files, py };
+}
+function toolCards(m, i, files, py) {
+  if (!files.length && !py.length && !m.pyOut) return '';
+  const fileBtn = (f, k) => `<button type="button" class="dl-card" data-dl="${i}:${k}">${ic('download', 'sm')}<span><b>${esc(f.name)}</b><small>${{ xlsx: 'Excel', csv: 'CSV', docx: 'Word', pdf: 'PDF (พิมพ์/บันทึก)', md: 'Markdown', txt: 'ข้อความ', html: 'HTML', json: 'JSON' }[f.name.split('.').pop().toLowerCase()] || 'ไฟล์'} · กดเพื่อดาวน์โหลด</small></span></button>`;
+  const pyBox = code => `<details class="pyrun"><summary>${ic('terminal', 'sm')} Python ${m.pyOut ? '' : '· กำลังรอรัน'}</summary><pre><code>${esc(code)}</code></pre></details>`;
+  const out = m.pyOut ? `<div class="pyout"><pre>${esc(m.pyOut.text)}</pre>${m.pyOut.imgs.map(d => `<img src="${d}" alt="กราฟจาก Python">`).join('')}</div>` : '';
+  return `<div class="tool-cards">${files.map(fileBtn).join('')}${py.map(pyBox).join('')}${out}</div>`;
+}
+// สร้างไฟล์ในเบราว์เซอร์: Excel ด้วย SheetJS, Word = HTML เปิดใน Word (.doc), PDF = หน้าพิมพ์ (บันทึกเป็น PDF), ที่เหลือเป็นข้อความ
+async function makeFile(name, content) {
+  const ext = name.split('.').pop().toLowerCase(), save = (blob, n) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = n; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+  if (ext === 'xlsx') {
+    await lib('xlsx'); let wb = null;
+    try { const j = JSON.parse(content); if (Array.isArray(j?.sheets)) { wb = XLSX.utils.book_new(); j.sheets.forEach((sh, k) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(Array.isArray(sh.rows) ? sh.rows : []), String(sh.name || 'Sheet' + (k + 1)).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31))); } } catch { /* ไม่ใช่ JSON: อ่านเป็น CSV */ }
+    return XLSX.writeFile(wb || XLSX.read(content, { type: 'string' }), name);
+  }
+  if (ext === 'docx' || ext === 'pdf') {
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(name)}</title><style>body{font-family:Tahoma,'Sarabun','TH Sarabun New',sans-serif;font-size:12pt;line-height:1.6;margin:24px;color:#111}table{border-collapse:collapse;margin:8px 0}td,th{border:1px solid #999;padding:4px 8px}pre{white-space:pre-wrap}</style></head><body>${md(content)}</body></html>`;
+    if (ext === 'docx') return save(new Blob(['﻿' + html], { type: 'application/msword' }), name.replace(/\.docx$/i, '.doc')); // Word เปิด HTML .doc ได้ตรง ๆ
+    const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0'; document.body.append(f);
+    f.contentDocument.open(); f.contentDocument.write(html); f.contentDocument.close();
+    setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch { toast('เปิดหน้าพิมพ์ไม่ได้', 'bad'); } setTimeout(() => f.remove(), 60e3); }, 300);
+    return;
+  }
+  save(new Blob([ext === 'csv' ? '﻿' + content : content], { type: (MIME[ext] || 'text/plain') + ';charset=utf-8' }), name);
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest?.('[data-dl]'); if (!b) return;
+  const [i, k] = b.dataset.dl.split(':').map(Number), f = parseTools(chat.msgs[i]?.content).files[k]; if (!f) return;
+  try { await makeFile(f.name, unb64t(f.b)); } catch (x) { toast('สร้างไฟล์ไม่สำเร็จ: ' + x.message, 'bad'); }
+});
+// รัน Python ที่ AI ส่งมาในเบราว์เซอร์ (Pyodide ใน Web Worker · ไฟล์ที่แนบในแชตอยู่ที่ /data/) แล้วส่งผลกลับให้ AI ทำต่อ
+async function pyRun(ai) {
+  chat.pyRound = (chat.pyRound || 0) + 1; if (chat.pyRound > PY_MAX) return showErr(`AI รัน Python ครบ ${PY_MAX} รอบแล้ว พิมพ์สั่งต่อได้เลย`);
+  const code = parseTools(ai.content).py.at(-1); if (!code) return;
+  const files = chat.msgs.filter(m => m.role === 'user').flatMap(m => [...m.content.matchAll(FILE_RE)].map(x => ({ path: '/data/' + x[1].replace(/[\\/]/g, '_'), content: x[2] })));
+  ai.pyOut = { text: 'กำลังรัน Python…', imgs: [] }; renderAll(); setBusy(true);
+  const res = await new Promise(ok => {
+    let out = ''; const imgs = [], w = new Worker('/pyworker.js');
+    const end = extra => { clearTimeout(t); w.terminate(); ok({ out: out + (extra || ''), imgs }); }, t = setTimeout(() => end('\n[หยุด: รันนานเกิน 90 วินาที]'), 90e3);
+    w.onmessage = e => { const d = e.data; if (d.out != null) out += d.out + '\n'; if (d.err) out += d.err + '\n'; if (d.img) imgs.push(d.img.startsWith('data:') ? d.img : 'data:image/png;base64,' + d.img); if (d.status) { ai.pyOut.text = d.status; renderAll(); } if (d.done) end(); };
+    w.onerror = e => end('\nError: ' + (e.message || 'โหลด Python ไม่สำเร็จ'));
+    w.postMessage({ files: [...files, { path: 'main.py', content: code }], main: 'main.py' });
+  });
+  setBusy(false);
+  const text = res.out.trim() || '(ไม่มีผลลัพธ์ที่พิมพ์ออกมา)', cut = s => s.length > 8000 ? s.slice(0, 2500) + '\n…(ตัดกลาง)…\n' + s.slice(-5000) : s, vision = !!curModel()?.vision;
+  ai.pyOut = { text, imgs: res.imgs }; renderAll();
+  const t = $('#t'), keep = [t.value, chat.files, chat.images];
+  t.value = PY_RES + '\n' + cut(text) + (res.imgs.length ? `\n[สร้างกราฟ ${res.imgs.length} รูป${vision ? ' แนบมาด้วย' : ' (แสดงให้ผู้ใช้แล้ว โมเดลนี้อ่านรูปไม่ได้)'}]` : '');
+  chat.files = []; chat.images = vision ? res.imgs.slice(0, 2) : []; chat.pyAuto = true;
+  const p = send(); [t.value, chat.files, chat.images] = keep; drawThumbs(); return p;
 }

@@ -11,9 +11,10 @@ onmessage = async e => {
     }
     const root = '/home/pyodide/project';
     for (const f of files) { // เขียนไฟล์โปรเจกต์ลงระบบไฟล์จำลอง ให้ import กันได้
-      const parts = (root + '/' + f.path).split('/'); parts.pop();
+      const full = f.path.startsWith('/') ? f.path : root + '/' + f.path; // พาธเต็ม (เช่น /data/ไฟล์แนบ) หรือพาธในโปรเจกต์
+      const parts = full.split('/'); parts.pop();
       let d = ''; for (const x of parts.filter(Boolean)) { d += '/' + x; try { py.FS.mkdir(d); } catch {} }
-      py.FS.writeFile(root + '/' + f.path, f.content);
+      py.FS.writeFile(full, f.content);
     }
     const code = files.find(f => f.path === main).content;
     py.runPython(`import os, sys\nos.chdir(${JSON.stringify(root)})\nif ${JSON.stringify(root)} not in sys.path: sys.path.insert(0, ${JSON.stringify(root)})`);
