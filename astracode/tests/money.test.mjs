@@ -176,3 +176,20 @@ test('overview and profit show the same revenue (money in) and profit (plans + w
   assert.equal(a.models.length, 0, 'rejected requests without a model are not a model row'); assert.equal(a.errors.length, 1);
   assert.deepEqual([a.sales[0].sold, a.sales[0].cost_wallet, a.sales[0].profit, a.sales[0].cost_plan], [12, 5, 7, 3]);
 });
+
+test('long-context price tier: a request from 272K input tokens costs input/cache x2 and output x1.5 (cost and wallet charge); shorter requests and only the long rounds of a chat answer', async () => {
+  const t = await makeEnv(); await t.json('/api/version');
+  const { logUsage } = await import('../src/ai.js');
+  t.DB.raw.prepare("INSERT INTO models (name,provider,api_model,base_url,key_name,cost_in,cost_out,cost_cache,cost_cache_write,price_in,price_out,price_cache,price_cache_write,active,long_k) VALUES ('G','openai','g','http://x','K',4,20,0.2,5,8,40,0.4,10,1,272)").run();
+  const m = t.DB.raw.prepare("SELECT * FROM models WHERE name='G'").get(), u = await t.user({ balance: 100 });
+  const cost = () => t.DB.raw.prepare('SELECT cost, charge FROM usage ORDER BY id DESC LIMIT 1').get();
+  await logUsage(t.env, u.id, m, { fresh: 100000, read: 0, write: 0, out: 1000 }, { units: false, wallet: 'api' });
+  assert.deepEqual(Object.values(cost()).map(x => Math.round(x * 1e4) / 1e4), [0.42, 0.84], 'below 272K: base price');
+  await logUsage(t.env, u.id, m, { fresh: 200000, read: 100000, write: 0, out: 1000 }, { units: false, wallet: 'api' });
+  // ฐาน 0.8+0.02+0.02 = 0.84 · ขั้นที่ 2: ขาเข้า (0.8+0.02)×2 + ขาออก 0.02×1.5 = 1.67
+  assert.equal(Math.round(cost().cost * 1e4) / 1e4, 1.67); assert.equal(Math.round(cost().charge * 1e4) / 1e4, 3.34, 'the wallet price rises by the same ratio');
+  // คำตอบแชตที่มี 2 รอบ: รอบแรกสั้น รอบสองยาว → คิดราคาขั้นที่ 2 เฉพาะรอบสอง
+  const long = { fresh: 300000, read: 0, write: 0, out: 1000 };
+  await logUsage(t.env, u.id, m, { fresh: 400000, read: 0, write: 0, out: 2000, long }, { units: false });
+  assert.equal(Math.round(cost().cost * 1e4) / 1e4, 2.85); // ฐาน 1.6+0.04 + ส่วนเพิ่มของรอบยาว 1.2+0.01
+});

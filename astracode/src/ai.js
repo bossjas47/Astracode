@@ -407,16 +407,26 @@ export function excerptFiles(content, question) {
     return `${open}[ไฟล์ยาว ${body.length.toLocaleString()} ตัวอักษร: แสดงเฉพาะส่วนที่เกี่ยวกับคำถาม ถ้าต้องการส่วนอื่นให้ผู้ใช้ถามเจาะจง]\n${outB}${close}`;
   });
 }
+// ราคาขั้นที่ 2 เมื่อ context ยาว (เช่น GPT บน maxplus: input ตั้งแต่ 272K token ต่อคำขอ → ขาเข้า/cache ×2, ขาออก ×1.5)
+// ตั้งต่อโมเดลในหลังบ้าน: long_k = เกณฑ์ (พัน token) · long_in = ตัวคูณขาเข้า+cache read/write · long_out = ตัวคูณขาออก
+// usage.long = ส่วนของ token ที่อยู่ในคำขอที่ยาวเกินเกณฑ์ (แชตที่ใช้เครื่องมือหลายรอบรวม usage ไว้ จึงต้องแยกรายรอบก่อนรวม)
+export const isLong = (m, u) => m?.long_k > 0 && u.fresh + u.read + u.write >= m.long_k * 1000;
+export const longPart = (m, u) => u.long !== undefined ? u.long : isLong(m, u) ? u : null;
+export const longExtra = (m, L, r) => { // r = ราคา/ต้นทุนฐานต่อ 1M token {in, cache, write, out} · คืนส่วนที่ต้องจ่ายเพิ่ม (หน่วยเดียวกับ r)
+  if (!L) return 0; const li = m.long_in > 0 ? m.long_in : 2, lo = m.long_out > 0 ? m.long_out : 1.5;
+  return ((L.fresh * r.in + L.read * r.cache + L.write * r.write) * (li - 1) + L.out * r.out * (lo - 1)) / 1e6;
+};
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
 export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null, flag = null, pack = false, prep = null } = {}) {
-  const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6; // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
+  const L = flat(m) ? null : longPart(m, usage);
+  const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6 + longExtra(m, L, { in: m.cost_in, cache: m.cost_cache, write: m.cost_cache_write, out: m.cost_out }); // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   usage._units = un; // ให้ /v1 บอกลูกค้าว่าคำขอนี้ใช้ลิมิตไปกี่ % (ไม่เปิดเผยต้นทุน)
   const pk = pack ? Math.max(cost * limMult(m), 1e-9) : null; usage._pack = pk; // แพ็ก Agent: หักจากโควตาแพ็ก (คอลัมน์ pack) ไม่ใช่ลิมิตแพลน
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   let charge = 0;
-  if (wallet) { const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6) * 10000) / 10000; }
+  if (wallet) { const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6 + longExtra(m, L, p)) * 10000) / 10000; } // ราคาขาย context ยาวขึ้นตามสัดส่วนเดียวกับต้นทุน
   await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge,flag,pack,prep) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null, flag || usage.flag || null, pk, prep).run(); // prep = ms ที่ระบบเตรียมก่อนเรียกโมเดล (แยกจาก ttft ของโมเดล)
   // ต้นทุน/token ต่องาน Agent · ctx_peak = input ของรอบที่ใหญ่สุด (ใช้แสดง context ของทีม)
@@ -665,7 +675,11 @@ export async function runChat(env, J, send, st) {
     }
     cumIn += ru ? ru.fresh + ru.read + ru.write : ctxUsed;
     if (ru && !ru.flag) lastCtx = ru.fresh + ru.read + ru.write + ru.out; // context จริงที่โมเดลเห็นรอบล่าสุด + คำตอบ = ฐานของข้อความถัดไป
-    if (ru) usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : ru;
+    if (ru) { // รวม usage ทุกรอบ · แยกเก็บรอบที่ context ยาวเกินเกณฑ์ไว้ใน .long เพื่อคิดราคาขั้นที่ 2 เฉพาะรอบนั้น
+      const L0 = usage?.long || { fresh: 0, read: 0, write: 0, out: 0 }, L = isLong(model, ru) ? { fresh: L0.fresh + ru.fresh, read: L0.read + ru.read, write: L0.write + ru.write, out: L0.out + ru.out } : L0;
+      usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : { ...ru };
+      usage.long = L.fresh + L.read + L.write + L.out ? L : null;
+    }
     const toolCalls = [...tcs.values()];
     if (toolCalls.length && !st.gone && round < (ws && useTools ? maxRounds + 2 : zipTools.length ? 12 : 5)) {
       msgs = [...msgs, { role: 'assistant', content: part || null, tool_calls: toolCalls }];

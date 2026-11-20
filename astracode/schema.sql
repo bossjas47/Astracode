@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS models (
   cost_cache_write REAL NOT NULL DEFAULT 0,
   vision INTEGER NOT NULL DEFAULT 0,        -- อ่านรูปได้
   ctx_k REAL,                               -- ขนาด context ของโมเดล (พัน token) ว่าง = 128
+  long_k REAL, long_in REAL, long_out REAL, -- ราคาขั้นที่ 2: input ต่อคำขอ ≥ long_k พัน token → ขาเข้า/cache ×long_in (2), ขาออก ×long_out (1.5)
   new_until INTEGER,                        -- แสดงป้าย "ใหม่" ในหน้าเลือกโมเดลถึงเวลานี้ (ms)
   cats TEXT,                                -- หมวดตามงานที่เหมาะ (คั่นด้วย , เช่น code,math) ใช้กรองในหน้าเลือกโมเดล
   req_cap INTEGER,                          -- เพดานจำนวนคำขอต่อผู้ใช้ต่อ 4 ชม. (ว่าง = ไม่จำกัด)
@@ -312,6 +313,7 @@ CREATE TABLE IF NOT EXISTS models (
   cost_cache_write REAL NOT NULL DEFAULT 0,
   vision INTEGER NOT NULL DEFAULT 0,        -- อ่านรูปได้
   ctx_k REAL,                               -- ขนาด context ของโมเดล (พัน token) ว่าง = 128
+  long_k REAL, long_in REAL, long_out REAL, -- ราคาขั้นที่ 2: input ต่อคำขอ ≥ long_k พัน token → ขาเข้า/cache ×long_in (2), ขาออก ×long_out (1.5)
   new_until INTEGER,                        -- แสดงป้าย "ใหม่" ในหน้าเลือกโมเดลถึงเวลานี้ (ms)
   cats TEXT,                                -- หมวดตามงานที่เหมาะ (คั่นด้วย , เช่น code,math) ใช้กรองในหน้าเลือกโมเดล
   req_cap INTEGER,                          -- เพดานจำนวนคำขอต่อผู้ใช้ต่อ 4 ชม. (ว่าง = ไม่จำกัด)

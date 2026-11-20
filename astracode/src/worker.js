@@ -35,6 +35,7 @@ async function pricingBody(env) {
         const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
         return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lim: limMult(m), note: m.note,
           in: p.in, out: p.out, cache: p.cache, cache_write: p.write, req: p.req || null, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
+          long: m.long_k > 0 ? { k: m.long_k, in: m.long_in > 0 ? m.long_in : 2, out: m.long_out > 0 ? m.long_out : 1.5 } : null, // ราคาขั้นที่ 2 เมื่อ context ยาว
           official: official[m.id] || null, plans: pm.results.filter(x => x.model_id === m.id).map(x => x.plan_id) };
       })),
     };
