@@ -191,3 +191,16 @@ test('chat tools: create_file, save_memory, generate_image, run_python and searc
   assert.match(JSON.stringify(fm.hits[2].body.messages), /file created: quote\.xlsx/);
   fm.close();
 });
+
+test('an image the provider refuses (copyright / safety) gets a clear message and does not count as the model being down', async () => {
+  const fm = await fakeModel((req, res) => { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'Your request was rejected as a result of our safety system.', code: 'moderation_blocked' } })); });
+  const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'Img', provider: 'image', base_url: fm.url });
+  const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 0 });
+  const u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'Pikachu pattern', model_id: m.id } }));
+  assert.match(ev.find(e => e.error)?.error || '', /ลิขสิทธิ์/);
+  assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM events WHERE kind='error'").get().n, 0);
+  assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM events WHERE kind='refused'").get().n, 1);
+  fm.close();
+});

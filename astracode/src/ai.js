@@ -669,10 +669,15 @@ export async function runChat(env, J, send, st) {
         // ผู้ให้บริการไม่รับ tools (400/422 ที่พูดถึง tool/function): ปิด tools แบบ native ของคำตอบนี้แล้วลองใหม่แบบเดิมทันที ไม่นับเป็นโมเดลล่ม
         if (useTools && toolsSent && !stalled && !out.trim() && !think && !tcs.size && /\b4(00|04|22)\b/.test(e.message) && /tool|function/i.test(e.message)) { useTools = false; console.log('tools off for', model.name, e.message.slice(0, 120)); attempt--; continue; }
         console.log('AI error', model.name, e.message);
-        await event(env, 'error', model.id, e.message.slice(0, 300));
+        // ผู้ให้บริการปฏิเสธเนื้อหา (ตัวกรองความปลอดภัย/ลิขสิทธิ์ เช่น ขอรูปตัวละครดัง) ไม่ใช่โมเดลล่ม: ไม่นับเข้าตัวตัดวงจร และบอกผู้ใช้ตรงๆ
+        const refused = !stalled && /moderation|safety|content[ _-]?policy|policy[ _-]?violation|copyright|trademark|blocked by|not allowed|rejected as a result|responsible ai|content[ _-]?filter/i.test(e.message);
+        const busy = !stalled && /\b(429|529)\b|rate.?limit|overloaded|temporarily unavailable/i.test(e.message);
+        await event(env, refused ? 'refused' : 'error', model.id, e.message.slice(0, 300));
         const fb = !out.trim() && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
         if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
-        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message + (rawT && e.message.startsWith('โมเดลส่งคำตอบว่าง') ? ' · ข้อมูลดิบท้ายสุด: ' + rawT.slice(0, 900) : '') : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล' : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
+        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message + (rawT && e.message.startsWith('โมเดลส่งคำตอบว่าง') ? ' · ข้อมูลดิบท้ายสุด: ' + rawT.slice(0, 900) : '') : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล'
+          : refused ? (model.provider === 'image' ? 'ผู้ให้บริการไม่สร้างรูปนี้ให้ (มักเป็นตัวละคร แบรนด์ หรือคนดังที่มีลิขสิทธิ์ หรือเนื้อหาที่ไม่อนุญาต) ลองบรรยายเป็นสไตล์ของคุณเองโดยไม่ระบุชื่อตัวละคร' : 'ผู้ให้บริการไม่ตอบคำขอนี้เพราะติดตัวกรองเนื้อหา ลองปรับคำถามหรือเลือกโมเดลอื่น')
+          : busy ? 'ตอนนี้มีคนใช้โมเดลนี้เยอะ ลองใหม่อีกครั้งในไม่กี่วินาที หรือเลือกโมเดลอื่น' : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
         break;
       }
     }
