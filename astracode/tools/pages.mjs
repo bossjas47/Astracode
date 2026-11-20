@@ -30,7 +30,7 @@ for (const [file, [page, title, scripts, desc, index]] of Object.entries(PAGES))
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#faf7f2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>${title}</title>
@@ -48,7 +48,9 @@ ${index ? `<link rel="canonical" href="${SITE}/${file === 'home' ? '' : file}">`
 <link rel="apple-touch-icon" href="/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&display=swap">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&display=swap" rel="stylesheet" media="print" data-fonts>
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/style.css">
 ${file === 'home' ? `<script type="application/ld+json">${LD}</script>\n` : ''}</head>
 <body data-page="${page}">

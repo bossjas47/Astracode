@@ -38,7 +38,8 @@ const biLang = v => typeof v === 'string' ? (v.includes(' || ') ? v.split(' || '
 const safeNext = n => /^\/(?![\/\\])/.test(String(n || '')) ? n : '/chat';
 async function api(path, opt = {}) {
   if (opt.body && !(opt.body instanceof FormData)) { opt.body = JSON.stringify(opt.body); opt.headers = { 'content-type': 'application/json' }; }
-  const r = await fetch('/api' + path, opt);
+  const pre = !opt.method && !opt.body && window.__pre?.[path]; if (pre) delete window.__pre[path]; // คำขอที่ theme.js เริ่มไว้ตั้งแต่หัวหน้า (ใช้ครั้งเดียว)
+  const r = (pre && await pre.catch(() => null)) || await fetch('/api' + path, opt);
   const json = r.headers.get('content-type')?.includes('json'), d = json ? await r.json().catch(() => null) : null;
   if (r.status === 401) me = null;
   if (!r.ok) { // ไม่ใช่ JSON = error จาก Vercel/Cloudflare เอง โชว์รหัสกับต้นข้อความไว้หาสาเหตุ
@@ -572,7 +573,7 @@ function auth(host = null) { // host = วางฟอร์มในหน้�
   };
   draw();
 }
-const loadMe = async () => { me = await api('/me').catch(() => null); if (me?.plan) me.plan = biLang(me.plan); };
+const loadMe = async () => { me = await api('/me').catch(() => null); if (me?.plan) me.plan = biLang(me.plan); try { me ? localStorage.setItem('li', '1') : localStorage.removeItem('li'); } catch { /* ไม่มีที่เก็บ */ } }; // li = เคยล็อกอิน: theme.js ขอข้อมูลแชตล่วงหน้าเฉพาะคนที่ล็อกอิน
 
 function meters(u) {
   const m = (label, p, reset) => `<div class="meter ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" title="รีเซ็ต ${when(reset)}">${label} ${p}%<div class="track"><div class="fill" style="width:${p}%"></div></div></div>`;

@@ -105,7 +105,7 @@ PAGES.account = async function account() {
 
     <div class="card acc-c" id="sec-look">${h3('การแสดงผล')}
       <label>แจ้งเตือนเข้ามือถือ</label><p class="muted" style="margin:0 0 6px">Agent, Deep research และงานตั้งเวลาเสร็จแล้วแจ้งทันทีแม้ปิดแอป (แยกต่ออุปกรณ์)</p><div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn out sm" id="pushbtn">กำลังตรวจ…</button><button type="button" class="btn out sm" id="pushtest" hidden>ทดสอบ</button></div>
-      <label>ธีม</label><div class="seg" id="seg-theme" role="group" aria-label="ธีม">${[['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button type="button" data-t="${k}" class="${(localStorage.getItem('theme') || 'dark') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <label>ธีม</label><div class="seg" id="seg-theme" role="group" aria-label="ธีม">${[['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button type="button" data-t="${k}" class="${(localStorage.getItem('theme') || 'light') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <label>ภาษา</label>${langSeg()}
       <label>เอฟเฟกต์กระจก (เบลอ) · Auto ปิดเองบนเครื่องสเปกต่ำ</label><div class="seg" id="seg-fx" role="group" aria-label="เอฟเฟกต์กระจก">${[['auto', 'Auto'], ['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button type="button" data-x="${k}" class="${(localStorage.getItem('fx') || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <label>ขนาดตัวอักษรในแชต</label><div class="seg" id="seg-fs" role="group" aria-label="ขนาดตัวอักษร">${[['s', 'S'], ['m', 'M'], ['l', 'L']].map(([k, l]) => `<button type="button" data-f="${k}" class="${(localStorage.getItem('fsize') || 'm') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
