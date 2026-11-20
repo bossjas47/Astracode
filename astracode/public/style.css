@@ -1661,3 +1661,44 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .cs-load { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; }
 .cmain .cs-box textarea, .cmain .cs-box textarea:focus { border: 0; background: transparent; box-shadow: none; outline: none; padding: 8px 8px 4px; border-radius: 0; }
 .side-nav button { width: 100%; }
+
+/* Code: หน้าโปรเจกต์แบบแชตเป็นหลัก (แบบ Claude Code) */
+.rp-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9999px; background: rgba(var(--ov), .06); flex: none; }
+.rp-tabs button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 0; border-radius: 9999px; background: transparent; color: var(--ash); font: 500 13px var(--font); cursor: pointer; }
+.rp-tabs button.on { background: var(--carbon); color: var(--porcelain); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+@media (hover: hover) { .rp-tabs button:not(.on):hover { color: var(--porcelain); } }
+@media (min-width: 1000px) {
+  .ide[data-layout="chat"] .ide-body { grid-template-columns: minmax(360px, 1fr) minmax(0, 1.2fr); }
+  .ide[data-layout="chat"] .ide-ai { grid-column: 1; grid-row: 1; border-left: 0; border-right: 1px solid var(--hair); }
+  .ide[data-layout="chat"] .ide-files, .ide[data-layout="chat"] .ide-main { grid-column: 2; grid-row: 1; }
+  .ide[data-layout="chat"]:not([data-rp="files"]) .ide-files { display: none; }
+  .ide[data-layout="chat"][data-rp="files"] .ide-main { display: none; }
+  .ide[data-layout="chat"][data-rp="files"] .ide-files { border-right: 0; }
+  .ide[data-layout="chat"][data-rp="code"] .ide-run { display: none; }
+  .ide[data-layout="chat"][data-rp="preview"] .ide-main > :not(.ide-run) { display: none; }
+  .ide[data-layout="chat"][data-rp="preview"] .ide-run { display: flex; flex: 1; height: auto; border-top: 0; }
+  .ide[data-layout="chat"] #aiclose, .ide[data-layout="chat"] .ide-burger { display: none; }
+  .ide[data-layout="chat"] .ide-ai .msgs, .ide[data-layout="chat"] .ide-ai .compose { width: 100%; max-width: 820px; margin-left: auto; margin-right: auto; }
+}
+@media (max-width: 999px) { .rp-tabs { display: none; } }
+.tsteps { margin: 2px 0 8px; border: 1px solid var(--hair); border-radius: 12px; background: rgba(var(--ov), .03); font-size: 13px; }
+.tsteps summary { list-style: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; color: var(--ash); min-height: 38px; }
+.tsteps summary::-webkit-details-marker { display: none; }
+.tsteps summary > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsteps .tchev { transition: transform .15s; flex: none; }
+.tsteps[open] .tchev { transform: rotate(90deg); }
+.tsteps ol { list-style: none; margin: 0; padding: 0 12px 10px; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow: auto; }
+.tsteps li { display: flex; align-items: center; gap: 8px; color: var(--porcelain); font-size: 12px; }
+.tsteps li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsteps li .ic { color: var(--green); flex: none; }
+.tsteps li.bad, .tsteps li.bad .ic { color: var(--red); }
+.tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); flex: none; animation: tpulse .9s ease-in-out infinite alternate; }
+@keyframes tpulse { to { opacity: .25; } }
+.pushnote { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 12px; font-size: 13px; }
+.pushnote > .ic, .pushnote > .tdot { margin-top: 4px; flex: none; }
+.pushnote > span { flex: 1; min-width: 0; }
+.pushnote small { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pushnote.st-ok > .ic { color: var(--green); }
+.pushnote.st-bad > .ic { color: var(--red); }
+.gauto { margin: 10px 0; }
+.chg .cpath[data-openf] { cursor: pointer; } @media (hover: hover) { .chg .cpath[data-openf]:hover { text-decoration: underline; } }

@@ -323,6 +323,22 @@ const FLOWS = [
     return [!errs.length || errs.join(' | '), a.url === '/code' && a.composer && a.chatHidden || 'Code did not open: ' + JSON.stringify(a), b.url === '/chat' && b.chat && b.kept || 'back to chat failed: ' + JSON.stringify(b),
       c.same === 1 || 'page reloaded', c.url === '/code?p=7' && c.ide || 'project not kept: ' + JSON.stringify(c), d === '/chat true' || 'browser back: ' + d];
   }],
+  ['Code: AI tools show as collapsible steps, edits apply on their own, and the finished task is committed and pushed to GitHub', async () => {
+    let n = 0;
+    const { page, errs, calls } = await open('/code?p=7', {
+      '/api/projects/7': { id: 7, name: 'Site', instructions: '', gh: { repo: 'me/site', branch: 'main' }, files: [{ path: 'index.html', content: '<h1>old</h1>' }] },
+      '/api/projects/7/github/push': { ok: true, commit: 'abc1234def', url: 'https://github.com/me/site/commit/abc1234def', files: 1 },
+      chat: () => ++n === 1 ? [{ chat_id: 70 }, { mcp: { server: 'ไฟล์', tool: 'อ่าน index.html', ok: true } }, { mcp: { server: 'ไฟล์', tool: 'แก้ index.html', ok: true } }, { t: 'แก้หัวข้อแล้ว\n\n```html path=index.html\n<h1>new</h1>\n```' }, { done: true, pct4h: 1, pctWeek: 1, mid: 1 }]
+        : [{ chat_id: 70 }, { t: 'ตรวจแล้ว เรียบร้อย' }, { done: true, pct4h: 1, pctWeek: 1, mid: 2 }],
+    });
+    const pane = await page.evaluate(() => document.querySelector('.ide').dataset.pane);
+    await page.fill('#ct', 'เปลี่ยนหัวข้อเป็น new'); await page.click('#cgo');
+    await page.waitForSelector('.pushnote.st-ok', { timeout: 20000 }).catch(() => {});
+    const r = await page.evaluate(() => ({ file: IDE.files.get('index.html'), steps: document.querySelector('.tsteps summary')?.textContent || '', push: document.querySelector('.pushnote')?.textContent || '' }));
+    const push = calls.find(c => c.m === 'POST' && c.p === '/api/projects/7/github/push');
+    return [!errs.length || errs.join(' | '), pane === 'ai' || 'phone did not open on the chat: ' + pane, r.file?.trim() === '<h1>new</h1>' || 'edit not applied: ' + r.file, /อ่าน 1/.test(r.steps) && /แก้ 1/.test(r.steps) || 'steps: ' + r.steps,
+      /เปลี่ยนหัวข้อเป็น new/.test(push?.body || '') && /index\.html/.test(push?.body || '') || 'push message: ' + push?.body, /main/.test(r.push) && /abc1234/.test(r.push) || 'push note: ' + r.push];
+  }],
   ['page audit finds missing title, alt and viewport, and passes a clean page', async () => {
     const { page, errs } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<html><body><img src="a.png"><h1>x</h1></body></html>' }] } });
     const r = await page.evaluate(() => { const bad = auditProject(IDE.files); const good = auditProject(new Map([['index.html', '<html lang="th"><head><title>ร้าน</title><meta name="description" content="d"><meta name="viewport" content="width=device-width"><meta property="og:title" content="t"></head><body><h1>x</h1><img src="a.png" alt="a"></body></html>']])); return { bad, good }; });

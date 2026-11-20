@@ -187,7 +187,10 @@ function paintStreaming(el, m) {
     b.innerHTML = thinkText(m.thinking); th.querySelector('.think-s').innerHTML = thinkLabel(m);
     if (stick) b.scrollTop = b.scrollHeight;
   }
-  if (m.mcps?.length) {
+  if (m.mcps?.length && typeof toolSteps === 'function' && el.closest('#cmsgs')) { // โหมด Code: ขั้นตอนเครื่องมือแบบพับได้ (code.js)
+    const ts = el.querySelector('.tsteps'), h = toolSteps(m);
+    if (ts) ts.outerHTML = h; else el.querySelector('.b').insertAdjacentHTML('beforebegin', h);
+  } else if (m.mcps?.length) {
     let mp = el.querySelector('.mcp-live');
     if (!mp) { el.querySelector('.b').insertAdjacentHTML('beforebegin', '<div class="steps-bar mcp-live" style="cursor:default"></div>'); mp = el.querySelector('.mcp-live'); }
     mp.innerHTML = `${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span>`;
