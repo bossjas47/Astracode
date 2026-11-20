@@ -346,7 +346,7 @@ function settingsSheet() {
     ${btn('conn', 'layers', 'Connectors · Skills · Plugins', 'Connect Google, Notion, GitHub and more so the AI can use them in every chat')}
     <h4>Developers &amp; apps</h4>
     ${row('/developers', 'braces', 'Developer API', 'API keys and OpenAI-compatible usage')}
-    ${window.astraDesktop ? '' : row('/#download', 'download', 'Desktop app', 'Windows · Mac · Linux: let the AI work with files on your computer')}
+    ${window.astraDesktop ? '' : row('/#download', 'download', 'Desktop app', 'Windows · Linux: let the AI work with files on your computer')}
     <h4>Help</h4>
     ${row('/support', 'mail', 'Contact &amp; support')}
     ${row('/pricing', 'tag', 'Pricing', 'Model prices per 1M tokens')}
@@ -419,27 +419,16 @@ function bindInstall() {
   b.onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; b.remove(); };
 }
 
-// Mac: แอปยังไม่ได้เซ็นรับรองจาก Apple · เปิดครั้งแรกอาจขึ้น "ไฟล์เสียหาย เปิดไม่ได้" (Gatekeeper กันไฟล์ที่โหลดจากเน็ต) · แก้ด้วยคำสั่งเดียว
-const MAC_FIX = 'xattr -cr "/Applications/AstraCode Desktop.app"';
-function macHelp() {
-  return `<details class="mac-help"><summary>${ic('alert', 'sm')} เปิดบน Mac แล้วขึ้นว่า \u201cไฟล์เสียหาย เปิดไม่ได้\u201d?</summary>
-    <div class="mac-steps"><p class="muted">แอปยังไม่ได้เซ็นรับรองจาก Apple (ค่าใช้จ่ายปีละ $99) macOS เลยกันไฟล์ที่โหลดจากเน็ตไว้ก่อน ทำตามนี้ครั้งเดียวจบ:</p>
-      <ol><li>เปิดไฟล์ .dmg แล้วลากแอปไปที่โฟลเดอร์ <b>Applications</b></li>
-      <li>เปิดแอป <b>Terminal</b> (กด <b>⌘ + เว้นวรรค</b> พิมพ์ Terminal)</li>
-      <li>วางคำสั่งนี้แล้วกด Enter: <div class="mac-cmd"><code>${esc(MAC_FIX)}</code><button type="button" class="btn out sm" data-maccopy>คัดลอก</button></div></li>
-      <li>เปิดแอป AstraCode Desktop ได้ตามปกติ</li></ol>
-      <p class="muted" style="font-size:12.5px">ทำครั้งเดียวต่อการติดตั้ง · ปลอดภัย คำสั่งนี้แค่เอาป้าย \u201cกันไฟล์จากเน็ต\u201d ออกจากแอปที่คุณเพิ่งโหลด</p></div></details>`;
-}
 // ส่วนดาวน์โหลดแอปคอม: ปุ่มหลักตามระบบของผู้เข้าชม + ตัวอย่าง Agent คุมเครื่อง
 function dlBand() {
   if (window.astraDesktop) return '';
-  const os = osName(), P = { win: ['Windows', '/download/desktop', 'Windows 10 / 11 · ไฟล์ .exe'], mac: ['Mac', '/download/desktop?os=mac', 'macOS (Apple Silicon / Intel)'], linux: ['Linux', '/download/desktop?os=linux', 'AppImage'] };
-  const main = P[os], others = Object.entries(P).filter(([k]) => k !== os);
+  const os = osName(), P = { win: ['Windows', '/download/desktop', 'Windows 10 / 11 · ไฟล์ .exe'], linux: ['Linux', '/download/desktop?os=linux', 'AppImage'] };
+  const main = P[os] || P.win, others = Object.entries(P).filter(([k]) => P[os] ? k !== os : k !== 'win'); // Mac หยุดพัฒนาแล้ว: แสดง Windows เป็นหลัก
   const feats = [['terminal', 'Agent ทำงานจนเสร็จ', 'แก้ไฟล์ รันคำสั่ง ทดสอบ แก้ซ้ำเองจนผ่าน เหมือน Claude Code'], ['cpu', 'คุมเมาส์ คีย์บอร์ด หน้าจอ', 'เปิดโปรแกรม คลิก พิมพ์ ใน Excel, Blender, เบราว์เซอร์ หยุดได้ทันทีด้วย Ctrl+Alt+Esc'], ['filetext', 'ทำไฟล์ Office ให้เลย', 'สร้าง Word, Excel, PowerPoint, PDF จากไฟล์ในโฟลเดอร์'], ['layers', 'ปลั๊กอิน MCP คลิกเดียว', 'คุมเบราว์เซอร์, GitHub, Google, ความจำถาวร ติดตั้ง Node.js ให้เอง'], ['smartphone', 'สั่งจากมือถือได้', 'คอมทำงาน มือถือดูความคืบหน้าและกดอนุญาต'], ['bell', 'งานตั้งเวลา', 'เช่น สรุปยอดขายทุกเช้า 07:30 เป็น Excel']];
   return `<div class="band dlband" id="download"><h2>แอป AstraCode บนคอม</h2><p class="muted" style="text-align:center;margin:-8px auto 22px;max-width:620px">บัญชีเดียวกับเว็บ ลิมิตเดียวกัน แต่ AI ทำงานกับไฟล์และโปรแกรมในเครื่องคุณได้จริง</p>
     <div class="dl-grid"><div class="dl-main">
       <a class="btn blue dl-btn" href="${main[1]}">${ic('download')} ดาวน์โหลดสำหรับ ${main[0]}</a><div class="muted" style="font-size:13px;margin:6px 0 14px">${main[2]} · ฟรี · อัปเดตเอง</div>
-      ${os === 'mac' ? macHelp() : ''}
+      ${os === 'mac' ? '<p class="muted dl-note">แอปบนคอมรองรับ Windows และ Linux · บน Mac ใช้งานผ่านเว็บได้ครบทุกอย่าง</p>' : ''}
       <div class="dl-others">${others.map(([, p]) => `<a href="${p[1]}">${p[0]}</a>`).join('')}<a href="/download/cli" title="ใช้ใน VS Code / Terminal">CLI (เทอร์มินัล)</a></div>
       <ul class="dl-feat">${feats.map(([i, t, d]) => `<li>${ic(i, 'sm')}<div><b>${t}</b><span class="muted">${d}</span></div></li>`).join('')}</ul></div>
       <div class="showcase dl-shot" aria-hidden="true" inert><div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">${ic('folder', 'sm')} C:\\งานบัญชี</span><span class="sc-pill">Agent · ทำเองทั้งหมด</span></div>
@@ -507,7 +496,6 @@ async function landing() {
     b.className = 'statusb ' + (bad ? 'warn' : 'ok'); b.innerHTML = bad ? `● โมเดลมีปัญหา <b>${bad}</b> ตัว · ดูสถานะ` : '● ทุกโมเดลทำงานปกติ'; b.hidden = false;
   }).catch(() => {});
   app.querySelectorAll('[data-dlgo]').forEach(a => a.onclick = e => { e.preventDefault(); $('#download')?.scrollIntoView({ behavior: 'smooth' }); });
-  app.querySelector('[data-maccopy]')?.addEventListener('click', e => copy(MAC_FIX, e.target));
   if (location.hash === '#download') setTimeout(() => $('#download')?.scrollIntoView(), 300);
   const plBtn = $('a[href="#plans"]'); if (plBtn) plBtn.onclick = e => { e.preventDefault(); $('#plans')?.scrollIntoView({ behavior: 'smooth' }); };
   // สลับสกุลเงิน: วาดใหม่เฉพาะส่วนแพลนกับตารางเทียบ ไม่โหลดทั้งหน้า (กันหน้าสะดุด/ภาพแตกบนมือถือ)
@@ -696,7 +684,7 @@ function terms() {
     <p class="muted" style="text-align:center;padding-bottom:48px">มีคำถามเกี่ยวกับเงื่อนไขนี้ ติดต่อแอดมิน</p></div>`);
 }
 const footer = () => `<footer class="foot"><div><b>AstraCode</b><span class="muted">AI ทุกตัวในมือถือเครื่องเดียว</span></div>
-  <div><a href="/#download">ดาวน์โหลดแอป Windows / Mac</a><a href="/pricing">ราคาต่อ token</a><a href="/developers">API สำหรับนักพัฒนา</a><a href="/blog">บล็อก</a></div>
+  <div><a href="/#download">ดาวน์โหลดแอปคอม (Windows / Linux)</a><a href="/pricing">ราคาต่อ token</a><a href="/developers">API สำหรับนักพัฒนา</a><a href="/blog">บล็อก</a></div>
   <div><a href="/status">สถานะระบบ</a><a href="/support">Contact us</a><a href="/terms">เงื่อนไขและความเป็นส่วนตัว</a></div>
   <p class="muted">© ${new Date().getFullYear()} AstraCode</p></footer>`;
 

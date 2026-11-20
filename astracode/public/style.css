@@ -1726,14 +1726,7 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .gmode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; font-size: 13px; } .gmode .seg { margin: 0; }
 .pushnote .pn-pr { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; }
 .crow:has(> .send) > #cperm { flex: none; } .crow:has(> .send) > #cperm span { display: inline; }
-/* Mac: วิธีแก้ "ไฟล์เสียหาย เปิดไม่ได้" ในส่วนดาวน์โหลด */
-.mac-help { margin: -4px 0 16px; border: 1px solid var(--hair); border-radius: 12px; padding: 10px 12px; text-align: left; font-size: 14px; }
-.mac-help summary { cursor: pointer; display: flex; align-items: center; gap: 6px; color: var(--yellow); font-weight: 600; }
-.mac-help summary .ic { flex: none; }
-.mac-steps ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; line-height: 1.5; }
-.mac-cmd { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
-.mac-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 8px 10px; border-radius: 8px; background: var(--carbon); border: 1px solid var(--hair); font-family: var(--mono, monospace); font-size: 12.5px; }
-.mac-cmd .btn { flex: none; }
+.dl-note { font-size: 13px; margin: -6px 0 14px; }
 
 /* ตั้งค่า → Connectors / Skills / Plugins */
 .sheet.cn-sheet { width: min(960px, 96vw); max-width: none; }
@@ -1784,3 +1777,40 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .cn-mark { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 700 26px var(--font); color: #fff; background: var(--ash); }
 .cn-mark.ok { background: var(--green); } .cn-mark.bad { background: var(--red); }
 .cn-row.cn-static { cursor: default; } .cn-line { font-size: 13.5px; padding: 4px 0; } .cn-line b { font-weight: 600; }
+.cn-ico.logo { background: #fff; border: 1px solid var(--hair); padding: 7px; } .cn-ico.big.logo { padding: 10px; }
+.cn-ico.logo svg { width: 100%; height: 100%; display: block; }
+
+/* ===================== Minimal (แทนสไตล์ glass) =====================
+   พื้นทึบ · เส้นขอบบาง 1px · ไม่เบลอ ไม่มีไล่สี ไม่มีแสงเรือง/แสงขอบบน · เงาเบาๆ เฉพาะของที่ลอย (หน้าต่าง เมนู แจ้งเตือน) */
+*, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.nav, .card, .tile, .showcase, .seg, .btn.out, .btn.dark, .tabs button, .chips button, .sc-pill, .lim, .toast { background-image: none; box-shadow: none; border-color: var(--hair); }
+.nav { background-color: var(--obsidian); }
+.card, .tile, .showcase, :root[data-theme="light"] .card, :root[data-theme="light"] .tile { background-color: var(--carbon); box-shadow: none; }
+.card .tile { background-color: var(--obsidian); }
+.btn.out, .btn.dark, .tabs button, .chips button, .sc-pill, .lim, .seg { background-color: transparent; }
+@media (hover: hover) { .btn.out:hover, .btn.dark:hover, .tabs button:hover, .chips button:hover, .lim:hover { background-color: rgba(var(--ov), .05); } }
+.btn.blue, :root[data-theme="light"] .btn.blue { box-shadow: none; border-color: transparent; }
+.btn.blue:hover { transform: none; }
+.btn:active, .tabs button:active { transform: none; }
+.seg { background-color: rgba(var(--ov), .05); border-color: transparent; }
+.seg button.on, .mode-seg .on, .rp-tabs button.on { box-shadow: none; }
+input, select, textarea, :root[data-theme="light"] input, :root[data-theme="light"] select, :root[data-theme="light"] textarea { background: var(--carbon); box-shadow: none; border: 1px solid var(--hair); }
+.compose .cbox, .cs-box.cbox { background: var(--carbon); box-shadow: 0 1px 2px rgba(0, 0, 0, .04); border: 1px solid var(--hair); }
+.compose .cbox:focus-within, .cs-box.cbox:focus-within { border-color: var(--steel); }
+.showcase { background: var(--carbon); }
+.band, :root[data-theme="light"] .band { background: none; }
+.sc-u { background: rgba(var(--ov), .06); border-color: var(--hair); box-shadow: none; }
+.side .item.on { background: rgba(var(--ov), .07); box-shadow: none; }
+.nav .nav-panel a.l.on { background: rgba(var(--ov), .07); box-shadow: none; }
+.acc-av { background: var(--carbon); border: 1px solid var(--hair); box-shadow: none; }
+.acc-big { background-color: var(--carbon); box-shadow: none; }
+[data-page=home] .tile.plan.feat { border-color: var(--porcelain); box-shadow: none; }
+[data-page=home] a.tile.link:hover { transform: none; background-color: var(--carbon); border-color: var(--steel); }
+/* หน้าแรก: เอาแสงฟุ้ง/ลูกกลมสีเคลื่อนไหวด้านหลัง และแสงตามเมาส์ออก */
+[data-page=home]::before, .hero::before, [data-page=home] .hero::before, [data-page=home] .tile::after { display: none !important; }
+/* ตัวแก้โค้ด / ดูรูป: พื้นเรียบ */
+.ide-editor, .imgview, :root[data-theme="light"] .ide-editor, :root[data-theme="light"] .imgview { background: var(--obsidian); }
+.ag-stage { background: var(--carbon); }
+/* ของที่ลอยอยู่เหนือหน้า: เงาเบาๆ ให้แยกชั้น */
+.sheet, .acct-pop, .tmenu, .toast { box-shadow: 0 12px 32px rgba(0, 0, 0, .12); }
+:root .cbox textarea, :root[data-theme="light"] .cbox textarea, :root[data-theme="dark"] .cbox textarea, :root .cbox textarea:focus, :root[data-theme="light"] .cbox textarea:focus { border: 0; background: transparent; box-shadow: none; outline: none; }

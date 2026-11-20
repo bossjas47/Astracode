@@ -1,4 +1,4 @@
-name: Build Desktop (Windows / Mac / Linux)
+name: Build Desktop (Windows / Linux)
 on:
   workflow_dispatch:
   push:
@@ -11,7 +11,6 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, script: dist, name: win, files: "desktop/dist/*.exe\ndesktop/dist/*.exe.blockmap\ndesktop/dist/latest.yml" }
-          - { os: macos-latest, script: 'dist:mac', name: mac, files: "desktop/dist/*.dmg\ndesktop/dist/*.zip\ndesktop/dist/*.blockmap\ndesktop/dist/latest-mac.yml" }
           - { os: ubuntu-latest, script: 'dist:linux', name: linux, files: "desktop/dist/*.AppImage\ndesktop/dist/latest-linux.yml" }
     runs-on: ${{ matrix.os }}
     steps:
@@ -28,7 +27,7 @@ jobs:
       - name: Build installer
         working-directory: desktop
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # ยังไม่เซ็นรับรอง: Windows/Mac จะขึ้นคำเตือนตอนติดตั้ง
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # ยังไม่เซ็นรับรอง: Windows จะขึ้นคำเตือนตอนติดตั้ง
         run: npm run ${{ matrix.script }}
       - uses: actions/upload-artifact@v4
         with:
@@ -37,7 +36,7 @@ jobs:
           if-no-files-found: error
   publish:
     needs: build
-    if: ${{ !cancelled() }} # Mac/Linux พังก็ยังปล่อยตัวที่ build ได้
+    if: ${{ !cancelled() }} # Linux พังก็ยังปล่อยตัวที่ build ได้ · Mac หยุดพัฒนาแล้ว
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -63,5 +62,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           ls -la out
-          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "AstraCode Desktop" --notes "ตัวติดตั้งล่าสุด Windows / Mac / Linux" --target "${{ github.sha }}"
+          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "AstraCode Desktop" --notes "ตัวติดตั้งล่าสุด Windows / Linux" --target "${{ github.sha }}"
           gh release upload desktop-latest out/* astra-cli.zip --clobber

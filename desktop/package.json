@@ -10,7 +10,6 @@
     "start": "electron .",
     "test": "node --test --test-force-exit test/localfs.test.js test/agent.test.js",
     "dist": "electron-builder --win nsis --publish never",
-    "dist:mac": "electron-builder --mac dmg zip --publish never",
     "dist:linux": "electron-builder --linux AppImage --publish never"
   },
   "dependencies": {
@@ -65,18 +64,6 @@
         ]
       }
     ],
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "icon": "build/icon.png",
-      "category": "public.app-category.developer-tools",
-      "artifactName": "AstraCode-Desktop-mac.${ext}",
-      "identity": null,
-      "notarize": false,
-      "gatekeeperAssess": false
-    },
     "linux": {
       "target": [
         "AppImage"

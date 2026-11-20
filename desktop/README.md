@@ -18,7 +18,7 @@
 - รันคำสั่ง และตั้งค่า MCP (คือโปรแกรมที่จะรันในเครื่อง) ต้องกดอนุญาตในหน้าต่างของ Windows ซึ่งหน้าเว็บกดแทนไม่ได้ · เลือก "รันอัตโนมัติ" ต่อโฟลเดอร์ได้ (จำถาวร ปิดได้จากหน้าเว็บ) แต่คำสั่งอันตราย (`isDanger` ใน tools.js: ลบ, force, git push/reset, ระบบ, โหลดสคริปต์มารัน) ยังถามทุกครั้ง
 
 ## Build
-GitHub Actions `desktop.yml` build Windows `.exe`, Mac `.dmg`, Linux `.AppImage` เมื่อแก้ไฟล์ใน `desktop/` แล้วอัปขึ้น GitHub Release `desktop-latest` (ตัวติดตั้ง + `latest*.yml` สำหรับอัปเดตอัตโนมัติ) ดาวน์โหลดได้ที่ `/download/desktop?os=win|mac|linux`
+GitHub Actions `desktop.yml` build Windows `.exe` และ Linux `.AppImage` (แอป Mac หยุดพัฒนาแล้ว) เมื่อแก้ไฟล์ใน `desktop/` แล้วอัปขึ้น GitHub Release `desktop-latest` (ตัวติดตั้ง + `latest*.yml` สำหรับอัปเดตอัตโนมัติ) ดาวน์โหลดได้ที่ `/download/desktop?os=win|mac|linux`
 **ต้องเพิ่ม `version` ใน package.json ทุกครั้ง** ไม่งั้นเครื่องผู้ใช้จะไม่อัปเดต
 
 ทดสอบในเครื่อง: `npm install && npm test && npm start`

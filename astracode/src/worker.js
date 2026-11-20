@@ -88,7 +88,8 @@ export default {
     }
     if (path === '/download/cli' && M === 'GET') return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/astra-cli.zip', 302); // Agent ในเทอร์มินัล (workflow desktop.yml)
     if (path === '/download/desktop' && M === 'GET') { // ตัวติดตั้ง AstraCode Desktop (workflow desktop.yml อัปขึ้น R2)
-      const os = new URL(req.url).searchParams.get('os'), f = { mac: 'AstraCode-Desktop-mac.dmg', linux: 'AstraCode-Desktop-linux.AppImage' }[os];
+      const os = new URL(req.url).searchParams.get('os'), f = { linux: 'AstraCode-Desktop-linux.AppImage' }[os];
+      if (os === 'mac') return Response.redirect(new URL('/#download', req.url).href, 302); // หยุดพัฒนาแอป Mac แล้ว: ใช้ผ่านเว็บ
       if (f) return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/' + f, 302);
       const o = env.SLIPS && await env.SLIPS.get('dl/AstraCode-Desktop-Setup.exe');
       if (!o) return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/AstraCode-Desktop-Setup.exe', 302); // ไฟล์อยู่ที่ GitHub Release (workflow desktop.yml)
