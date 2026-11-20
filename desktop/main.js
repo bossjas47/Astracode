@@ -60,7 +60,7 @@ const show = () => { if (!web) return; if (web.isMinimized()) web.restore(); web
 function makeTray() {
   try {
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')).resize({ width: 16, height: 16 }));
-    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; } }, ...(Object.values(settings.autoRun || {}).some(Boolean) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = {}; save(); } }] : []), { label: 'ออกจากแอป', click: quit }]);
+    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; } }, ...(Object.values(settings.autoRun || {}).some(Boolean) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = {}; save(); } }] : []), ...(fs.existsSync(CMD_LOG()) ? [{ label: 'เปิดบันทึกคำสั่งที่รัน', click: () => shell.openPath(CMD_LOG()) }] : []), { label: 'ออกจากแอป', click: quit }]);
     tray.setToolTip('AstraCode'); tray.setContextMenu(menu()); tray.on('click', show); tray.on('right-click', () => tray.setContextMenu(menu()));
   } catch { tray = null; } // บาง Linux ไม่มีถาด: ปิดหน้าต่าง = ออกจากแอป
 }
@@ -95,6 +95,12 @@ h('desk:open', (_, k) => shell.openPath(rootOf(k)));
 
 // รันคำสั่ง: ถามด้วยหน้าต่างของ Windows (หน้าเว็บกดแทนไม่ได้) · เลือก "รันอัตโนมัติ" ได้ต่อโฟลเดอร์ (จำถาวร) แต่คำสั่งอันตรายยังถามทุกครั้ง
 const jobs = new Map();
+// บันทึกคำสั่งที่รันจากหน้าเว็บ (โหมด Code) ลงไฟล์ข้อความ เพื่อให้ผู้ใช้ย้อนดูได้ โดยเฉพาะโหมดรันเองทุกคำสั่ง · เก็บล่าสุด ~800KB
+const CMD_LOG = () => path.join(app.getPath('userData'), 'commands.log');
+function logCmd(dir, cmd, auto) {
+  const head = `[${new Date().toLocaleString()}] ${auto ? 'รันอัตโนมัติ' : 'ผู้ใช้อนุญาต'}${isDanger(cmd) ? ' ⚠อันตราย' : ''}  ${dir}\n  ${String(cmd).replace(/\s+/g, ' ').slice(0, 800)}`;
+  return code => { try { const f = CMD_LOG(); let prev = ''; try { prev = fs.readFileSync(f, 'utf8'); } catch {} let next = prev + head + `\n  \u2192 ${code === 'error' ? 'ผิดพลาด' : 'exit ' + code}\n\n`; if (next.length > 1e6) next = next.slice(-8e5); fs.writeFileSync(f, next); } catch {} };
+}
 const DENIED = { code: 1, stdout: '', stderr: 'ผู้ใช้ไม่อนุญาตให้รันคำสั่งนี้', denied: true };
 // ขออนุญาตรันคำสั่งจากหน้าเว็บ (โหมด Code) → null = รันได้ · จำการตั้งค่าต่อโฟลเดอร์: true = รันเองยกเว้นคำสั่งอันตราย, 'all' = รันเองทุกคำสั่งไม่ต้องถาม
 async function allow(r, cmd) {
@@ -121,9 +127,12 @@ async function allow(r, cmd) {
 }
 h('desk:run', async (e, k, cmd, id) => {
   const r = rootOf(k); cmd = String(cmd || '').trim(); if (!cmd) throw new Error('คำสั่งว่าง');
+  const lvl = settings.autoRun?.[r], auto = lvl === 'all' || (lvl && !isDanger(cmd)); // รันโดยไม่ถามครั้งนี้ไหม
   const no = await allow(r, cmd); if (no) return no;
+  const done = logCmd(r, cmd, auto);
   const ac = new AbortController(); jobs.set(String(id), ac);
-  try { return await runCmd(r, cmd, { signal: ac.signal, onOut: (t, s) => { if (!e.sender.isDestroyed()) e.sender.send('desk:out', { id, [t]: s }); } }); }
+  try { const out = await runCmd(r, cmd, { signal: ac.signal, onOut: (t, s) => { if (!e.sender.isDestroyed()) e.sender.send('desk:out', { id, [t]: s }); } }); done(out.code); return out; }
+  catch (err) { done('error'); throw err; }
   finally { jobs.delete(String(id)); }
 });
 // dev server: รันค้างเบื้องหลัง (ช่องละ 1 ตัว) ส่งผลลัพธ์และพอร์ตให้หน้าเว็บ · ปิดแอปแล้วหยุดให้เอง
@@ -132,6 +141,7 @@ h('desk:isServer', (_, cmd) => isServer(cmd));
 h('desk:serve', async (e, k, cmd) => {
   const key = slot(k), r = rootOf(k); cmd = String(cmd || '').trim(); if (!cmd) throw new Error('คำสั่งว่าง');
   const no = await allow(r, cmd); if (no) return no;
+  { const lvl = settings.autoRun?.[r]; logCmd(r, cmd, lvl === 'all' || (lvl && !isDanger(cmd)))('server'); }
   servers.get(key)?.kill();
   const ac = new AbortController(), sv = { cmd, port: null, done: false, kill: () => ac.abort() }; servers.set(key, sv);
   const tell = d => { if (!e.sender.isDestroyed()) e.sender.send('desk:serveOut', { k: key, ...d }); };
