@@ -1,4 +1,4 @@
-const WHATS_NEW = 'whatsnew:2026-11'; // เปลี่ยนเลขเมื่อมีฟีเจอร์ใหม่ที่อยากบอกผู้ใช้เดิม
+const WHATS_NEW = 'whatsnew:2026-11-code'; // เปลี่ยนเลขเมื่อมีฟีเจอร์ใหม่ที่อยากบอกผู้ใช้เดิม
 // AstraCode: หน้าแชต
 let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], compare: false, cmp: [], skills: JSON.parse(localStorage.getItem('skills') || '[]'), mcps: JSON.parse(localStorage.getItem('mcps') || '[]') };
 { // กลับจากหน้ายินยอมของ Google: เปิด MCP ของ Google ในแชตให้เลย
@@ -190,11 +190,12 @@ async function chatView(id) {
         d.remove(); toast(chat.skills.length ? 'เปิด Skill ที่เหมาะให้แล้ว' : 'ตั้งค่าเรียบร้อย', 'ok');
       })); localStorage.setItem(WHATS_NEW, '1'); } // คนใหม่ไม่ต้องเห็น "มีอะไรใหม่"
     else if (!localStorage.getItem(WHATS_NEW)) { localStorage.setItem(WHATS_NEW, '1'); // ผู้ใช้เดิม: บอกฟีเจอร์ใหม่ครั้งเดียว
-      sheet('มีอะไรใหม่', `<div class="sheet-form">
-        <p class="sheet-msg"><b>${ic('search', 'sm')} Deep research</b><br>กด + แล้วเลือก Deep research ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิงให้ ปิดแอปได้</p>
-        <p class="sheet-msg"><b>${ic('server', 'sm')} ทีม Agent ในโหมด Code</b><br>หัวหน้าแบ่งงาน ลูกทีมหลายตัวเขียนไฟล์พร้อมกัน แล้วตรวจรวม คุณตรวจแผนก่อนเริ่มได้</p>
-        <p class="sheet-msg"><b>${ic('trash', 'sm')} ถังขยะ</b><br>ลบแชตแล้วกู้คืนได้ 30 วัน และเก็บแชตเข้าที่เก็บถาวรได้ (ไอคอนถังขยะในแถบข้าง)</p>
-        <p class="sheet-msg"><b>${ic('book', 'sm')} คลัง Prompt</b><br>พรอมต์ที่บันทึกไว้ใช้ได้ทุกเครื่อง พิมพ์ / ในช่องข้อความเพื่อเลือก</p>
+      sheet('มีอะไรใหม่ในโหมด Code', `<div class="sheet-form">
+        <p class="sheet-msg"><b>${ic('code', 'sm')} Chat กับ Code รวมหน้าเดียว</b><br>กดสลับ Chat / Code ได้เลยโดยหน้าไม่โหลดใหม่ แชตที่กำลังตอบก็ยังทำงานต่อ</p>
+        <p class="sheet-msg"><b>${ic('sparkles', 'sm')} หน้าโปรเจกต์แบบใหม่</b><br>คุยกับ AI เป็นหลัก มีแท็บ Preview / Code / Files · AI อ่าน แก้ไฟล์ รัน และตรวจผลให้เอง มีรายการงานขึ้นให้เห็นระหว่างทำ</p>
+        <p class="sheet-msg"><b>${ic('hand', 'sm')} โหมด Auto / Ask / Plan</b><br>เลือกได้ว่าให้ AI ทำเองเลย, เสนอให้กด Apply เอง, หรือวางแผนให้ก่อนแล้วค่อยกดเริ่ม (ปุ่มใต้ช่องพิมพ์)</p>
+        <p class="sheet-msg"><b>${ic('branch', 'sm')} ต่อ GitHub อัตโนมัติ</b><br>พอ AI ทำเสร็จ commit + push ให้เอง แยก branch ต่องานได้ พร้อมปุ่มสร้าง Pull Request</p>
+        <p class="sheet-msg"><b>${ic('download', 'sm')} Import zip ครบขึ้น</b><br>เก็บฟอนต์และไฟล์อื่นได้ ไม่ตัดทิ้งเงียบๆ และบอกชัดถ้ามีไฟล์ไหนข้ามไป</p>
         <button type="button" class="btn blue" data-x>เข้าใจแล้ว</button></div>`, (d, close) => d.querySelector('[data-x]').onclick = close);
     }
   } catch { /* ไม่มีที่เก็บ */ }
