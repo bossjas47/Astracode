@@ -1531,3 +1531,9 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .bm-row .opt-t { display: flex; align-items: center; gap: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bm-row.on { box-shadow: none; }
 @media (max-width: 760px) { .side .bm-star { width: 40px; height: 44px; } .side-sec .icon-btn { width: 44px; height: 44px; } }
+/* Spaces: รายการ Space และแชตในแต่ละ Space (ใน sheet) */
+.spaces { display: flex; flex-direction: column; margin-top: 8px; }
+.spaces .opt-t { display: flex; align-items: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-h { margin: 14px 4px 2px; font: 600 12px var(--font); color: var(--ash); }
+.sp-del { margin-top: 10px; align-self: flex-start; color: var(--red, #e5484d); }
+.linkish { border: 0; background: none; padding: 0; font: inherit; color: var(--link); text-decoration: underline; cursor: pointer; min-height: 0 !important; min-width: 0 !important; }

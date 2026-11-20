@@ -521,7 +521,7 @@ export async function chat(req, env, u, ctx) {
     if (!cid) { // แชตใหม่: สร้างแชต + บันทึกข้อความแรก + อ่านข้อมูลโฟลเดอร์ ใน batch เดียว · ประวัติ = ข้อความนี้ข้อความเดียว
       const newest = '(SELECT MAX(id) FROM chats WHERE user_id=?)'; // ล็อกตอบทีละข้อความ: แชตล่าสุดของผู้ใช้ = แชตที่เพิ่งสร้างในทรานแซกชันนี้
       const got = await env.DB.batch([
-        env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,?)').bind(u.id, text.slice(0, 40), Date.now(), pid, b.folder_id || null),
+        env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,(SELECT id FROM folders WHERE id=? AND user_id=?))').bind(u.id, text.slice(0, 40), Date.now(), pid, +b.folder_id || null, u.id), // โฟลเดอร์ต้องเป็นของผู้ใช้เอง (ไม่งั้น AI จะอ่านคำสั่ง/ไฟล์ของคนอื่น)
         env.DB.prepare(`INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (${newest},?,?,?,?)`).bind(u.id, 'user', saved, m.id, Date.now()),
         rowQ(`c.id=${newest}`).bind(u.id)]);
       chatRow = got[2].results?.[0] || null; cid = chatRow.id;

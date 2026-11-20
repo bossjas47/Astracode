@@ -208,17 +208,27 @@ const FLOWS = [
     const need = ['/plans', '/plans?topup=1', '/account', '/developers', '/#download', '/support', '/pricing'].filter(h => !hrefs.includes(h));
     return [!errs.length || errs.join(' | '), proj === 1 || 'project not listed in the Code tab', /Log out/.test(menu) && /Top up/.test(menu) || 'account menu incomplete', !need.length || 'settings missing ' + need.join(', ')];
   }],
-  ['bookmarks: pick a chat to bookmark, it gets a star at the top; tapping the star removes it; no star under answers', async () => {
-    const { page, errs, calls } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'แชตหนึ่ง' }, { id: 82, title: 'แชตสอง' }], '/api/chats/81': [{ id: 5, role: 'assistant', content: 'ok', model: 'Flash' }] });
-    const answerStar = await page.locator('#msgs [data-star]').count();
-    await page.evaluate(() => document.querySelector('#bmk').click()); await page.waitForTimeout(200);
-    await page.evaluate(() => document.querySelector('.sheet-bg [data-bm="82"]').click()); await page.waitForTimeout(300);
+  ['bookmark from the chat menu; Spaces hold chats outside the list and start chats in a space', async () => {
+    const { page, errs, calls } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'แชตหนึ่ง' }, { id: 82, title: 'แชตสอง' }, { id: 83, title: 'แชตในสเปซ', folder_id: 9 }], '/api/folders': [{ id: 9, name: 'งานร้าน' }], '/api/chats/81': [{ id: 5, role: 'assistant', content: 'ok', model: 'Flash' }] });
+    const answerStar = await page.locator('#msgs [data-star]').count(), spaceChatInList = await page.locator('#list [data-chat="83"]').count();
+    await page.evaluate(() => document.querySelector('[data-cmenu="82"]').click()); await page.waitForTimeout(200);
+    await page.evaluate(() => document.querySelector('.sheet-bg [data-v=pin]').click()); await page.waitForTimeout(400);
     const on = calls.find(c => c.m === 'PUT' && c.p === '/api/chats/82' && /"pinned":1/.test(c.body));
-    await page.evaluate(() => document.querySelector('.sheet-bg .x').click());
-    const starred = await page.locator('#list [data-unbm="82"]').count();
-    await page.evaluate(() => document.querySelector('#list [data-unbm="82"]').click()); await page.waitForTimeout(300);
-    const off = calls.find(c => c.m === 'PUT' && c.p === '/api/chats/82' && /"pinned":0/.test(c.body));
-    return [!errs.length || errs.join(' | '), answerStar === 0 || 'star still under answers', !!on || 'no PUT pinned 1', starred === 1 || 'no star in front of the chat', !!off || 'no PUT pinned 0'];
+    await page.evaluate(() => document.querySelector('#spc').click()); await page.waitForTimeout(200);
+    const spaces = await page.locator('.sheet-bg').innerText().catch(() => '');
+    await page.evaluate(() => document.querySelector('.sheet-bg [data-sp="9"]').click()); await page.waitForTimeout(200);
+    const inside = await page.locator('.sheet-bg [data-open="83"]').count();
+    await page.evaluate(() => document.querySelector('.sheet-bg [data-chat-new]').click()); await page.waitForTimeout(500);
+    const banner = await page.locator('#msgs .empty').innerText().catch(() => '');
+    await page.fill('#t', 'สวัสดี'); await page.evaluate(() => document.querySelector('#go').click()); await page.waitForTimeout(500);
+    const sent = calls.find(c => c.m === 'POST' && c.p === '/api/chat');
+    return [!errs.length || errs.join(' | '), answerStar === 0 || 'star still under answers', spaceChatInList === 0 || 'space chat shown in the Chats list', !!on || 'no PUT pinned 1 from the chat menu',
+      /งานร้าน/.test(spaces) || 'space not listed', inside === 1 || 'space chat not inside the space', /งานร้าน/.test(banner) || 'no "new chat in space" note', /"folder_id":9/.test(sent?.body || '') || 'new chat not sent with folder_id 9'];
+  }],
+  ['the + next to Chats starts a new chat', async () => {
+    const { page, errs } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'แชตหนึ่ง' }], '/api/chats/81': [{ id: 5, role: 'user', content: 'hi' }] });
+    await page.evaluate(() => document.querySelector('#newc').click()); await page.waitForTimeout(500);
+    return [!errs.length || errs.join(' | '), new URL(page.url()).search === '' || 'still on the old chat: ' + page.url(), await page.locator('#msgs .empty').count() === 1 || 'empty chat not shown'];
   }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });

@@ -149,3 +149,18 @@ test('a new chat and a long existing chat still save and window the history corr
   assert.ok(last.length <= 20 && last.length >= 10, 'history is windowed: ' + last.length);
   fm.close();
 });
+
+test('a new chat can be started in your own space, never in someone else\'s', async () => {
+  const { t, m, u, fm } = await setup((fm, res, body) => fm.sse(res, 'ok'), { tools: 'off' });
+  const other = await t.user();
+  const mine = t.DB.raw.prepare("INSERT INTO folders (user_id,name,created_at,instructions) VALUES (?,?,?,?) RETURNING id").get(u.id, 'Mine', Date.now(), 'MY-SPACE-RULES').id;
+  const theirs = t.DB.raw.prepare("INSERT INTO folders (user_id,name,created_at,instructions) VALUES (?,?,?,?) RETURNING id").get(other.id, 'Theirs', Date.now(), 'SECRET-RULES').id;
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'a', model_id: m.id, folder_id: mine } }));
+  t.DB.raw.exec('DELETE FROM rate');
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'b', model_id: m.id, folder_id: theirs } }));
+  const rows = t.DB.raw.prepare('SELECT folder_id FROM chats WHERE user_id=? ORDER BY id').all(u.id).map(r => r.folder_id);
+  assert.deepEqual(rows, [mine, null]);
+  assert.match(JSON.stringify(fm.hits[0].body.messages), /MY-SPACE-RULES/);
+  assert.doesNotMatch(JSON.stringify(fm.hits[1].body.messages), /SECRET-RULES/);
+  fm.close();
+});
