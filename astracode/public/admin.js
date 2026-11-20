@@ -160,14 +160,14 @@ const ADMIN = {
   async stats(box) {
     const days = +(localStorage.getItem('adm-days') || 30);
     const s = await api('/admin/stats?days=' + days);
-    const c = s.cur, p = s.prev, profit = c.rev - c.cost, margin = c.rev ? Math.round(profit / c.rev * 100) : null;
+    const c = s.cur, p = s.prev, profit = c.earned - c.cost, margin = c.earned ? Math.round(profit / c.earned * 100) : null; // กำไรไม่นับเงินเติมที่ลูกค้ายังไม่ได้ใช้
     const labels = s.daily.map(d => dayLabel(d.day));
     box.innerHTML = `<div class="seg" role="group" aria-label="ช่วงเวลา">${[7, 30, 90].map(d => `<button data-days="${d}" class="${d === days ? 'on' : ''}">${d} วัน</button>`).join('')}</div>
       ${s.pending ? `<a class="alert-row" href="/admin?tab=payments">● มีสลิปรออนุมัติ ${s.pending} รายการ <span>ตรวจเลย ›</span></a>` : ''}
       <div class="kpis">
-        <div class="kpi"><div class="muted">รายได้</div><div class="stat">฿${baht(c.rev)}</div><div class="kd">${delta(c.rev, p.rev)}</div><div class="kd muted">แพลน ฿${baht(c.plan)} + ใช้ Wallet ฿${baht(c.wallet)} · เงินโอนเข้า ฿${baht(c.cash)}</div></div>
+        <div class="kpi"><div class="muted">รายได้</div><div class="stat">฿${baht(c.rev)}</div><div class="kd">${delta(c.rev, p.rev)}</div><div class="kd muted">เงินโอนเข้า: แพลน + เติม Wallet</div></div>
         <div class="kpi"><div class="muted">ต้นทุน API</div><div class="stat">฿${baht(c.cost)}</div><div class="kd">${delta(c.cost, p.cost, true)}</div></div>
-        <div class="kpi"><div class="muted">กำไรขั้นต้น</div><div class="stat">฿${baht(profit)}</div><div class="kd">${margin == null ? '<span class="muted">ยังไม่มีรายได้</span>' : `<span class="muted">มาร์จิ้น</span> <b>${margin}%</b>`}</div></div>
+        <div class="kpi"><div class="muted">กำไรขั้นต้น</div><div class="stat">฿${baht(profit)}</div><div class="kd">${margin == null ? '<span class="muted">ยังไม่มีรายได้</span>' : `<span class="muted">มาร์จิ้น</span> <b>${margin}%</b>`}</div><div class="kd muted">คิดจากแพลน + ใช้ Wallet จริง − ต้นทุน</div></div>
         <div class="kpi"><div class="muted">ผู้ใช้ที่ส่งข้อความ (${days} วัน)</div><div class="stat">${num(c.au)}</div><div class="kd">${delta(c.au, p.au)}</div></div>
         <div class="kpi"><div class="muted">ข้อความ</div><div class="stat">${compact(c.msgs)}</div><div class="kd">${delta(c.msgs, p.msgs)}</div></div>
         <div class="kpi"><div class="muted">Token ทั้งหมด</div><div class="stat">${compact(c.tok)}</div><div class="kd">${delta(c.tok, p.tok)}</div></div>
@@ -343,9 +343,9 @@ const ADMIN = {
     const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '-', cls = v => v < -0.005 ? 'bad' : v > 0.005 ? 'ok' : 'muted';
     box.innerHTML = `<div class="seg" role="group" aria-label="ช่วงเวลา">${[7, 30, 90, 365].map(x => `<button data-d="${x}" class="${x === days ? 'on' : ''}">${x} วัน</button>`).join('')}</div>
       <div class="kpis">
-        <div class="kpi"><div class="muted">รายได้</div><div class="stat">฿${baht(t.rev)}</div><div class="kd muted">แพลน ฿${baht(t.plan)} + ใช้ Wallet ฿${baht(t.wallet)} · เงินโอนเข้า ฿${baht(t.cash)}</div></div>
+        <div class="kpi"><div class="muted">รายได้</div><div class="stat">฿${baht(t.rev)}</div><div class="kd muted">เงินโอนเข้า: แพลน + เติม Wallet</div></div>
         <div class="kpi"><div class="muted">ต้นทุน API</div><div class="stat">฿${baht(t.cost)}</div></div>
-        <div class="kpi"><div class="muted">กำไรขั้นต้น</div><div class="stat ${cls(t.profit)}">฿${baht(t.profit)}</div><div class="kd muted">มาร์จิ้น ${pct(t.profit, t.rev)}</div></div>
+        <div class="kpi"><div class="muted">กำไรขั้นต้น</div><div class="stat ${cls(t.profit)}">฿${baht(t.profit)}</div><div class="kd muted">คิดจากแพลน ฿${baht(t.plan)} + ใช้ Wallet จริง ฿${baht(t.wallet)} − ต้นทุน · มาร์จิ้น ${pct(t.profit, t.earned)}</div></div>
         <div class="kpi"><div class="muted">ผู้ใช้ที่ขาดทุน</div><div class="stat ${d.losers ? 'bad' : ''}">${num(d.losers)}</div><div class="kd muted">ต้นทุนเกินเงินที่จ่าย</div></div>
       </div>
       ${forecastHTML(d.forecast)}
@@ -356,7 +356,7 @@ const ADMIN = {
       <section class="panel"><div class="ph"><h2>ต้นทุนจริงต่อโมเดล</h2><span class="muted">${days} วัน</span></div>
         <div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>คำขอ</th><th>ต้นทุน</th><th>% ของต้นทุนรวม</th><th>token เข้า</th><th>cache</th><th>ออก</th></tr>
         ${(d.models || []).map(m => `<tr><td>${esc(m.name || '#' + m.id)}</td><td>${num(m.n)}</td><td>฿${baht(m.cost)}</td><td>${pct(m.cost, t.cost)}</td><td>${num(m.tin)}</td><td>${num(m.tcache)}</td><td>${num(m.tout)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">ยังไม่มีการใช้งาน</td></tr>'}</table></div></section>
-      <section class="panel"><div class="ph"><h2>รายวัน</h2><span class="muted">เวลาไทย · รายได้ = แพลนที่อนุมัติ + ค่าใช้ Wallet</span></div>
+      <section class="panel"><div class="ph"><h2>รายวัน</h2><span class="muted">เวลาไทย · รายได้ = เงินโอนเข้า · กำไร = แพลน + ใช้ Wallet จริง − ต้นทุน</span></div>
         <div class="tw"><table class="tbl"><tr><th>วัน</th><th>รายได้</th><th>ต้นทุน</th><th>กำไร</th></tr>
         ${(d.daily || []).slice(0, 31).map(x => `<tr><td>${x.date}</td><td>฿${baht(x.rev)}</td><td>฿${baht(x.cost)}</td><td class="${cls(x.profit)}">฿${baht(x.profit)}</td></tr>`).join('')}</table></div></section>
       <section class="panel"><div class="ph"><h2>Wallet และ API</h2></div><div class="kpis sm">

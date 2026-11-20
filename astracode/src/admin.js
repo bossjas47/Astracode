@@ -7,8 +7,9 @@ import { slug } from './api.js';
 import { backup, lossModels, status, verifyBackup } from './jobs.js';
 import { ensureAgentTable, launch, workerModel } from './agent.js';
 // ---------- admin ----------
-// รายได้ (ใช้ร่วมกันทุกหน้า): ค่าแพลนที่อนุมัติ (ทุกช่องทาง รวมจ่ายจาก Wallet) + เงินที่หักจาก Wallet เป็นค่าใช้ (API / เกินลิมิต / แพ็ก)
-// เงินเติม Wallet ยังไม่นับเป็นรายได้จนกว่าจะถูกใช้ ไม่งั้นแพลนที่ซื้อด้วย Wallet ถูกนับซ้ำ 2 รอบ · วันตามเวลาไทย
+// ใช้ร่วมกันทุกหน้า · วันตามเวลาไทย
+// rev (รายได้ที่แสดง) = เงินที่โอนเข้าจริง: ค่าแพลน + เติม Wallet (ไม่นับแพลนที่จ่ายจาก Wallet/คูปองซ้ำ)
+// earned (ใช้คิดกำไร) = ค่าแพลนที่อนุมัติทุกช่องทาง + เงินที่หักจาก Wallet เป็นค่าใช้จริง (API / เกินลิมิต / แพ็ก) · เงินเติมที่ยังไม่ใช้ไม่นับเป็นกำไร
 export const WALLET_SPEND = "('api','overflow','agentpack','wallet')";
 export async function revenueByDay(DB, from, to = 9e15) {
   const day = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`, at = 'COALESCE(approved_at,created_at)';
@@ -19,10 +20,10 @@ export async function revenueByDay(DB, from, to = 9e15) {
   ]);
   const m = new Map(), put = (rows, k) => rows.results.forEach(r => { const o = m.get(r.d) || { d: r.d, plan: 0, wallet: 0, cash: 0 }; o[k] += r.v || 0; m.set(r.d, o); });
   put(pl, 'plan'); put(wl, 'wallet'); put(tp, 'cash');
-  for (const o of m.values()) o.rev = o.plan + o.wallet;
+  for (const o of m.values()) { o.earned = o.plan + o.wallet; o.rev = o.cash; }
   return m;
 }
-const sumRev = m => [...m.values()].reduce((a, o) => ({ rev: a.rev + o.rev, plan: a.plan + o.plan, wallet: a.wallet + o.wallet, cash: a.cash + o.cash }), { rev: 0, plan: 0, wallet: 0, cash: 0 });
+const sumRev = m => [...m.values()].reduce((a, o) => ({ rev: a.rev + o.rev, earned: a.earned + o.earned, plan: a.plan + o.plan, wallet: a.wallet + o.wallet, cash: a.cash + o.cash }), { rev: 0, earned: 0, plan: 0, wallet: 0, cash: 0 });
 // วันเริ่มของช่วง N วันล่าสุด (เที่ยงคืนเวลาไทย) · ใช้เหมือนกันทั้งหน้าภาพรวมและหน้ากำไร ตัวเลขจึงตรงกัน
 export const rangeFrom = (days, now = Date.now()) => (Math.floor((now + BKK) / DAY) - days + 1) * DAY - BKK;
 export const TABLES = {
@@ -376,16 +377,16 @@ export async function admin(req, env, path, url, me) {
         COALESCE((SELECT SUM(balance) FROM users WHERE balance>0),0) liability`).bind(from).first(),
     ]);
     const us = users.results.map(x => ({ ...x, rev: x.rev_plan + x.rev_wallet, profit: x.rev_plan + x.rev_wallet - x.cost })).sort((a, b) => a.profit - b.profit);
-    const revDays = await revenueByDay(DB, from), R = sumRev(revDays), rev = R.rev;
+    const revDays = await revenueByDay(DB, from), R = sumRev(revDays), rev = R.rev, earned = R.earned;
     const dayOf = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`;
     const [pm, pd] = await Promise.all([ // ต้นทุนจริงต่อโมเดล · ต้นทุนรายวัน (เวลาไทย)
       DB.prepare('SELECT g.model_id id, md.name, COUNT(*) n, COALESCE(SUM(g.cost),0) cost, COALESCE(SUM(g.tokens_in),0) tin, COALESCE(SUM(g.tokens_out),0) tout, COALESCE(SUM(g.tokens_cache),0) tcache FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? AND g.model_id>0 GROUP BY g.model_id ORDER BY cost DESC').bind(from).all(),
       DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(SUM(cost),0) cost FROM usage WHERE created_at>=? GROUP BY d`).bind(from).all(),
     ]);
     const cost = pd.results.reduce((a, r) => a + r.cost, 0); // ต้นทุนรวมเท่ากับหน้าภาพรวม (ทุกแถวใน usage ช่วงเดียวกัน)
-    const dayMap = new Map([...revDays.values()].map(o => [o.d, { d: o.d, cost: 0, rev: o.rev }])); pd.results.forEach(r => { const o = dayMap.get(r.d) || { d: r.d, cost: 0, rev: 0 }; o.cost += r.cost; dayMap.set(r.d, o); });
-    const daily = [...dayMap.values()].sort((a, b) => b.d - a.d).slice(0, 60).map(x => ({ ...x, date: new Date(x.d * DAY).toISOString().slice(0, 10), profit: x.rev - x.cost }));
-    return json({ days, total: { rev, cost, profit: rev - cost, plan: R.plan, wallet: R.wallet, cash: R.cash }, plans: plans.results, wallet: w, users: us.slice(0, 100), losers: us.filter(x => x.profit < 0).length, models: pm.results, daily, forecast: await profitForecast(env, now) });
+    const dayMap = new Map([...revDays.values()].map(o => [o.d, { d: o.d, cost: 0, rev: o.rev, earned: o.earned }])); pd.results.forEach(r => { const o = dayMap.get(r.d) || { d: r.d, cost: 0, rev: 0, earned: 0 }; o.cost += r.cost; dayMap.set(r.d, o); });
+    const daily = [...dayMap.values()].sort((a, b) => b.d - a.d).slice(0, 60).map(x => ({ ...x, date: new Date(x.d * DAY).toISOString().slice(0, 10), profit: x.earned - x.cost }));
+    return json({ days, total: { rev, earned, cost, profit: earned - cost, plan: R.plan, wallet: R.wallet, cash: R.cash }, plans: plans.results, wallet: w, users: us.slice(0, 100), losers: us.filter(x => x.profit < 0).length, models: pm.results, daily, forecast: await profitForecast(env, now) });
   }
   if (path === '/api/admin/export') { // CSV สำหรับทำบัญชี (เปิดใน Excel ภาษาไทยได้)
     const type = url.searchParams.get('type'), days = Math.min(3650, Math.max(1, +url.searchParams.get('days') || 31)), from = Date.now() - days * DAY;

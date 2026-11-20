@@ -604,7 +604,7 @@ test('admin profit forecast: plan subscribers get a projected cost to the end of
   use(g, 5, 3600e3);
   t.DB.raw.prepare("INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,0,'wallet','m',?)").run(u.id, -12, now - 3600e3);
   const p = (await t.json('/api/admin/profit?days=7', { cookie: adm.cookie })).data, f = p.forecast;
-  assert.ok(p.total.rev >= 12, 'wallet kind counts as revenue: ' + p.total.rev);
+  assert.ok(p.total.earned >= 12, 'wallet kind counts toward profit: ' + p.total.earned);
   const pu = f.people.find(x => x.email === u.email), pg = f.people.find(x => x.email === g.email);
   assert.ok(Math.abs(pu.rate - 10) < 0.01, 'rate capped at limit_week/7: ' + pu.rate);
   assert.ok(Math.abs(pu.future - 10 * pu.days_left) < 0.5);

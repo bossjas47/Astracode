@@ -160,7 +160,7 @@ test('referral and first top-up bonus are paid once even when two payments are a
   assert.equal(t.DB.raw.prepare("SELECT balance_after FROM wallet_tx WHERE user_id=? AND kind='first_bonus'").get(u.id).balance_after > 0, true);
 });
 
-test('overview and profit show the same revenue; a plan bought from the wallet is not counted twice; API sales vs cost per user', async () => {
+test('overview and profit show the same revenue (money in) and profit (plans + wallet spend - cost); a plan bought from the wallet is not counted twice; API sales vs cost per user', async () => {
   const t = await makeEnv(), plan = addPlan(t.DB, { price: 100 }), u = await t.user(), admin = await t.user({ role: 'admin' }), now = Date.now();
   const pay = (kind, amount, slip) => t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at) VALUES (?,?,?,?,?,?,?,?,?)").run(u.id, kind === 'plan' ? plan.id : 0, amount, slip, 'approved', kind, 'month', now, now);
   pay('topup', 300, 'slip/a'); pay('plan', 100, 'wallet'); pay('plan', 200, 'slip/b'); // เติม 300 แล้วซื้อแพลน 100 จาก Wallet + โอนซื้อแพลน 200
@@ -169,8 +169,8 @@ test('overview and profit show the same revenue; a plan bought from the wallet i
   const use = (src, units, cost, charge) => t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,src,charge) VALUES (?,?,?,?,?,?,?,?,?,?)').run(u.id, 1, 10, 5, 0, units, cost, now, src, charge);
   use('api', 0, 5, 12); use('api', 1, 3, null); use('chat', 1, 2, null);
   const st = (await t.json('/api/admin/stats?days=7', { cookie: admin.cookie })).data.cur, pr = (await t.json('/api/admin/profit?days=7', { cookie: admin.cookie })).data.total;
-  assert.equal(st.rev, 312, 'plans 300 + wallet spend 12 (the 300 top-up is not revenue until spent)'); assert.equal(st.cash, 500);
-  assert.equal(pr.rev, st.rev); assert.equal(pr.cost, st.cost); assert.equal(pr.profit, st.rev - st.cost);
+  assert.equal(st.rev, 500, 'revenue shown = money transferred in: top-up 300 + plan 200 (the plan paid from the wallet is not counted again)');
+  assert.equal(st.earned, 312, 'profit uses plans 300 + wallet spend 12'); assert.equal(pr.rev, st.rev); assert.equal(pr.cost, st.cost); assert.equal(pr.profit, st.earned - st.cost);
   t.DB.raw.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,charge,ms,err,created_at) VALUES (1,?,?,?,?,?,?,?,?,?,?)').run(u.id, '/v1/credits', null, 404, 0, 0, 0, 5, 'not found', now);
   const a = (await t.json('/api/admin/apistats?days=30', { cookie: admin.cookie })).data;
   assert.equal(a.models.length, 0, 'rejected requests without a model are not a model row'); assert.equal(a.errors.length, 1);
