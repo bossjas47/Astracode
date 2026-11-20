@@ -187,6 +187,7 @@ function paintStreaming(el, m) {
     b.innerHTML = thinkText(m.thinking); th.querySelector('.think-s').innerHTML = thinkLabel(m);
     if (stick) b.scrollTop = b.scrollHeight;
   }
+  if (m.todos?.length && typeof todoHTML === 'function' && el.closest('#cmsgs')) { const td = el.querySelector('.todos'), h = todoHTML(m); if (td) td.outerHTML = h; else el.querySelector('.b').insertAdjacentHTML('beforebegin', h); } // รายการงานสด (โหมด Code)
   if (m.mcps?.length && typeof toolSteps === 'function' && el.closest('#cmsgs')) { // โหมด Code: ขั้นตอนเครื่องมือแบบพับได้ (code.js)
     const ts = el.querySelector('.tsteps'), h = toolSteps(m);
     if (ts) ts.outerHTML = h; else el.querySelector('.b').insertAdjacentHTML('beforebegin', h);

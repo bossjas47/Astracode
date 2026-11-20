@@ -308,7 +308,7 @@ const FLOWS = [
     await page.evaluate(() => document.querySelector('.dr-back').click()); await page.waitForTimeout(400);
     const back = await page.evaluate(() => ({ same: window.__same, home: !!document.querySelector('#nt'), url: location.pathname + location.search }));
     return [!errs.length || errs.join(' | '), /"template":"starter"/.test(make?.body || '') || 'no project created: ' + make?.body, /"name":"เว็บร้านกาแฟ/.test(make?.body || '') || 'name not from prompt: ' + make?.body,
-      st.same === 1 || 'page reloaded', st.url === '/code?p=7' || 'url ' + st.url, st.ide || 'editor not open', /ร้านกาแฟ/.test(send?.body || '') || 'prompt not sent to AI', pick.m && pick.plus || 'no model/tools buttons', eff || 'no effort for a thinking model', tools >= 6 || 'tools sheet has ' + tools, /"model_id":2/.test(send?.body || '') || 'picked model not used', back.same === 1 && back.home && back.url === '/code' || 'back to New project failed: ' + JSON.stringify(back)];
+      st.same === 1 || 'page reloaded', /^\/code\?p=7(&s=7)?$/.test(st.url) || 'url ' + st.url, st.ide || 'editor not open', /ร้านกาแฟ/.test(send?.body || '') || 'prompt not sent to AI', pick.m && pick.plus || 'no model/tools buttons', eff || 'no effort for a thinking model', tools >= 6 || 'tools sheet has ' + tools, /"model_id":2/.test(send?.body || '') || 'picked model not used', back.same === 1 && back.home && back.url === '/code' || 'back to New project failed: ' + JSON.stringify(back)];
   }],
   ['Chat and Code share one page: switching never reloads, and an open project is still there when coming back', async () => {
     const { page, errs } = await open('/chat', { '/api/projects': q => q.method() === 'POST' ? { id: 7 } : [], '/api/projects/7': { id: 7, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] } });
@@ -321,7 +321,7 @@ const FLOWS = [
     const c = await page.evaluate(() => ({ same: window.__same, url: location.pathname + location.search, ide: !!document.querySelector('#cmain:not([hidden]) .ide') }));
     await page.goBack(); await page.waitForTimeout(400); const d = await page.evaluate(() => location.pathname + ' ' + !document.querySelector('.chat > .main').hidden);
     return [!errs.length || errs.join(' | '), a.url === '/code' && a.composer && a.chatHidden || 'Code did not open: ' + JSON.stringify(a), b.url === '/chat' && b.chat && b.kept || 'back to chat failed: ' + JSON.stringify(b),
-      c.same === 1 || 'page reloaded', c.url === '/code?p=7' && c.ide || 'project not kept: ' + JSON.stringify(c), d === '/chat true' || 'browser back: ' + d];
+      c.same === 1 || 'page reloaded', c.url.startsWith('/code?p=7') && c.ide || 'project not kept: ' + JSON.stringify(c), d === '/chat true' || 'browser back: ' + d];
   }],
   ['Code: AI tools show as collapsible steps, edits apply on their own, and the finished task is committed and pushed to GitHub', async () => {
     let n = 0;
@@ -338,6 +338,32 @@ const FLOWS = [
     const push = calls.find(c => c.m === 'POST' && c.p === '/api/projects/7/github/push');
     return [!errs.length || errs.join(' | '), pane === 'ai' || 'phone did not open on the chat: ' + pane, r.file?.trim() === '<h1>new</h1>' || 'edit not applied: ' + r.file, /อ่าน 1/.test(r.steps) && /แก้ 1/.test(r.steps) || 'steps: ' + r.steps,
       /เปลี่ยนหัวข้อเป็น new/.test(push?.body || '') && /index\.html/.test(push?.body || '') || 'push message: ' + push?.body, /main/.test(r.push) && /abc1234/.test(r.push) || 'push note: ' + r.push];
+  }],
+  ['Code like Claude Code: Plan mode then Start building, a live to-do list, a new branch with a PR button, and sessions in the sidebar', async () => {
+    let n = 0;
+    const { page, errs, calls } = await open('/code?p=7', {
+      '/api/projects/7': { id: 7, name: 'Site', instructions: '', gh: { repo: 'me/site', branch: 'main' }, files: [{ path: 'index.html', content: '<h1>old</h1>' }] },
+      '/api/projects': [{ id: 7, name: 'Site', files: 1, size: 10, updated_at: Date.now() }],
+      '/api/chats': [{ id: 70, title: 'งานแรก' }, { id: 71, title: 'งานสอง' }], '/api/chats/70': [], '/api/chats/71': [{ id: 1, role: 'user', content: 'สอง' }, { id: 2, role: 'assistant', content: 'ตอบงานสอง' }],
+      '/api/projects/7/github/branches': { current: 'main', default: 'main', branches: ['main'] }, '/api/projects/7/github/branch': { ok: true },
+      '/api/projects/7/github/push': { ok: true, commit: 'abc1234def', url: 'https://github.com/me/site/commit/abc1234def', files: 1 }, '/api/projects/7/github/pr': { ok: true, url: 'https://github.com/me/site/pull/5', number: 5 },
+      chat: () => ++n === 1 ? [{ chat_id: 70 }, { todo: [{ content: 'อ่าน index.html', status: 'completed' }, { content: 'เปลี่ยนหัวข้อ', status: 'pending' }] }, { t: '1. เปลี่ยน h1 ใน index.html' }, { done: true, pct4h: 1, pctWeek: 1, mid: 1 }]
+        : n === 2 ? [{ chat_id: 70 }, { t: 'ทำแล้ว\n\n```html path=index.html\n<h1>new</h1>\n```' }, { done: true, pct4h: 1, pctWeek: 1, mid: 2 }] : [{ chat_id: 70 }, { t: 'ตรวจแล้ว' }, { done: true, pct4h: 1, pctWeek: 1, mid: 3 }],
+    });
+    await page.click('#cperm'); await page.click('.sheet .opt[data-v="plan"]');
+    await page.fill('#ct', 'เปลี่ยนหัวข้อ'); await page.click('#cgo'); await page.waitForTimeout(800);
+    const plan = await page.evaluate(() => ({ todo: document.querySelector('.todos')?.textContent || '', go: !!document.querySelector('[data-build]'), file: IDE.files.get('index.html') }));
+    await page.click('[data-build]'); await page.waitForSelector('.pushnote.st-ok', { timeout: 20000 }).catch(() => {});
+    const note = await page.evaluate(() => document.querySelector('.pushnote')?.textContent || '');
+    await page.click('[data-pr]').catch(() => {}); await page.waitForTimeout(400);
+    const pr = await page.evaluate(() => document.querySelector('.pushnote')?.textContent || '');
+    const sess = await page.evaluate(() => [...document.querySelectorAll('#plist .sess-i')].map(a => a.textContent));
+    await page.evaluate(() => document.querySelector('#plist .sess-i[href$="s=71"]')?.click()); await page.waitForTimeout(500);
+    const sw = await page.evaluate(() => ({ url: location.search, id: IDE.chatId, text: document.querySelector('#cmsgs').textContent }));
+    const sent = calls.filter(c => c.p === '/api/chat'), mk = calls.find(c => c.p === '/api/projects/7/github/branch');
+    return [!errs.length || errs.join(' | '), /"perm":"plan"/.test(sent[0]?.body || '') || 'plan not sent', /1\/2/.test(plan.todo) && /เปลี่ยนหัวข้อ/.test(plan.todo) || 'todo: ' + plan.todo, plan.go || 'no Start building', plan.file === '<h1>old</h1>' || 'plan changed a file',
+      /"perm":"auto"/.test(sent[1]?.body || '') || 'build not in auto', /"name":"astra\//.test(mk?.body || '') || 'no new branch: ' + mk?.body, /astra\//.test(note) || 'note: ' + note, /Pull Request #5/.test(pr) || 'pr: ' + pr,
+      sess.length === 2 || 'sessions: ' + sess, sw.id === 71 && /s=71/.test(sw.url) && /ตอบงานสอง/.test(sw.text) || 'session switch: ' + JSON.stringify(sw).slice(0, 200)];
   }],
   ['page audit finds missing title, alt and viewport, and passes a clean page', async () => {
     const { page, errs } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<html><body><img src="a.png"><h1>x</h1></body></html>' }] } });

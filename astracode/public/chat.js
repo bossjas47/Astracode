@@ -569,10 +569,16 @@ async function drawProjects(cached) {
   if (!cached || !chat.projects) chat.projects = await api('/projects').catch(() => null);
   if (!$('#plist')) return;
   const q = ($('#search')?.value || '').toLowerCase(), ps = (chat.projects || []).filter(p => p.name.toLowerCase().includes(q));
+  const cur = curMode() === 'code' ? +qs().get('p') : 0, ss = cur ? (chat.sessions ||= {})[cur] : null;
+  if (cur && !ss) api('/chats?project=' + cur).then(l => { chat.sessions[cur] = l; drawProjects(true); }).catch(() => {});
+  const act = +qs().get('s') || (typeof IDE !== 'undefined' && IDE.pid === cur ? IDE.chatId : 0) || (qs().get('s') ? 0 : ss?.[0]?.id);
+  const sessHTML = pid => `<div class="sess"><a class="sess-new" href="/code?p=${pid}&s=new">${ic('plus', 'sm')}<span>New session</span></a>${(ss || []).slice(0, 15).map(c => `<a class="sess-i${c.id === act ? ' on' : ''}" href="/code?p=${pid}&s=${c.id}"><span>${esc(String(c.title || 'Untitled').replace(/^\p{Extended_Pictographic}️?\s*/u, ''))}</span></a>`).join('')}</div>`; // session ของโปรเจกต์ที่เปิดอยู่
   box.innerHTML = !chat.projects ? '<p class="muted" style="padding:8px 12px">Could not load projects</p>'
-    : ps.length ? ps.map(p => `<div class="item"><a href="/code?p=${p.id}">${ic(p.shared ? 'users' : 'code', 'sm ci')}<span class="pi"><b>${esc(p.name)}</b><small>${when(p.updated_at)} · ${p.files} files${p.shared ? ' · shared with me' : ''}</small></span></a></div>`).join('')
+    : ps.length ? ps.map(p => `<div class="item${p.id === cur ? ' on' : ''}"><a href="/code?p=${p.id}">${ic(p.shared ? 'users' : 'code', 'sm ci')}<span class="pi"><b>${esc(p.name)}</b><small>${when(p.updated_at)} · ${p.files} files${p.shared ? ' · shared with me' : ''}</small></span></a></div>${p.id === cur ? sessHTML(p.id) : ''}`).join('')
     : `<p class="muted" style="padding:8px 12px">${q ? 'No projects found' : 'No projects yet · tap New project'}</p>`;
 }
+// รายการ session ของโปรเจกต์เปลี่ยน (session ใหม่ / ได้ชื่อแล้ว): โหลดใหม่แล้ววาดแถบข้าง
+function refreshSessions(pid) { if (chat.sessions) delete chat.sessions[pid]; drawProjects(true); }
 // บุ๊กมาร์กแชต (ใช้ค่า pinned เดิม): กดเลือกแชตที่จะบุ๊กมาร์ก · แชตที่บุ๊กมาร์กขึ้นดาวและอยู่บนสุดของแถบข้าง กดดาวเพื่อยกเลิก
 async function setBookmark(id, on) {
   const c = chat.chats.find(x => x.id === id); if (!c) return;

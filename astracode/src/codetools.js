@@ -16,9 +16,20 @@ export const CODE_TOOLS = [
   fn('edit_file', 'Change an existing file by replacing exact text. old_string must be copied from the current file (without the line-number prefix) and match exactly one place: add neighbouring lines to make it unique. Use replace_all to change every occurrence. Several edit_file calls may go in one turn; they apply in order.', { path: S('File path'), old_string: S('Exact text to replace'), new_string: S('Replacement text'), replace_all: B('Replace every occurrence') }, ['path', 'old_string', 'new_string']),
   fn('write_file', 'Create a new file, or replace a whole file when you rewrite most of it. Give the complete content; never use "..." placeholders.', { path: S('File path relative to the project root'), content: S('Complete file content') }, ['path', 'content']),
   fn('delete_file', 'Delete a project file.', { path: S('File path') }, ['path']),
+  fn('todo_write', 'Show the user a live checklist of the steps of this task. Call it before starting work with 3 or more steps, then again each time a step starts or finishes. Always send the whole list; keep exactly one step in_progress while working.', { todos: { type: 'array', description: 'All steps, in order', items: { type: 'object', properties: { content: S('The step, short, in the language the user writes in'), status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] } }, required: ['content', 'status'] } } }, ['todos']),
 ];
 export const CODE_TOOL_NAMES = new Set(CODE_TOOLS.map(t => t.function.name));
 export const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'delete_file']);
+// รายการงานที่หน้าเว็บแสดงสด (todo_write) · ตัดให้สั้นและสถานะถูกต้อง
+export const todosOf = a => (Array.isArray(a?.todos) ? a.todos : []).slice(0, 15).map(t => ({ content: String(t?.content || '').replace(/\s+/g, ' ').trim().slice(0, 140), status: ['pending', 'in_progress', 'completed'].includes(t?.status) ? t.status : 'pending' })).filter(t => t.content);
+// โหมด Plan: ให้ AI อ่าน/ค้นอย่างเดียวแล้วเสนอแผน ยังไม่แก้ไฟล์
+export const PLAN_NOTE = `
+
+PLAN MODE IS ON: the user wants a plan before any change.
+- Look at the project with the read-only tools (read_file, grep, glob, list_dir) as needed.
+- Do NOT change any file: no edit_file, write_file or delete_file, no path= blocks, no SEARCH/REPLACE, no RUN lines.
+- Reply with a short numbered plan: what you will change, in which files, and how you will check it works. Mention risks or questions if any.
+- End by asking the user to approve the plan. They will press "Start building" to let you do it.`;
 
 export const CODE_TOOLS_NOTE = `
 
@@ -27,6 +38,7 @@ NATIVE TOOLS ARE ON in this conversation and replace the text protocol described
 - Change files only with edit_file (old_string copied exactly from read_file output, without the line-number prefix), write_file (new files or full rewrites) and delete_file. Do not write READ/GREP/LIST lines, path= blocks or SEARCH/REPLACE in your text: they are no longer needed.
 - Each successful change is shown to the user and applied to the project. If a tool returns an error, correct the call and try again in the next turn.
 - Write your short closing summary as text in the SAME turn as your last edit calls: a turn that only changes files successfully ends your answer.
+- For a task with 3 or more steps, call todo_write first with the plan, then update it as each step starts and finishes.
 - RUN lines and the ask block still work as described above.`;
 
 const LANG = { js: 'js', mjs: 'js', cjs: 'js', jsx: 'jsx', ts: 'ts', tsx: 'tsx', html: 'html', htm: 'html', css: 'css', json: 'json', md: 'md', py: 'python', sh: 'bash', yml: 'yaml', yaml: 'yaml', svg: 'svg', xml: 'xml', txt: 'text', vue: 'vue', svelte: 'svelte' };

@@ -252,3 +252,25 @@ test('a picture stored as a data URL in an earlier answer is not sent to the nex
   assert.ok(sent.length < 20000, 'request size ' + sent.length); assert.match(sent, /\[image created: water splash\]/);
   fm.close();
 });
+
+test('Code mode: todo_write streams a live checklist (not a tool step); plan mode hides write tools, refuses edits and asks for a plan', async () => {
+  const { t, m, u, fm } = await setup((fm, res, body) => {
+    const tools = body.messages.filter(x => x.role === 'tool');
+    if (!tools.length) return toolSSE(res, [['todo_write', { todos: [{ content: 'อ่านไฟล์', status: 'in_progress' }, { content: 'แก้หัวข้อ', status: 'pending' }, { content: '', status: 'x' }] }], ['edit_file', { path: 'a.js', old_string: 'let a = 1', new_string: 'let a = 2' }]]);
+    return fm.sse(res, 'เสร็จ');
+  });
+  const pid = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'p', empty: true } })).data.id;
+  await t.json(`/api/projects/${pid}/file`, { method: 'PUT', cookie: u.cookie, body: { path: 'a.js', content: 'let a = 1\n' } });
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'แก้', model_id: m.id, project_id: pid } }));
+  assert.deepEqual(ev.find(e => e.todo).todo, [{ content: 'อ่านไฟล์', status: 'in_progress' }, { content: 'แก้หัวข้อ', status: 'pending' }]);
+  assert.ok(!ev.some(e => e.mcp?.tool === ''), 'todo_write is not shown as a step');
+  assert.match(fm.hits[0].body.messages[0].content, /todo_write/);
+  const n = fm.hits.length;
+  const ev2 = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'วางแผน', model_id: m.id, project_id: pid, perm: 'plan' } }));
+  const req = fm.hits[n].body;
+  assert.ok(!req.tools.some(x => ['edit_file', 'write_file', 'delete_file'].includes(x.function.name)) && req.tools.some(x => x.function.name === 'read_file'));
+  assert.match(req.messages[0].content, /PLAN MODE IS ON/);
+  assert.match(fm.hits[n + 1].body.messages.filter(x => x.role === 'tool').at(-1).content, /plan mode is on/);
+  assert.ok(!ev2.filter(e => e.t).map(e => e.t).join('').includes('path=a.js'), 'no edit block in plan mode');
+  fm.close();
+});

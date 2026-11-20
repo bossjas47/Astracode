@@ -63,7 +63,7 @@ async function codeHome() {
     $('#neff').hidden = !efs.length;
     if (efs.length && !efs.includes($('#neffort').value)) $('#neffort').value = efs[0];
     $('#neff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#neffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
-    $('#nflags').innerHTML = (tpl !== 'auto' ? `<button type="button" class="flag" data-nf="tpl">${ic('layers', 'sm')}${esc(tplName())}${ic('x', 'sm')}</button>` : '')
+    $('#nflags').innerHTML = (permOf() !== 'auto' ? `<button type="button" class="flag" data-nf="perm">${ic(PERMS.find(x => x[0] === permOf())[2], 'sm')}${PERMS.find(x => x[0] === permOf())[1]}${ic('x', 'sm')}</button>` : '') + (tpl !== 'auto' ? `<button type="button" class="flag" data-nf="tpl">${ic('layers', 'sm')}${esc(tplName())}${ic('x', 'sm')}</button>` : '')
       + (IDE.cloud ? `<button type="button" class="flag agent-on" data-nf="cloud">${ic('terminal', 'sm')}Agent บนคลาวด์${ic('x', 'sm')}</button>` : '')
       + (IDE.agent ? `<button type="button" class="flag agent-on" data-nf="agent">${ic('sparkles', 'sm')}Agent ON${ic('x', 'sm')}</button>` : '')
       + (_skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-nf="sk" data-id="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
@@ -78,11 +78,12 @@ async function codeHome() {
   const setAgent = on => { IDE.agent = on; localStorage.setItem('agent', on ? '1' : '0'); ui(); }, setCloud = on => { IDE.cloud = on; localStorage.setItem('ccloud', on ? '1' : '0'); ui(); };
   $('#nflags').onclick = e => {
     const f = e.target.closest('[data-nf]'); if (!f) return; const k = f.dataset.nf, id = +f.dataset.id;
-    if (k === 'tpl') { tpl = 'auto'; ui(); } else if (k === 'agent') setAgent(false); else if (k === 'cloud') setCloud(false);
+    if (k === 'perm') { localStorage.setItem('cperm', 'auto'); ui(); } else if (k === 'tpl') { tpl = 'auto'; ui(); } else if (k === 'agent') setAgent(false); else if (k === 'cloud') setCloud(false);
     else if (k === 'sk') setSkills(IDE.skills.filter(x => x !== id)); else if (k === 'mc') setMcps(IDE.mcps.filter(x => x !== id));
   };
   const tplSheet = () => sheet('Template', TPLS.map(([v, t, d]) => optHTML(v, esc(t), esc(d), v === tpl)).join(''), (d, close) => d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = () => { tpl = b.dataset.v; close(); ui(); ta.focus(); }));
   $('#nplus').onclick = () => sheet('เครื่องมือ', optHTML('tpl', ic('layers') + 'แม่แบบ: ' + esc(tplName()), 'Auto = เลือกให้จากสิ่งที่พิมพ์ หรือเลือกเอง (React, Python, Node.js, เกม ฯลฯ)')
+    + optHTML('perm', ic(PERMS.find(x => x[0] === permOf())[2]) + 'โหมดการทำงาน: ' + PERMS.find(x => x[0] === permOf())[1], 'Auto = แก้และตรวจเอง · Ask = กด Apply เอง · Plan = วางแผนก่อน')
     + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว): ' + (IDE.agent ? 'เปิด' : 'ปิด'), me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
     + optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้): ' + (IDE.cloud ? 'เปิด' : 'ปิด'), 'Agent แก้ไฟล์ รัน npm / python / git ทดสอบเองในเครื่องแยก ปิดแอปได้', IDE.cloud)
     + optHTML('skl', ic('sparkles') + 'Skills', 'เลือก Skill ให้ AI ใช้ในโหมด Code (สูงสุด 3)')
@@ -92,6 +93,7 @@ async function codeHome() {
     + (DESK ? optHTML('local', ic('folder') + 'เปิดโฟลเดอร์ในเครื่อง', 'ไฟล์ในโฟลเดอร์ขึ้นมาเป็นโปรเจกต์ AI แก้ไฟล์จริงในเครื่อง') : ''), (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
     close(); const v = b.dataset.v;
     if (v === 'tpl') tplSheet();
+    if (v === 'perm') permSheet(permOf(), x => { localStorage.setItem('cperm', x); ui(); });
     if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); setAgent(!IDE.agent); }
     if (v === 'cloud') setCloud(!IDE.cloud);
     if (v === 'skl') skillsSheet(IDE.skills, setSkills);
@@ -175,7 +177,11 @@ function leaveIDE() {
   document.querySelector('.tmenu')?.remove(); document.querySelector('.sheet-bg')?.remove();
   IDE.pid = null;
 }
-function codeRoute() { leaveIDE(); return codeDispatch(); }
+function codeRoute() {
+  const p = +qs().get('p'), s = qs().get('s');
+  if (p && p === IDE.pid && $('#cmain .ide')) return s ? openSession(s) : undefined; // โปรเจกต์เดิม: สลับ session ในที่ ไม่โหลดตัวแก้โค้ดใหม่
+  leaveIDE(); return codeDispatch();
+}
 
 // ---------- ตัวแก้โค้ด ----------
 const edLight = () => document.documentElement.dataset.theme === 'light';
@@ -1367,6 +1373,27 @@ function stepsBar(m, i) {
 }
 const runCard = (m, i) => { const r = runsOf(m.content); return r.length ? `<div class="changes runs"><span class="muted">AI ขอรันคำสั่ง</span>${r.map(c => `<code>${esc(c)}</code>`).join('')}${m.ran ? '<span class="muted">รันแล้ว ✓</span>' : `<button class="btn blue sm" data-runai="${i}">${ic('terminal', 'sm')} รันแล้วส่งผลให้ AI</button>`}</div>` : ''; };
 const ktok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+// โหมดสิทธิ์แบบ Claude Code: Auto = แก้/รัน/ตรวจเอง · Ask = เสนอการแก้ไข ผู้ใช้กด Apply · Plan = อ่านแล้ววางแผน ยังไม่แก้ไฟล์
+const PERMS = [['auto', 'Auto', 'check', 'AI แก้ไฟล์ รัน และตรวจผลเองทันที แล้ว push ให้ (ถ้าเชื่อม GitHub)'], ['ask', 'Ask', 'hand', 'AI เสนอการแก้ไข คุณดู diff แล้วกด Apply เองทีละไฟล์'], ['plan', 'Plan', 'filetext', 'AI อ่านโค้ดแล้ววางแผนให้ก่อน ยังไม่แก้ไฟล์ · พอใจแล้วกด Start building']];
+const permOf = () => PERMS.some(x => x[0] === localStorage.getItem('cperm')) ? localStorage.getItem('cperm') : 'auto';
+function setPerm(v) { IDE.perm = v; localStorage.setItem('cperm', v); permUI(); }
+function permUI() { const b = $('#cperm'); if (!b) return; const p = PERMS.find(x => x[0] === (IDE.perm || 'auto')); b.innerHTML = `${ic(p[2], 'sm')}<span>${p[1]}</span>${ic('down', 'sm')}`; b.dataset.perm = p[0]; }
+const permSheet = (cur, onPick) => sheet('โหมดการทำงาน', PERMS.map(([v, t, i, d]) => optHTML(v, ic(i) + t, d, v === cur)).join(''), (d, close) => d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = () => { close(); onPick(b.dataset.v); }));
+// รายการงานสดที่ AI อัปเดตระหว่างทำ (todo_write)
+function todoHTML(m) {
+  const t = m.todos; if (!t?.length) return '';
+  const done = t.filter(x => x.status === 'completed').length;
+  return `<div class="todos"><div class="td-h">${ic('check', 'sm')}<b>รายการงาน</b><span class="muted">${done}/${t.length}</span></div><ul>${t.map(x => `<li class="td-${x.status}"><i></i><span>${esc(x.content)}</span></li>`).join('')}</ul></div>`;
+}
+// ---- หลาย session ต่อโปรเจกต์: แต่ละงานเป็นแชตแยก แสดงในแถบข้างใต้ชื่อโปรเจกต์
+async function openSession(s) {
+  const id = s === 'new' ? null : +s || null;
+  if (id && id === IDE.chatId) return;
+  if (IDE.busy) codeStop();
+  IDE.chatId = id; IDE.msgs = id ? await api('/chats/' + id).catch(() => []) : []; drawAI(); ctxMeter(); $('#ce').textContent = '';
+  if (isPhone()) setPane('ai');
+}
+const sessionsChanged = () => { if (typeof refreshSessions === 'function') refreshSessions(IDE.pid); };
 // ขั้นตอนที่ AI ใช้เครื่องมือ (อ่าน / ค้นหา / แก้ / ค้นเว็บ ...) แบบ Claude Code: แถบสรุปพับได้ · ระหว่างทำแสดงขั้นล่าสุด
 function toolSteps(m) {
   const s = m.mcps || []; if (!s.length) return '';
@@ -1379,7 +1406,7 @@ function toolSteps(m) {
 function pushHTML(m) {
   const p = m.push, br = `<b>${esc(p.branch || '')}</b>`;
   const body = p.state === 'run' ? `<i class="tdot"></i><span>กำลัง commit และ push ขึ้น ${br}…</span>`
-    : p.state === 'ok' ? `${ic('push', 'sm')}<span>Push ขึ้น ${br} แล้ว · ${p.n} ไฟล์ · ${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(String(p.sha || '').slice(0, 7))}</a>` : esc(String(p.sha || '').slice(0, 7))}<small class="muted">${esc(String(p.message || '').split('\n')[0])}</small></span>`
+    : p.state === 'ok' ? `${ic('push', 'sm')}<span>Push ขึ้น ${br} แล้ว · ${p.n} ไฟล์ · ${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(String(p.sha || '').slice(0, 7))}</a>` : esc(String(p.sha || '').slice(0, 7))}<small class="muted">${esc(String(p.message || '').split('\n')[0])}</small>${p.pr ? `<a class="pn-pr" href="${esc(p.pr.url)}" target="_blank" rel="noopener">${ic('pull', 'sm')} Pull Request #${p.pr.number}</a>` : p.canPr ? `<button type="button" class="btn out sm pn-pr" data-pr>${ic('pull', 'sm')} สร้าง Pull Request</button>` : ''}</span>`
     : p.state === 'none' ? `${ic('check', 'sm')}<span>ไม่มีไฟล์เปลี่ยน ไม่ต้อง push</span>`
     : `${ic('alert', 'sm')}<span>Push ไม่สำเร็จ: ${esc(p.error || '')} <button type="button" class="linkish" data-opengit>เปิด Git</button></span>`;
   return `<div class="pushnote st-${p.state}">${body}</div>`;
@@ -1389,22 +1416,39 @@ const commitMsg = (prompt, files) => {
   if (sub.length > 72) sub = sub.slice(0, 70) + '…';
   return `${sub}\n\n${files.slice(0, 20).map(f => '- ' + f).join('\n')}${files.length > 20 ? `\n- และอีก ${files.length - 20} ไฟล์` : ''}\n\nCommitted by AstraCode AI`;
 };
+async function createPR(note, btn) {
+  if (!note?.push) return; btn.disabled = true;
+  const [sub, ...rest] = String(note.push.message || '').split('\n');
+  try {
+    const r = await api(`/projects/${IDE.pid}/github/pr`, { method: 'POST', body: { title: sub, body: rest.join('\n').trim() + '\n\nสร้างจาก AstraCode', base: IDE.ghDefault } });
+    (IDE.prs ||= {})[note.push.branch] = r; note.push.pr = r; drawAI(); toast(`สร้าง Pull Request #${r.number} แล้ว`, 'ok');
+  } catch (x) { btn.disabled = false; toast(x.message, 'bad'); }
+}
 async function autoPush() {
   const t = IDE.task; IDE.task = null;
   if (!IDE.gh || localStorage.getItem('autoPush') === '0' || !t?.touched.size) return;
   const files = [...t.touched], note = { role: 'note', push: { state: 'run', branch: IDE.gh.branch, files } }, pid = IDE.pid;
   IDE.msgs.push(note); drawAI();
   const message = commitMsg(t.prompt, files), push = () => api(`/projects/${pid}/github/push`, { method: 'POST', body: { message } });
+  const pull = async () => { const pl = await api(`/projects/${pid}/github/pull`, { method: 'POST', body: {} }); if (IDE.pid === pid && (pl.updated.length || pl.deleted.length)) await reloadFiles(); };
   try {
     await saveNow();
+    if ((localStorage.getItem('pushMode') || 'branch') === 'branch') { // แบบ Claude Code: งานใหม่บน branch หลัก → แยก branch ใหม่ ไม่แตะ main
+      if (!IDE.ghDefault) IDE.ghDefault = (await api(`/projects/${pid}/github/branches`).catch(() => ({}))).default || null;
+      if (IDE.ghDefault && IDE.gh.branch === IDE.ghDefault) {
+        const name = 'astra/' + (String(t.prompt).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'task') + '-' + Math.random().toString(36).slice(2, 6);
+        const mk = () => api(`/projects/${pid}/github/branch`, { method: 'POST', body: { name } });
+        try { await mk(); } catch (x) { if (x.status !== 409) throw x; await pull(); await mk(); }
+        IDE.gh.branch = name; note.push.branch = name; const g = $('#git'); if (g && IDE.pid === pid) g.innerHTML = ic('branch') + ' ' + esc(name); drawAI();
+      }
+    }
     let r;
     try { r = await push(); } catch (x) { // GitHub มีคอมมิตใหม่ / ยังไม่เคย pull: ดึงมารวมก่อน (ถ้าไม่ชนกัน) แล้ว push อีกครั้ง
       if (x.status !== 409) throw x;
-      const pl = await api(`/projects/${pid}/github/pull`, { method: 'POST', body: {} });
-      if (IDE.pid === pid && (pl.updated.length || pl.deleted.length)) await reloadFiles();
-      r = await push();
+      await pull(); r = await push();
     }
-    Object.assign(note.push, r.nothing ? { state: 'none' } : { state: 'ok', sha: r.commit, url: r.url, n: r.files, message });
+    const br = note.push.branch;
+    Object.assign(note.push, r.nothing ? { state: 'none' } : { state: 'ok', sha: r.commit, url: r.url, n: r.files, message, canPr: !!IDE.ghDefault && br !== IDE.ghDefault, pr: IDE.prs?.[br] || null });
   } catch (x) { Object.assign(note.push, { state: 'bad', error: x.data?.conflicts ? 'ไฟล์ถูกแก้ทั้งในนี้และบน GitHub เลือกได้ว่าจะใช้ของฝั่งไหน' : x.message }); }
   if (IDE.pid === pid) drawAI();
 }
@@ -1419,7 +1463,8 @@ function aiMsgHTML(m, i) {
   let cleanBody = fenceBare(stripTools(ask.text));
   if (!m.streaming && chatLayout()) cleanBody = cleanBody.replace(/```[^\n]*\bpath=[^\n]*\n[\s\S]*?```\n?/g, '').replace(/\n{3,}/g, '\n\n').trim(); // แบบ Claude Code: โค้ดที่แก้ไฟล์ดูได้จากการ์ดไฟล์ / แท็บ Code ไม่ต้องยาวในแชต
   const mcpH = toolSteps(m);
-  return `<div class="msg ai">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${hasSegs(m) ? segHTML(m, cleanBody) : cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : emptyHTML(m)}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
+  return `<div class="msg ai">${hasSegs(m) ? '' : thinkHTML(m)}${todoHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${hasSegs(m) ? segHTML(m, cleanBody) : cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : emptyHTML(m)}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
+    + (m.perm === 'plan' && !m.streaming && i === IDE.msgs.length - 1 && !IDE.busy ? `<div class="plan-go"><button type="button" class="btn blue sm" data-build>${ic('play', 'sm')} Start building</button><span class="muted">เปลี่ยนเป็นโหมด Auto แล้วให้ AI ทำตามแผนนี้</span></div>` : '')
     + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${m.tin || m.tout ? `<span class="tok" title="Input ${m.tin || 0} · Output ${m.tout || 0} token">↑${ktok(m.tin || 0)} ↓${ktok(m.tout || 0)}${m.rounds ? ` · ${m.rounds} รอบ` : ''}${m.ctx ? ` · <button type="button" class="ctxm ${m.ctx.used / m.ctx.max >= 0.9 ? 'bad' : m.ctx.used / m.ctx.max >= 0.7 ? 'warn' : ''}" data-ctx title="แตะเพื่อดูว่าอะไรกิน context อยู่เท่าไร">ctx ${ktok(m.ctx.used)}/${ktok(m.ctx.max)}</button>` : ''}${m.cost ? ` · ฿${m.cost}` : ''}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;
 }
 function drawAI() {
@@ -1442,7 +1487,7 @@ async function codeSend(auto) {
   if (resume && IDE.msgs.at(-1)?.role !== 'user') return;
   const t = $('#ct'), text = resume ? '' : auto ? auto.text : t.value.trim();
   if (!resume && !text) return;
-  if (!auto) { IDE.round = 0; IDE.t0 = Date.now(); IDE.task = resume ? null : { prompt: text, touched: new Set() }; }
+  if (!auto) { IDE.round = 0; IDE.t0 = Date.now(); IDE.task = resume || IDE.perm !== 'auto' ? null : { prompt: text, touched: new Set() }; }
   await saveNow();
   const files = []; // ไม่มีระบบแนบไฟล์: AI อ่านไฟล์เองด้วย READ / GREP
   const tree = resume ? '' : [...IDE.files.keys()].join('\n').slice(0, 15000) + (IDE.active && has(IDE.active) ? `\n\n[ไฟล์ที่เปิดอยู่ในตัวแก้ไข: ${IDE.active}]` : '');
@@ -1465,11 +1510,11 @@ async function codeSend(auto) {
   if (!auto) { t.value = ''; t.style.height = 'auto'; }
   $('#ce').textContent = '';
   if (!resume) IDE.msgs.push({ role: 'user', content: withFiles(full, files), imgs: images.length ? images : null, auto: !!auto });
-  const ai = { role: 'assistant', content: '', model: m.name, streaming: true }; IDE.msgs.push(ai); drawAI();
+  const ai = { role: 'assistant', content: '', model: m.name, streaming: true, perm: IDE.perm }; IDE.msgs.push(ai); drawAI();
   IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop');
   let raf = 0, started = false, netLost = false;
   try {
-    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps, agent: !!IDE.agent, local: IDE.local ? { os: navigator.userAgentData?.platform || navigator.platform } : undefined };
+    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps, agent: !!IDE.agent, perm: IDE.perm || 'auto', local: IDE.local ? { os: navigator.userAgentData?.platform || navigator.platform } : undefined };
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal, body: JSON.stringify(reqBody) });
     if (!r.ok) { const d = await r.json(); throw new Error(r.status === 429 && d.pct4h != null ? 'ลิมิตเต็มแล้ว' : d.error); }
     started = true;
@@ -1481,7 +1526,8 @@ async function codeSend(auto) {
         const line = buf.slice(0, k); buf = buf.slice(k + 2);
         if (!line.startsWith('data: ')) continue;
         const d = JSON.parse(line.slice(6));
-        if (d.chat_id) IDE.chatId = d.chat_id;
+        if (d.chat_id) { const fresh = !IDE.chatId; IDE.chatId = d.chat_id; if (fresh) { setUrl(`/code?p=${IDE.pid}&s=${d.chat_id}`, true); sessionsChanged(); } } // session ใหม่ได้เลขแล้ว
+        if (d.todo) { ai.todos = d.todo; if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) { const stick = nearBottom(b); paintStreaming(last, ai); if (stick) b.scrollTop = b.scrollHeight; } }); }
         if (d.error) $('#ce').textContent = d.error;
@@ -1517,7 +1563,7 @@ async function codeSend(auto) {
   IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
   // โหมดอัตโนมัติ: ใช้การแก้ไขทันที แล้วให้ AI ดูผลลัพธ์เอง (สูงสุด 3 รอบ)
   // Auto-apply: ใช้การแก้ไขทันที (และรันคำสั่งที่ AI ขอ) · ตรวจผลเอง: ใช้การแก้ไข แล้วรัน + จับภาพให้ AI ดู (สูงสุด 3 รอบ)
-  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content, undefined, activeRef()) : [], autoOn = IDE.autoApply || IDE.autoMode || barAuto() || IDE.applyNext, imgs = ai.content ? imagesOf(ai.content) : [];
+  const runs = ai.content ? runsOf(ai.content) : [], ch = ai.content ? changesOf(ai.content, undefined, activeRef()) : [], autoOn = (IDE.perm || 'auto') === 'auto' && (IDE.autoApply || IDE.autoMode || barAuto() || IDE.applyNext), imgs = ai.content ? imagesOf(ai.content) : [];
   IDE.applyNext = false; // หลังสร้างรูปเสร็จ คำตอบถัดไปที่ใส่รูปลงโค้ดจะถูกใช้ทันที
   try {
     if (imgs.length && !ai.imgdone && (IDE.round ?? 0) < 5) await imagesForAI(ai, imgs);
@@ -1528,7 +1574,8 @@ async function codeSend(auto) {
     }
     else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if (await autoTest()) { /* รันเทสต์แล้ว */ } else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < (IDE.agent ? 8 : 3)) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
-  if (!auto && !IDE.busy && IDE.round !== 99) await autoPush(); else if (!auto) IDE.task = null; // งานจบ (ไม่ได้กดหยุด): commit + push ขึ้น GitHub ให้เอง
+  if (!auto && !IDE.busy && IDE.round !== 99) await autoPush(); else if (!auto) IDE.task = null;
+  if (!auto) sessionsChanged(); // ชื่อ session ตั้งหลังคำตอบแรก // งานจบ (ไม่ได้กดหยุด): commit + push ขึ้น GitHub ให้เอง
   if (!IDE.busy && Date.now() - (IDE.t0 || Date.now()) > 15000 && Date.now() - (IDE.told || 0) > 10000) { IDE.told = Date.now(); window.astraDesktop?.notify('AI ทำงานเสร็จแล้ว', IDE.name); } // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่น
 }
 
@@ -1612,9 +1659,11 @@ async function gitPanel() {
     <div class="row"><button class="btn out sm" id="gf">${ic('refresh')} Fetch</button><button class="btn out sm" id="gp">${ic('pull')} Pull</button><button class="btn out sm" id="gun">Disconnect repo</button></div>
     <div class="row gbr"><select id="gbs" aria-label="branch"><option>${esc(IDE.gh.branch)}</option></select><button class="btn out sm" id="gnb">+ New branch</button><button class="btn out sm" id="gpr">Open Pull Request</button></div>
     <div id="gs" class="gstat"><p class="muted">กำลังตรวจสถานะ...</p></div>
-    <label class="tg gauto"><input type="checkbox" id="gautop" ${localStorage.getItem('autoPush') === '0' ? '' : 'checked'}><span><b>Push อัตโนมัติเมื่อ AI ทำเสร็จ</b><small class="muted">commit พร้อมข้อความสรุปงาน แล้ว push ขึ้น branch นี้ทันที</small></span></label>
+    <label class="tg gauto"><input type="checkbox" id="gautop" ${localStorage.getItem('autoPush') === '0' ? '' : 'checked'}><span><b>Push อัตโนมัติเมื่อ AI ทำเสร็จ</b><small class="muted">commit พร้อมข้อความสรุปงาน แล้ว push ให้ทันที</small></span></label>
+    <div class="gmode"><span class="muted">Push ไปที่</span><div class="seg" role="group" aria-label="Push ไปที่">${[['branch', 'Branch ใหม่ต่องาน'], ['direct', 'Branch ปัจจุบัน']].map(([v, l]) => `<button type="button" data-pm="${v}" class="${(localStorage.getItem('pushMode') || 'branch') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     <form id="gc" class="gcommit"><label>ข้อความคอมมิต</label><input name="message" placeholder="อธิบายสิ่งที่เปลี่ยน" maxlength="500"><button class="btn blue" id="gpush">${ic('push')} Commit & Push</button></form><p class="gmsg"></p>`;
   const list = (t, xs, cls) => xs.length ? `<div class="gl"><b>${t}</b>${xs.map(x => `<div class="${cls}">${esc(x.path || x)}${x.status ? ` <span class="muted">${x.status}</span>` : ''}</div>`).join('')}</div>` : '';
+  gb.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { localStorage.setItem('pushMode', b.dataset.pm); gb.querySelectorAll('[data-pm]').forEach(x => x.classList.toggle('on', x === b)); });
   gb.querySelector('#gautop')?.addEventListener('change', e => { localStorage.setItem('autoPush', e.target.checked ? '1' : '0'); toast(e.target.checked ? 'เปิด Push อัตโนมัติ' : 'ปิด Push อัตโนมัติ', 'ok'); });
   const status = async () => {
     const g = gb.querySelector('#gs'); g.innerHTML = '<p class="muted">กำลังตรวจสถานะ...</p>';
@@ -1683,7 +1732,7 @@ async function codeView(id, prompt) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   const [d] = await Promise.all([api('/projects/' + id), needCM()]);
   IDE.node?.f.remove(); IDE.node = null; // เทอร์มินัลของโปรเจกต์ก่อน
-  Object.assign(IDE, { pid: d.id, name: d.name, instructions: d.instructions || '', gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,
+  Object.assign(IDE, { ghDefault: null, prs: {}, pid: d.id, name: d.name, instructions: d.instructions || '', gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,
     dirty: new Set(), filter: '', recent: (() => { try { return JSON.parse(localStorage.getItem('recent:' + d.id) || '[]'); } catch { return []; } })(), msgs: [], chatId: null, busy: false, logs: [], frame: null });
   if (IDE.worker) { IDE.worker.terminate(); IDE.worker = null; }
   const saved = localStorage.getItem('model');
@@ -1719,7 +1768,7 @@ async function codeView(id, prompt) {
         <div id="cmsgs" class="msgs"></div>
         <div class="compose"><div class="err" id="ce"></div>
           <form id="cf" class="cbox"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea>
-            <div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="อัปโหลดไฟล์เข้าโปรเจกต์">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
+            <div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="อัปโหลดไฟล์เข้าโปรเจกต์">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button><button type="button" class="cb pick cperm" id="cperm" aria-haspopup="dialog" title="โหมดการทำงาน"></button>
               <button class="send" id="cgo" aria-label="ส่ง">${ic('up')}</button></div></form></div></aside>
     </div>
     <nav class="ide-nav">${(cl ? [['ai', 'sparkles', 'AI'], ['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['run', 'play', 'Preview']] : [['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['ai', 'sparkles', 'AI'], ['run', 'play', 'ผลลัพธ์']]).map(([k, i, l]) => `<button data-pane-btn="${k}" class="${k === (cl ? 'ai' : 'code') ? 'on' : ''}"><span>${ic(i)}</span>${l}</button>`).join('')}</nav></div>`;
@@ -1770,7 +1819,8 @@ async function codeView(id, prompt) {
   $('#upl').onclick = () => $('#uplf').click(); $('#uplf').onchange = async e => { try { await uploadFiles([...e.target.files]); } catch (x) { setStatus(x.message, true); } e.target.value = ''; };
   $('#zin').onclick = () => $('#zinf').click(); $('#zinf').onchange = async e => { try { await importZip(e.target.files[0]); } catch (x) { setStatus('zip: ' + x.message, true); } e.target.value = ''; };
   $('#zout').onclick = () => exportZip().catch(x => setStatus(x.message, true));
-  $('#cnew').onclick = () => { IDE.chatId = null; IDE.msgs = []; drawAI(); ctxMeter(); };
+  $('#cnew').onclick = () => { setUrl(`/code?p=${IDE.pid}&s=new`); openSession('new'); sessionsChanged(); };
+  IDE.perm = permOf(); permUI(); $('#cperm').onclick = () => permSheet(IDE.perm, setPerm);
   $('#chist').onclick = async () => {
     const list = await api('/chats?project=' + IDE.pid).catch(() => []);
     if (!list.length) return toast('ยังไม่มีประวัติแชตในโปรเจกต์นี้');
@@ -1867,6 +1917,8 @@ async function codeView(id, prompt) {
   $('#cmsgs').onclick = async e => {
     if (answer(e)) return;
     if (e.target.closest('[data-opengit]')) return $('#git').click();
+    if (e.target.closest('[data-build]')) { setPerm('auto'); const t = $('#ct'); t.value = 'ทำตามแผนนี้ได้เลย'; t.dispatchEvent(new Event('input')); return codeSend(); }
+    const pr = e.target.closest('[data-pr]'); if (pr) return createPR(IDE.msgs[[...$('#cmsgs').children].indexOf(pr.closest('.pushnote'))], pr);
     const of = e.target.closest('[data-openf]'); if (of && has(of.dataset.openf)) { openFile(of.dataset.openf); return; }
     const sm = e.target.closest('.tsteps summary'); if (sm) { const k = [...$('#cmsgs').children].indexOf(sm.closest('.msg')); if (IDE.msgs[k]) IDE.msgs[k]._stepsOpen = !sm.parentElement.open; return; }
     const b = e.target.closest('button'); if (!b) return;
@@ -1908,7 +1960,8 @@ async function codeView(id, prompt) {
   if (IDE.local) { syncDisk(true); DESK.watch(lkey()); srvUI(); }
   const chats = await api('/chats?project=' + IDE.pid).catch(() => []); // เปิดแชตล่าสุดของโปรเจกต์
   ctxMeter();
-  if (chats[0]) { IDE.chatId = chats[0].id; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); if (IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); }
+  const want = qs().get('s'), sess = want === 'new' ? null : chats.find(c => c.id === +want) || (want ? null : chats[0]); // ?s= เลือก session · new = เริ่มใหม่
+  if (sess) { IDE.chatId = sess.id; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); if (IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); }
   else if (prompt && IDE.pid === d.id) { // มาจากหน้าเริ่มโปรเจกต์: AI เริ่มทำตามที่พิมพ์ทันที
     openAI(true); const t = $('#ct'); t.value = prompt; t.dispatchEvent(new Event('input')); codeSend();
   }
