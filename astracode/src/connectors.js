@@ -5,7 +5,7 @@ import { err, json, rand, same, userErr } from './core.js';
 import { seal, unseal } from './projects.js';
 import { isSafeMcpUrl, mcpSync, mcpCall, READ_NAME } from './ai.js';
 import { GOOGLE_URL } from './google.js';
-import { origin } from './billing.js';
+import { getSettings, origin } from './billing.js';
 
 // สารบบเริ่มต้น (แอดมินแก้/เพิ่ม/ปิดได้ในหลังบ้าน) · auth: oauth = ล็อกอินในป๊อปอัป, none = ใช้ได้เลย, token = วาง API key, url = วาง URL ส่วนตัว, google / github = ระบบเดิมของเว็บ
 // icon: สีแบรนด์ (#hex) แสดงเป็นตัวอักษรบนพื้นสี หรือ data:image/... (อัปโหลดโลโก้ในหลังบ้าน)
@@ -156,7 +156,7 @@ export async function connectorRoutes(req, env, url, path, M, u) {
   if (path === '/api/connectors' && M === 'GET') {
     const [dir, rows, gh] = await Promise.all([dirList(env), DB.prepare('SELECT * FROM mcp_servers WHERE user_id=? OR (user_id=0 AND enabled=1) ORDER BY user_id DESC, id DESC').bind(u.id).all(), DB.prepare('SELECT gh_token IS NOT NULL g FROM users WHERE id=?').bind(u.id).first()]);
     const live = dir.filter(c => c.enabled);
-    return json({ directory: live.map(pub), mine: rows.results.map(r => rowOut(r, dir)), github: !!gh?.g, google: !!(env.GOOGLE_CLIENT_ID || await DB.prepare("SELECT v FROM settings WHERE k='google_client_id'").first().catch(() => null)) });
+    return json({ directory: live.map(pub), mine: rows.results.map(r => rowOut(r, dir)), github: !!gh?.g, google: !!(env.GOOGLE_CLIENT_ID || (await getSettings(env, ['google_client_id'])).google_client_id) });
   }
   // ป๊อปอัปเชื่อมต่อ: เปิดหน้านี้ในหน้าต่างใหม่ (ในเว็บเดียวกัน ป๊อปอัปไม่ถูกบล็อก และแอป Desktop เปิดในแอปพร้อมคุกกี้) → ไปหน้าล็อกอินของผู้ให้บริการ
   if (path === '/api/connectors/go' && M === 'GET') {

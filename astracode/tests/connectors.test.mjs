@@ -132,3 +132,10 @@ test('plugins: seeded bundles; install adds skills + slash commands and connects
     assert.equal((await t.json('/api/connectors', { cookie: u.cookie })).data.mine.length, 1, 'connectors stay after uninstall');
   } finally { fp.restore(); }
 });
+
+test('Google connector is offered when the admin saved a Google client id in settings (not only as a Worker secret)', async () => {
+  const t = await makeEnv(), u = await t.user();
+  assert.equal((await t.json('/api/connectors', { cookie: u.cookie })).data.google, false);
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('google_client_id','abc.apps.googleusercontent.com')").run();
+  assert.equal((await t.json('/api/connectors', { cookie: u.cookie })).data.google, true);
+});

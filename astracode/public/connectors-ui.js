@@ -51,14 +51,20 @@
     d.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => pluginDetail(b.dataset.pl));
     return close;
   }
+  let drawSeq = 0;
   async function draw() {
-    let body = '';
+    const seq = ++drawSeq; let body = ''; // กดสลับแท็บเร็วๆ: แท็บที่โหลดช้ากว่าห้ามเขียนทับแท็บที่เลือกล่าสุด
+    const tab = S.tab, view = S.view;
     try {
       if (S.tab === 'connectors') { if (!S.d) await load(); body = S.view === 'mine' ? mineHTML() : browseHTML(); }
       else if (S.tab === 'skills') { S.skills = await loadSkills(!S.skills); body = skillsHTML(); }
       else { S.plugins = await api('/plugins'); if (!S.d) await load(); body = pluginsHTML(); }
     } catch (x) { body = `<p class="bad">${esc(x.message)}</p>`; }
-    sheet('Connectors · Skills · Plugins', shell(body), bind);
+    if (seq !== drawSeq || tab !== S.tab || view !== S.view) return;
+    // หน้ารายการเปิดอยู่แล้ว: เปลี่ยนแค่เนื้อหาข้างใน ไม่สร้างหน้าต่างใหม่ (เดิมเด้งเล่นแอนิเมชันเปิดทุกครั้งที่สลับแท็บ/พิมพ์ค้นหา)
+    const open = document.querySelector('.sheet-bg .sheet.cn-sheet.cn-main');
+    if (open) { const b = open.querySelector('.sheet-b'), tops = [open.scrollTop, b.scrollTop], sameTab = open.dataset.cnv === S.tab + S.view; b.innerHTML = shell(body); open.dataset.cnv = S.tab + S.view; [open.scrollTop, b.scrollTop] = sameTab ? tops : [0, 0]; bind(open.parentElement, () => open.parentElement.remove()); return; }
+    sheet('Connectors · Skills · Plugins', shell(body), (d, close) => { const s = d.querySelector('.sheet'); s.classList.add('cn-main'); s.dataset.cnv = S.tab + S.view; return bind(d, close); });
   }
   const card = (c, on) => `<button type="button" class="cn-card" data-slug="${esc(c.slug)}">${icon(c)}<span class="cn-txt"><b>${esc(c.name)}${on ? ` <i class="cn-ok" title="เชื่อมแล้ว">${ic('check', 'sm')}</i>` : ''}</b><span>${esc(c.description || '')}</span><small>${c.by ? 'โดย ' + esc(c.by) + ' · ' : ''}${AUTH_TXT[c.auth] || ''}</small></span><span class="cn-plus">${ic(on ? 'check' : 'plus', 'sm')}</span></button>`;
   function browseHTML() {

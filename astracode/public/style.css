@@ -1723,6 +1723,7 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 
 /* ตั้งค่า → Connectors / Skills / Plugins */
 .sheet.cn-sheet { width: min(960px, 96vw); max-width: none; }
+.sheet.cn-sheet.cn-main { height: min(80dvh, 760px); } /* ความสูงคงที่ สลับแท็บแล้วหน้าต่างไม่ยืดหด */
 @media (min-width: 700px) { .sheet.cn-sheet { height: min(820px, 88dvh); } .sheet.cn-sheet .sheet-b { overflow: auto; } }
 .cn-wrap { display: flex; flex-direction: column; gap: 12px; }
 .cn-top .seg, .cn-bar .seg { margin: 0; }
