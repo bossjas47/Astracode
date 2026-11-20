@@ -472,7 +472,7 @@ async function landing() {
     </div></div>
     <div class="band"><h2>ทำได้มากกว่าแชต</h2><div class="grid">
       <a class="tile link" href="/code"><div class="stat">${ic('code')}</div><div style="font:600 19px var(--display)">Code</div><div class="muted">เขียนโค้ดคล้าย VS Code บนเว็บ ให้ AI แก้ไฟล์ รันผล แล้ว push ขึ้น GitHub</div></a>
-      <div class="tile"><div class="stat">${ic('compare')}</div><div style="font:600 19px var(--display)">เทียบ 2 โมเดล</div><div class="muted">ถามครั้งเดียว ดูคำตอบสองโมเดลคู่กัน</div></div>
+      <div class="tile"><div class="stat">${ic('search')}</div><div style="font:600 19px var(--display)">Deep research</div><div class="muted">AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง</div></div>
       <div class="tile"><div class="stat">${ic('globe')}</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
       <a class="tile link" href="/developers"><div class="stat">${ic('braces')}</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
     </div></div>

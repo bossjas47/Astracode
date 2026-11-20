@@ -497,12 +497,7 @@ textarea { border-radius: 20px; }
 .msg.user { flex-wrap: wrap; } .msg.user .acts { width: 100%; justify-content: flex-end; opacity: 0; transition: opacity .2s; }
 .msg.user:hover .acts, .msg.user:focus-within .acts { opacity: 1; }
 @media (pointer: coarse) { .msg.user .acts { opacity: 1; } }
-.cmp2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 1100px; margin: 0 auto 16px; }
-.cmp2 .col { background: var(--graphite); border-radius: 20px; padding: 12px 14px; min-width: 0; }
-.cmp2 .col-h { font: 600 13px var(--font); color: var(--ash); margin-bottom: 6px; }
-.cmp2 .msg { margin: 0; }
-@media (max-width: 760px) { .cmp2 { grid-template-columns: 1fr; } }
-.msg img.gen { display: block; max-width: min(100%, 512px); border-radius: 20px; margin: 4px 0; }
+@media (max-width: 760px) { .msg img.gen { display: block; max-width: min(100%, 512px); border-radius: 20px; margin: 4px 0; }
 .code-h .run-code { margin-right: 4px; }
 /* หน้าต่างแสดงผล HTML */
 .modal { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.7); display: grid; place-items: center; padding: 12px; }
@@ -553,7 +548,7 @@ a.tk { color: var(--porcelain); padding: 12px 4px; border-top: 1px solid var(--s
 .form2.one { grid-template-columns: 1fr; }
 .envs { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); font-size: 14px; }
 .envs code { font-size: 11px; color: var(--ash); }
-.bar #model, .bar #model2 { flex: none; max-width: 170px; }
+.bar #model { flex: none; max-width: 170px; }
 .btn { white-space: nowrap; }
 .card .ed.key { background: var(--obsidian); margin-bottom: 8px; }
 .kset { padding: 0 18px 18px; }
@@ -1088,7 +1083,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--blue); }
 .cflags { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 6px; }
 .cflags:empty { display: none; }
 .crow:has(> .send) > #eff, .crow:has(> .send) > #ceff, .crow:has(> .send) > #beff { flex: none; }
-.crow:has(> .send) > #mdl, .crow:has(> .send) > #mdl2, .crow:has(> .send) > #cmdl { flex: 0 1 auto; min-width: 0; }
+.crow:has(> .send) > #mdl, .crow:has(> .send) > #cmdl { flex: 0 1 auto; min-width: 0; }
 #mic .ic { width: 22px; height: 22px; }
 .cb.pick { overflow: hidden; }
 .cb .ic { flex: none; }
@@ -1304,17 +1299,7 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 @media (max-width: 440px) { .nav-r { gap: 5px; } .nav .logo { letter-spacing: 0; } }
 
 /* โหมดเสียงแบบโทรคุย */
-.vcall { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px 16px calc(24px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg, #000) 92%, transparent); backdrop-filter: blur(12px); text-align: center; }
-.vcall .vc-s { font: 600 17px var(--display, inherit); }
-.vcall .vc-h { min-height: 3em; max-width: 520px; color: var(--muted, #999); font-size: 15px; }
-.vcall .vc-orb { width: 132px; height: 132px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--blue, #3b82f6); color: #fff; cursor: pointer; transition: transform .2s; }
-.vcall .vc-orb svg { width: 44px; height: 44px; }
-.vcall[data-s="listen"] .vc-orb { animation: vcpulse 1.4s ease-in-out infinite; }
-.vcall[data-s="think"] .vc-orb { opacity: .6; }
-.vcall[data-s="speak"] .vc-orb { background: var(--green, #22c55e); animation: vcpulse .9s ease-in-out infinite; }
-@keyframes vcpulse { 50% { transform: scale(1.08); } }
-@media (prefers-reduced-motion: reduce) { .vcall .vc-orb { animation: none !important; } }
-
+@media (prefers-reduced-motion: reduce) { 
 /* ห้องทำงานทีม Agent แบบการ์ตูน */
 .ag-stage { position: relative; margin: 4px 0 10px; border-radius: 18px; overflow: hidden; background: linear-gradient(#f6f1e8, #ece3d4); aspect-ratio: 360 / 230; }
 .ag-stage svg { display: block; width: 100%; height: 100%; }

@@ -385,15 +385,10 @@ test('gift codes move wallet money once; request cap, blocked words, key expiry 
   fm.close();
 });
 
-test('knowledge base, shared skills, project slug, scheduled task and agent rounds', async () => {
+test('shared skills and project slug', async () => {
   const seen = []; const fm = await fakeModel((q, res, body) => { seen.push(body); fm.sse(res, 'answer'); }); const t = await makeEnv({ K: 'k' });
   const m = addModel(t.DB, { name: 'KB', base_url: fm.url }); const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 100 });
   const a = await t.user(), b = await t.user(); give(t.DB, a, plan);
-  // knowledge base
-  assert.equal((await t.json('/api/docs', { method: 'POST', cookie: a.cookie, body: { name: 'policy.txt', content: 'x'.repeat(3000) + ' นโยบายคืนเงิน refund_window = 14 วัน ' + 'y'.repeat(3000) } })).status, 200);
-  assert.equal((await t.json('/api/docs', { cookie: b.cookie })).data.length, 0, 'docs are private');
-  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: a.cookie, body: { model_id: m.id, text: 'refund_window คืนเงินกี่วัน', kb: true } }));
-  assert.match(JSON.stringify(seen.at(-1).messages), /refund_window = 14/); assert.match(JSON.stringify(seen.at(-1).messages), /policy\.txt/);
   // shared skill
   const sk = await t.json('/api/skills', { method: 'POST', cookie: a.cookie, body: { name: 'bot', content: 'be brief' } });
   const sh = await t.json(`/api/skills/${sk.data.id}/share`, { method: 'POST', cookie: a.cookie });
@@ -404,13 +399,6 @@ test('knowledge base, shared skills, project slug, scheduled task and agent roun
   const s1 = await t.json(`/api/projects/${pid}/share`, { method: 'POST', cookie: a.cookie, body: { slug: 'my-shop' } }); assert.equal(s1.data.slug, 'my-shop', JSON.stringify(s1.data));
   assert.equal((await t.call('/p/my-shop')).status, 200); assert.equal((await t.call('/p/' + s1.data.token)).status, 200); assert.equal((await t.call('/p/other-name')).status, 404);
   assert.equal((await t.json(`/api/projects/${pid}/share`, { method: 'POST', cookie: a.cookie, body: { slug: 'Bad Slug!' } })).status, 400);
-  // scheduled task
-  assert.equal((await t.json('/api/tasks', { method: 'POST', cookie: b.cookie, body: { prompt: 'สรุปข่าว AI', hour: 8 } })).status, 403, 'free plan');
-  const hour = new Date(Date.now() + 7 * 3600e3).getUTCHours();
-  assert.equal((await t.json('/api/tasks', { method: 'POST', cookie: a.cookie, body: { prompt: 'สรุปข่าว AI วันนี้', hour, search: false } })).status, 200);
-  const { runTasks } = await import('../src/jobs.js'); const chats0 = t.DB.raw.prepare('SELECT COUNT(*) n FROM chats').get().n;
-  assert.equal(await runTasks(t.env), 1); assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM chats').get().n, chats0 + 1);
-  assert.equal(await runTasks(t.env), 0, 'runs once a day');
   fm.close();
 });
 
@@ -574,28 +562,6 @@ test('model bench: fixed questions graded by regex, time and cost reported', asy
   assert.equal(r.status, 200); assert.equal(r.data.total, BENCH.length); assert.equal(r.data.score, 2);
   assert.ok(r.data.items.find(x => x.cat === 'คณิต').pass);
   fm.close();
-});
-
-test('LINE OA bot: signature checked, link by 6-digit code, answers from the plan model and logs usage as line', async () => {
-  const fm = await fakeModel((q, res) => fm.sse(res, '**สวัสดี** ครับ'));
-  const t = await makeEnv({ K: 'k', LINE_BOT_SECRET: 'sec', LINE_BOT_TOKEN: 'tok' }), m = addModel(t.DB, { name: 'L', base_url: fm.url });
-  const plan = addPlan(t.DB, { price: 0, models: [m.id] }), u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
-  const sent = [], realFetch = globalThis.fetch;
-  globalThis.fetch = async (url, o) => { if (String(url).startsWith('https://api.line.me/')) { sent.push(JSON.parse(o.body)); return new Response('{}'); } return realFetch(url, o); };
-  try {
-    const { lineSigOk } = await import('../src/linebot.js');
-    const hook = async text => { const body = JSON.stringify({ events: [{ type: 'message', replyToken: 'r', source: { userId: 'U1' }, message: { type: 'text', text } }] });
-      const k = await crypto.subtle.importKey('raw', new TextEncoder().encode('sec'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-      const sig = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(body)))));
-      assert.ok(await lineSigOk('sec', body, sig));
-      const r = await t.worker.default.fetch(new Request('https://t.test/line/webhook', { method: 'POST', headers: { 'x-line-signature': sig }, body }), t.env, t.ctx); await Promise.all(t.ctx.pending); return r; };
-    assert.equal((await t.worker.default.fetch(new Request('https://t.test/line/webhook', { method: 'POST', headers: { 'x-line-signature': 'bad' }, body: '{}' }), t.env, t.ctx)).status, 401);
-    await hook('สวัสดี'); assert.match(sent.at(-1).messages[0].text, /ยังไม่ได้เชื่อมบัญชี/);
-    const { code } = (await t.json('/api/line/link', { method: 'POST', cookie: u.cookie })).data;
-    await hook(code); assert.match(sent.at(-1).messages[0].text, /เชื่อมบัญชีแล้ว/);
-    await hook('ช่วยด้วย'); assert.equal(sent.at(-1).messages[0].text, 'สวัสดี ครับ', 'markdown bold stripped for LINE');
-    assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM usage WHERE src='line' AND user_id=?").get(u.id).n, 1);
-  } finally { globalThis.fetch = realFetch; fm.close(); }
 });
 
 test('prompt cache: web chat asks Claude for a 1h cache (falls back to 5 min if refused); OpenAI gets prompt_cache_key and never "minimal"', async () => {

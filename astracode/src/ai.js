@@ -285,15 +285,6 @@ export async function systemFor(env, u, base, skillIds = []) {
   return sys;
 }
 // ผลค้นเว็บแปะหน้าข้อความล่าสุด ไม่ต่อท้าย system เพราะ system ที่เปลี่ยนจะทำให้ prefix cache ของทั้งแชตหลุด
-// คลังความรู้: เลือกท่อนที่เกี่ยวกับคำถามจากเอกสารทั้งหมดของผู้ใช้ (ไม่เกิน ~12,000 ตัวอักษร) แปะหน้าข้อความล่าสุด
-export async function kbBlock(env, uid, question) {
-  const docs = (await env.DB.prepare('SELECT name,content FROM user_docs WHERE user_id=?').bind(uid).all().catch(() => ({ results: [] }))).results;
-  if (!docs.length) return '';
-  const q = grams(question), chunks = [];
-  for (const d of docs) for (let i = 0; i < d.content.length; i += 1500) { const text = d.content.slice(i, i + 1500); let s = 0; for (const g of grams(text)) if (q.has(g)) s++; if (s) chunks.push({ name: d.name, at: i, text, s }); }
-  const top = chunks.sort((a, b) => b.s - a.s).slice(0, 8); if (!top.length) return '';
-  return 'Excerpts from the user\'s knowledge base. Answer from them when relevant and name the document you used:\n' + top.map(c => `[${c.name} @${c.at}]\n${c.text}`).join('\n\n');
-}
 export const withSources = (text, sources) => sources?.length ? `Web search results (today is ${new Date().toISOString().slice(0, 10)}). Use them when relevant and cite as [1], [2]:\n${sources.map((x, i) => `[${i + 1}] ${x.title} (${x.url})\n${x.content}`).join('\n\n')}\n\nUser message:\n${text}` : text;
 // ค้นเว็บอัตโนมัติเมื่อคำถามดูเป็นข้อมูลสด (ข่าว ราคา อากาศ ผลแข่ง เวอร์ชันล่าสุด) · แอดมินปิดได้ที่ search_auto · shortcut: ใช้ regex ไม่เรียกโมเดลจัดประเภท ถ้าพลาดบ่อยค่อยเปลี่ยนเป็นโมเดลเล็ก
 export const FRESH = /ล่าสุด|วันนี้|ตอนนี้|เมื่อวาน|พรุ่งนี้|ข่าว|ราคา(?:ทอง|น้ำมัน|หุ้น|บิทคอยน์|ล่าสุด)|อัตราแลกเปลี่ยน|สภาพอากาศ|พยากรณ์|ผลบอล|ผลการแข่งขัน|ปัจจุบัน|\b(?:latest|today|tonight|news|current(?:ly)?|right now|this (?:week|month|year)|weather|score|release date|stock price)\b|\b202[5-9]\b/i;
@@ -544,7 +535,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid, local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -574,7 +565,7 @@ export async function runChat(env, J, send, st) {
   // ถ้าโมเดลเรียก web_search ได้ผลทันที (เหมือนค้นก่อนตอบแบบเดิม แต่ขนานกับโมเดล) · ถ้าโมเดลตอบเองได้ ก็ไม่ต้องรอผลค้นเลย
   const qText = String(lastText || '').replace(/\n\n\[\[file:[\s\S]*$/, '').slice(0, 1500);
   let spec = null;
-  const [searchOn, sources, projRows, systemBase, mcpSrvs, down, kb, links, codeRows, imgPrompt, hasDocs] = await Promise.all([
+  const [searchOn, sources, projRows, systemBase, mcpSrvs, down, links, codeRows, imgPrompt] = await Promise.all([
     !pid && getSetting(env, 'search_enabled').then(async v => {
       const on = v !== '0' && !!env.TAVILY_KEY;
       if (on && useTools && !J.search && hist.length <= 1 && qText.length <= 120 && await autoSearch(env, lastText)) spec = webSearch(env, qText);
@@ -586,11 +577,9 @@ export async function runChat(env, J, send, st) {
     systemFor(env, u, '', J.skill_ids),
     connTools(env, u.id, { ids: J.mcp_ids || [], off: J.mcp_off || [], askOk: !pid }).catch(() => ({ tools: [], map: new Map() })), // connectors ที่เปิดใช้ทุกแชต + ที่เลือกเพิ่ม · โหมด Code ไม่มีปุ่มอนุญาต จึงได้เฉพาะเครื่องมือที่อนุญาตเสมอ
     model.fallback_id ? modelDown(env, model.id) : false,
-    J.kb ? kbBlock(env, u.id, lastText) : '',
     !pid ? readLinks(lastText).catch(() => []) : [],
     pid && useTools ? env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pid).all().then(r => r.results) : null,
     imagePrompt(env, !!pid),
-    !pid && useTools ? env.DB.prepare('SELECT 1 FROM user_docs WHERE user_id=? LIMIT 1').bind(u.id).first().catch(() => null) : null,
   ]);
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
   const projFile = projRows[0]?.content?.trim() || ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์ GitHub ได้)
@@ -604,7 +593,7 @@ export async function runChat(env, J, send, st) {
   const zipLoad = async () => zipCache ||= Object.assign({}, ...await Promise.all(zipIds.map(async id => { const o = await env.SLIPS.get(`zip/${u.id}/${id}.json`); return o ? await o.json().catch(() => ({})) : {}; })));
   const zipTools = zipIds.length ? ZIP_TOOLS : [];
   const ws = codeRows ? codeWorkspace(codeRows) : null;
-  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt, docs: !!hasDocs })] : []), ...(useTools && ws ? (J.perm === 'plan' ? CODE_TOOLS.filter(t => !WRITE_TOOLS.has(t.function.name)) : CODE_TOOLS) : [])];
+  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt })] : []), ...(useTools && ws ? (J.perm === 'plan' ? CODE_TOOLS.filter(t => !WRITE_TOOLS.has(t.function.name)) : CODE_TOOLS) : [])];
   let imgUsed = false, pyStop = false; // รูป 1 รูปต่อคำตอบ · run_python = จบคำตอบให้หน้าเว็บรันแล้วส่งผลกลับ
   const sysNow = () => (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + (pid && J.perm === 'plan' ? PLAN_NOTE : '') + localSys(J.local, !!pid);
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำ
@@ -615,7 +604,7 @@ export async function runChat(env, J, send, st) {
   if (links.length) await send({ sources: [...sources, ...links].map(({ title, url }) => ({ title, url })) });
   const linkCtx = links.map(l => `[เนื้อหาจากลิงก์ ${l.url}${l.title ? ' · ' + l.title : ''}]\n${l.text}`).join('\n\n');
   const prepMs = Date.now() - tPrep; // เวลาเตรียมก่อนเรียกโมเดล (บันทึกคู่กับ ttft ดูผลการปรับความเร็ว)
-  let msgs = sources.length || kb || linkCtx ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: (kb ? kb + '\n\n' : '') + withSources(x.content, sources) + (linkCtx ? '\n\n' + linkCtx : '') } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
+  let msgs = sources.length || linkCtx ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: withSources(x.content, sources) + (linkCtx ? '\n\n' + linkCtx : '') } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
   const maxRounds = J.agent ? AGENT_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า
@@ -985,10 +974,6 @@ export async function chatTool(env, u, cid, name, a, st) {
     if (!rows.length) return { result: 'No earlier chats match.', ok: true, label };
     const snip = t => { const s = stripMarkers(t).replace(/\s+/g, ' '), i = Math.max(0, s.toLowerCase().indexOf(terms[0].toLowerCase()) - 120); return s.slice(i, i + 400); };
     return { result: rows.map(r => `[${r.title} · ${new Date(r.created_at + 7 * 3600e3).toISOString().slice(0, 10)} · ${r.role}]\n${snip(r.content)}`).join('\n\n'), ok: true, label };
-  }
-  if (name === 'search_docs') {
-    const q = String(a.query || '').trim().slice(0, 300), label = 'ค้นคลังความรู้ ' + q.slice(0, 40);
-    const r = q ? await kbBlock(env, u.id, q) : ''; return { result: r || 'No matching passages in the knowledge base.', ok: true, label };
   }
   if (name === 'create_file') {
     const fname = String(a.filename || '').replace(/[\\/:*?"<>|[\]\n\r]+/g, '_').trim().slice(0, 100), content = String(a.content ?? '');

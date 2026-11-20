@@ -1,10 +1,8 @@
-import { BKK, DAY, SYSTEM, allowedModels, ensureCols, err, esc, json, limited, planOf, unlimit, usageStatus } from './core.js';
-import { SSE, callModel, ensureImgTable, logUsage, runChat, smartSearch, withSources } from './ai.js';
+import { BKK, DAY, ensureCols, err, esc, json, limited, unlimit } from './core.js';
+import { SSE, callModel, ensureImgTable, runChat } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
-import { sendPush } from './push.js';
 import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl, walletAdd } from './billing.js';
 import { admin } from './admin.js';
-import { runBatches, slug } from './api.js';
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
 // KPI ของวันก่อนหน้า (ตามเวลาไทย) สำหรับแจ้งแอดมิน
 export async function kpiYesterday(env, now = Date.now()) {
@@ -39,7 +37,6 @@ export async function cron(env) {
   // สรุป KPI เมื่อวานให้แอดมิน (8 โมงเช้าไทย): สมัครใหม่, รายได้, ต้นทุน, กำไร, โมเดลยอดนิยม
   if (new Date(now + BKK).getUTCHours() === 8) await step('kpi', async () => { const k = await kpiYesterday(env, now); if (!await limited(env, 'kpi:' + k.day, 1, 2 * DAY)) await notify(env, k.text); });
   // ดึงคนกลับ (10 โมงเช้าไทย): ผู้ใช้ที่เคยใช้งานแต่หายไป 14 วัน → อีเมลบอกของใหม่ + เครดิต (winback_credit บาท, 0 = ไม่แจก) · คนละครั้งต่อ 60 วัน
-  await step('batch', () => runBatches(env)); // Batch API: งานค้างประมวลผลทุกชั่วโมง
   // เตือนแอดมินเมื่อราคาขายต่ำกว่าต้นทุน (เช่นต้นทางขึ้นราคาแต่ยังไม่ได้แก้ราคาขาย) วันละครั้ง
   if (new Date(now + BKK).getUTCHours() === 9) await step('margin', async () => { const bad = await lossModels(env); if (bad.length && !await limited(env, 'margin:' + Math.floor((now + BKK) / DAY), 1, 2 * DAY)) await notify(env, '⚠️ ราคาขายต่ำกว่าต้นทุน (ขาดทุนทุกครั้งที่ใช้):\n' + bad.map(x => `• ${x.name}: ${x.parts.join(', ')}`).join('\n')); });
   if (new Date(now + BKK).getUTCHours() === 10) await step('winback', async () => {
@@ -76,7 +73,6 @@ export async function cron(env) {
   const spike = (await DB.prepare("SELECT e.model_id, md.name, COUNT(*) n FROM events e LEFT JOIN models md ON md.id=e.model_id WHERE e.kind='error' AND e.created_at>? GROUP BY e.model_id HAVING n>=10 ORDER BY n DESC").bind(now - 3600e3).all()).results;
   if (spike.length) await notify(env, '🔥 error พุ่งในชั่วโมงที่ผ่านมา: ' + spike.map(s => `${s.name || 'ระบบ'} ${s.n} ครั้ง`).join(' · ') + ' (เช็คคีย์/เครดิต upstream)');
   });
-  await runTasks(env, now).catch(e => console.log('tasks', e.message));
   await reapAgentJobs(env).catch(e => console.log('agent reap', e.message));
   await import('./cloud.js').then(m => m.reapCloud(env)).catch(e => console.log('cloud reap', e.message));
   // สลิปค้างรออนุมัติเกิน 2 ชม.: เตือนแอดมินไม่เกินทุก 6 ชม. (ลูกค้าจ่ายแล้วรออยู่)
@@ -103,34 +99,6 @@ export async function cron(env) {
   return log;
 }
 // ยิงข้อความสั้นๆ ไปโมเดลที่ไม่มีทั้งการใช้งานและ error ในชั่วโมงที่ผ่านมา · ล้มเหลว = บันทึก error (เข้าตัวตัดวงจร/หน้าสถานะ/แจ้งเตือนแอดมิน)
-// งานตั้งเวลาของผู้ใช้: ถึงชั่วโมงที่ตั้ง (เวลาไทย) และวันนี้ยังไม่รัน → ให้โมเดลประหยัดสุดในแพลนทำ (หักลิมิตตามจริง) ส่งอีเมล + เก็บเป็นแชตใหม่
-export async function runTasks(env, now = Date.now()) {
-  const hour = new Date(now + BKK).getUTCHours(), day = Math.floor((now + BKK) / DAY);
-  const due = (await env.DB.prepare('SELECT t.*, u.email FROM tasks t JOIN users u ON u.id=t.user_id WHERE t.hour<=? AND (t.last_day IS NULL OR t.last_day<?) AND u.banned=0 ORDER BY t.hour LIMIT 20').bind(hour, day).all()).results;
-  const started = Date.now(), runOne = async t => {
-    await env.DB.prepare('UPDATE tasks SET last_day=? WHERE id=?').bind(day, t.id).run(); // จองก่อนรัน กันรันซ้ำถ้างานล้มกลางทาง
-    try {
-      const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(t.user_id).first(), plan = await planOf(env, u);
-      if (!(plan?.price > 0)) return;
-      const st = await usageStatus(env, u, plan); if (st.pct4h >= 100 || st.pctWeek >= 100) return; // ลิมิตเต็ม ข้ามวันนี้
-      const pick = (await allowedModels(env, plan.id)).filter(m => m.provider !== 'image').sort((a, b) => a.multiplier - b.multiplier)[0]; if (!pick) return;
-      const m = await env.DB.prepare('SELECT * FROM models WHERE id=?').bind(pick.id).first(), hist = [{ role: 'user', content: t.prompt }];
-      const sources = t.search ? await smartSearch(env, u, hist) : [];
-      let out = '', usage = null; const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 120e3);
-      try { for await (const e of callModel(env, m, [{ role: 'user', content: withSources(t.prompt, sources) }], { effort: null, system: SYSTEM, maxTokens: 2000, userId: u.id, signal: ac.signal })) { if (e.t) out += e.t; if (e.usage) usage = e.usage; } } finally { clearTimeout(timer); }
-      if (usage) await logUsage(env, u.id, m, usage, { plan, src: 'task' });
-      if (!out.trim()) return;
-      const c = await env.DB.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').bind(u.id, ('⏰ ' + t.prompt).slice(0, 40), now).first();
-      await env.DB.batch([env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').bind(c.id, 'user', t.prompt, m.id, now),
-        env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,sources) VALUES (?,?,?,?,?,?)').bind(c.id, 'assistant', out, m.id, now + 1, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null)]);
-      await sendPush(env, u.id, { title: 'งานตั้งเวลา: ' + t.prompt.slice(0, 40), body: out.replace(/[#*`>_]/g, '').slice(0, 160), url: '/chat?id=' + c.id });
-      await mail(env, t.email, 'AstraCode: ' + t.prompt.slice(0, 60), mailBox('งานตั้งเวลาของคุณ', esc(out.slice(0, 6000)).replace(/\n/g, '<br>'), 'เปิดในแชต', siteUrl(env) + '/chat?id=' + c.id));
-    } catch (e) { console.log('task', t.id, e.message); }
-  };
-  // ทีละ 3 งานพร้อมกัน และไม่เริ่มงานใหม่หลัง 8 นาที (cron มีเพดาน 15 นาที) · งานที่ยังไม่ได้เริ่มไม่ถูกจองวัน จึงไปต่อรอบชั่วโมงถัดไป (hour<=ตอนนี้ = ตามให้ทัน)
-  for (let i = 0; i < due.length && Date.now() - started < 480e3; i += 3) await Promise.all(due.slice(i, i + 3).map(runOne));
-  return due.length;
-}
 export async function healthCheck(env) {
   const now = Date.now(), ms = (await env.DB.prepare("SELECT * FROM models WHERE active=1 AND provider NOT IN ('image','embedding') ORDER BY id LIMIT 12").all()).results;
   for (const m of ms) {

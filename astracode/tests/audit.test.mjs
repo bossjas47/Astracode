@@ -32,17 +32,6 @@ test('admin can list and close shared project links', async () => {
   assert.equal((await t.call('/p/' + sh.data.token)).status, 404);
 });
 
-test('scheduled tasks: one that was missed earlier today still runs; a task set for an hour already gone starts tomorrow', async () => {
-  const t = await makeEnv(), u = await t.user(); const { runTasks } = await import('../src/jobs.js');
-  t.DB.raw.prepare('INSERT INTO tasks (user_id,prompt,hour,search,created_at) VALUES (?,?,?,?,?)').run(u.id, 'สรุปข่าว AI วันนี้', 3, 0, Date.now());
-  const at9 = new Date(); at9.setUTCHours(2, 0, 0, 0); // 09:00 เวลาไทย
-  assert.equal(await runTasks(t.env, at9.getTime()), 1, 'hour 3 task is picked up at 09:00');
-  assert.equal(await runTasks(t.env, at9.getTime()), 0, 'but only once per day');
-  const plan = addPlan(t.DB, { price: 100 }); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
-  const nowH = new Date(Date.now() + 7 * 3600e3).getUTCHours();
-  if (nowH > 0) { const r = await t.json('/api/tasks', { method: 'POST', cookie: u.cookie, body: { prompt: 'งานที่ชั่วโมงผ่านไปแล้ว', hour: nowH - 1 } }); assert.equal(r.status, 200); const row = t.DB.raw.prepare('SELECT last_day FROM tasks WHERE id=?').get(r.data.id); assert.ok(row.last_day > 0, 'booked for today so it waits until tomorrow'); }
-});
-
 test('project can be created from posted files (Canvas → Code); bad paths and huge files are refused', async () => {
   const t = await makeEnv(), u = await t.user();
   const ok = await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'จาก Canvas', files: { 'index.html': '<h1>x</h1>' } } }); assert.equal(ok.status, 200);

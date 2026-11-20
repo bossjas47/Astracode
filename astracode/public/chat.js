@@ -1,6 +1,6 @@
 const WHATS_NEW = 'whatsnew:2026-11-code'; // เปลี่ยนเลขเมื่อมีฟีเจอร์ใหม่ที่อยากบอกผู้ใช้เดิม
 // AstraCode: หน้าแชต
-let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], compare: false, cmp: [], skills: JSON.parse(localStorage.getItem('skills') || '[]'), mcps: JSON.parse(localStorage.getItem('mcps') || '[]') };
+let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], skills: JSON.parse(localStorage.getItem('skills') || '[]'), mcps: JSON.parse(localStorage.getItem('mcps') || '[]') };
 { // กลับจากหน้ายินยอมของ Google: เปิด MCP ของ Google ในแชตให้เลย
   const q = new URLSearchParams(location.search), g = q.get('google');
   if (g) { const id = +q.get('mcp_on'); if (id && !chat.mcps.includes(id)) { chat.mcps = [...chat.mcps, id].slice(-3); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); } setTimeout(() => toast(g === 'ok' ? 'เชื่อม Google แล้ว: สั่ง AI อ่าน/ส่ง Gmail, ค้น Drive, แก้ Sheets, ลงปฏิทินได้เลย' : g, g === 'ok' ? 'ok' : 'bad'), 800); history.replaceState(null, '', location.pathname); }
@@ -104,7 +104,7 @@ const curModel = () => $('#model')?.value === 'auto' ? AUTO() : me.models.find(m
 async function chatView(id) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   const keep = $('#cmain'); keep?.remove(); // โหมด Code ที่เปิดค้างไว้ อยู่ต่อเมื่อวาดแชตใหม่
-  chat = { ...chat, id: id ? +id : null, msgs: id ? await api('/chats/' + id).catch(() => []) : [], busy: false, images: [], files: [], compare: false, cmp: [], agSid: null };
+  chat = { ...chat, id: id ? +id : null, msgs: id ? await api('/chats/' + id).catch(() => []) : [], busy: false, images: [], files: [], agSid: null };
   autoRetry = 0;
   for (const m of chat.msgs) if (typeof m.sources === 'string') try { m.sources = JSON.parse(m.sources); } catch { m.sources = null; }
   const saved = localStorage.getItem('model'), opt = sel => me.models.filter(m => !m.locked).map(m => `<option value="${m.id}" ${String(m.id) === sel ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
@@ -148,7 +148,7 @@ async function chatView(id) {
       <div class="ctitle"><b id="ctl">Chat</b><small id="ctok"></small></div>
       <button class="lim" id="lim" aria-label="ลิมิตการใช้งาน"></button>
       <a class="icon-btn sm" href="/chat" data-new aria-label="แชตใหม่">${ic('newchat')}</a>
-      <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select><select id="model2" hidden>${opt(localStorage.getItem('model2'))}</select>
+      <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select>
       <select id="effort" hidden>${EFFORTS.map(([v]) => `<option value="${v}" ${v === (localStorage.getItem('effort') || '') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="msgs" id="msgs"></div>
       <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div><div id="flags" class="cflags"></div>
@@ -156,7 +156,6 @@ async function chatView(id) {
           <textarea id="t" rows="1" placeholder="Ask anything · type / for Skills" aria-label="Message"></textarea>
           <div class="crow"><button type="button" class="cb" id="plus" aria-label="แนบไฟล์และเครื่องมือ">${ic('plus')}</button>${('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? `<button type="button" class="cb" id="mic" aria-label="พิมพ์ด้วยเสียง">${ic('mic')}</button>` : ''}
             <button type="button" class="cb pick" id="mdl" aria-haspopup="dialog"></button>
-            <button type="button" class="cb pick" id="mdl2" aria-haspopup="dialog" hidden></button>
             <button type="button" class="cb pick" id="eff" aria-haspopup="dialog"></button>
             
             <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div></div>
@@ -200,9 +199,7 @@ async function chatView(id) {
     }
   } catch { /* ไม่มีที่เก็บ */ }
   $('#effort').onchange = e => { localStorage.setItem('effort', e.target.value); modelUI(); };
-  $('#model2').onchange = e => { localStorage.setItem('model2', e.target.value); modelUI(); };
   $('#mdl').onclick = () => modelSheet('#model');
-  $('#mdl2').onclick = () => modelSheet('#model2');
   $('#eff').onclick = () => effortSheet('#effort', curModel());
   $('#plus').onclick = toolSheet;
   $('#mic')?.addEventListener('click', () => {
@@ -218,7 +215,7 @@ async function chatView(id) {
     try { rec.start(); } catch { chat.rec = null; btn.classList.remove('rec'); toast('เริ่มพิมพ์ด้วยเสียงไม่ได้ ลองใหม่อีกครั้ง', 'err'); }
   });
   $('#lim').onclick = limitSheet;
-  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
+  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
   $('#spc').onclick = spacesSheet; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
@@ -364,9 +361,8 @@ function openCanvas(code) {
 // คำทักหน้าแชตว่าง: สุ่มทุกครั้งที่เปิด
 const HELLO = ['How can I help today?', 'What are we working on?', 'Ask me anything', 'Ready when you are', 'What’s on your mind?'];
 function modelUI() {
-  const m = curModel(), m2 = me.models.find(x => x.id === +$('#model2').value);
+  const m = curModel();
   $('#mdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
-  $('#mdl2').hidden = !chat.compare; $('#mdl2').innerHTML = `${m2 ? vendorLogo(m2.name, 'xs') : ''}<span>vs ${esc(m2?.name || '')}</span>${ic('down', 'sm')}`;
   const efs = modelEfforts(m);
   $('#eff').hidden = !efs.length;
   if (efs.length && !efs.includes($('#effort').value)) $('#effort').value = efs[0];
@@ -377,84 +373,13 @@ function modelUI() {
     + (PCD && !pcOn() && !img ? `<button type="button" class="flag on" data-flag="pcset">${ic('folder', 'sm')}ให้ AI ทำงานในคอม: เลือกโฟลเดอร์</button>` : '') // ในแอป: ปุ่มเห็นชัด ไม่งั้นลูกค้าไม่รู้ว่าต้องเปิดเอง แล้ว AI ได้แค่บอกให้รันเอง
     + (pcOn() ? `<button type="button" class="flag" data-flag="pc" aria-label="ปิดใช้คอมเครื่องนี้">${ic('folder', 'sm')}${esc(chat.pc.name)}${ic('x', 'sm')}</button>` : '')
     + (agentOn() ? `<button type="button" class="flag on" data-flag="pcag" aria-label="ปิดโหมด Agent">${ic('sparkles', 'sm')}Agent · ${esc(AG_MODES.find(x => x[0] === agMode())[2])}${ic('x', 'sm')}</button>` : '')
-    + (chat.compare ? `<button type="button" class="flag" data-flag="cmp" aria-label="ปิดโหมดเทียบ">${ic('compare', 'sm')}เทียบ${ic('x', 'sm')}</button>` : '')
-    + (localStorage.getItem('kb') === '1' ? `<button type="button" class="flag" data-flag="kb">${ic('book', 'sm')}คลังความรู้</button>` : '') + (chat.voice ? `<button type="button" class="flag" data-flag="voice">${ic('mic', 'sm')}โหมดเสียง</button>` : '')
     + (chat.skills.length && _skillsCache ? chat.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
     + (chat.mcps.length && _mcpCache ? chat.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
   if (!m?.vision && chat.images.length) { chat.images = []; drawThumbs(); showErr('โมเดลนี้อ่านรูปไม่ได้ จึงเอารูปออกแล้ว'); }
 }
 // ปุ่ม +: แผ่นล่างแบบ "ทางลัดแถวบน + รายการไอคอนพร้อมคำอธิบาย" · ชื่อเป็นอังกฤษ คำอธิบายเป็นไทย
 const toolRow = (v, icon, title, desc, on) => `<button type="button" class="trow ${on ? 'on' : ''}" data-v="${v}"><span class="tico">${ic(icon)}</span><span class="tbody"><b>${title}</b><small>${desc}</small></span>${on ? `<i class="tchk">${ic('check')}</i>` : ''}</button>`;
-// คลังความรู้: เอกสารที่เก็บถาวร (เพิ่มจากไฟล์ที่แนบอยู่ในช่องข้อความ) · เปิดสวิตช์แล้ว AI จะค้นจากคลังทุกคำถาม
-async function kbSheet() {
-  const docs = await api('/docs').catch(() => []), on = localStorage.getItem('kb') === '1', ready = chat.files.filter(f => f.text);
-  sheet('คลังความรู้', `<div class="sheet-form">
-    <label class="sw-row"><span class="sw"><input type="checkbox" id="kbon" ${on ? 'checked' : ''}><span></span></span> ใช้คลังความรู้ตอบคำถามในแชต</label>
-    ${ready.length ? `<button type="button" class="btn blue sm" id="kbadd">เก็บไฟล์ที่แนบอยู่ลงคลัง (${ready.length})</button>` : '<p class="muted" style="margin:0">แนบไฟล์ในช่องข้อความก่อน (PDF, Word, Excel, ข้อความ) แล้วเปิดหน้านี้อีกครั้งเพื่อเก็บลงคลัง</p>'}
-    ${docs.map(d => `<div class="mem tm"><span>${esc(d.name)} <small class="muted">${Math.round(d.size / 1000)}k ตัวอักษร</small></span><button type="button" data-deld="${d.id}" aria-label="ลบ">${ic('x')}</button></div>`).join('') || '<p class="muted">ยังไม่มีเอกสารในคลัง (เก็บได้ 20 เอกสาร)</p>'}
-  </div>`, d => {
-    d.querySelector('#kbon').onchange = e => { localStorage.setItem('kb', e.target.checked ? '1' : '0'); modelUI(); };
-    const add = d.querySelector('#kbadd'); if (add) add.onclick = async () => {
-      add.disabled = true; let n = 0;
-      for (const f of ready) { try { await api('/docs', { method: 'POST', body: { name: f.name, content: f.text } }); n++; } catch (x) { toast(`${f.name}: ${x.message}`, 'bad'); } }
-      if (n) { localStorage.setItem('kb', '1'); toast(`เก็บ ${n} เอกสารลงคลังแล้ว`, 'ok'); } kbSheet();
-    };
-    d.querySelectorAll('[data-deld]').forEach(b => b.onclick = async () => { await api('/docs/' + b.dataset.deld, { method: 'DELETE' }).catch(() => {}); kbSheet(); });
-  });
-}
-// โหมดเสียง: ฟังผู้ใช้ → ส่ง → อ่านคำตอบ → ฟังต่อ จนกว่าจะปิด (ใช้เสียงและตัวรู้จำเสียงของเบราว์เซอร์)
-// โหมดเสียงแบบโทรคุย: ฟัง → ส่ง → พูดคำตอบทีละช่วงระหว่างที่ AI ยังเขียน → ฟังต่อ · แตะปุ่มกลางเพื่อพูดแทรก
-function vstate(s) {
-  const el = $('#vcall'); if (!el) return; chat.vst = s;
-  el.querySelector('.vc-s').textContent = { listen: 'กำลังฟัง… พูดได้เลย', think: 'กำลังคิด…', speak: 'กำลังพูด · แตะเพื่อพูดแทรก', idle: 'แตะเพื่อพูด' }[s] || '';
-  el.dataset.s = s;
-}
-function voiceListen() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!chat.voice || !SR || chat.busy) return;
-  try { chat.vrec?.abort(); } catch { /* ไม่ได้ฟังอยู่ */ }
-  const rec = chat.vrec = new SR(); rec.lang = window.LANG === 'en' ? 'en-US' : 'th-TH'; rec.interimResults = true; let fin = '';
-  const t = $('#t'); rec.onresult = e => { fin = [...e.results].map(r => r[0].transcript).join(''); if (t) { t.value = fin; t.oninput(); } const h = $('#vcall .vc-h'); if (h) h.textContent = fin; };
-  rec.onend = () => { if (!chat.voice || chat.vrec !== rec) return; if (fin.trim()) { vstate('think'); send(); } else if (document.visibilityState === 'visible') setTimeout(voiceListen, 400); else vstate('idle'); };
-  rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { toggleVoice(); toast('ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน', 'bad'); } };
-  try { rec.start(); vstate('listen'); } catch { /* กำลังฟังอยู่แล้ว */ }
-}
-// พูดคำตอบทีละช่วง: ระหว่างสตรีมพูดเมื่อได้ข้อความยาวพอและตัดที่ช่องว่าง/ขึ้นบรรทัด (โค้ดไม่อ่าน) · done = พูดที่เหลือแล้วกลับไปฟัง
-function voiceFeed(text, done) {
-  if (!chat.voice) return;
-  if (!('speechSynthesis' in window)) { if (done) voiceListen(); return; }
-  let rest = text.slice(chat.vpos || 0);
-  if (!done) {
-    if (rest.includes('```') || rest.length < 80) return;
-    const cut = Math.max(rest.lastIndexOf('\n'), rest.lastIndexOf(' ')); if (cut < 40) return;
-    rest = rest.slice(0, cut);
-  }
-  chat.vpos = (chat.vpos || 0) + rest.length;
-  const say = rest.replace(/```[\s\S]*?(```|$)/g, ' (มีโค้ดในคำตอบ) ').replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/[#*_`>|⁣]/g, '').trim();
-  if (say) {
-    const ut = new SpeechSynthesisUtterance(say.slice(0, 1500)); ut.lang = /[฀-๿]/.test(say) ? 'th-TH' : 'en-US';
-    chat.vpend = (chat.vpend || 0) + 1; vstate('speak');
-    ut.onend = ut.onerror = () => { chat.vpend = Math.max(0, chat.vpend - 1); if (!chat.vpend && chat.vdone && chat.voice) voiceListen(); };
-    speechSynthesis.speak(ut);
-  }
-  if (done) { chat.vdone = true; if (!chat.vpend) voiceListen(); }
-}
-const voiceSpeak = text => { chat.vpos = 0; chat.vpend = 0; voiceFeed(text, true); };
-function voiceReset() { chat.vpos = 0; chat.vpend = 0; chat.vdone = false; try { speechSynthesis?.cancel(); } catch { /* ไม่มี */ } }
-function toggleVoice() {
-  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) return toast('เบราว์เซอร์นี้ไม่รองรับโหมดเสียง ลอง Chrome หรือ Safari', 'bad');
-  chat.voice = !chat.voice;
-  $('#vcall')?.remove();
-  if (chat.voice) {
-    document.body.insertAdjacentHTML('beforeend', `<div id="vcall" class="vcall" role="dialog" aria-label="โหมดเสียง"><div class="vc-s" aria-live="polite"></div><button type="button" class="vc-orb" aria-label="พูด / พูดแทรก">${ic('mic')}</button><div class="vc-h"></div><button type="button" class="btn red vc-x">${ic('x', 'sm')} วางสาย</button></div>`);
-    const el = $('#vcall');
-    el.querySelector('.vc-orb').onclick = () => { if (chat.busy) { stopRun(); } voiceReset(); voiceListen(); };
-    el.querySelector('.vc-x').onclick = () => toggleVoice();
-    voiceReset(); voiceListen();
-  } else { try { chat.vrec?.abort(); } catch { /* ไม่ได้ฟังอยู่ */ } chat.vrec = null; voiceReset(); toast('ปิดโหมดเสียงแล้ว'); }
-  modelUI();
-}
-// เมนู + : เรียงตามความนิยมโดยรวม แล้วดันอันที่ผู้ใช้คนนี้กดบ่อย (ตั้งแต่ 3 ครั้ง) ขึ้นบนสุด 3 อัน · ที่เหลือหลัง 6 อันแรกอยู่ใต้หัวข้อ "เพิ่มเติม"
-const TOOL_ORDER = ['pc', 'mcp', 'img', 'web', 'rsch', 'prm', 'voice', 'cmp', 'kb', 'skl', 'exp']; // MCP อยู่บน: ลูกค้าหาไม่เจอตอนอยู่ใต้ "เพิ่มเติม"
+const TOOL_ORDER = ['pc', 'mcp', 'img', 'web', 'rsch', 'prm', 'skl', 'exp']; // MCP อยู่บน: ลูกค้าหาไม่เจอตอนอยู่ใต้ "เพิ่มเติม"
 const toolUse = () => { try { return JSON.parse(localStorage.getItem('toolUse') || '{}'); } catch { return {}; } };
 const toolUsed = v => { try { const u = toolUse(); u[v] = (u[v] || 0) + 1; localStorage.setItem('toolUse', JSON.stringify(u)); } catch { /* ไม่มีที่เก็บ */ } };
 function toolRows(web) {
@@ -464,9 +389,6 @@ function toolRows(web) {
     web: site.search && ['globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web],
     rsch: site.search && ['search', 'Deep research' + newPill('rsch'), 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)'],
     prm: ['book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย'],
-    voice: ['mic', 'โหมดเสียง', 'พูดคุยกับ AI ต่อเนื่อง: พูด แล้วฟังคำตอบ', chat.voice],
-    cmp: ['compare', 'Compare 2 models', 'ถามครั้งเดียว ได้คำตอบจาก 2 โมเดล', chat.compare],
-    kb: ['book', 'คลังความรู้', 'เก็บเอกสารไว้ถาวร แล้วถามได้จากทุกแชต', localStorage.getItem('kb') === '1'],
     skl: ['sparkles', 'Skills', 'สอนวิธีทำงานให้ AI · เปิดปิดหรือสร้างเอง'],
     mcp: ['layers', 'Connectors', PCD ? 'Google, Notion, GitHub ฯลฯ + ปลั๊กอินและ MCP ในเครื่อง · เปิด/ปิดในแชตนี้' : 'Google, Notion, GitHub ฯลฯ ที่เชื่อมไว้ · เปิด/ปิดในแชตนี้', mcpOff().length > 0],
     exp: ['download', 'Export chat', 'บันทึกเป็น Markdown หรือ PDF'],
@@ -482,7 +404,6 @@ function enterImageMode() {
   const im = imgModel(), locked = !im && me.models.find(m => m.provider === 'image');
   if (locked) { toast(`${locked.name} ต้องเติมเครดิต (ขั้นต่ำ ฿1) แล้วจ่ายตามที่ใช้จริง`); return go('/plans?topup=1'); } // มีโมเดลสร้างภาพแต่ล็อก: พาไปเติมเงิน ไม่ใช้ทางสำรองที่ไม่ได้สลับโมเดล
   if (!im) return genImage();
-  if (chat.compare) toggleCompare();
   if (!isImgMode()) localStorage.setItem('modelBeforeImg', $('#model').value);
   $('#model').value = im.id; localStorage.setItem('model', im.id); modelUI(); $('#t').focus();
   toast('โหมดสร้างภาพ: พิมพ์สิ่งที่อยากได้แล้วกดส่ง', 'ok');
@@ -517,7 +438,7 @@ function toolSheet() {
     <div class="tlist">${toolRows(web)}</div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); toolUsed(b.dataset.v); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: enterImageMode, web: toggleWeb, cmp: toggleCompare, mcp: () => connInChat(), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, rsch: () => { seen('rsch'); researchSheet(); }, img: enterImageMode, web: toggleWeb, mcp: () => connInChat(), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 // Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล
@@ -538,11 +459,6 @@ async function researchSheet() {
   });
 }
 function toggleWeb() { localStorage.setItem('web', localStorage.getItem('web') === '1' ? '0' : '1'); modelUI(); }
-function toggleCompare() {
-  if (chat.busy) return; chat.compare = !chat.compare;
-  const m2 = $('#model2'); if (chat.compare && $('#model').value === 'auto') $('#model').value = me.models[0].id; if (chat.compare && m2.value === $('#model').value) m2.value = me.models.find(m => String(m.id) !== $('#model').value)?.id ?? m2.value; // ตั้งต้นให้ต่างจากตัวแรก
-  modelUI(); renderAll();
-}
 // เก็บถาวร + ถังขยะ: กู้คืนได้ · ถังขยะลบถาวรเองหลัง 30 วัน
 async function binSheet() {
   const [arc, tr] = await Promise.all([api('/chats/archived').catch(() => []), api('/chats/trash').catch(() => [])]);
@@ -556,9 +472,9 @@ async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api(
 // หัวแชต: ชื่อ + context ที่ใช้
 function head() {
   const ctl = $('#ctl'); if (!ctl) return;
-  ctl.textContent = chat.compare ? 'เทียบ 2 โมเดล' : chat.chats.find(c => c.id === chat.id)?.title || 'Chat';
+  ctl.textContent = chat.chats.find(c => c.id === chat.id)?.title || 'Chat';
   // แถบ context: ใช้ไปเท่าไรจากขนาด context ของโมเดล (จากคำตอบล่าสุด) · เกิน 70% มีปุ่มย่อแชต
-  const cx = !chat.compare && chat.ctx?.id === chat.id ? chat.ctx : null, pct = cx ? Math.min(100, cx.used / cx.max * 100) : 0, pctT = pct < 10 ? pct.toFixed(1).replace(/\.0$/, '') : Math.round(pct); // context ใหญ่ (1M): ปัดเป็นจำนวนเต็มจะค้างที่ 0% นาน
+  const cx = chat.ctx?.id === chat.id ? chat.ctx : null, pct = cx ? Math.min(100, cx.used / cx.max * 100) : 0, pctT = pct < 10 ? pct.toFixed(1).replace(/\.0$/, '') : Math.round(pct); // context ใหญ่ (1M): ปัดเป็นจำนวนเต็มจะค้างที่ 0% นาน
   $('#ctok').innerHTML = cx ? `<button type="button" class="ctxm ${pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : ''}" id="ctxopen" title="แตะเพื่อดูว่าอะไรกิน context อยู่เท่าไร">context ${kTok(cx.used)} / ${kTok(cx.max)} (${pctT}%)</button>${pct >= 70 && chat.id ? ' <button type="button" class="linkb" id="cmpct">ย่อแชต</button>' : ''}` : '';
   const co = $('#ctxopen'); if (co) co.onclick = () => ctxSheet({ chatId: chat.id, modelId: +curModel()?.id || null, skills: chat.skills, onCompact: () => { chat.ctx = null; head(); }, onPickModel: id => { $('#model').value = id; localStorage.setItem('model', id); modelUI(); } });
   const cb = $('#cmpct'); if (cb) cb.onclick = async () => { cb.disabled = true; cb.textContent = 'กำลังย่อ...'; try { const r = await api(`/chats/${chat.id}/compact`, { method: 'POST' }); toast(r.ok ? 'ย่อแชตแล้ว ข้อความเก่าถูกสรุปไว้' : 'แชตยังสั้นเกินกว่าจะย่อ', r.ok ? 'ok' : ''); if (r.ok) chat.ctx = null; } catch (x) { toast(x.message, 'bad'); } head(); };
@@ -726,7 +642,6 @@ function exportMenu() {
 }
 async function genImage(auto, silent, size) { // size = sq/land/port (AI เลือกได้ผ่าน generate_image) · ไม่ส่ง = ตามที่ผู้ใช้เลือกไว้ // auto = คำบรรยายที่ AI เขียนเอง (silent: ไม่มีข้อความฝั่งผู้ใช้)
   if (chat.busy) return;
-  if (chat.compare) return showErr('ปิดโหมดเทียบก่อนสร้างรูป');
   const t = $('#t'), prompt_ = typeof auto === 'string' ? auto : t.value.trim() || await promptSheet('บรรยายรูปที่ต้องการสร้าง', '', { title: 'สร้างรูปด้วย AI', placeholder: 'เช่น แมวส้มใส่แว่นกันแดด สไตล์อนิเมะ', ok: 'Generate image' });
   if (!prompt_?.trim()) return;
   if (!silent) { t.value = ''; t.style.height = 'auto'; $('#e').textContent = ''; chat.msgs.push({ role: 'user', content: '🎨 ' + prompt_ }); appendMsg(chat.msgs.at(-1)); }
@@ -934,13 +849,9 @@ function msgHTML(m, i, isNew) {
 // token ที่ใช้ตอบ + ลิมิตที่ใช้ไป (เฉพาะข้อความที่เพิ่งตอบ)
 const tokHTML = m => m.tin || m.tout ? `<span class="tok" title="Input ${num(m.tin)} · Output ${num(m.tout)} token">↑${kTok(m.tin || 0)} ↓${kTok(m.tout || 0)}${m.pct != null ? ` · ลิมิต +${m.pct < 0.1 ? '<0.1' : m.pct.toFixed(1)}%` : ''}</span>` : '';
 const sourcesHTML = m => m.sources?.length ? `<div class="srcs">${m.sources.map((x, k) => `<a href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}"><b>${k + 1}</b>${esc(x.title || new URL(x.url).hostname)}</a>`).join('')}</div>` : '';
-function compareHTML() { // โหมดเทียบ: แต่ละรอบ = คำถาม + คำตอบ 2 คอลัมน์
-  return chat.cmp.length ? chat.cmp.map((r, k) => `${msgHTML({ role: 'user', content: r.q }, -1)}<div class="cmp2" data-r="${k}">${r.a.map(m => `<div class="col"><div class="col-h">${esc(m.model)}</div>${msgHTML(m, -1)}</div>`).join('')}</div>`).join('')
-    : `<div class="empty"><div class="stat">เทียบ 2 โมเดล</div><div>เลือกโมเดลสองตัวที่ด้านล่าง แล้วถามครั้งเดียว · โหมดนี้ไม่บันทึกแชต และใช้ลิมิตของทั้งสองโมเดล</div></div>`;
-}
 function renderAll() {
   const box = $('#msgs'); if (!box) return;
-  box.innerHTML = chat.compare ? compareHTML() : chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
+  box.innerHTML = chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
     : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>${chat.spaceId ? `New chat in <b>${esc(chat.spaceName)}</b> · <button type="button" class="linkish" data-nospace>not in a space</button>` : 'Pick a model below and start typing'}</div>
        <div class="mode-seg sm" role="group" aria-label="Mode"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a></div>
        <div class="chips">${SUGGEST.map(([icon, s], i) => `<button data-s="${i}">${ic(icon, 'sm')} ${s}</button>`).join('')}</div></div>`;
@@ -987,34 +898,6 @@ async function stream(body, signal, onData) {
   }
 }
 const noteOf = (m, d) => { if (d.wallet) m.note = 'โมเดลนอกแพลน: ตัดเงินจาก Wallet ตามราคาขาย'; if (d.fallback) m.note = `โมเดลหลักขัดข้อง จึงตอบด้วย ${d.fallback}`; if (d.overflow) m.note = 'ลิมิตเต็ม ใช้เงินใน Wallet'; if (d.sources) m.sources = d.sources; };
-async function compareSend() {
-  const t = $('#t'), text = t.value.trim(), files = chat.files, imgs = chat.images;
-  if (files.some(f => f.text == null)) return showErr('รออ่านไฟล์ให้เสร็จก่อน');
-  if (!text && !files.length && !imgs.length) return;
-  if ($('#model').value === 'auto') return showErr('โหมดเทียบต้องเลือกโมเดลเอง ไม่ใช่ "อัตโนมัติ"');
-  const ids = [+$('#model').value, +$('#model2').value];
-  if (ids[0] === ids[1]) return showErr('เลือกโมเดลสองตัวที่ต่างกัน');
-  t.value = ''; t.style.height = 'auto'; chat.images = []; chat.files = []; drawThumbs(); $('#e').textContent = '';
-  const round = { q: withFiles(text || 'อ่านไฟล์นี้', files), a: ids.map(id => ({ role: 'assistant', content: '', model: me.models.find(m => m.id === id).name, streaming: true })) };
-  chat.cmp.push(round); renderAll(); setBusy(true); chat.ctrl = new AbortController();
-  const k = chat.cmp.length - 1, web = localStorage.getItem('web') === '1' && !!site.search;
-  await Promise.all(ids.map(async (id, j) => {
-    const m = round.a[j], el = () => $(`.cmp2[data-r="${k}"] .col:nth-child(${j + 1}) .msg`); let raf = 0;
-    const mm = me.models.find(x => x.id === id);
-    try {
-      await stream({ model_id: id, text, files, images: mm.vision ? imgs : [], ephemeral: true, search: web, effort: mm.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
-        noteOf(m, d);
-        if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateLast(); }); }
-      if (d.t || d.th) { onStreamEvent(m, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const e = el(); if (e) paintStreaming(e, m); }); }
-        if (d.error) m.content += `\n\n**ข้อผิดพลาด:** ${d.error}`;
-        if (d.tok) { m.tin = d.tok.in; m.tout = d.tok.out; }
-        if (d.done) { setUsage(d); if (d.mid) m.id = d.mid; }
-      });
-    } catch (x) { if (x.name !== 'AbortError') m.content += `ข้อผิดพลาด: ${x.message}`; }
-    cancelAnimationFrame(raf); m.streaming = false;
-  }));
-  setBusy(false); renderAll();
-}
 async function editMsg(idx) {
   if (chat.busy) return;
   const m = chat.msgs[idx]; if (!m?.id) return;
@@ -1041,7 +924,6 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
     if (ok === 'net') { chat.imgWake = 'send'; if (document.visibilityState === 'visible') imgWake(); return; } // เน็ตหลุดตอนปิดจอ: กลับมาแล้วส่งต่อให้เอง
     if (!ok) return;
   }
-  if (chat.compare && !regenerate && !resume) return compareSend();
   if (!regenerate && !resume && !edit_id && agentOn()) { const tx = $('#t').value.trim(); if (chat.files.length) toast('โหมด Agent: ไฟล์แนบใช้ไม่ได้ พิมพ์ @พาธ เพื่ออ้างไฟล์ในโฟลเดอร์แทน (แนบรูปได้)'); return tx ? agentSend(tx) : undefined; }
   const quiet = regenerate || resume || !!edit_id, t = $('#t'), text = edit_id ? edit_text : quiet ? '' : t.value.trim(), imgs = quiet ? [] : chat.images, m = curModel();
   const files = quiet ? [] : chat.files;
@@ -1060,17 +942,17 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   const ai = { role: 'assistant', content: '', model: m.name, streaming: true };
   chat.msgs.push(ai);
   if (quiet) renderAll(); else appendMsg(ai);
-  setBusy(true); chat.ctrl = new AbortController(); if (chat.voice) { voiceReset(); vstate('think'); }
+  setBusy(true); chat.ctrl = new AbortController();
   const t0 = Date.now();
   let started = false, streamErr = null, aborted = false, raf = 0;
   try {
-    await stream({ img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps, mcp_off: mcpOff(), local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
+    await stream({ img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, skill_ids: chat.skills, mcp_ids: chat.mcps, mcp_off: mcpOff(), local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
       started = true;
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
       if (d.model) ai.model = d.model;
       noteOf(ai, d); if (d.fallback) ai.model = d.fallback;
-      if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateLast(); }); if (d.t && chat.voice) voiceFeed(ai.content, false); }
+      if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateLast(); }); }
       if (d.error) streamErr = d.error;
       if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; }
       if (d.ctx) { chat.ctx = { ...d.ctx, id: chat.id }; }
@@ -1103,9 +985,8 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   const empty = !ai.content && !ai.thinking;
   if (empty && chat.msgs.at(-1) === ai) chat.msgs.pop();
   setBusy(false); renderAll();
-  if (!streamErr && !aborted && !empty && !chat.compare) { const g = parseImg(ai.content); if (g.prompt) genImage(g.prompt, true, g.size); } // AI สั่งสร้างรูปเอง
-  if (streamErr) { showErr(streamErr, true); if (chat.voice) voiceListen(); }
-  else if (chat.voice && !aborted) voiceFeed(ai.content, true);
+  if (!streamErr && !aborted && !empty) { const g = parseImg(ai.content); if (g.prompt) genImage(g.prompt, true, g.size); } // AI สั่งสร้างรูปเอง
+  if (streamErr) showErr(streamErr, true);
   else if (aborted) showErr('หยุดแล้ว · ถ้าเซิร์ฟเวอร์ตอบจบแล้ว ระบบจะดึงคำตอบมาแสดงให้เอง');
   else if (empty) {
     // เดิม: ลบคำตอบทิ้งแล้วเงียบสนิท ไม่มีอะไรขึ้นเลย → ตอนนี้ลองต่อให้อัตโนมัติ 1 ครั้ง แล้วค่อยแจ้ง
@@ -1113,8 +994,8 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
     showErr('ไม่ได้คำตอบจากโมเดล ลองอีกครั้ง', true);
   }
   loadSide();
-  if (!streamErr && !aborted && !empty && !chat.compare && pcOn() && (pcCalls(ai.content).length || fileBlocks(ai.content).length)) return pcAct(ai);
-  if (!streamErr && !aborted && !empty && !chat.compare && parseTools(ai.content).py.length) return pyRun(ai); // AI เรียก run_python: รันในเบราว์เซอร์แล้วส่งผลกลับให้ทำต่อ
+  if (!streamErr && !aborted && !empty && pcOn() && (pcCalls(ai.content).length || fileBlocks(ai.content).length)) return pcAct(ai);
+  if (!streamErr && !aborted && !empty && parseTools(ai.content).py.length) return pyRun(ai); // AI เรียก run_python: รันในเบราว์เซอร์แล้วส่งผลกลับให้ทำต่อ
   if (!streamErr && !aborted && Date.now() - t0 > 15000) PCD?.notify('AstraCode ตอบเสร็จแล้ว', ai.content.replace(/[#*`>\[\]]/g, '').slice(0, 140)); // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่นระหว่างรอ
 }
 

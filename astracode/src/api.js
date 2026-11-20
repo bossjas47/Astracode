@@ -2,7 +2,7 @@ import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limited
 import { SSE, callModel, chat, logUsage, webSearch } from './ai.js';
 import { connCall, connTools } from './connectors.js';
 import { unseal } from './projects.js';
-import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl, walletAdd } from './billing.js';
+import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl } from './billing.js';
 import { status } from './jobs.js';
 // ---------- API สำหรับนักพัฒนา: /v1/models, /v1/chat/completions (แบบ OpenAI) คิดเงินจาก wallet ----------
 export const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 7); // เดือนตามเวลาไทย เช่น 2026-11
@@ -105,7 +105,6 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       }
       return out({ plan: plan.name, api_limit_enabled: !!plan.api_limit, key_use_plan: k.use_plan !== 0, wallet_balance: k.balance, key_spent_month: keySpent, key_budget: k.budget, usage: st, ...extra });
     }
-    if (path === '/v1/batches' || path.startsWith('/v1/batches/')) return await batchApi(req, env, k, models, path, out, fail);
     const isImg = path === '/v1/images/generations', isEmb = path === '/v1/embeddings';
     if ((path !== '/v1/chat/completions' && !isImg && !isEmb) || req.method !== 'POST') return fail('not found', 404);
     const over = rate.over, rrow = rate;
@@ -505,68 +504,3 @@ export async function responsesApi(req, env, ctx, lg) {
   return new Response(o.readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...passHeaders(res) } });
 }
 
-// ---------- Batch API: ส่งงานทีละมาก ได้ผลภายใน 24 ชม. ราคาถูกกว่า (คืนส่วนลด batch_discount_pct% ของยอดที่ตัด, ค่าเริ่มต้น 20) ----------
-// คิดจาก Wallet เท่านั้น · cron ทุกชั่วโมงประมวลผลทีละชุด (runBatches) · รูปแบบคำขอคล้าย OpenAI แต่ส่ง requests เป็น JSON ตรง ๆ ไม่ต้องอัปโหลดไฟล์
-const ensureBatch = env => env.DB.batch([
-  env.DB.prepare('CREATE TABLE IF NOT EXISTS api_batches (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, key_id INTEGER, status TEXT NOT NULL, total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0, charge REAL NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, finished_at INTEGER)'),
-  env.DB.prepare('CREATE TABLE IF NOT EXISTS api_batch_items (batch_id TEXT NOT NULL, idx INTEGER NOT NULL, custom_id TEXT, model TEXT NOT NULL, request TEXT NOT NULL, status TEXT NOT NULL, response TEXT, error TEXT, PRIMARY KEY (batch_id, idx))'),
-]);
-const batchView = (b, items) => ({ id: b.id, object: 'batch', status: b.status, created_at: Math.floor(b.created_at / 1000), completed_at: b.finished_at ? Math.floor(b.finished_at / 1000) : null, request_counts: { total: b.total, completed: b.done, failed: b.failed }, charge_thb: Math.round(b.charge * 10000) / 10000,
-  ...(items ? { results: items.map(i => ({ custom_id: i.custom_id, status: i.status, response: i.response ? JSON.parse(i.response) : null, error: i.error ? { message: i.error } : null })) } : {}) });
-async function batchApi(req, env, k, models, path, out, fail) {
-  await ensureBatch(env);
-  const DB = env.DB, M = req.method, id = path.split('/')[3], uid = k.id;
-  if (path === '/v1/batches' && M === 'GET') return out({ object: 'list', data: (await DB.prepare('SELECT * FROM api_batches WHERE user_id=? ORDER BY created_at DESC LIMIT 20').bind(uid).all()).results.map(b => batchView(b)) });
-  if (path === '/v1/batches' && M === 'POST') {
-    if (!(k.balance >= WALLET_MIN)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿1)', 402, 'insufficient_quota');
-    const b = await req.json().catch(() => ({})), list = Array.isArray(b.requests) ? b.requests : null;
-    if (!list?.length || list.length > 500) return fail('requests must be an array of 1 to 500 items.', 400);
-    const rows = [];
-    for (const [i, r] of list.entries()) {
-      const body = r?.body || {}, m = models.find(x => slug(x) === body.model);
-      if (!m || ['image', 'embedding'].includes(m.provider)) return fail(`requests[${i}]: unknown model "${String(body.model || '').slice(0, 60)}".`, 400);
-      if (!Array.isArray(body.messages) || !body.messages.length) return fail(`requests[${i}]: messages is required.`, 400);
-      const json_ = JSON.stringify({ messages: body.messages, max_tokens: +body.max_tokens || undefined, temperature: body.temperature });
-      if (json_.length > 200000) return fail(`requests[${i}] is too long.`, 413);
-      rows.push([String(r.custom_id ?? i).slice(0, 64), slug(m), json_]);
-    }
-    if (await limited(env, 'batch:' + uid, 20, DAY)) return fail('Too many batches today (20 per day).', 429, 'rate_limit_error');
-    const bid = 'batch_' + rand(10), now = Date.now();
-    await DB.prepare("INSERT INTO api_batches (id,user_id,key_id,status,total,created_at) VALUES (?,?,?,'queued',?,?)").bind(bid, uid, k.kid, rows.length, now).run();
-    for (let i = 0; i < rows.length; i += 50) await DB.batch(rows.slice(i, i + 50).map((r, j) => DB.prepare("INSERT INTO api_batch_items (batch_id,idx,custom_id,model,request,status) VALUES (?,?,?,?,?,'queued')").bind(bid, i + j, ...r)));
-    return out(batchView({ id: bid, status: 'queued', total: rows.length, done: 0, failed: 0, charge: 0, created_at: now }));
-  }
-  const b = id && await DB.prepare('SELECT * FROM api_batches WHERE id=? AND user_id=?').bind(id, uid).first();
-  if (!b) return fail('Batch not found.', 404);
-  if (path.endsWith('/cancel') && M === 'POST') {
-    await DB.batch([DB.prepare("UPDATE api_batch_items SET status='cancelled' WHERE batch_id=? AND status='queued'").bind(id), DB.prepare("UPDATE api_batches SET status=CASE WHEN status IN ('queued','in_progress') THEN 'cancelled' ELSE status END, finished_at=COALESCE(finished_at,?) WHERE id=?").bind(Date.now(), id)]);
-    return out(batchView(await DB.prepare('SELECT * FROM api_batches WHERE id=?').bind(id).first()));
-  }
-  if (M !== 'GET') return fail('not found', 404);
-  return out(batchView(b, (await DB.prepare('SELECT * FROM api_batch_items WHERE batch_id=? ORDER BY idx').bind(id).all()).results));
-}
-// cron: ประมวลผลงานค้างทีละไม่เกิน limit รายการ (เก่าสุดก่อน) พร้อมกัน 4 งาน
-export async function runBatches(env, limit = 40) {
-  await ensureBatch(env);
-  const DB = env.DB, raw = await getSetting(env, 'batch_discount_pct'), pct = Math.min(90, Math.max(0, raw == null || raw === '' ? 20 : +raw || 0)); // ว่าง = 20%
-  const items = (await DB.prepare("SELECT i.*, b.user_id FROM api_batch_items i JOIN api_batches b ON b.id=i.batch_id WHERE i.status='queued' AND b.status IN ('queued','in_progress') ORDER BY b.created_at, i.idx LIMIT ?").bind(limit).all()).results;
-  const models = (await DB.prepare('SELECT * FROM models WHERE active=1').all()).results, touched = new Set();
-  const one = async it => {
-    touched.add(it.batch_id); await DB.prepare("UPDATE api_batches SET status='in_progress' WHERE id=? AND status='queued'").bind(it.batch_id).run();
-    const set = (st, resp, er, charge = 0) => DB.batch([DB.prepare('UPDATE api_batch_items SET status=?, response=?, error=? WHERE batch_id=? AND idx=?').bind(st, resp, er, it.batch_id, it.idx), DB.prepare(`UPDATE api_batches SET ${st === 'completed' ? 'done=done+1' : 'failed=failed+1'}, charge=charge+? WHERE id=?`).bind(charge, it.batch_id)]);
-    const u = await DB.prepare('SELECT balance,banned FROM users WHERE id=?').bind(it.user_id).first(), m = models.find(x => slug(x) === it.model);
-    if (!u || u.banned || !(u.balance >= WALLET_MIN)) return set('failed', null, 'Wallet balance is too low.');
-    if (!m) return set('failed', null, 'Model is no longer available.');
-    const rq = JSON.parse(it.request), text = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text).join('\n') : '';
-    const system = rq.messages.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content)).join('\n\n'), hist = rq.messages.filter(x => x.role === 'user' || x.role === 'assistant').map(x => ({ role: x.role, content: text(x.content) }));
-    let t = '', usage = null;
-    try { for await (const e of callModel(env, m, hist, { system: [m.sys_prompt?.trim(), system].filter(Boolean).join('\n\n'), maxTokens: rq.max_tokens, extra: rq.temperature != null ? { temperature: rq.temperature } : {}, api: true, signal: AbortSignal.timeout(120e3) })) { if (e.t) t += e.t; if (e.usage) usage = e.usage; } }
-    catch (e) { return set('failed', null, String(e.message || 'model error').slice(0, 300)); }
-    const charge = usage ? await logUsage(env, it.user_id, m, usage, { units: false, wallet: 'api', src: 'batch' }) : 0;
-    const back = Math.round(charge * pct / 100 * 10000) / 10000; if (back > 0) await walletAdd(env, it.user_id, back, 'batch_discount', it.batch_id);
-    await set('completed', JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: t }, finish_reason: 'stop' }], usage: usage ? { prompt_tokens: usage.fresh + usage.read + usage.write, completion_tokens: usage.out } : null }), null, charge - back);
-  };
-  for (let i = 0; i < items.length; i += 4) await Promise.all(items.slice(i, i + 4).map(it => one(it).catch(e => console.log('batch', e.message))));
-  for (const id of touched) await DB.prepare("UPDATE api_batches SET status='completed', finished_at=? WHERE id=? AND status='in_progress' AND NOT EXISTS (SELECT 1 FROM api_batch_items WHERE batch_id=? AND status='queued')").bind(Date.now(), id, id).run();
-  return items.length;
-}

@@ -2,7 +2,6 @@ import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, credits
 import { bundleProject, callModel, chat, compact, ensureFb, logUsage } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal } from './projects.js';
-import { lineLinkCode, lineWebhook } from './linebot.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
 import { agentApi } from './agent.js';
 import { contextApi } from './context.js';
@@ -74,7 +73,6 @@ export default {
     if (path === '/robots.txt' || path === '/api/robots') return robots(req, env);
     if (path === '/sitemap.xml' || path === '/api/sitemap') return secure(await sitemap(req, env));
     if ((r = path.match(/^(?:\/api\/page)?\/blog\/([\w-]+)$/))) return secure(await blogPage(req, env, r[1])); // บทความ: ใส่ meta ให้ Google/social
-    if (path === '/line/webhook' && M === 'POST') return await lineWebhook(req, env, ctx); // LINE OA: คุยกับ AI ผ่าน LINE
     if (path === '/share-in' && M === 'POST') { // แชร์ไฟล์/ข้อความจากแอปอื่นบนมือถือ (manifest share_target) · เก็บชั่วคราวด้วยโทเคนสุ่ม แล้วให้หน้าแชตดึงไปแนบ
       const fd = await req.formData().catch(() => null), q = new URLSearchParams();
       for (const k of ['title', 'text', 'url']) { const v = String(fd?.get(k) || '').slice(0, 5000); if (v) q.set(k, v); }
@@ -397,7 +395,6 @@ export async function route(req, env, ctx, url, path, M) {
         ctx.waitUntil(env.SLIPS.delete(k));
         return new Response(o.body, { headers: { 'content-type': o.httpMetadata?.contentType || 'application/octet-stream', 'x-name': encodeURIComponent(o.customMetadata?.name || 'file'), 'cache-control': 'no-store' } });
       }
-      if (path === '/api/line/link' && M === 'POST') return await lineLinkCode(env, u);
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if ((r = path.match(/^\/api\/pay\/(\d+)\/review$/)) && M === 'POST') { // สลิปถูกปฏิเสธ: ลูกค้าขอให้แอดมินตรวจเอง (ครั้งเดียวต่อรายการ)
         const p = await env.DB.prepare("UPDATE payments SET review=1 WHERE id=? AND user_id=? AND status='rejected' AND review IS NULL RETURNING id,amount").bind(+r[1], u.id).first();

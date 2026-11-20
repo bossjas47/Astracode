@@ -7,6 +7,24 @@ import { slug } from './api.js';
 import { backup, lossModels, status, verifyBackup } from './jobs.js';
 import { ensureAgentTable, launch, workerModel } from './agent.js';
 // ---------- admin ----------
+// รายได้ (ใช้ร่วมกันทุกหน้า): ค่าแพลนที่อนุมัติ (ทุกช่องทาง รวมจ่ายจาก Wallet) + เงินที่หักจาก Wallet เป็นค่าใช้ (API / เกินลิมิต / แพ็ก)
+// เงินเติม Wallet ยังไม่นับเป็นรายได้จนกว่าจะถูกใช้ ไม่งั้นแพลนที่ซื้อด้วย Wallet ถูกนับซ้ำ 2 รอบ · วันตามเวลาไทย
+export const WALLET_SPEND = "('api','overflow','agentpack','wallet')";
+export async function revenueByDay(DB, from, to = 9e15) {
+  const day = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`, at = 'COALESCE(approved_at,created_at)';
+  const [pl, wl, tp] = await Promise.all([
+    DB.prepare(`SELECT ${day(at)} d, SUM(amount) v FROM payments WHERE kind='plan' AND status='approved' AND ${at}>=? AND ${at}<? GROUP BY d`).bind(from, to).all(),
+    DB.prepare(`SELECT ${day('created_at')} d, -SUM(amount) v FROM wallet_tx WHERE kind IN ${WALLET_SPEND} AND created_at>=? AND created_at<? GROUP BY d`).bind(from, to).all(),
+    DB.prepare(`SELECT ${day(at)} d, SUM(amount) v FROM payments WHERE status='approved' AND kind IN ('plan','topup') AND COALESCE(slip_key,'') NOT IN ('wallet','coupon') AND ${at}>=? AND ${at}<? GROUP BY d`).bind(from, to).all(),
+  ]);
+  const m = new Map(), put = (rows, k) => rows.results.forEach(r => { const o = m.get(r.d) || { d: r.d, plan: 0, wallet: 0, cash: 0 }; o[k] += r.v || 0; m.set(r.d, o); });
+  put(pl, 'plan'); put(wl, 'wallet'); put(tp, 'cash');
+  for (const o of m.values()) o.rev = o.plan + o.wallet;
+  return m;
+}
+const sumRev = m => [...m.values()].reduce((a, o) => ({ rev: a.rev + o.rev, plan: a.plan + o.plan, wallet: a.wallet + o.wallet, cash: a.cash + o.cash }), { rev: 0, plan: 0, wallet: 0, cash: 0 });
+// วันเริ่มของช่วง N วันล่าสุด (เที่ยงคืนเวลาไทย) · ใช้เหมือนกันทั้งหน้าภาพรวมและหน้ากำไร ตัวเลขจึงตรงกัน
+export const rangeFrom = (days, now = Date.now()) => (Math.floor((now + BKK) / DAY) - days + 1) * DAY - BKK;
 export const TABLES = {
   plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'agent', 'description', 'sort', 'active'],
   models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'ctx_k', 'req_cap', 'bill', 'req_cost', 'req_price', 'code_prompt', 'sys_prompt', 'public', 'note', 'cats', 'fallback_id', 'vision', 'tools', 'effort', 'effort_levels', 'sort', 'active', 'new_until'],
@@ -15,7 +33,7 @@ export const TABLES = {
 export const SETTINGS = ['promptpay_id', 'slip_provider', 'slip_auto_approve', 'slip2go_url', 'slip2go_receiver_type', 'slip2go_receiver_account', 'slip_api_url', 'slip_amount_field', 'featured_plan', 'price_markup', 'price_note', 'referral_bonus', 'announcement', 'announcement_level', 'maintenance',
   'alert_discord', 'alert_line_to', 'cost_alert_daily', 'alert_hour_cost', 'alert_user_hour', 'agent_pack_enabled', 'agent_pack_price', 'agent_pack_units', 'agent_pack_days', 'mail_from', 'search_enabled', 'search_auto', 'health_check', 'turnstile_site', 'image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_units', 'image_cost',
   'autocomplete_model', 'auto_cheap_model', 'auto_strong_model', 'summary_model', 'business_name', 'business_address', 'business_tax_id', 'topup_min', 'fb_api_key', 'google_client_id', 'google_client_secret',
-  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'batch_discount_pct', 'line_oa_id', 'line_bot_model', 'canned_replies', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'checkslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
+  'model_icons', 'picker_filter', 'picker_mult', 'picker_logos', 'official_prices', 'block_words', 'compact_pct', 'team_budget_pct', 'team_worker_model', 'image_prompt_model', 'block_domains', 'first_topup_pct', 'first_topup_max', 'aff_pct', 'aff_months', 'winback_credit', 'canned_replies', 'promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'easyslip_url', 'checkslip_url', 'easyslip_receiver', 'easyslip_receiver_names', 'bank_name', 'bank_account', 'bank_holder'];
 
 // ---------- รหัสผ่านชั้นที่สองของหน้าแอดมิน (ตั้งครั้งแรกเอง · ปลดล็อกต่อ session 12 ชม.) ----------
 const GATE_MS = 12 * 36e5;
@@ -195,16 +213,17 @@ export async function admin(req, env, path, url, me) {
     const dayOf = col => `CAST((${col}+${BKK})/${DAY} AS INTEGER)`;
     const [use, pays, regs, cur, old, models, top, users, pending] = await Promise.all([
       DB.prepare(`SELECT ${dayOf('created_at')} d, SUM(tokens_in) tin, SUM(tokens_out) tout, SUM(tokens_cache) tc, SUM(cost) cost, COUNT(*) msgs, COUNT(DISTINCT user_id) au FROM usage WHERE created_at>=? GROUP BY d`).bind(from).all(),
-      DB.prepare(`SELECT ${dayOf('created_at')} d, SUM(amount) rev FROM payments WHERE status='approved' AND created_at>=? GROUP BY d`).bind(from).all(),
+      revenueByDay(DB, from),
       DB.prepare(`SELECT ${dayOf('created_at')} d, COUNT(*) n FROM users WHERE created_at>=? GROUP BY d`).bind(from).all(),
-      DB.prepare(`SELECT (SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='approved' AND created_at>=?1) rev, COALESCE(SUM(cost),0) cost, COUNT(*) msgs, COUNT(DISTINCT user_id) au, COALESCE(SUM(tokens_in+tokens_out+tokens_cache),0) tok FROM usage WHERE created_at>=?1`).bind(from).first(),
-      DB.prepare(`SELECT (SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='approved' AND created_at>=?1 AND created_at<?2) rev, COALESCE(SUM(cost),0) cost, COUNT(*) msgs, COUNT(DISTINCT user_id) au, COALESCE(SUM(tokens_in+tokens_out+tokens_cache),0) tok FROM usage WHERE created_at>=?1 AND created_at<?2`).bind(prev, from).first(),
+      DB.prepare(`SELECT COALESCE(SUM(cost),0) cost, COUNT(*) msgs, COUNT(DISTINCT user_id) au, COALESCE(SUM(tokens_in+tokens_out+tokens_cache),0) tok FROM usage WHERE created_at>=?1`).bind(from).first(),
+      DB.prepare(`SELECT COALESCE(SUM(cost),0) cost, COUNT(*) msgs, COUNT(DISTINCT user_id) au, COALESCE(SUM(tokens_in+tokens_out+tokens_cache),0) tok FROM usage WHERE created_at>=?1 AND created_at<?2`).bind(prev, from).first(),
       DB.prepare('SELECT m.id, m.name, COUNT(*) msgs, SUM(u.tokens_in) tin, SUM(u.tokens_out) tout, SUM(u.tokens_cache) tc, SUM(u.cost) cost FROM usage u JOIN models m ON m.id=u.model_id WHERE u.created_at>=? GROUP BY m.id ORDER BY cost DESC').bind(from).all(),
       DB.prepare('SELECT us.id, us.email, p.name plan, COUNT(*) msgs, SUM(u.tokens_in+u.tokens_out+u.tokens_cache) tok, SUM(u.cost) cost FROM usage u JOIN users us ON us.id=u.user_id LEFT JOIN plans p ON p.id=us.plan_id AND us.plan_expires>? WHERE u.created_at>=? GROUP BY us.id ORDER BY cost DESC LIMIT 10').bind(now, from).all(),
       DB.prepare('SELECT COUNT(*) total, COALESCE(SUM(plan_id IS NOT NULL AND plan_expires>?),0) paid FROM users').bind(now).first(),
       DB.prepare("SELECT COUNT(*) n FROM payments WHERE status='pending'").first(),
     ]);
-    const U = new Map(use.results.map(r => [r.d, r])), P = new Map(pays.results.map(r => [r.d, r.rev])), R = new Map(regs.results.map(r => [r.d, r.n]));
+    Object.assign(cur, sumRev(pays)); Object.assign(old, sumRev(await revenueByDay(DB, prev, from)));
+    const U = new Map(use.results.map(r => [r.d, r])), P = new Map([...pays.values()].map(r => [r.d, r.rev])), R = new Map(regs.results.map(r => [r.d, r.n]));
     const daily = Array.from({ length: days }, (_, i) => {
       const d = today - days + 1 + i, u = U.get(d) || {};
       return { day: d * DAY, tin: u.tin || 0, tout: u.tout || 0, tc: u.tc || 0, cost: u.cost || 0, msgs: u.msgs || 0, au: u.au || 0, rev: P.get(d) || 0, reg: R.get(d) || 0 };
@@ -245,15 +264,25 @@ export async function admin(req, env, path, url, me) {
       .bind(code, b.kind, +b.value, +b.max_uses || 0, b.expires ? +b.expires : null, String(b.note || '').slice(0, 200), b.active === 0 ? 0 : 1, Date.now()).run();
     return json({ ok: true });
   }
-  if (path === '/api/admin/apistats') { // API นักพัฒนา 7 วัน: ต่อโมเดล, key ที่ใช้มากสุด, error ล่าสุด (จาก api_log)
-    const from = Date.now() - 7 * DAY;
-    const [models, keys, errors, days] = await Promise.all([
-      DB.prepare('SELECT COALESCE(model,\'-\') model, COUNT(*) n, SUM(status>=400) errors, ROUND(AVG(ms)) ms, COALESCE(SUM(tin),0) tin, COALESCE(SUM(tout),0) tout, ROUND(COALESCE(SUM(charge),0),2) charge FROM api_log WHERE created_at>=? GROUP BY model ORDER BY n DESC LIMIT 30').bind(from).all(),
+  if (path === '/api/admin/apistats') { // API นักพัฒนา: ยอดขายเทียบต้นทุนรายผู้ใช้, ต่อโมเดล, key ที่ใช้มากสุด, error ล่าสุด (api_log เก็บ 30 วัน)
+    const nd = [7, 30].includes(+url.searchParams.get('days')) ? +url.searchParams.get('days') : 7, from = rangeFrom(nd);
+    // คำขอที่ถูกปฏิเสธก่อนเลือกโมเดล (Wallet ไม่พอ, ติดลิมิต, endpoint ผิด) ไม่มีโมเดลและไม่ถูกหักเงิน: ไม่แสดงในตารางต่อโมเดล แต่ยังเห็นในข้อผิดพลาดล่าสุด
+    const [models, keys, errors, days, sales] = await Promise.all([
+      DB.prepare('SELECT model, COUNT(*) n, SUM(status>=400) errors, ROUND(AVG(ms)) ms, COALESCE(SUM(tin),0) tin, COALESCE(SUM(tout),0) tout, ROUND(COALESCE(SUM(charge),0),2) charge FROM api_log WHERE created_at>=? AND model IS NOT NULL GROUP BY model ORDER BY n DESC LIMIT 30').bind(from).all(),
       DB.prepare('SELECT k.name, k.prefix, u.email, COUNT(*) n, SUM(l.status>=400) errors, ROUND(COALESCE(SUM(l.charge),0),2) charge FROM api_log l JOIN api_keys k ON k.id=l.key_id JOIN users u ON u.id=l.user_id WHERE l.created_at>=? GROUP BY l.key_id ORDER BY charge DESC, n DESC LIMIT 20').bind(from).all(),
       DB.prepare('SELECT l.path, l.model, l.status, l.err, l.created_at, u.email FROM api_log l JOIN users u ON u.id=l.user_id WHERE l.status>=400 AND l.created_at>=? ORDER BY l.id DESC LIMIT 30').bind(from).all(),
-      DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, SUM(status>=400) errors FROM api_log WHERE created_at>=? GROUP BY d ORDER BY d").bind(from).all(),
+      DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, SUM(status>=400) errors, SUM(status<400) ok, ROUND(COALESCE(SUM(charge),0),2) charge FROM api_log WHERE created_at>=? GROUP BY d ORDER BY d").bind(from).all(),
+      // ยอดขาย API ต่อผู้ใช้จากตาราง usage (src='api'): ส่วนที่หัก Wallet = ขายได้จริง · ส่วนที่ใช้ในลิมิตแพลน = รายได้อยู่ในค่าแพลนแล้ว
+      DB.prepare(`SELECT g.user_id id, u.email, pl.name plan, COUNT(*) n,
+        COALESCE(SUM(CASE WHEN g.units=0 THEN g.charge END),0) sold, COALESCE(SUM(CASE WHEN g.units=0 THEN g.cost END),0) cost_wallet,
+        COALESCE(SUM(CASE WHEN g.units>0 THEN g.cost END),0) cost_plan, SUM(g.units>0) n_plan,
+        COALESCE((SELECT SUM(amount) FROM payments p WHERE p.user_id=g.user_id AND p.kind='plan' AND p.status='approved' AND COALESCE(p.approved_at,p.created_at)>=?1),0) plan_paid
+        FROM usage g JOIN users u ON u.id=g.user_id LEFT JOIN plans pl ON pl.id=u.plan_id AND u.plan_expires>?2
+        WHERE g.src='api' AND g.created_at>=?1 GROUP BY g.user_id ORDER BY sold+cost_plan DESC LIMIT 100`).bind(from, Date.now()).all(),
     ]);
-    return json({ models: models.results, keys: keys.results, errors: errors.results, days: days.results });
+    const S = sales.results.map(x => ({ ...x, profit: x.sold - x.cost_wallet }));
+    const total = S.reduce((a, x) => ({ n: a.n + x.n, sold: a.sold + x.sold, cost_wallet: a.cost_wallet + x.cost_wallet, cost_plan: a.cost_plan + x.cost_plan }), { n: 0, sold: 0, cost_wallet: 0, cost_plan: 0 });
+    return json({ nd, models: models.results, keys: keys.results, errors: errors.results, days: days.results, sales: S, total });
   }
   if (path === '/api/admin/quality') { // คะแนน 👍/👎 ต่อโมเดล (30 วัน) + รายงานคำตอบ
     await ensureFb(env);
@@ -327,7 +356,7 @@ export async function admin(req, env, path, url, me) {
   }
   if (path === '/api/admin/profit') { // กำไรแยกตามแพลนและผู้ใช้
     // shortcut: ต้นทุนนับตามแพลน "ปัจจุบัน" ของผู้ใช้ ถ้าผู้ใช้เปลี่ยนแพลนกลางช่วง ตัวเลขรายแพลนจะคลาดเล็กน้อย
-    const days = Math.min(365, Math.max(1, +url.searchParams.get('days') || 30)), from = Date.now() - days * DAY, now = Date.now();
+    const now = Date.now(), days = Math.min(365, Math.max(1, +url.searchParams.get('days') || 30)), from = rangeFrom(days, now);
     const free = (await DB.prepare('SELECT id FROM plans WHERE price=0 ORDER BY sort LIMIT 1').first())?.id ?? 0;
     const [plans, users, w] = await Promise.all([
       DB.prepare(`SELECT p.id,p.name,p.price,
@@ -347,17 +376,16 @@ export async function admin(req, env, path, url, me) {
         COALESCE((SELECT SUM(balance) FROM users WHERE balance>0),0) liability`).bind(from).first(),
     ]);
     const us = users.results.map(x => ({ ...x, rev: x.rev_plan + x.rev_wallet, profit: x.rev_plan + x.rev_wallet - x.cost })).sort((a, b) => a.profit - b.profit);
-    const rev = plans.results.reduce((a, x) => a + x.rev, 0) + w.charges, cost = us.reduce((a, x) => a + x.cost, 0);
+    const revDays = await revenueByDay(DB, from), R = sumRev(revDays), rev = R.rev;
     const dayOf = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`;
-    const [pm, pd, pr, pw] = await Promise.all([ // ต้นทุนจริงต่อโมเดล · ต้นทุน/รายได้รายวัน (เวลาไทย)
+    const [pm, pd] = await Promise.all([ // ต้นทุนจริงต่อโมเดล · ต้นทุนรายวัน (เวลาไทย)
       DB.prepare('SELECT g.model_id id, md.name, COUNT(*) n, COALESCE(SUM(g.cost),0) cost, COALESCE(SUM(g.tokens_in),0) tin, COALESCE(SUM(g.tokens_out),0) tout, COALESCE(SUM(g.tokens_cache),0) tcache FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? AND g.model_id>0 GROUP BY g.model_id ORDER BY cost DESC').bind(from).all(),
       DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(SUM(cost),0) cost FROM usage WHERE created_at>=? GROUP BY d`).bind(from).all(),
-      DB.prepare(`SELECT ${dayOf('COALESCE(approved_at,created_at)')} d, COALESCE(SUM(amount),0) rev FROM payments WHERE kind='plan' AND status='approved' AND COALESCE(approved_at,created_at)>=? GROUP BY d`).bind(from).all(),
-      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(-SUM(amount),0) rev FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND created_at>=? GROUP BY d`).bind(from).all(),
     ]);
-    const dayMap = new Map(); const put = (rows, k) => rows.results.forEach(r => { const o = dayMap.get(r.d) || { d: r.d, cost: 0, rev: 0 }; o[k] += r[k]; dayMap.set(r.d, o); }); put(pd, 'cost'); put(pr, 'rev'); put(pw, 'rev');
+    const cost = pd.results.reduce((a, r) => a + r.cost, 0); // ต้นทุนรวมเท่ากับหน้าภาพรวม (ทุกแถวใน usage ช่วงเดียวกัน)
+    const dayMap = new Map([...revDays.values()].map(o => [o.d, { d: o.d, cost: 0, rev: o.rev }])); pd.results.forEach(r => { const o = dayMap.get(r.d) || { d: r.d, cost: 0, rev: 0 }; o.cost += r.cost; dayMap.set(r.d, o); });
     const daily = [...dayMap.values()].sort((a, b) => b.d - a.d).slice(0, 60).map(x => ({ ...x, date: new Date(x.d * DAY).toISOString().slice(0, 10), profit: x.rev - x.cost }));
-    return json({ days, total: { rev, cost, profit: rev - cost }, plans: plans.results, wallet: w, users: us.slice(0, 100), losers: us.filter(x => x.profit < 0).length, models: pm.results, daily, forecast: await profitForecast(env, now) });
+    return json({ days, total: { rev, cost, profit: rev - cost, plan: R.plan, wallet: R.wallet, cash: R.cash }, plans: plans.results, wallet: w, users: us.slice(0, 100), losers: us.filter(x => x.profit < 0).length, models: pm.results, daily, forecast: await profitForecast(env, now) });
   }
   if (path === '/api/admin/export') { // CSV สำหรับทำบัญชี (เปิดใน Excel ภาษาไทยได้)
     const type = url.searchParams.get('type'), days = Math.min(3650, Math.max(1, +url.searchParams.get('days') || 31)), from = Date.now() - days * DAY;

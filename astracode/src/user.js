@@ -480,28 +480,6 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if ((await DB.prepare('SELECT COUNT(*) n FROM skills WHERE user_id=?').bind(u.id).first()).n >= 30) return err('สร้าง Skill ส่วนตัวได้สูงสุด 30 อัน');
     return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at,model_id) VALUES (?,?,?,?,1,?,?) RETURNING id,name,model_id').bind(u.id, s.name, s.description, s.content, Date.now(), s.model_id ?? null).first());
   }
-  if (path === '/api/docs') { // คลังความรู้: เอกสารข้อความที่เก็บถาวร ถามได้จากทุกแชต (สูงสุด 20 ไฟล์ ไฟล์ละ 400,000 ตัวอักษร)
-    if (M === 'GET') return json((await DB.prepare('SELECT id,name,LENGTH(content) size,created_at FROM user_docs WHERE user_id=? ORDER BY id DESC').bind(u.id).all()).results);
-    if (M === 'POST') {
-      const b = await req.json(), name = String(b.name || '').trim().slice(0, 120), content = String(b.content || '');
-      if (!name || content.trim().length < 20) return err('เอกสารว่างหรือสั้นเกินไป');
-      if (content.length > 400000) return err('เอกสารยาวเกิน 400,000 ตัวอักษร');
-      if ((await DB.prepare('SELECT COUNT(*) n FROM user_docs WHERE user_id=?').bind(u.id).first()).n >= 20) return err('คลังความรู้เก็บได้สูงสุด 20 เอกสาร ลบของเก่าก่อน');
-      return json(await DB.prepare('INSERT INTO user_docs (user_id,name,content,created_at) VALUES (?,?,?,?) RETURNING id,name').bind(u.id, name, content, Date.now()).first());
-    }
-  }
-  if ((r = path.match(/^\/api\/docs\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('DELETE FROM user_docs WHERE id=? AND user_id=?').bind(+r[1], u.id).run(); return json({ ok: true }); }
-  if (path === '/api/tasks') { // งานตั้งเวลา: ทุกวันตอนชั่วโมงที่เลือก (เวลาไทย) AI ทำตามคำสั่งแล้วส่งผลทางอีเมล + เก็บเป็นแชต
-    if (M === 'GET') return json((await DB.prepare('SELECT id,prompt,hour,search,last_day FROM tasks WHERE user_id=? ORDER BY id').bind(u.id).all()).results);
-    if (M === 'POST') {
-      if (!((await planOf(env, u))?.price > 0)) return err('งานตั้งเวลาใช้ได้กับแพลนที่ชำระเงิน', 403);
-      const b = await req.json(), prompt = String(b.prompt || '').trim().slice(0, 1000), hour = Math.floor(+b.hour);
-      if (prompt.length < 5 || !(hour >= 0 && hour <= 23)) return err('ใส่คำสั่งและเลือกเวลา 0–23 น.');
-      if ((await DB.prepare('SELECT COUNT(*) n FROM tasks WHERE user_id=?').bind(u.id).first()).n >= 3) return err('ตั้งงานได้สูงสุด 3 งาน');
-      return json(await DB.prepare('INSERT INTO tasks (user_id,prompt,hour,search,created_at,last_day) VALUES (?,?,?,?,?,?) RETURNING id').bind(u.id, prompt, hour, b.search === false ? 0 : 1, Date.now(), hour < new Date(Date.now() + BKK).getUTCHours() ? Math.floor((Date.now() + BKK) / DAY) : null).first()); // ชั่วโมงที่ตั้งผ่านไปแล้ววันนี้ = เริ่มพรุ่งนี้ (cron ตามงานที่ค้างทัน จึงต้องกันไม่ให้รันทันที)
-    }
-  }
-  if ((r = path.match(/^\/api\/tasks\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('DELETE FROM tasks WHERE id=? AND user_id=?').bind(+r[1], u.id).run(); return json({ ok: true }); }
   if ((r = path.match(/^\/api\/skills\/(\d+)$/))) {
     const sid = +r[1];
     if (M === 'DELETE') { await DB.prepare('DELETE FROM skills WHERE id=? AND user_id=?').bind(sid, u.id).run(); return json({ ok: true }); }

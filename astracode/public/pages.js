@@ -72,9 +72,6 @@ PAGES.developers = async () => {
         ${pre(['claude code', `export ANTHROPIC_BASE_URL=${location.origin}\nexport ANTHROPIC_AUTH_TOKEN=sk-astra-...\nexport ANTHROPIC_MODEL=${first}`])}
         ${pre(['python', `import anthropic\nc = anthropic.Anthropic(base_url="${location.origin}", api_key="sk-astra-...")\nm = c.messages.create(model="${first}", max_tokens=512, messages=[{"role": "user", "content": "สวัสดี"}])\nprint(m.content[0].text)`])}
       </div>
-      <div class="band" id="batch"><h2>Batch API (ถูกกว่า 20%)</h2><p class="muted">ส่งงานทีละมาก (สูงสุด 500 คำขอ) ระบบทยอยประมวลผลและเสร็จภายใน 24 ชั่วโมง คิดเงินจาก Wallet แล้วคืนส่วนลดให้อัตโนมัติ เหมาะกับงานแปล/สรุป/จัดหมวดข้อมูลจำนวนมากที่ไม่ต้องได้คำตอบทันที</p>
-        ${pre(['curl', `curl ${base}/batches \\\n  -H "Authorization: Bearer $ASTRA_KEY" -H "Content-Type: application/json" \\\n  -d '{"requests":[{"custom_id":"1","body":{"model":"${first}","messages":[{"role":"user","content":"สรุปข่าวนี้..."}]}}]}'\n\n# ดูสถานะและผลลัพธ์\ncurl ${base}/batches/batch_xxx -H "Authorization: Bearer $ASTRA_KEY"\n# ยกเลิกงานที่ยังไม่เริ่ม\ncurl -X POST ${base}/batches/batch_xxx/cancel -H "Authorization: Bearer $ASTRA_KEY"`])}
-      </div>
       <div class="band" id="agents"><h2>ใช้กับ Agent บนคอมพิวเตอร์</h2><p class="muted">ให้ AI แก้โค้ดในเครื่อง รันคำสั่ง และคุมโปรแกรมอื่นผ่าน MCP โดยใช้โมเดลและ Wallet ของ AstraCode · แนะนำให้สร้าง key แยกและตั้งงบรายเดือนของ key ไว้ เพราะ Agent ใช้ token มาก</p>
         <p><b>Cline / Roo Code / Kilo Code (VS Code)</b>: Settings → API Provider = <code>OpenAI Compatible</code> · Base URL = <code>${base}</code> · API Key = <code>sk-astra-...</code> · Model ID = <code>${first}</code></p>
         ${pre(['codex ~/.codex/config.toml', `model = "${first}"\nmodel_provider = "astra"\n\n[model_providers.astra]\nname = "AstraCode"\nbase_url = "${base}"\nexperimental_bearer_token = "sk-astra-..."\nwire_api = "responses"`])}
