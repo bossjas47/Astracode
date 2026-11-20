@@ -1608,3 +1608,24 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .mem-saved button { border: 0; background: none; color: var(--link); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 4px 6px; min-height: 32px; }
 .set-toggle { cursor: pointer; }
 .set-toggle input { grid-row: 1 / 3; grid-column: 2; align-self: center; width: 22px; height: 22px; min-height: 0; margin: 0; accent-color: var(--blue); }
+/* หน้าต่างแบบเลื่อนขึ้น: พื้นทึบ อ่านง่าย (เดิมโปร่งจนเห็นตัวหนังสือด้านหลังซ้อน) */
+:root .sheet, :root[data-lite] .sheet { background: var(--carbon); -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* ลิมิตการใช้งาน */
+.ls { display: flex; flex-direction: column; gap: 10px; }
+.ls-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.ls-plan { font: 600 13px var(--font); padding: 4px 12px; border-radius: 9999px; background: rgba(217, 119, 87, .14); color: var(--link); }
+.ls-card { padding: 14px 16px; border: 1px solid var(--hair); border-radius: 16px; background: rgba(var(--ov), .03); display: flex; flex-direction: column; gap: 8px; }
+.ls-row { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; }
+.ls-row b { font: 600 24px var(--font); letter-spacing: -.01em; }
+.ls-bar { height: 8px; border-radius: 9999px; background: rgba(var(--ov), .1); overflow: hidden; }
+.ls-bar i { display: block; height: 100%; border-radius: 9999px; background: var(--blue); transition: width .4s ease; }
+.ls-card.hi .ls-bar i { background: var(--yellow, #d9a400); }
+.ls-card.full .ls-bar i { background: var(--red, #e5484d); }
+.ls-card.full .ls-row b { color: var(--red, #e5484d); }
+.ls-card small { font-size: 12.5px; color: var(--ash); }
+.ls-note { font-size: 12.5px; margin: 0; }
+.ls-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.ls-acts .btn { width: 100%; justify-content: center; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .ls-bar i { transition: none; } }
+.sheet .btn.out { background-image: none; background-color: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; border: 1px solid var(--hair); }
+.sheet .btn.out:hover { background-color: rgba(var(--ov), .06); }

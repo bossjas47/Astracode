@@ -1058,9 +1058,15 @@ function limitSheet() {
   const reset = list.length ? `<div class="rst"><div class="rst-h"><b>ปุ่มรีเซ็ตลิมิต</b></div>
     <p class="muted" style="font-size:13px;margin:6px 0 10px">แอดมินแจกสิทธิ์รีเซ็ตให้ กดปุ่มด้านล่างเพื่อใช้ (1 สิทธิ์ต่อครั้ง)</p>
     ${list.map(x => `<button class="btn blue rst-b" data-k="${esc(x.k)}"><span>รีเซ็ต: ${esc(x.label)}${x.exp ? `<small class="rst-e">หมดอายุ ${when(x.exp)}</small>` : ''}</span><span class="pill">เหลือ ${x.n}</span></button>`).join('')}<div class="err" id="rse"></div></div>` : '';
-  sheet('ลิมิตการใช้งาน', `<p class="muted" style="margin:0 0 12px">แพลน ${esc(me.plan.name)}</p><div class="meters big">${meters(u)}</div>
-    <p class="muted" style="font-size:13px">${u.use4h === false ? '' : `ลิมิต 4 ชม. รีเซ็ต ${u.reset4h ? when(u.reset4h) : 'เมื่อเริ่มใช้'} · `}ลิมิตสัปดาห์รีเซ็ต ${when(u.resetWeek)}</p>${reset}
-    <div id="rsh"></div><a class="btn ${list.length ? 'out' : 'blue'}" href="/plans" style="width:100%;margin-top:10px">Upgrade plan</a>`, (d, close) => {
+  // การ์ดต่อรอบ: % ตัวใหญ่ + แถบสีตามระดับ (ปกติ / ใกล้เต็ม / เต็ม) + เวลาที่เหลือก่อนรีเซ็ต
+  const left = t => { if (!t) return 'เริ่มนับเมื่อส่งข้อความแรก'; const ms = t - Date.now(); if (ms <= 0) return 'รีเซ็ตแล้ว'; const h = ms / 3600e3; return `รีเซ็ตใน ${h < 1 ? Math.max(1, Math.round(ms / 60e3)) + ' นาที' : h < 48 ? Math.round(h) + ' ชม.' : Math.round(h / 24) + ' วัน'} · ${when(t)}`; };
+  const card = (label, p, t) => { const v = Math.min(100, Math.max(0, +p || 0)), lv = v >= 100 ? 'full' : v >= 80 ? 'hi' : ''; return `<div class="ls-card ${lv}"><div class="ls-row"><span>${label}</span><b>${v < 10 && v > 0 ? v.toFixed(1) : Math.round(v)}%</b></div><div class="ls-bar" role="progressbar" aria-label="${label}" aria-valuenow="${Math.round(v)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.max(v, v > 0 ? 2 : 0)}%"></i></div><small>${v >= 100 ? 'เต็มแล้ว · ' : ''}${left(t)}</small></div>`; };
+  sheet('ลิมิตการใช้งาน', `<div class="ls">
+    <div class="ls-head"><span class="ls-plan">${esc(me.plan.name)}</span><span class="muted">Wallet ฿${baht(me.balance)}${me.wallet_overflow ? ' · ใช้ต่อเมื่อลิมิตเต็ม' : ''}</span></div>
+    ${u.use4h === false ? '' : card('รอบ 4 ชั่วโมง', u.pct4h, u.reset4h)}${card('สัปดาห์นี้', u.pctWeek, u.resetWeek)}
+    <p class="muted ls-note">ลิมิตคิดตามต้นทุนจริงของแต่ละข้อความ โมเดลที่เก่งกว่าใช้ลิมิตเร็วกว่า</p>${reset}
+    <div id="rsh"></div>
+    <div class="ls-acts"><a class="btn out" href="/plans?topup=1">${ic('wallet', 'sm')} เติมเงิน</a><a class="btn ${list.length ? 'out' : 'blue'}" href="/plans">${ic('layers', 'sm')} อัปเกรดแพลน</a></div></div>`, (d, close) => {
       api('/limits/history').then(h => { if (h.length) d.querySelector('#rsh').innerHTML = `<details class="rst-h2"><summary>ประวัติรีเซ็ตลิมิต</summary>${h.map(r => `<div class="rst-row"><span>${r.kind === 'grant' ? 'ได้รับสิทธิ์ ' + esc(r.scope || '') + ' ×' + (r.n || 1) : r.kind === 'use' ? 'ใช้สิทธิ์ ' + esc(r.scope || '') : 'แอดมินรีเซ็ตให้'}</span><small>${when(r.created_at)}</small></div>`).join('')}</details>`; }).catch(() => {});
       d.querySelectorAll('.rst-b').forEach(btn => btn.onclick = async () => {
         const x = list.find(y => y.k === btn.dataset.k);
