@@ -613,3 +613,15 @@ test('admin profit forecast: plan subscribers get a projected cost to the end of
   assert.equal(f.people[0].email, u.email, 'riskiest first');
   assert.ok(f.so_far.cost > 0 && f.rate.cost_day >= 0 && typeof f.proj.profit === 'number');
 });
+
+test('context sheet: real context from the provider matches the chat header; input, cache write, cache read, output and the cache hit rate per chat', async () => {
+  const fm = await fakeModel((q, res) => fm.sse(res, 'ตอบแล้ว', { prompt_tokens: 1000, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 600, cache_write_tokens: 300 } }));
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Cx', base_url: fm.url }), plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 100 }), u = await t.user(); give(t.DB, u, plan);
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'ทดสอบ' } }));
+  const done = ev.find(e => e.done); assert.deepEqual([done.ctx.used, done.ctx.real], [1050, true], 'header gets the real context: input 1000 + output 50');
+  const cid = t.DB.raw.prepare('SELECT id FROM chats WHERE user_id=?').get(u.id).id;
+  const r = (await t.json(`/api/context?chat_id=${cid}&model_id=${m.id}`, { cookie: u.cookie })).data;
+  assert.equal(r.used, done.ctx.used, 'sheet headline = header'); assert.equal(r.real, true);
+  assert.deepEqual([r.tokens.fresh, r.tokens.cw, r.tokens.cr, r.tokens.out, r.tokens.hit], [100, 300, 600, 50, 60]);
+  fm.close();
+});

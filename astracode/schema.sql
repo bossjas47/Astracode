@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS messages (
   , sources TEXT                            -- แหล่งข้อมูลจากการค้นเว็บ (JSON)
   , tin INTEGER, tout INTEGER               -- token ที่ใช้ตอบข้อความนี้
   , starred INTEGER                         -- บุ๊กมาร์ก
+  , tcr INTEGER, tcw INTEGER                -- token ขาเข้าที่อ่านจาก cache / เขียนลง cache (รวมอยู่ใน tin)
+  , tctx INTEGER                            -- context จริงของรอบสุดท้าย: input + output ตามผู้ให้บริการ
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 
@@ -362,6 +364,8 @@ CREATE TABLE IF NOT EXISTS messages (
   , sources TEXT                            -- แหล่งข้อมูลจากการค้นเว็บ (JSON)
   , tin INTEGER, tout INTEGER               -- token ที่ใช้ตอบข้อความนี้
   , starred INTEGER                         -- บุ๊กมาร์ก
+  , tcr INTEGER, tcw INTEGER                -- token ขาเข้าที่อ่านจาก cache / เขียนลง cache (รวมอยู่ใน tin)
+  , tctx INTEGER                            -- context จริงของรอบสุดท้าย: input + output ตามผู้ให้บริการ
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 

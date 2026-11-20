@@ -53,6 +53,12 @@ export async function contextApi(req, env, u) {
   // เทียบทุกโมเดลในแพลน: ถ้าคุยต่อด้วยโมเดลนั้น context จะเต็มกี่ % · และแต่ละโมเดลที่ตอบในแชตนี้ใช้ token ไปเท่าไร (ตัวเลขจริงจากผู้ให้บริการ)
   const plan = await planOf(env, u), ids = (await allowedModels(env, plan?.id)).filter(m => !['image', 'embedding'].includes(m.provider)).map(m => m.id);
   const models = ids.length ? (await env.DB.prepare(`SELECT id,name,ctx_k FROM models WHERE id IN (${ids.map(() => '?')}) ORDER BY sort,id`).bind(...ids).all()).results.map(m => { const max = ctxMax(m); return { id: m.id, name: m.name, max, pct: Math.round(rep.used / max * 1000) / 10 }; }) : [];
-  const byModel = cid ? (await env.DB.prepare("SELECT COALESCE(m.name,'โมเดลที่ถูกลบ') name, COUNT(*) replies, COALESCE(SUM(x.tin),0) tin, COALESCE(SUM(x.tout),0) tout, COALESCE(MAX(x.tin),0) peak FROM messages x LEFT JOIN models m ON m.id=x.model_id WHERE x.chat_id=? AND x.role='assistant' GROUP BY x.model_id ORDER BY replies DESC").bind(cid).all()).results : [];
-  return json({ ...rep, model: model?.name || null, model_id: model?.id || null, compacted: !!c?.summary_upto, models, byModel });
+  // ตัวเลขจริงจากผู้ให้บริการต่อโมเดล: ขาเข้าใหม่ / เขียน cache / อ่าน cache / ขาออก · tin รวม cache แล้ว
+  const byModel = cid ? (await env.DB.prepare("SELECT COALESCE(m.name,'โมเดลที่ถูกลบ') name, COUNT(*) replies, COALESCE(SUM(x.tin),0) tin, COALESCE(SUM(x.tout),0) tout, COALESCE(SUM(x.tcr),0) cr, COALESCE(SUM(x.tcw),0) cw, SUM(x.tcr IS NOT NULL) known, COALESCE(MAX(x.tin),0) peak FROM messages x LEFT JOIN models m ON m.id=x.model_id WHERE x.chat_id=? AND x.role='assistant' GROUP BY x.model_id ORDER BY replies DESC").bind(cid).all()).results.map(m => ({ ...m, fresh: Math.max(0, m.tin - m.cr - m.cw) })) : [];
+  const tokens = byModel.reduce((a, m) => ({ fresh: a.fresh + m.fresh, cw: a.cw + m.cw, cr: a.cr + m.cr, out: a.out + m.tout, replies: a.replies + m.replies, known: a.known + m.known }), { fresh: 0, cw: 0, cr: 0, out: 0, replies: 0, known: 0 });
+  tokens.hit = tokens.fresh + tokens.cw + tokens.cr ? Math.round(tokens.cr / (tokens.fresh + tokens.cw + tokens.cr) * 1000) / 10 : null; // อัตราติด cache = อ่านจาก cache ÷ ขาเข้าทั้งหมด
+  // context จริงล่าสุด (input + output ของรอบสุดท้ายตามผู้ให้บริการ) ใช้เป็นตัวเลขหลัก ให้ตรงกับหัวแชต · ส่วนแยกเป็นการประมาณ
+  const real = cid ? (await env.DB.prepare("SELECT tctx FROM messages WHERE chat_id=? AND role='assistant' AND id>? ORDER BY id DESC LIMIT 1").bind(cid, c?.summary_upto || 0).first())?.tctx || 0 : 0; // หลังย่อแชต ใช้แค่คำตอบที่มาหลังย่อ
+  if (real > 0) Object.assign(rep, { est: rep.used, used: real, real: true, pct: Math.round(real / rep.max * 1000) / 10, free: Math.max(0, rep.max - real - rep.reserve) });
+  return json({ ...rep, tokens, model: model?.name || null, model_id: model?.id || null, compacted: !!c?.summary_upto, models, byModel });
 }
