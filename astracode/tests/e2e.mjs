@@ -44,7 +44,7 @@ for (const [url, admin, loggedIn] of PAGES) {
 // ---------- เส้นทางหลัก: กดใช้งานจริงกับ API จำลอง แล้วตรวจว่าส่งคำขอถูกและหน้าแสดงผลถูก ----------
 async function open(url, extra = {}) {
   const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], calls = [], api = { ...API(0, 1), ...extra };
-  page.on('pageerror', e => errs.push(e.message));
+  page.on('pageerror', e => { if (!/Transition was aborted/.test(e.message)) errs.push(e.message); }); // เบราว์เซอร์ยกเลิกเอฟเฟกต์เปลี่ยนหน้าเมื่อไปหน้าถัดไประหว่างเล่น: ไม่ใช่ error ของเว็บ
   await page.addInitScript(() => { try { localStorage.setItem('onb', '1'); localStorage.setItem('whatsnew:2026-11', '1'); } catch {} });
   if (extra.init) await page.addInitScript(extra.init); // เช่น จำลองแอป Desktop (window.astraDesktop)
   await page.route('**/*', r => {
