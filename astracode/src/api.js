@@ -331,6 +331,7 @@ const cached = async (key, ms, load) => { const h = memo.get(key); if (h && h.ex
 const modelsCached = env => cached('models', 30e3, async () => (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results);
 const planModelsCached = (env, pid) => cached('pm:' + pid, 30e3, async () => new Set((await env.DB.prepare('SELECT model_id FROM plan_models WHERE plan_id=?').bind(pid).all()).results.map(x => x.model_id)));
 export async function v1(req, env, ctx, path) {
+  if (path.length > 4 && path.endsWith("/")) path = path.replace(/\/+$/, ""); // /v1/credits/ = /v1/credits (บางโปรแกรมเติม / ท้าย)
   const lg = { t0: Date.now(), path };
   const res = path.startsWith('/v1/messages') ? await anthropicApi(req, env, ctx, path, lg) : path === '/v1/responses' ? await responsesApi(req, env, ctx, lg) : await v1core(req, env, ctx, path, lg);
   if (lg.kid && !lg.logged && res.status >= 400) ctx.waitUntil(apiLog(env, lg, res.status));

@@ -292,7 +292,9 @@ export async function admin(req, env, path, url, me) {
     const reports = (await DB.prepare("SELECT r.id,r.message_id,r.reason,r.snippet,r.status,r.created_at,u.email,md.name model FROM reports r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN models md ON md.id=r.model_id ORDER BY (r.status='open') DESC, r.id DESC LIMIT 100").all()).results;
     // อัตรา cache hit ต่อโมเดล 7 วัน: token ที่อ่านจาก cache ÷ token ขาเข้าทั้งหมด (ดูว่า prefix คงที่ได้ผลไหม)
     const cache = (await DB.prepare('SELECT g.model_id, md.name, COUNT(*) n, SUM(g.tokens_in) fresh, SUM(g.tokens_cache) cached FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? GROUP BY g.model_id ORDER BY (fresh+cached) DESC').bind(Date.now() - 7 * DAY).all()).results;
-    return json({ votes, reports, cache });
+    // AI ตรวจงานตัวเองในโหมด Code (7 วัน): กี่ครั้งที่เจอปัญหา และหลังให้แก้แล้วผ่านกี่ครั้ง ต่อโมเดล
+    const selfcheck = (await DB.prepare("SELECT e.model_id, md.name, SUM(e.kind='selfcheck' AND json_extract(e.detail,'$.n')=1) found, SUM(e.kind='selfcheck_ok') fixed, SUM(e.kind='selfcheck') rounds FROM events e LEFT JOIN models md ON md.id=e.model_id WHERE e.kind IN ('selfcheck','selfcheck_ok') AND e.created_at>=? GROUP BY e.model_id ORDER BY found DESC").bind(Date.now() - 7 * DAY).all().catch(() => ({ results: [] }))).results;
+    return json({ votes, reports, cache, selfcheck });
   }
   if ((r = path.match(/^\/api\/admin\/reports\/(\d+)$/)) && M === 'PUT') { await ensureFb(env); await DB.prepare('UPDATE reports SET status=? WHERE id=?').bind((await req.json()).status === 'open' ? 'open' : 'done', r[1]).run(); return json({ ok: true }); }
   if (path === '/api/admin/tickets') return json((await DB.prepare("SELECT t.*,u.email,(SELECT COUNT(*) FROM ticket_msgs WHERE ticket_id=t.id) n FROM tickets t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, t.updated_at DESC LIMIT 200").all()).results);

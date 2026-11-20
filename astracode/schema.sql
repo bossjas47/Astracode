@@ -222,9 +222,6 @@ CREATE TABLE IF NOT EXISTS project_files (
 
 -- ระบบเพิ่มเติม (เหมือน migrate-6.sql)
 CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT, use_plan INTEGER NOT NULL DEFAULT 1, ip_allow TEXT, expires_at INTEGER);
-CREATE TABLE IF NOT EXISTS user_docs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL); -- คลังความรู้: เอกสารที่ถามได้จากทุกแชต
-CREATE INDEX IF NOT EXISTS user_docs_user ON user_docs(user_id);
-CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, prompt TEXT NOT NULL, hour INTEGER NOT NULL, search INTEGER NOT NULL DEFAULT 1, last_day INTEGER, created_at INTEGER NOT NULL); -- งานตั้งเวลา: รันทุกวันตอน hour (เวลาไทย) แล้วส่งอีเมล
 CREATE TABLE IF NOT EXISTS gift_codes (code TEXT PRIMARY KEY, amount REAL NOT NULL, from_user INTEGER NOT NULL, created_at INTEGER NOT NULL, used_by INTEGER, used_at INTEGER); -- โค้ดของขวัญ: โอนเงิน Wallet ให้คนอื่น
 CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id);
@@ -467,9 +464,6 @@ CREATE TABLE IF NOT EXISTS project_files (
 
 -- ระบบเพิ่มเติม (เหมือน migrate-6.sql)
 CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT, use_plan INTEGER NOT NULL DEFAULT 1, ip_allow TEXT, expires_at INTEGER);
-CREATE TABLE IF NOT EXISTS user_docs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL); -- คลังความรู้: เอกสารที่ถามได้จากทุกแชต
-CREATE INDEX IF NOT EXISTS user_docs_user ON user_docs(user_id);
-CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, prompt TEXT NOT NULL, hour INTEGER NOT NULL, search INTEGER NOT NULL DEFAULT 1, last_day INTEGER, created_at INTEGER NOT NULL); -- งานตั้งเวลา: รันทุกวันตอน hour (เวลาไทย) แล้วส่งอีเมล
 CREATE TABLE IF NOT EXISTS gift_codes (code TEXT PRIMARY KEY, amount REAL NOT NULL, from_user INTEGER NOT NULL, created_at INTEGER NOT NULL, used_by INTEGER, used_at INTEGER); -- โค้ดของขวัญ: โอนเงิน Wallet ให้คนอื่น
 CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id);
@@ -641,4 +635,3 @@ CREATE INDEX IF NOT EXISTS mcp_user ON mcp_servers(user_id, id);
 
 CREATE TABLE IF NOT EXISTS feedback (message_id INTEGER NOT NULL, user_id INTEGER NOT NULL, model_id INTEGER, vote INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (message_id, user_id));
 CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, user_id INTEGER, model_id INTEGER, reason TEXT, snippet TEXT, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS project_members (project_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (project_id, user_id)); -- สมาชิกที่เจ้าของเชิญมาแก้โปรเจกต์

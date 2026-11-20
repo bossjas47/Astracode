@@ -877,6 +877,20 @@ function showErr(msg, retry) {
   const b = $('#retry'); if (b) b.onclick = () => { $('#e').textContent = ''; fn(); };
   const ba = $('#retryauto'); if (ba) ba.onclick = () => { sel.value = 'auto'; sel.onchange({ target: sel }); $('#e').textContent = ''; fn(); };
 }
+// ตัวจับเวลาขณะ AI ทำงาน (แชต): บอกว่ากำลังทำอะไร + กี่วินาทีแล้ว ใต้ข้อความ · ช่วงที่ไม่มีตัวอักษรใหม่บอกว่ากำลังคิด/ใช้เครื่องมือ
+const CHWORK = { since: 0, len: -1, at: 0 };
+function chatWorkTick() {
+  const box = $('#msgs'); if (!box) return;
+  let el = $('#chwork'); if (!el) { el = document.createElement('div'); el.id = 'chwork'; el.className = 'cwork'; el.hidden = true; el.setAttribute('aria-live', 'off'); box.after(el); }
+  if (!chat.busy) { if (!el.hidden) el.hidden = true; CHWORK.since = 0; return; }
+  const now = Date.now(); if (!CHWORK.since) { CHWORK.since = now; CHWORK.at = now; }
+  const last = chat.msgs.at(-1), len = last ? String(last.content || '').length + String(last.thinking || '').length : 0;
+  if (len !== CHWORK.len) { CHWORK.len = len; CHWORK.at = now; }
+  const sec = Math.floor((now - CHWORK.since) / 1000), quiet = now - CHWORK.at > 2500;
+  const what = last?.mcps?.length && quiet ? `ใช้เครื่องมือ: ${last.mcps.at(-1).tool || ''}` : quiet ? (last?.content ? 'AI กำลังทำงานต่อ' : 'AI กำลังคิด') : 'AI กำลังเขียน';
+  el.hidden = false; el.innerHTML = `<span class="cw-dot"></span><span>${esc(String(what).slice(0, 80))}…</span><span class="muted">${sec >= 60 ? Math.floor(sec / 60) + ' นาที ' : ''}${sec % 60} วิ</span>`;
+}
+setInterval(chatWorkTick, 500);
 function setBusy(b) { chat.busy = b; const g = $('#go'); g.innerHTML = ic(b ? 'stop' : 'up'); g.setAttribute('aria-label', b ? 'หยุด' : 'ส่ง'); g.classList.toggle('stop', b); }
 
 // อ่าน SSE จาก /api/chat แล้วเรียก onData ทีละ event

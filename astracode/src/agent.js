@@ -314,6 +314,21 @@ export async function pageShot(env, pid) {
     return 'data:image/jpeg;base64,' + b64(new Uint8Array(await r.arrayBuffer()));
   } catch (e) { console.log('shot', e.message); return null; }
 }
+// เปิดหน้าเว็บของโปรเจกต์บนเซิร์ฟเวอร์ (Cloudflare Browser Rendering) แล้วเก็บ error ของ JavaScript · ใช้ไฟล์ล่าสุดที่ AI แก้ (ยังไม่ลงฐานข้อมูล)
+// ทำงานแม้ผู้ใช้พับจอ/ปิดแอป · ไม่ได้ตั้ง CF_ACCOUNT_ID + CF_BR_TOKEN หรือเปิดไม่สำเร็จ = null (ข้ามการตรวจนี้)
+const ERR_HOOK = `<script>(function(){var L=[];function put(m){if(L.length<10)L.push(String(m).slice(0,300));var e=document.getElementById('__astra_errs');if(!e&&document.body){e=document.createElement('pre');e.id='__astra_errs';e.hidden=true;document.body.appendChild(e)}if(e)e.textContent=JSON.stringify(L)}window.addEventListener('error',function(e){put((e.message||'error')+(e.filename?' @ '+String(e.filename).split('/').pop()+':'+e.lineno:''))});window.addEventListener('unhandledrejection',function(e){put('Unhandled promise rejection: '+(e.reason&&e.reason.message||e.reason))});var ce=console.error;console.error=function(){put([].slice.call(arguments).join(' '));return ce.apply(console,arguments)};document.addEventListener('DOMContentLoaded',function(){if(L.length)put(L.pop())})})()</script>`;
+export async function pageErrors(env, files) {
+  if (!env.CF_ACCOUNT_ID || !env.CF_BR_TOKEN) return null;
+  try {
+    const html = bundleProject(files); if (!html) return null;
+    const page = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, h => h + ERR_HOOK) : ERR_HOOK + html;
+    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/content`, { method: 'POST', headers: { authorization: 'Bearer ' + env.CF_BR_TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ html: page, gotoOptions: { waitUntil: 'networkidle0', timeout: 15000 } }), signal: AbortSignal.timeout(25000) });
+    if (!r.ok) { console.log('page check', r.status); return null; }
+    const d = await r.json().catch(() => null), out = typeof d?.result === 'string' ? d.result : '';
+    const m = out.match(/<pre[^>]*id="__astra_errs"[^>]*>([\s\S]*?)<\/pre>/); if (!m) return [];
+    try { return JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')); } catch { return []; }
+  } catch (e) { console.log('page check', e.message); return null; }
+}
 // ประเมินต้นทุนงาน Agent เป็น % ของลิมิตสัปดาห์: token ≈ ตัวอักษร/3 · ช่วงต่ำ = รอบน้อย+แคชเยอะ · ช่วงสูง = รอบมาก ไม่มีแคช
 // shortcut: สูตรหยาบจากพฤติกรรมเฉลี่ย ไม่ได้ดูความยากของงาน ถ้าจะแม่นขึ้นให้เก็บสถิติงานจริง (tin/tout ต่องาน) มาเทียบ
 export function estimateAgent(lead, wm, chars, files, limitWeek) {

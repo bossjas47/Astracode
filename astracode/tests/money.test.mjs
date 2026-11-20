@@ -193,3 +193,35 @@ test('long-context price tier: a request from 272K input tokens costs input/cach
   await logUsage(t.env, u.id, m, { fresh: 400000, read: 0, write: 0, out: 2000, long }, { units: false });
   assert.equal(Math.round(cost().cost * 1e4) / 1e4, 2.85); // ฐาน 1.6+0.04 + ส่วนเพิ่มของรอบยาว 1.2+0.01
 });
+
+test('hourly alerts: a customer whose 30-day cost is above what they paid is reported to the admin once a day', async () => {
+  const sent = []; const { fakeModel } = await import('./helpers.mjs');
+  const hook = await fakeModel((q, res, body) => { sent.push(body.content); res.writeHead(204); res.end(); });
+  const t = await makeEnv(), u = await t.user(), now = Date.now();
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('alert_discord',?)").run(hook.url);
+  t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at) VALUES (?,?,?,?,?,?,?,?,?)").run(u.id, 1, 69, 'slip/x', 'approved', 'plan', 'month', now, now);
+  t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)').run(u.id, 1, 10, 5, 0, 1, 90, now - 60e3);
+  for (let i = 0; i < 2; i++) { t.ctx.pending.length = 0; await t.worker.default.scheduled({}, t.env, t.ctx); await Promise.all(t.ctx.pending); }
+  const loss = sent.filter(x => /ขาดทุน/.test(x || ''));
+  assert.equal(loss.length, 1, 'once a day: ' + JSON.stringify(sent)); assert.match(loss[0], /฿90\.00/); assert.match(loss[0], /฿69\.00/);
+  hook.close();
+});
+
+test('/v1 paths with a trailing slash work (/v1/credits/)', async () => {
+  const { sha } = await import('./helpers.mjs');
+  const t = await makeEnv(), u = await t.user({ balance: 5 }), key = 'sk-astra-trailslash1';
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const r = await t.call('/v1/credits/', { headers: { authorization: 'Bearer ' + key } });
+  assert.equal(r.status, 200); assert.equal((await r.json()).data.total_credits, 5);
+});
+
+test('server page check: JavaScript errors are read back from the rendered page; off without Browser Rendering settings', async () => {
+  const { pageErrors } = await import('../src/agent.js'), files = new Map([['index.html', '<html><head></head><body><script>makeSea()</script></body></html>']]);
+  assert.equal(await pageErrors({}, files), null, 'not configured = skipped');
+  const real = globalThis.fetch; let sentHtml = '';
+  globalThis.fetch = async (url, o) => { sentHtml = JSON.parse(o.body).html; return new Response(JSON.stringify({ success: true, result: '<html><body><pre id="__astra_errs" hidden="">["ReferenceError: makeSea is not defined @ index.html:1"]</pre></body></html>' }), { headers: { 'content-type': 'application/json' } }); };
+  try {
+    const errs = await pageErrors({ CF_ACCOUNT_ID: 'a', CF_BR_TOKEN: 'b' }, files);
+    assert.deepEqual(errs, ['ReferenceError: makeSea is not defined @ index.html:1']); assert.match(sentHtml, /__astra_errs/, 'the error hook is injected');
+  } finally { globalThis.fetch = real; }
+});

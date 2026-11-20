@@ -32,9 +32,10 @@ export const toAnthropicPart = p => {
 };
 // ผู้ให้บริการบางรายปฏิเสธระดับ effort ที่เราเลือก (เช่น "does not support reasoning effort \"minimal\"; use low, medium, high, xhigh or max") → อ่านรายการที่รองรับแล้วเลือกระดับที่ใกล้ที่สุด (เท่ากันเลือกอันที่สูงกว่า) เพื่อลองใหม่ 1 ครั้ง
 // ผู้ให้บริการล่ม/คนแน่นชั่วคราว (429/5xx ก่อนเริ่มตอบ): ลองใหม่เอง 2 ครั้ง รอ 1.5 และ 4 วินาที ไม่ให้ลูกค้าเห็น "ตอบไม่ได้" ทันที
-export async function busyRetry(post, waits = [1500, 4000]) {
+// ผู้ให้บริการคนเยอะ/ล่มชั่วคราว: ลองใหม่เอง 3 ครั้ง (ใช้เวลาจาก retry-after ถ้าบอกมา แต่ไม่เกิน 10 วินาที) ก่อนแจ้งผู้ใช้
+export async function busyRetry(post, waits = [1500, 4000, 8000]) {
   let res = await post();
-  for (const w of waits) { if (![429, 500, 502, 503, 504, 529].includes(res.status)) break; await res.body?.cancel().catch(() => {}); await new Promise(ok => setTimeout(ok, w)); res = await post(); }
+  for (const w of waits) { if (![429, 500, 502, 503, 504, 529].includes(res.status)) break; const ra = +res.headers?.get?.('retry-after'); await res.body?.cancel().catch(() => {}); await new Promise(ok => setTimeout(ok, ra > 0 ? Math.min(ra * 1000, 10000) : w)); res = await post(); }
   return res;
 }
 export const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -620,10 +621,18 @@ export async function runChat(env, J, send, st) {
   const maxRounds = J.agent ? AGENT_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า
   // ตรวจงานก่อนจบคำตอบ (โหมด Code): ไฟล์ที่แก้ในคำตอบนี้ + รายการงานล่าสุด · ตรวจได้ไม่เกิน 2 ครั้งต่อคำตอบ กันวนไม่จบ
   const touched = new Set(); let lastTodo = null, checks = 0;
-  const reviewNote = () => {
+  const reviewNote = async round => { // round = รอบปัจจุบัน (ใช้บอกหน้าเว็บว่ากำลังตรวจ)
     if (!ws || !touched.size || checks >= 2 || st.gone || J.perm === 'plan') return '';
-    const probs = verifyWork(ws, touched), open = (lastTodo || []).filter(t => t.status !== 'completed').map(t => t.content);
-    if (!probs.length && !open.length) return '';
+    const probs = verifyWork(ws, touched);
+    if (!probs.length && [...touched].some(f => /\.(?:html?|m?js|jsx|css)$/i.test(f)) && [...ws.files.keys()].some(f => /(^|\/)index\.html?$/i.test(f))) { // เปิดหน้าเว็บจริงบนเซิร์ฟเวอร์ ดู error ของ JavaScript (ถ้าตั้งค่า Browser Rendering ไว้)
+      await send({ round: round + 2, of: maxRounds + 3, doing: 'เปิดหน้าเว็บตรวจ error' });
+      const errs = await import('./agent.js').then(m => m.pageErrors(env, ws.files)).catch(() => null);
+      if (errs?.length) probs.push('The page shows JavaScript errors when it loads: ' + errs.slice(0, 6).join(' | '));
+    }
+    const open = (lastTodo || []).filter(t => t.status !== 'completed').map(t => t.content);
+    // สถิติการตรวจ (หลังบ้าน → คุณภาพ): selfcheck = เจอปัญหา, selfcheck_ok = ตรวจซ้ำหลังให้แก้แล้วผ่าน
+    if (!probs.length && !open.length) { if (checks) await event(env, 'selfcheck_ok', model.id, String(checks)).catch(() => {}); return ''; }
+    await event(env, 'selfcheck', model.id, JSON.stringify({ probs: probs.length, open: open.length, n: checks + 1 })).catch(() => {});
     checks++;
     return `[Automatic check before you finish]\n${probs.length ? 'Problems found in the files you changed:\n' + probs.map(x => '- ' + x).join('\n') + '\n' : ''}${open.length ? 'Your checklist still has unfinished items:\n' + open.map(x => '- ' + x).join('\n') + '\n' : ''}Fix these now with the tools (read the exact lines first if needed), then update the checklist and give a short summary. If an item is truly not needed, say why in one line.`;
   };
@@ -676,7 +685,7 @@ export async function runChat(env, J, send, st) {
         await event(env, refused ? 'refused' : 'error', model.id, e.message.slice(0, 300));
         const fb = !out.trim() && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
         if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
-        await send({ error: u.role === 'admin' ? 'แอดมิน: ' + e.message + (rawT && e.message.startsWith('โมเดลส่งคำตอบว่าง') ? ' · ข้อมูลดิบท้ายสุด: ' + rawT.slice(0, 900) : '') : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล'
+        await send({ error: u.role === 'admin' ? (busy ? 'ผู้ให้บริการคนเยอะ ลองใหม่ให้ 3 ครั้งแล้วยังไม่ได้ · ' : '') + 'แอดมิน: ' + e.message + (rawT && e.message.startsWith('โมเดลส่งคำตอบว่าง') ? ' · ข้อมูลดิบท้ายสุด: ' + rawT.slice(0, 900) : '') : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล'
           : refused ? (model.provider === 'image' ? 'ผู้ให้บริการไม่สร้างรูปนี้ให้ (มักเป็นตัวละคร แบรนด์ หรือคนดังที่มีลิขสิทธิ์ หรือเนื้อหาที่ไม่อนุญาต) ลองบรรยายเป็นสไตล์ของคุณเองโดยไม่ระบุชื่อตัวละคร' : 'ผู้ให้บริการไม่ตอบคำขอนี้เพราะติดตัวกรองเนื้อหา ลองปรับคำถามหรือเลือกโมเดลอื่น')
           : busy ? 'ตอนนี้มีคนใช้โมเดลนี้เยอะ ลองใหม่อีกครั้งในไม่กี่วินาที หรือเลือกโมเดลอื่น' : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
         break;
@@ -751,7 +760,7 @@ export async function runChat(env, J, send, st) {
       lastKind = 't';
       // รอบที่มีแต่การแก้ไฟล์และสำเร็จทุกอัน = งานเสร็จ (โมเดลเขียนสรุปมาในรอบเดียวกันแล้ว) ไม่ต้องเรียกโมเดลอีกรอบให้ผู้ใช้รอ
       if (ws && useTools && onlyWrites && wrote && allOk) { // รอบที่มีแต่การแก้ไฟล์: เดิมจบทันที → ตอนนี้ตรวจก่อน ถ้ายังมีปัญหา/งานค้างให้ทำต่อ
-        const note = reviewNote(); if (!note) break;
+        const note = await reviewNote(round); if (!note) break;
         msgs.push({ role: 'user', content: note }); await send({ round: round + 2, of: maxRounds + 3, doing: 'ตรวจงานที่แก้' }); continue;
       }
       if (pyStop || askStop) break; // หน้าเว็บรัน Python / รอผู้ใช้อนุญาต แล้วส่งผลกลับเป็นข้อความถัดไป
@@ -760,7 +769,7 @@ export async function runChat(env, J, send, st) {
     }
     const reqs = pid && !st.gone && round < maxRounds && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
     if (!reqs.length) { // โมเดลตอบจบ: ตรวจไฟล์ที่แก้ในคำตอบนี้ก่อน ถ้าเจอปัญหา/งานค้างให้แก้ต่ออีกรอบ
-      const note = round < maxRounds + 2 ? reviewNote() : '';
+      const note = round < maxRounds + 2 ? await reviewNote(round) : '';
       if (!note) break;
       await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
       msgs = [...msgs, { role: 'assistant', content: part || '(done)' }, { role: 'user', content: note }]; imgs = [];

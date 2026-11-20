@@ -102,7 +102,6 @@ export async function projects(req, env, u, path, url) {
         DB.prepare('DELETE FROM chats WHERE project_id=?').bind(pid),
         DB.prepare('DELETE FROM project_files WHERE project_id=?').bind(pid),
         DB.prepare('DELETE FROM file_versions WHERE project_id=?').bind(pid), // ประวัติไฟล์และจุดบันทึก: ลบโปรเจกต์ = ลบเนื้อหาจริงทั้งหมด
-        DB.prepare('DELETE FROM project_members WHERE project_id=?').bind(pid),
         DB.prepare('DELETE FROM projects WHERE id=?').bind(pid),
       ]);
       return json({ ok: true });

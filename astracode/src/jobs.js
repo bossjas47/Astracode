@@ -34,6 +34,19 @@ export async function cron(env) {
       FROM usage s JOIN users u ON u.id=s.user_id WHERE s.created_at>?2 AND u.role<>'admin' GROUP BY u.id HAVING today > 20 AND today > 5 * COALESCE(avg, 0)`).bind(now - DAY, now - 8 * DAY).all()).results;
     for (const r of rows) if (!await limited(env, 'anom:' + r.id, 1, DAY)) await notify(env, `⚠️ ค่าใช้จ่ายผิดปกติ: ${r.email} ใช้ต้นทุน ฿${r.today.toFixed(2)} ใน 24 ชม. (เฉลี่ยเดิม ฿${(r.avg || 0).toFixed(2)}/วัน) ตรวจ API key หรือบัญชีที่หลังบ้าน`);
   });
+  // ขาดทุนรายคน: ลูกค้าที่ต้นทุน 30 วันเกินเงินที่จ่าย (แพลน + ใช้ Wallet) → แจ้งแอดมินวันละครั้งต่อคน
+  await step('loss', async () => {
+    const rows = (await DB.prepare(`SELECT u.id, u.email, COALESCE((SELECT SUM(cost) FROM usage WHERE user_id=u.id AND created_at>?1),0) cost,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE user_id=u.id AND kind='plan' AND status='approved' AND COALESCE(approved_at,created_at)>?1),0)
+      + COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE user_id=u.id AND kind IN ('api','overflow','agentpack','wallet') AND created_at>?1),0) paid
+      FROM users u WHERE u.role<>'admin' AND EXISTS (SELECT 1 FROM usage WHERE user_id=u.id AND created_at>?2)`).bind(now - 30 * DAY, now - 3600e3).all()).results.filter(r => r.cost > r.paid + 5);
+    for (const r of rows) if (!await limited(env, 'loss:' + r.id, 1, DAY)) await notify(env, `📉 ขาดทุน: ${r.email} ต้นทุน 30 วัน ฿${r.cost.toFixed(2)} แต่จ่าย ฿${r.paid.toFixed(2)} (ขาด ฿${(r.cost - r.paid).toFixed(2)}) · หลังบ้าน → กำไร`);
+  });
+  // context ยาวเกินเกณฑ์ราคาขั้นที่ 2 (เช่น 272K) บ่อยในชั่วโมงที่ผ่านมา: แจ้งแอดมินวันละครั้ง (คำขอแบบนี้แพงเป็น 2 เท่า)
+  await step('long', async () => {
+    const r = await DB.prepare('SELECT COUNT(*) n, COALESCE(SUM(g.cost),0) cost FROM usage g JOIN models m ON m.id=g.model_id WHERE g.created_at>? AND m.long_k>0 AND g.tokens_in+g.tokens_cache>=m.long_k*1000').bind(now - 3600e3).first();
+    if (r.n >= 5 && !await limited(env, 'longctx', 1, DAY)) await notify(env, `📏 คำขอ context ยาวเกินเกณฑ์ราคาขั้นที่ 2 ${r.n} ครั้งในชั่วโมงที่ผ่านมา ต้นทุน ฿${r.cost.toFixed(2)} · หลังบ้าน → ต้นทุนสด`);
+  });
   // สรุป KPI เมื่อวานให้แอดมิน (8 โมงเช้าไทย): สมัครใหม่, รายได้, ต้นทุน, กำไร, โมเดลยอดนิยม
   if (new Date(now + BKK).getUTCHours() === 8) await step('kpi', async () => { const k = await kpiYesterday(env, now); if (!await limited(env, 'kpi:' + k.day, 1, 2 * DAY)) await notify(env, k.text); });
   // ดึงคนกลับ (10 โมงเช้าไทย): ผู้ใช้ที่เคยใช้งานแต่หายไป 14 วัน → อีเมลบอกของใหม่ + เครดิต (winback_credit บาท, 0 = ไม่แจก) · คนละครั้งต่อ 60 วัน

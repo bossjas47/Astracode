@@ -355,7 +355,8 @@ const FLOWS = [
       '/api/projects/8': { id: 8, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>old</h1>' }] },
       chat: () => [{ chat_id: 80 }, { mcp: { server: 'ไฟล์', tool: 'แก้ index.html', ok: true } }, { t: 'แก้หัวข้อ\n\n' + edit.slice(0, 40) }, { t: edit.slice(40) + '\nเสร็จแล้ว' }, { done: true, pct4h: 1, pctWeek: 1, mid: 5 }],
     });
-    await page.fill('#ct', 'เปลี่ยนหัวข้อ'); await page.click('#cgo'); await page.waitForTimeout(1500);
+    await page.fill('#ct', 'เปลี่ยนหัวข้อ'); await page.click('#cgo');
+    await page.waitForFunction(() => !document.querySelector('#cgo').classList.contains('stop') && IDE.files.get('index.html')?.includes('new'), null, { timeout: 8000 }).catch(() => {}); await page.waitForTimeout(300);
     const r = await page.evaluate(() => ({ file: IDE.files.get('index.html'), stop: document.querySelector('#cgo').classList.contains('stop'), text: document.querySelector('#cmsgs').innerText, live: !!document.querySelector('.tsteps.live') }));
     const saved = calls.find(c => c.p === '/api/messages/5/applied');
     const later = await open('/code?p=8&s=80', { '/api/projects/8': { id: 8, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>newer</h1>' }] }, '/api/chats': [{ id: 80, title: 'x' }],
