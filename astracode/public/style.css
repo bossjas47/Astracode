@@ -1475,7 +1475,7 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 }
 .mode-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 9999px; background: rgba(var(--ov), .07); border: 1px solid var(--hair); }
 .mode-seg button, .mode-seg a, .mode-seg span { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 0; border-radius: 9999px; background: none; color: var(--ash); font: 500 14px var(--font); cursor: pointer; text-decoration: none; transition: background-color .15s, color .15s; }
-.mode-seg button:hover, .mode-seg a:hover { color: var(--porcelain); }
+@media (hover: hover) { .mode-seg button:not(.on):hover, .mode-seg a:not(.on):hover { color: var(--porcelain); } } /* มือถือ: hover ค้างหลังแตะ ไม่ทับสีปุ่มที่เลือก */
 .mode-seg .on { background: var(--porcelain); color: var(--on-porcelain); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
 .mode-seg .on .ic, .mode-seg .on span { color: inherit; }
 .mode-seg button span { color: inherit; }
@@ -1586,3 +1586,5 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .auth-inline .tabs { justify-content: center; margin-bottom: 12px; }
 .auth-inline .card { margin: 0; background-image: none; background-color: var(--carbon); border: 1px solid var(--hair); box-shadow: 0 8px 28px rgba(0, 0, 0, .08); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .auth-inline h1 { font-size: 22px; text-align: center; margin: 0 0 12px; }
+
+.mode-seg .on, .mode-seg .on:hover, .mode-seg .on:focus, .mode-seg .on span, .mode-seg .on .ic { color: var(--on-porcelain); } /* ปุ่มที่เลือก: ตัวหนังสือ/ไอคอนสีตรงข้ามพื้นเสมอ */
