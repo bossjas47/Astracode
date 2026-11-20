@@ -368,3 +368,16 @@ test('/v1 after reading everything in parallel: rate-limit counter, blocked word
   const capped = await v1('/v1/chat/completions', msg);
   assert.equal(capped.status, 429); assert.match(capped.d.error.message, /Daily wallet limit/);
 });
+
+test('desktop Agent on a plan without Agent: the error says Agent is not in the plan (not "model not included"); normal chat key on the same plan works', async () => {
+  const { t, fm, m, u, v1 } = await setup({ balance: 0 });
+  const plan = t.DB.raw.prepare('SELECT plan_id FROM users WHERE id=?').get(u.id).plan_id;
+  t.DB.raw.prepare('INSERT INTO plan_models (plan_id,model_id) VALUES (?,?)').run(plan, m.id); t.DB.raw.prepare('UPDATE plans SET agent=0, api_limit=1, limit_4h=1e6, limit_week=1e6 WHERE id=?').run(plan);
+  const ak = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'Desktop Agent (PC)', await sha(ak), ak.slice(0, 14), Date.now());
+  const body = { model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] };
+  const r = await v1('/v1/chat/completions', body, ak);
+  assert.equal(r.status, 402); assert.match(JSON.stringify(r.d), /Agent mode/); assert.doesNotMatch(JSON.stringify(r.d), /does not include this model/);
+  assert.equal((await v1('/v1/chat/completions', body)).status, 200, 'a normal key uses the plan');
+  fm.close();
+});

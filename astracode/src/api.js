@@ -18,6 +18,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     [/^ไม่พบโมเดล "(.*)"/, (_, n) => `The model "${n}" does not exist or is not available to this key. List models at /v1/models.`],
     [/^(.*) ใช้ถึงเพดานรายสัปดาห์แล้ว/, (_, n) => `${n} has reached its weekly cap on your plan.`],
     [/^ลิมิตแพลนเต็มแล้ว/, () => 'Plan limit reached (4-hour or weekly window).'],
+    [/^แพลน (.*) ยังไม่รวมโหมด Agent/, (_, n) => `Plan ${n} does not include Agent mode (Pro and above, or an Agent pack). Turn Agent mode off to chat on your plan limits, or top up the wallet to use Agent pay-as-you-go.`],
     [/^แพลน (.*) ไม่รวมโมเดลนี้/, (_, n) => `Plan ${n} does not include this model and the wallet balance is too low.`],
     [/^ยอดเงินใน Wallet ไม่พอสำหรับ/, () => 'Wallet balance is too low for this request.'],
     [/^ยอดเงินใน Wallet ไม่พอ/, () => 'Wallet balance is too low. Top up at /plans.'],
@@ -128,6 +129,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       else return fail('ลิมิตแพลนเต็มแล้ว (4 ชม. / สัปดาห์)', 429, 'insufficient_quota');
     } else if (packLeft > 0) billingMode = 'pack';
     else if (!(k.balance >= WALLET_MIN)) {
+      // โมเดลอยู่ในแพลน แต่เรียกจากโหมด Agent และแพลนไม่รวม Agent: บอกตรงๆ (เดิมขึ้นว่า "แพลนไม่รวมโมเดลนี้" ทำให้ลูกค้างง)
+      if (canPlan && isAgentKey && !plan.agent && planIds.has(m.id)) return fail(`แพลน ${plan.name} ยังไม่รวมโหมด Agent (มีในแพลน Pro ขึ้นไป หรือซื้อแพ็ก Agent) · ปิดโหมด Agent เพื่อแชตตามปกติด้วยลิมิตแพลน หรือเติม Wallet เพื่อใช้ Agent แบบจ่ายตามใช้`, 402, 'insufficient_quota');
       return fail(canPlan ? `แพลน ${plan.name} ไม่รวมโมเดลนี้ และยอดเงินใน Wallet ไม่พอ` : 'ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans', 402, 'insufficient_quota');
     }
     if (billingMode === 'wallet' && dayCapped) return fail('Daily wallet limit reached (set on the account page).', 429, 'insufficient_quota');

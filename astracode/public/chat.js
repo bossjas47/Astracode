@@ -924,6 +924,15 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
     if (ok === 'net') { chat.imgWake = 'send'; if (document.visibilityState === 'visible') imgWake(); return; } // เน็ตหลุดตอนปิดจอ: กลับมาแล้วส่งต่อให้เอง
     if (!ok) return;
   }
+  // แพลนไม่รวม Agent และไม่มีแพ็ก/เงินใน Wallet: บอกก่อนส่ง และให้ปิด Agent แล้วส่งเป็นแชตปกติได้ในแตะเดียว (เดิมขึ้นว่า "แพลนไม่รวมโมเดลนี้")
+  if (!regenerate && !resume && !edit_id && agentOn() && me.plan?.paid && !me.plan.agent && !(me.balance >= 1)) {
+    const pk = await api('/agent-pack').catch(() => null);
+    if (!pk?.active) {
+      const off = await confirmSheet(`แพลน ${me.plan.name} ยังไม่รวมโหมด Agent (มีในแพลน Pro ขึ้นไป หรือซื้อแพ็ก Agent) · ปิดโหมด Agent แล้วส่งเป็นแชตปกติด้วยลิมิตแพลนได้เลย`, { title: 'โหมด Agent', ok: 'ปิด Agent แล้วส่ง', cancel: 'ดูแพลน' });
+      if (!off) return go('/plans');
+      localStorage.setItem('pcAgent', '0'); modelUI();
+    }
+  }
   if (!regenerate && !resume && !edit_id && agentOn()) { const tx = $('#t').value.trim(); if (chat.files.length) toast('โหมด Agent: ไฟล์แนบใช้ไม่ได้ พิมพ์ @พาธ เพื่ออ้างไฟล์ในโฟลเดอร์แทน (แนบรูปได้)'); return tx ? agentSend(tx) : undefined; }
   const quiet = regenerate || resume || !!edit_id, t = $('#t'), text = edit_id ? edit_text : quiet ? '' : t.value.trim(), imgs = quiet ? [] : chat.images, m = curModel();
   const files = quiet ? [] : chat.files;
