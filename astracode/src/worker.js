@@ -1,7 +1,7 @@
 import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy, WALLET_MIN } from './core.js';
 import { bundleProject, callModel, chat, compact, ensureFb, logUsage } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
-import { gh, github, projects, seal } from './projects.js';
+import { gh, github, projects, seal, unseal } from './projects.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
 import { agentApi } from './agent.js';
 import { contextApi } from './context.js';
@@ -314,6 +314,11 @@ export async function route(req, env, ctx, url, path, M) {
         return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,instructions,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
       }
       if (path === '/api/gallery' || path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
+      if (path === '/api/github/repos' && M === 'GET') { // repo ของผู้ใช้ (ล่าสุดก่อน) ให้เลือกแตะเดียวตอนเข้าหน้า Code ครั้งแรก
+        if (!u.gh_token) return json([]);
+        const list = await gh(await unseal(env, u.gh_token), '/user/repos?sort=pushed&per_page=30&affiliation=owner,collaborator,organization_member', { base: env.GITHUB_API }).catch(() => []);
+        return json((Array.isArray(list) ? list : []).map(x => ({ full_name: x.full_name, private: !!x.private, branch: x.default_branch, pushed_at: x.pushed_at, description: x.description || '' })));
+      }
       if (path === '/api/github') { // เชื่อม GitHub ด้วย Personal Access Token
         if (M === 'GET') return json({ connected: !!u.gh_token, login: u.gh_login, secret: !!env.SECRET_KEY });
         if (M === 'DELETE') { await env.DB.prepare('UPDATE users SET gh_token=NULL, gh_login=NULL WHERE id=?').bind(u.id).run(); return json({ ok: true }); }

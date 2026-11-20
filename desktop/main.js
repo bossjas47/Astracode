@@ -60,7 +60,7 @@ const show = () => { if (!web) return; if (web.isMinimized()) web.restore(); web
 function makeTray() {
   try {
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')).resize({ width: 16, height: 16 }));
-    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; } }, ...(Object.values(settings.autoRun || {}).some(Boolean) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = {}; save(); } }] : []), ...(fs.existsSync(CMD_LOG()) ? [{ label: 'เปิดบันทึกคำสั่งที่รัน', click: () => shell.openPath(CMD_LOG()) }] : []), { label: 'ออกจากแอป', click: quit }]);
+    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; } }, ...(Object.values(settings.links || {}).some(r => settings.autoRun?.[r] ?? true) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = Object.fromEntries(Object.values(settings.links || {}).map(r => [r, false])); save(); } }] : []), ...(fs.existsSync(CMD_LOG()) ? [{ label: 'เปิดบันทึกคำสั่งที่รัน', click: () => shell.openPath(CMD_LOG()) }] : []), { label: 'ออกจากแอป', click: quit }]);
     tray.setToolTip('AstraCode'); tray.setContextMenu(menu()); tray.on('click', show); tray.on('right-click', () => tray.setContextMenu(menu()));
   } catch { tray = null; } // บาง Linux ไม่มีถาด: ปิดหน้าต่าง = ออกจากแอป
 }
@@ -74,7 +74,7 @@ const h = (ch, fn) => ipcMain.handle(ch, (e, ...a) => { if (!fromSite(e)) throw 
 // โฟลเดอร์ในเครื่อง: เว็บอ้างถึงด้วยชื่อช่อง (p:<id โปรเจกต์> หรือ chat) ไม่เคยส่งพาธเต็มมาเอง · ผู้ใช้เลือกโฟลเดอร์ผ่านหน้าต่างของ Windows เท่านั้น
 const slot = k => { if (!/^(p:\d{1,12}|chat)$/.test(String(k))) throw new Error('ช่องโฟลเดอร์ไม่ถูกต้อง'); return String(k); };
 const rootOf = k => { const r = (settings.links || {})[slot(k)]; if (!r || !fs.existsSync(r)) throw new Error('ยังไม่ได้เชื่อมโฟลเดอร์ในเครื่อง หรือโฟลเดอร์ถูกย้าย/ลบไปแล้ว'); return r; };
-const info = r => ({ name: path.basename(r), path: r, auto: settings.autoRun?.[r] || false }); // false | true (รันเองยกเว้นอันตราย) | 'all' (รันเองทุกคำสั่ง)
+const info = r => ({ name: path.basename(r), path: r, auto: settings.autoRun?.[r] ?? true }); // false | true (รันเองยกเว้นอันตราย) | 'all' (รันเองทุกคำสั่ง)
 h('desk:link', async (_, k) => {
   const r = await dialog.showOpenDialog(web, { title: 'เลือกโฟลเดอร์ที่ให้ AstraCode ทำงาน', properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
@@ -83,7 +83,7 @@ h('desk:link', async (_, k) => {
   settings.links = { ...settings.links, [slot(k)]: dir }; save(); return info(dir);
 });
 h('desk:linked', (_, k) => { const r = (settings.links || {})[slot(k)]; return r && fs.existsSync(r) ? info(r) : null; });
-h('desk:autoOff', (_, k) => { const r = (settings.links || {})[slot(k)]; if (r && settings.autoRun) { delete settings.autoRun[r]; save(); } return true; }); // ปิดได้จากหน้าเว็บ (ปลอดภัยขึ้นเท่านั้น) · เปิดได้จากหน้าต่าง Windows เท่านั้น
+h('desk:autoOff', (_, k) => { const r = (settings.links || {})[slot(k)]; if (r) { settings.autoRun = { ...settings.autoRun, [r]: false }; save(); } return true; }); // ปิดได้จากหน้าเว็บ (ปลอดภัยขึ้นเท่านั้น) · เปิดได้จากหน้าต่าง Windows เท่านั้น
 h('desk:unlink', (_, k) => { if (settings.links) { delete settings.links[slot(k)]; save(); } return true; });
 h('desk:scan', (_, k) => scanFolder(rootOf(k)));
 h('desk:write', async (_, k, files) => { const r = rootOf(k); let n = 0; for (const f of [].concat(files).slice(0, 300)) if (await writeRel(r, f.path, f.content)) n++; return n; });
@@ -104,7 +104,7 @@ function logCmd(dir, cmd, auto) {
 const DENIED = { code: 1, stdout: '', stderr: 'ผู้ใช้ไม่อนุญาตให้รันคำสั่งนี้', denied: true };
 // ขออนุญาตรันคำสั่งจากหน้าเว็บ (โหมด Code) → null = รันได้ · จำการตั้งค่าต่อโฟลเดอร์: true = รันเองยกเว้นคำสั่งอันตราย, 'all' = รันเองทุกคำสั่งไม่ต้องถาม
 async function allow(r, cmd) {
-  const lvl = settings.autoRun?.[r];
+  const lvl = settings.autoRun?.[r] ?? true; // ค่าเริ่มต้น: รันเองทุกคำสั่งที่ไม่อันตราย (ไม่ต้องกดอนุญาต) · คำสั่งลบ/ล้างข้อมูลยังถามก่อน
   if (lvl === 'all') return null;                       // รันเองทุกคำสั่งแล้ว
   if (lvl && !isDanger(cmd)) return null;               // รันเองยกเว้นคำสั่งอันตราย และคำสั่งนี้ไม่อันตราย
   const setLvl = v => { settings.autoRun = { ...settings.autoRun, [r]: v }; save(); };
@@ -127,7 +127,7 @@ async function allow(r, cmd) {
 }
 h('desk:run', async (e, k, cmd, id) => {
   const r = rootOf(k); cmd = String(cmd || '').trim(); if (!cmd) throw new Error('คำสั่งว่าง');
-  const lvl = settings.autoRun?.[r], auto = lvl === 'all' || (lvl && !isDanger(cmd)); // รันโดยไม่ถามครั้งนี้ไหม
+  const lvl = settings.autoRun?.[r] ?? true, auto = lvl === 'all' || (lvl && !isDanger(cmd)); // รันโดยไม่ถามครั้งนี้ไหม
   const no = await allow(r, cmd); if (no) return no;
   const done = logCmd(r, cmd, auto);
   const ac = new AbortController(); jobs.set(String(id), ac);
@@ -141,7 +141,7 @@ h('desk:isServer', (_, cmd) => isServer(cmd));
 h('desk:serve', async (e, k, cmd) => {
   const key = slot(k), r = rootOf(k); cmd = String(cmd || '').trim(); if (!cmd) throw new Error('คำสั่งว่าง');
   const no = await allow(r, cmd); if (no) return no;
-  { const lvl = settings.autoRun?.[r]; logCmd(r, cmd, lvl === 'all' || (lvl && !isDanger(cmd)))('server'); }
+  { const lvl = settings.autoRun?.[r] ?? true; logCmd(r, cmd, lvl === 'all' || (lvl && !isDanger(cmd)))('server'); }
   servers.get(key)?.kill();
   const ac = new AbortController(), sv = { cmd, port: null, done: false, kill: () => ac.abort() }; servers.set(key, sv);
   const tell = d => { if (!e.sender.isDestroyed()) e.sender.send('desk:serveOut', { k: key, ...d }); };

@@ -3,7 +3,7 @@
 // token เก็บแบบเข้ารหัส (seal) และต่ออายุเองก่อนหมด / เมื่อเซิร์ฟเวอร์ตอบ 401
 import { err, json, rand, same, userErr } from './core.js';
 import { seal, unseal } from './projects.js';
-import { isSafeMcpUrl, mcpSync, mcpCall, READ_NAME } from './ai.js';
+import { isSafeMcpUrl, mcpSync, mcpCall } from './ai.js';
 import { GOOGLE_URL } from './google.js';
 import { getSettings, origin } from './billing.js';
 
@@ -114,8 +114,8 @@ const b64url = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/
 // ---------- แถวการเชื่อมของผู้ใช้ ----------
 const parseTools = sv => { try { return JSON.parse(sv.tools_json || '[]'); } catch { return []; } };
 const parsePerms = sv => { try { return JSON.parse(sv.perms_json || '{}') || {}; } catch { return {}; } };
-// สิทธิ์ของเครื่องมือ: ผู้ใช้ตั้งเอง > อ่านอย่างเดียว = allow > อื่นๆ (แก้/ส่งข้อมูล) = ask
-export const permOf = (sv, t, perms = parsePerms(sv)) => perms[t.name] || (t.ro ?? READ_NAME.test(t.name) ? 'allow' : 'ask');
+// สิทธิ์ของเครื่องมือ: ผู้ใช้ตั้งเอง > ค่าเริ่มต้น = allow ทุกเครื่องมือ (AI ใช้ได้เต็มที่ไม่ต้องกดอนุญาต) · ตั้งเป็นถามก่อน/ห้ามใช้รายเครื่องมือได้
+export const permOf = (sv, t, perms = parsePerms(sv)) => perms[t.name] || 'allow';
 const rowOut = (sv, dir) => {
   const perms = parsePerms(sv), tools = parseTools(sv).map(t => ({ name: t.name, description: t.description || '', perm: permOf(sv, t, perms) }));
   const c = dir.find(x => x.slug === sv.connector) || (sv.url === GOOGLE_URL ? dir.find(x => x.slug === 'google') : null);

@@ -51,6 +51,7 @@ async function codeHome() {
   </div></div></div>`;
   host.querySelector('[data-side]').onclick = () => openSide(); host.querySelector('[data-lim]').onclick = limitSheet;
   if (!window.CM && !window.DEMO) setTimeout(() => prefetch('/cm.js'), 1500); // ตัวแก้โค้ดพร้อมก่อนกดส่ง
+  try { if (!localStorage.getItem('codeRepoAsk') && !window.DEMO) { localStorage.setItem('codeRepoAsk', '1'); setTimeout(() => { if (!document.querySelector('.sheet-bg')) cloneSheet(true); }, 300); } } catch { /* ไม่มีที่เก็บ: ไม่ถาม */ }
   const ta = $('#nt'), grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 260) + 'px'; };
   ta.oninput = grow; if (!isPhone()) ta.focus();
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isPhone()) { e.preventDefault(); $('#nf').requestSubmit(); } };
@@ -146,14 +147,19 @@ function projectsSheet() {
 function gallerySheet(gal) {
   sheet('Gallery', `<p class="sheet-msg">โปรเจกต์เด่นจากผู้ใช้ เปิดดูหรือกด Remix เพื่อคัดลอกไปแก้ต่อ</p><div class="plist">${gal.map(g => `<div class="prow"><span><b>${esc(g.name)}</b><small class="muted">${g.blurb ? esc(g.blurb) + ' · ' : ''}${g.files} files</small></span><a class="btn out sm" href="/p/${esc(g.link)}" target="_blank" rel="noopener">View</a><a class="btn blue sm" href="/code?remix=${esc(g.link)}">Remix</a></div>`).join('')}</div>`);
 }
-async function cloneSheet() {
-  const g = await api('/github').catch(() => ({}));
-  sheet('Clone from GitHub', `<form id="cf2" class="sheet-form"><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required>
+// first = เข้าหน้า Code ครั้งแรก: ชวนเชื่อม repo ทันที · เชื่อม GitHub แล้วมีรายการ repo ให้แตะเลือก
+async function cloneSheet(first = false) {
+  const g = await api('/github').catch(() => ({})), repos = g.connected ? await api('/github/repos').catch(() => []) : [];
+  sheet(first ? 'เริ่มจาก GitHub repo ของคุณ' : 'Clone from GitHub', `<form id="cf2" class="sheet-form">${first ? '<p class="sheet-msg">เชื่อม repo แล้ว AI จะแก้โค้ดใน repo นั้น และ commit + push ให้อัตโนมัติเมื่อทำงานเสร็จ</p>' : ''}
+    ${repos.length ? `<div class="repo-pick">${repos.map(x => `<button type="button" class="repo-it" data-repo="${esc(x.full_name)}" data-br="${esc(x.branch || '')}">${ic('branch', 'sm')}<span><b>${esc(x.full_name)}</b>${x.description ? `<small class="muted">${esc(x.description.slice(0, 80))}</small>` : ''}</span>${x.private ? '<i class="pill">private</i>' : ''}</button>`).join('')}</div><small class="muted">แตะ repo เพื่อเริ่ม หรือพิมพ์เองด้านล่าง</small>` : ''}
+    <label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required>
     <label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main">
     ${g.connected ? `<p class="muted">เชื่อม GitHub แล้ว (${esc(g.login || '')})</p>` : `<label>GitHub token (ครั้งแรกครั้งเดียว · จำเป็นสำหรับ repo ส่วนตัว)</label><input name="token" type="password" autocomplete="off" placeholder="github_pat_... หรือ ghp_..."><small class="muted">สร้างที่ github.com → Settings → Developer settings → Fine-grained tokens · ให้สิทธิ์ Contents: Read and write</small>`}
-    <p class="muted" id="cmsg"></p><button class="btn blue">Clone</button></form>`, d => {
+    <p class="muted" id="cmsg"></p><div class="sheet-acts">${first ? '<button type="button" class="btn out" data-skip>ข้ามไปก่อน</button>' : ''}<button class="btn blue">${first ? 'เชื่อม repo' : 'Clone'}</button></div></form>`, d => {
+    d.querySelector('[data-skip]')?.addEventListener('click', () => d.remove());
+    d.querySelectorAll('[data-repo]').forEach(b => b.onclick = () => { const f = d.querySelector('#cf2'); f.repo.value = b.dataset.repo; f.branch.value = b.dataset.br; f.requestSubmit(); });
     d.querySelector('#cf2').onsubmit = async e => {
-      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), msg = d.querySelector('#cmsg'); e.submitter.disabled = true;
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), msg = d.querySelector('#cmsg'), btn = e.target.querySelector('.btn.blue'); btn.disabled = true;
       let id;
       try {
         if (f.token?.trim()) { msg.textContent = 'กำลังเชื่อม GitHub...'; await api('/github', { method: 'PUT', body: { token: f.token.trim() } }); }
@@ -163,7 +169,7 @@ async function cloneSheet() {
         msg.textContent = 'กำลังเชื่อม repo...'; await api(`/projects/${id}/github`, { method: 'POST', body: f });
         msg.textContent = 'กำลังดึงไฟล์จาก GitHub...'; await api(`/projects/${id}/github/pull`, { method: 'POST', body: {} });
         d.remove(); delete sideCache.code; openProject(id);
-      } catch (x) { msg.innerHTML = `<span class="bad">${esc(x.message)}</span>`; e.submitter.disabled = false; if (id) api('/projects/' + id, { method: 'DELETE' }); }
+      } catch (x) { msg.innerHTML = `<span class="bad">${esc(x.message)}</span>`; if (id) api('/projects/' + id, { method: 'DELETE' }); btn.disabled = false; }
     };
   });
 }
@@ -268,6 +274,24 @@ async function saveNow() {
   }
   setStatus(IDE.dirty.size ? 'ยังไม่บันทึก' : 'บันทึกแล้ว ✓'); drawTabs(); syntaxCheck();
 }
+// แถบ "กำลังทำงาน" ใต้ข้อความ AI: เห็นตลอดช่วงที่ AI ยังทำงาน รวมช่วงเงียบระหว่างรอบ (คิด, ใช้เครื่องมือ, สร้างรูป, รันตรวจผล)
+// ผู้ใช้จะได้ไม่เข้าใจว่าค้างแล้วกดหยุด · อัปเดตทุกครึ่งวินาทีจากสถานะที่มีอยู่แล้ว ไม่ต้องแก้ทุกจุดที่ทำงาน
+const WORK = { since: 0, lastLen: -1, lastTok: 0, off: 0 };
+function workTick() {
+  const box = $('#cmsgs'); if (!box) return;
+  let el = $('#cwork'); if (!el) { el = document.createElement('div'); el.id = 'cwork'; el.className = 'cwork'; el.hidden = true; el.setAttribute('aria-live', 'polite'); box.after(el); }
+  const now = Date.now(), stepping = /(\.\.\.|…)$/.test(IDE.status || '') && !/^(ยังไม่บันทึก)/.test(IDE.status || ''), on = IDE.busy || stepping;
+  if (on) WORK.off = 0; else if (!WORK.off && WORK.since) WORK.off = now;
+  const show = on || (WORK.off && now - WORK.off < 1500); // ช่วงต่อระหว่างรอบสั้นๆ ไม่ให้แถบกะพริบหาย
+  if (!show) { if (!el.hidden) el.hidden = true; WORK.since = 0; WORK.off = 0; return; }
+  if (!WORK.since) WORK.since = now;
+  const last = IDE.msgs.at(-1), len = last ? String(last.content || '').length + String(last.thinking || '').length : 0;
+  if (len !== WORK.lastLen) { WORK.lastLen = len; WORK.lastTok = now; }
+  const quiet = now - WORK.lastTok, sec = Math.floor((now - WORK.since) / 1000);
+  const what = stepping ? IDE.status.replace(/(\.\.\.|…)$/, '') : !IDE.busy ? 'กำลังเตรียมขั้นต่อไป' : quiet > 2500 ? (last?.thinking && !last?.content ? 'AI กำลังคิด' : 'AI กำลังทำงานต่อ') : 'AI กำลังเขียน';
+  el.hidden = false; el.innerHTML = `<span class="cw-dot"></span><span>${esc(what)}…</span><span class="muted">${sec >= 60 ? Math.floor(sec / 60) + ' นาที ' : ''}${sec % 60} วิ</span>`;
+}
+setInterval(workTick, 500);
 function setStatus(t, bad) { IDE.status = t; const s = $('#ide-status'); if (s) { s.textContent = t; s.classList.toggle('bad', !!bad); } }
 
 // ไฟล์ที่เปิดล่าสุด (เรียงใหม่สุดก่อน เก็บต่อโปรเจกต์ในเครื่อง) แสดงเป็นชิปบนต้นไม้ไฟล์
@@ -805,7 +829,7 @@ if (DESK) addEventListener('focus', () => { if (IDE.local && document.querySelec
 const PATH_OK = p => p && !p.startsWith('node_modules/') && p.length < 200;
 // AI สั่ง RUN: ใช้การแก้ไขของข้อความนั้นก่อน แล้วรัน แล้วส่งผลกลับให้ AI
 // AI สั่งสร้างรูปด้วยบรรทัด `IMAGE <คำบรรยาย> -> images/ชื่อ.jpg` → เรียก /api/image สร้างรูป ย่อ เก็บเป็นไฟล์ในโปรเจกต์ แล้วส่งผลกลับให้ AI ใส่ลงโค้ดต่อเอง
-const IMG_LINE = /^[ \t]*IMAGE[ \t]+(.+?)[ \t]*(?:->|→)[ \t]*(\S+)[ \t]*$/gm;
+const IMG_LINE = /^[\u2063 \t]*IMAGE[ \t]+(.+?)[ \t]*(?:->|→)[ \t]*(\S+)[ \t]*$/gm;
 const imagesOf = text => [...String(text || '').replace(/```[\s\S]*?```/g, '').matchAll(IMG_LINE)].map(m => {
   let path = m[2].replace(/^[`'"]|[`'",.]+$/g, '').replace(/^\/+/, '').replace(/[^\w./-]/g, '_').replace(/\.\./g, '_');
   if (!path.includes('/')) path = 'images/' + path;
@@ -855,7 +879,7 @@ function cUI() {
   const efs = modelEfforts(m);
   $('#ceff').hidden = !efs.length;
   if (efs.length && !efs.includes($('#ceffort').value)) $('#ceffort').value = efs[0];
-  $('#ceff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
+  $('#ceff').innerHTML = `${ic('sparkles', 'sm')}<span>${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}</span>${ic('down', 'sm')}`;
   $('#bmdl').innerHTML = $('#cmdl').innerHTML; $('#beff').innerHTML = $('#ceff').innerHTML; $('#beff').hidden = !efs.length; // แถบสั่งเร็วใช้ค่าเดียวกับกล่อง AI
   $('#cflags').innerHTML = ''
     + (IDE.bgJob ? `<button type="button" class="flag agent-on" data-flag="bgagent" title="Agent กำลังทำงานบนเซิร์ฟเวอร์ · แตะเพื่อดู">${ic('server', 'sm')}${IDE.bgJob.role === 'lead' ? `ทีม Agent · ${AG_LABEL[IDE.bgJob.status]} · เสร็จ ${(IDE.bgJob.team || []).filter(k => k.role === 'worker' && !['waiting', 'queued', 'running', 'stopping'].includes(k.status)).length}/${(IDE.bgJob.team || []).filter(k => k.role === 'worker').length}` : `Agent ทำงานอยู่ · รอบ ${IDE.bgJob.rounds}/20`}</button>` : '')
@@ -1339,7 +1363,7 @@ function showDiff(c, label = 'Apply') {
 const TOOL_LABEL = { IMAGE: ['image', 'สร้างรูป'], READ: ['filetext', 'อ่านไฟล์'], GREP: ['search', 'ค้นหา'], LIST: ['folder', 'ดูโฟลเดอร์'], RUN: ['terminal', 'รันคำสั่ง'] };
 function stepsOf(text) {
   const out = [];
-  for (const m of String(text || '').replace(/```[\s\S]*?```/g, '').replace(/(\S)(READ path=)/g, '$1\n$2').matchAll(/^[ \t]*(READ|GREP|LIST|RUN|IMAGE)\b[ \t]*(?:path=)?(.*)$/gm)) {
+  for (const m of String(text || '').replace(/```[\s\S]*?```/g, '').replace(/(\S)(READ path=)/g, '$1\n$2').matchAll(/^[\u2063 \t]*(READ|GREP|LIST|RUN|IMAGE)\b[ \t]*(?:path=)?(.*)$/gm)) {
     const a = m[2].trim();
     out.push({ op: m[1], arg: m[1] === 'READ' || m[1] === 'LIST' ? a.match(/^[`'"]?([\w./@~-]*)/)?.[1] || a : a });
   }
@@ -1365,7 +1389,7 @@ function fenceBare(text) {
   }
   return out.join('\n');
 }
-const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/(\S)(READ path=)/g, '$1\n$2').replace(/^[ \t]*(?:READ|LIST)\b[ \t]*(?:path=)?[`'"]?[\w./@~-]*[`'"]?/gm, '').replace(/^[ \t]*(?:GREP|RUN|IMAGE)\b.*$/gm, '')).join('```').replace(/\n{3,}/g, '\n\n').trim();
+const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/(\S)(READ path=)/g, '$1\n$2').replace(/^(\u2063*)[ \t]*(?:READ|LIST)\b[ \t]*(?:path=)?[`'"]?[\w./@~-]*[`'"]?/gm, '$1').replace(/^(\u2063*)[ \t]*(?:GREP|RUN|IMAGE)\b.*$/gm, '$1')).join('```').replace(/\n{3,}/g, '\n\n').trim();
 function stepsBar(m, i) {
   const s = stepsOf(m.content); if (!s.length) return '';
   const cnt = k => s.filter(x => x.op === k).length;
@@ -1649,7 +1673,7 @@ async function gitPanel() {
   if (!IDE.gh) {
     gb.innerHTML = `<p class="muted">เชื่อมอยู่กับ <b>@${esc(acct.login)}</b> · <button class="linkb" id="gdis">Unlink</button></p>
       <h3>เชื่อมโปรเจกต์นี้กับ repo</h3><form id="gl" class="form2"><div><label>Repo</label><input name="repo" placeholder="owner/repo" required></div>
-      <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="align-self:end"><button class="btn blue">Connect repo</button></div></form>
+      <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div><div style="grid-column:1/-1"><button class="btn blue" style="width:100%">Connect repo</button></div></form>
       <p class="muted">เชื่อมแล้วกด Pull ก่อน เพื่อรวมไฟล์ใน repo กับไฟล์ในโปรเจกต์นี้</p><p class="gmsg"></p>`;
     gb.querySelector('#gl').onsubmit = async e => { e.preventDefault(); try { const r = await api(`/projects/${IDE.pid}/github`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); IDE.gh = { repo: r.repo, branch: r.branch }; $('#git').textContent = '⑂ ' + r.branch; gitPanel(); } catch (x) { say(x.message, 1); } };
     gb.querySelector('#gdis').onclick = async () => { if (await confirmSheet('ยกเลิกการเชื่อมบัญชี GitHub?', { title: 'ยกเลิกการเชื่อม', ok: 'Disconnect', danger: true })) { await api('/github', { method: 'DELETE' }); gitPanel(); } };

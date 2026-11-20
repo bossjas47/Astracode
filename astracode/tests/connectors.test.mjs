@@ -66,11 +66,11 @@ test('connectors: MCP OAuth popup — discovery, one app registration per provid
     const row = t.DB.raw.prepare('SELECT * FROM mcp_servers').get(); assert.ok(row.oauth_enc && !row.oauth_enc.includes('acc1') && !row.oauth_enc.includes('ref1'), 'tokens are sealed');
     const again = await t.call(`/api/connectors/callback?state=${state2}&code=abc`, { cookie: u.cookie }); assert.match(again.headers.get('location'), /ok=0/, 'state works once');
     const mine = (await t.json('/api/connectors', { cookie: u.cookie })).data.mine[0];
-    assert.deepEqual(mine.tools.map(x => [x.name, x.perm]), [['search_pages', 'allow'], ['create_page', 'ask']]);
+    assert.deepEqual(mine.tools.map(x => [x.name, x.perm]), [['search_pages', 'allow'], ['create_page', 'allow']], 'every tool is allowed by default (no approval needed)');
   } finally { fp.restore(); }
 });
 
-test('connectors in chat: used in every chat automatically, read tools run, write tools wait for approval, approve runs once, refresh on 401, deny and per-chat off hide tools', async () => {
+test('connectors in chat: used in every chat automatically, read tools run, a tool set to ask waits for approval, approve runs once, refresh on 401, deny and per-chat off hide tools', async () => {
   const fp = fakeProviders(); let step = 0, toolsSeen = [];
   const fm = await fakeModel((q, res, body) => {
     toolsSeen.push((body.tools || []).map(x => x.function.name));
@@ -87,6 +87,7 @@ test('connectors in chat: used in every chat automatically, read tools run, writ
   try {
     const state = await connectOauth(t, u); await t.call(`/api/connectors/callback?state=${state}&code=abc`, { cookie: u.cookie });
     const sv = t.DB.raw.prepare('SELECT id FROM mcp_servers').get(); fm.mcpId = sv.id;
+    t.DB.raw.prepare(`UPDATE mcp_servers SET perms_json='{"create_page":"ask"}' WHERE id=?`).run(sv.id); // ผู้ใช้ตั้งเครื่องมือนี้เป็น "ถามก่อน" เอง
     fp.expire(); // access token หมุนแล้ว: เรียกครั้งแรกได้ 401 → ต่ออายุ → ลองใหม่
     const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'สร้างหน้าแผนงาน', model_id: m.id } }));
     assert.ok(toolsSeen[0].includes(`mcp_${sv.id}_search_pages`), 'connector tools offered without picking them');

@@ -23,7 +23,9 @@ const API = (admin, loggedIn) => ({
 });
 const PAGES = [['/', 0, 1], ['/login', 0, 0], ['/chat', 0, 1], ['/plans', 0, 1], ['/plans?team=1', 0, 1], ['/pricing', 0, 1], ['/pricing', 0, 0], ['/account', 0, 1], ['/developers', 0, 1], ['/status', 0, 0], ['/terms', 0, 0], ['/support', 0, 1], ['/code', 0, 1], ['/admin?tab=quality', 1, 1], ['/admin?tab=live', 1, 1], ['/admin?tab=settings', 1, 1], ['/admin?tab=models', 1, 1], ['/admin?tab=connectors', 1, 1], ['/admin?tab=plugins', 1, 1]];
 const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] } : {}); let failed = 0;
-for (const [url, admin, loggedIn] of PAGES) {
+// E2E_ONLY=<regex>: รันเฉพาะหน้า/เส้นทางที่ชื่อตรง (เทสต์เฉพาะส่วนที่แก้) · ไม่ใส่ = รันทั้งหมด
+const ONLY = process.env.E2E_ONLY ? new RegExp(process.env.E2E_ONLY, 'i') : null;
+for (const [url, admin, loggedIn] of PAGES.filter(([u]) => !ONLY || ONLY.test(u))) {
   const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], api = API(admin, loggedIn);
   page.on('pageerror', e => errs.push(e.message + (process.env.STACK ? ' @ ' + String(e.stack).split('\n').slice(1, 4).join(' < ') : '')));
   await page.route('**/*', r => {
@@ -44,8 +46,8 @@ for (const [url, admin, loggedIn] of PAGES) {
 // ---------- เส้นทางหลัก: กดใช้งานจริงกับ API จำลอง แล้วตรวจว่าส่งคำขอถูกและหน้าแสดงผลถูก ----------
 async function open(url, extra = {}) {
   const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], calls = [], api = { ...API(0, 1), ...extra };
-  page.on('pageerror', e => { if (!/Transition was aborted/.test(e.message)) errs.push(e.message); }); // เบราว์เซอร์ยกเลิกเอฟเฟกต์เปลี่ยนหน้าเมื่อไปหน้าถัดไประหว่างเล่น: ไม่ใช่ error ของเว็บ
-  await page.addInitScript(() => { try { localStorage.setItem('onb', '1'); localStorage.setItem('whatsnew:2026-11-code', '1'); } catch {} });
+  page.on('pageerror', e => { if (process.env.E2E_STACK) console.log(e.stack); if (!/Transition was aborted/.test(e.message)) errs.push(e.message); }); // เบราว์เซอร์ยกเลิกเอฟเฟกต์เปลี่ยนหน้าเมื่อไปหน้าถัดไประหว่างเล่น: ไม่ใช่ error ของเว็บ
+  await page.addInitScript(first => { try { localStorage.setItem('onb', '1'); localStorage.setItem('whatsnew:2026-11-code', '1'); if (!first) localStorage.setItem('codeRepoAsk', '1'); } catch {} }, !!extra.firstCode);
   if (extra.init) await page.addInitScript(extra.init); // เช่น จำลองแอป Desktop (window.astraDesktop)
   await page.route('**/*', r => {
     const q = r.request(), u = new URL(q.url()); if (u.hostname !== 't.test') return r.abort();
@@ -64,6 +66,14 @@ async function open(url, extra = {}) {
   return { page, errs, calls };
 }
 const FLOWS = [
+  ['Code first visit: asks to connect a repo, one tap on a repo clones it; Code hides an IMAGE line that follows a thinking marker', async () => {
+    const { page, errs, calls } = await open('/code', { firstCode: true, '/api/github': { connected: true, login: 'me' }, '/api/github/repos': [{ full_name: 'me/shop', branch: 'main', private: true, description: 'ร้านค้า' }], '/api/projects': q => q.method() === 'POST' ? { id: 31 } : [], '/api/projects/31': { id: 31, name: 'shop', instructions: '', gh: { repo: 'me/shop', branch: 'main' }, files: [{ path: 'index.html', content: '<h1>x</h1>' }] } });
+    const title = await page.locator('.sheet-h b').innerText().catch(() => '');
+    await page.click('[data-repo="me/shop"]'); await page.waitForTimeout(800);
+    const link = calls.find(c => c.p === '/api/projects/31/github'), pull = calls.find(c => c.p === '/api/projects/31/github/pull');
+    const hidden = await page.evaluate(() => stripTools('ok\n\u2063\u2063IMAGE a voxel hill -> images/a.jpg\nต่อ'));
+    return [!errs.length || errs.join(' | '), /GitHub repo/.test(title) || 'no first-visit sheet: ' + title, /"repo":"me\/shop"/.test(link?.body || '') || 'repo not linked', !!pull || 'not pulled', !/IMAGE/.test(hidden) || 'IMAGE line shown'];
+  }],
   ['send a chat message and see the streamed answer', async () => {
     const { page, errs, calls } = await open('/chat');
     await page.fill('#t', 'สวัสดี'); await page.click('#go'); await page.waitForTimeout(800);
@@ -400,8 +410,8 @@ const FLOWS = [
     return [!errs.length || errs.join(' | '), !!pay || 'no /api/pay call', /name="plan_id"[\s\S]*2/.test(pay?.body || '') || 'plan id missing'];
   }],
 ];
-for (const [name, fn] of FLOWS) {
-  let res; try { res = await fn(); } catch (e) { res = [e.message.split('\n')[0]]; }
+for (const [name, fn] of FLOWS.filter(([n]) => !ONLY || ONLY.test(n))) {
+  let res; try { res = await fn(); } catch (e) { if (process.env.E2E_STACK) console.log(e.stack); res = [e.message.split("\n")[0]]; }
   const bad = res.filter(x => x !== true); if (bad.length) failed++;
   console.log(`${bad.length ? 'FAIL' : 'ok  '} flow: ${name}${bad.length ? '  ' + bad.join(' · ') : ''}`);
 }

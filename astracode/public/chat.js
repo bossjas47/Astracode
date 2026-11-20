@@ -1373,7 +1373,7 @@ function imgSizeSheet() {
     d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { try { localStorage.setItem('imgSize', b.dataset.v); } catch { /* ไม่มีที่เก็บ */ } close(); modelUI(); toast('ขนาดภาพ: ' + IMG_SIZES[b.dataset.v][1], 'ok'); });
   });
 }
-// ---------- Connectors ในแชต: เปิด/ปิดชั่วคราว (จำไว้ต่อเครื่อง) · ขออนุญาตก่อนแก้/ส่งข้อมูล ----------
+// ---------- Connectors ในแชต: เปิด/ปิดชั่วคราว (จำไว้ต่อเครื่อง) · ขออนุญาตเฉพาะเครื่องมือที่ผู้ใช้ตั้ง "ถามก่อน" ----------
 const mcpOff = () => { try { return JSON.parse(localStorage.getItem('mcpOff') || '[]').filter(Number.isInteger); } catch { return []; } };
 async function connInChat() {
   const d = await api('/connectors').catch(x => { toast(x.message, 'bad'); return null; }); if (!d) return;

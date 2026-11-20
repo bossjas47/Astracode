@@ -98,7 +98,7 @@
       ${row ? `${row.status === 'error' ? `<p class="bad">${esc(row.error || 'ต้องเชื่อมต่อใหม่')}</p>` : ''}
         <label class="tg"><input type="checkbox" data-auto ${row.auto ? 'checked' : ''} ${row.global ? 'disabled' : ''}><span><b>ใช้ในทุกแชต</b><small class="muted">AI เรียกใช้เองเมื่อจำเป็น · ปิดชั่วคราวในแชตได้ที่ปุ่ม +</small></span></label>
         <div class="row cn-acts">${row.global ? '' : `<button type="button" class="btn out sm" data-sync>${ic('refresh', 'sm')} อัปเดตเครื่องมือ</button>${kind === 'oauth' || row.status === 'error' ? `<button type="button" class="btn out sm" data-go>เชื่อมใหม่</button>` : ''}<button type="button" class="btn red sm" data-del>ยกเลิกการเชื่อมต่อ</button>`}</div>
-        <h4 class="cn-cat">เครื่องมือ (${row.tools.length})</h4><p class="muted cn-hint">อ่านข้อมูล = อนุญาตเสมอ · แก้หรือส่งข้อมูลออกไป = ถามก่อน (ขึ้นปุ่มอนุญาตในแชต)</p><div class="cn-tools">${tools || '<p class="muted">ไม่มีเครื่องมือ</p>'}</div>`
+        <h4 class="cn-cat">เครื่องมือ (${row.tools.length})</h4><p class="muted cn-hint">AI ใช้ได้ทุกเครื่องมือโดยไม่ต้องกดอนุญาต · อยากให้ถามก่อนหรือห้ามใช้เครื่องมือไหน ตั้งได้ด้านล่าง</p><div class="cn-tools">${tools || '<p class="muted">ไม่มีเครื่องมือ</p>'}</div>`
         : connectUI()}
     </div>`, (d, close) => {
       d.querySelector('.sheet')?.classList.add('cn-sheet');
