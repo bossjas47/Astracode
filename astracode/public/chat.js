@@ -42,8 +42,50 @@ let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ค�
 function stopRun() { if (chat.enhancing) return chat.enhancing.abort(); if (chat.id) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id }) }).catch(() => {}); chat.ctrl?.abort(); }
 // สลับแชตโดยไม่โหลดหน้าใหม่
 function openChat(id, space = null) { chat.spaceId = id ? null : space; chat.spaceName = chat.spaceId ? chat.folders?.find(f => f.id === space)?.name || 'this space' : null; if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
-addEventListener('popstate', () => { if (pageName() === 'chat') chatView(qs().get('id')); });
 PAGES.chat = () => chatView(qs().get('id'));
+PAGES.code = () => switchMode('code', here(), true);
+// ---------- Chat กับ Code อยู่ในหน้าเดียว: แถบข้างเดียวกัน ฝั่งขวาสลับระหว่างแชต (.main) กับโหมด Code (#cmain) ไม่โหลดหน้าใหม่ ----------
+// แชตที่กำลังตอบยังตอบต่อขณะอยู่โหมด Code (แค่ซ่อนไว้) · โค้ดโหมด Code (code.js) และตัวแก้โค้ด (cm.js) โหลดเมื่อใช้ครั้งแรก
+const prefetch = href => { const l = document.createElement('link'); l.rel = 'prefetch'; l.as = 'script'; l.href = href; document.head.append(l); };
+const loadJs = src => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('โหลดไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองใหม่')); document.head.append(s); });
+let codeJs = null;
+const loadCode = () => typeof codeDispatch === 'function' ? Promise.resolve() : (codeJs ||= loadJs('/code.js').catch(x => { codeJs = null; throw x; }));
+const curMode = () => document.body.dataset.page === 'code' ? 'code' : 'chat';
+function openSide() { const side = $('#side'); if (!side || side.classList.contains('open')) return; side.classList.add('open'); const s = document.createElement('div'); s.className = 'shade'; s.onclick = closeSide; side.parentElement.append(s); }
+function closeSide() { $('#side')?.classList.remove('open'); document.querySelector('.chat > .shade')?.remove(); }
+// path = ที่อยู่ที่จะเปิด (เช่น /code?p=3) · ไม่ใส่ = กลับไปหน้าที่เปิดค้างไว้ของโหมดนั้น · pop = มาจากปุ่มย้อนกลับ (ไม่เพิ่มประวัติ)
+async function switchMode(mode, path, pop) {
+  if (!$('#cmain')) { document.body.dataset.page = mode; await chatView(mode === 'chat' ? qs().get('id') : null); }
+  const host = $('#cmain'), was = curMode();
+  if (was === 'code' && mode === 'chat') host.dataset.url = location.pathname + location.search;
+  document.body.dataset.page = mode; closeSide();
+  $('#side').querySelectorAll('[data-mode]').forEach(b => { b.classList.toggle('on', b.dataset.mode === mode); b.setAttribute('aria-pressed', b.dataset.mode === mode); });
+  $('#paneChat').hidden = mode !== 'chat'; $('#paneCode').hidden = mode !== 'code';
+  app.querySelector('.chat > .main').hidden = mode !== 'chat'; host.hidden = mode !== 'code';
+  if (mode === 'code') $('#canvas').hidden = true;
+  if (mode === 'chat') {
+    document.title = (chat.id && $('#ctl')?.textContent) || 'Chat · ASTRACODE';
+    const want = path ? new URL(path, location.href).searchParams.get('id') : null;
+    if (path && (+want || null) !== chat.id) { if (!pop) setUrl(path); return chatView(want); }
+    if (!pop) setUrl(chat.id ? '/chat?id=' + chat.id : '/chat');
+    return;
+  }
+  drawProjects();
+  const target = path || host.dataset.url || '/code';
+  if (!pop && target !== location.pathname + location.search) setUrl(target);
+  if (!path && host.childElementCount) return; // กลับมาที่หน้าเดิมที่เปิดค้างไว้ (ตัวแก้โค้ด / หน้าเริ่มโปรเจกต์)
+  if (!host.childElementCount) host.innerHTML = '<div class="cs-load"><p class="muted">Loading…</p></div>';
+  try { await loadCode(); } catch (x) { host.innerHTML = `<div class="cs-load"><p class="muted">${esc(x.message)}</p><button class="btn out" onclick="location.reload()">Try again</button></div>`; return; }
+  return codeRoute();
+}
+addEventListener('popstate', () => { if (!$('#cmain')) return; const p = location.pathname; if (p.startsWith('/code')) switchMode('code', p + location.search, true); else if (p === '/chat') switchMode('chat', p + location.search, true); });
+// ลิงก์ /code และ /chat ในหน้านี้ (แถบข้าง, ปุ่มในตัวแก้โค้ด) เปิดในหน้าเดิม
+document.addEventListener('click', e => {
+  const a = e.target.closest?.('a[href]'); if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || a.target || a.hasAttribute('download') || !$('#cmain') || window.DEMO) return;
+  const u = new URL(a.href, location.href); if (u.origin !== location.origin) return;
+  if (u.pathname === '/code' && !u.searchParams.get('remix')) { e.preventDefault(); switchMode('code', u.pathname + u.search); }
+  else if (u.pathname === '/chat' && curMode() === 'code') { e.preventDefault(); switchMode('chat', u.search ? u.pathname + u.search : null); }
+});
 function notice(u) {
   if (u.pct4h >= 100 || u.pctWeek >= 100)
     return `<div class="notice full">ลิมิตเต็ม · รีเซ็ต ${when(u.pct4h >= 100 ? u.reset4h : u.resetWeek)}${me.balance >= 1 ? ' · โมเดลนอกแพลนยังใช้ได้ด้วย Wallet' : ''} <a class="btn blue sm" href="/plans?topup=1">เติมเงิน</a> <a class="btn out sm" href="/plans">Upgrade</a></div>`;
@@ -61,11 +103,12 @@ const curModel = () => $('#model')?.value === 'auto' ? AUTO() : me.models.find(m
 
 async function chatView(id) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  const keep = $('#cmain'); keep?.remove(); // โหมด Code ที่เปิดค้างไว้ อยู่ต่อเมื่อวาดแชตใหม่
   chat = { ...chat, id: id ? +id : null, msgs: id ? await api('/chats/' + id).catch(() => []) : [], busy: false, images: [], files: [], compare: false, cmp: [], agSid: null };
   autoRetry = 0;
   for (const m of chat.msgs) if (typeof m.sources === 'string') try { m.sources = JSON.parse(m.sources); } catch { m.sources = null; }
   const saved = localStorage.getItem('model'), opt = sel => me.models.filter(m => !m.locked).map(m => `<option value="${m.id}" ${String(m.id) === sel ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
-  const sideMode = localStorage.getItem('sideMode') === 'code' ? 'code' : 'chat';
+  const sideMode = curMode();
   app.innerHTML = `<div class="chat view"><aside class="side" id="side">
       <div class="side-top">
         <a class="logo" href="/">AstraCode</a>
@@ -89,7 +132,7 @@ async function chatView(id) {
       </div>
       <div class="side-pane" id="paneCode" ${sideMode === 'code' ? '' : 'hidden'}>
         <a class="side-new" href="/code">${ic('plus', 'sm')}<span>New project</span></a>
-        <nav class="side-nav"><a href="/code">${ic('code')}<span>All projects</span></a></nav>
+        <nav class="side-nav"><button type="button" id="allp">${ic('code')}<span>All projects</span></button></nav>
         <div class="side-sec"><span>Projects</span></div>
         <div class="list" id="plist"><p class="muted" style="padding:8px 12px">Loading…</p></div>
       </div>
@@ -101,7 +144,7 @@ async function chatView(id) {
         </button>
       </div>
     </aside>
-    <div class="main"><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
+    <div class="main" ${sideMode === 'code' ? 'hidden' : ''}><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
       <div class="ctitle"><b id="ctl">Chat</b><small id="ctok"></small></div>
       <button class="lim" id="lim" aria-label="ลิมิตการใช้งาน"></button>
       <a class="icon-btn sm" href="/chat" data-new aria-label="แชตใหม่">${ic('newchat')}</a>
@@ -121,23 +164,21 @@ async function chatView(id) {
       <div class="cv-h"><b>Canvas</b><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">Preview</button><button type="button" data-cv="code">Code</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="btn out sm" id="cv-tc">ส่งไป Code</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
       <div class="cv-b"><iframe id="cv-f" sandbox="allow-scripts allow-modals allow-forms allow-popups" title="Canvas Preview"></iframe><pre id="cv-c" hidden><code></code></pre></div>
     </aside></div>`;
+  const host = keep || Object.assign(document.createElement('div'), { id: 'cmain', className: 'cmain' });
+  if (!keep && !window.DEMO) setTimeout(() => { if (typeof codeDispatch !== 'function') prefetch('/code.js'); }, 3000); // สลับไป Code ได้ทันที
+  host.hidden = sideMode !== 'code'; app.querySelector('.chat').insertBefore(host, $('#canvas'));
   const side = $('#side');
+  $('#allp').onclick = () => { closeSide(); loadCode().then(projectsSheet).catch(x => toast(x.message, 'bad')); };
   side.addEventListener('click', e => { const a = e.target.closest('a[data-chat]'); if (!a) return; e.preventDefault(); openChat(+a.dataset.chat || null); });
-  // แถบข้าง: สลับ Chat / Code (จำไว้ต่อเครื่อง) · ปุ่มปิดบนมือถือ · เมนูบัญชีที่ชื่อผู้ใช้
-  const setMode = mode => {
-    try { localStorage.setItem('sideMode', mode); } catch { /* ไม่มีที่เก็บ */ }
-    side.querySelectorAll('[data-mode]').forEach(b => { b.classList.toggle('on', b.dataset.mode === mode); b.setAttribute('aria-pressed', b.dataset.mode === mode); });
-    $('#paneChat').hidden = mode !== 'chat'; $('#paneCode').hidden = mode !== 'code';
-    if (mode === 'code') drawProjects();
-  };
-  side.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+  // แถบข้าง: สลับ Chat / Code ในหน้าเดียว · ปุ่มปิดบนมือถือ · เมนูบัญชีที่ชื่อผู้ใช้
+  side.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { if (b.dataset.mode !== curMode()) switchMode(b.dataset.mode); else closeSide(); });
   if (sideMode === 'code') drawProjects();
-  $('#sclose').onclick = () => { side.classList.remove('open'); side.parentElement.querySelector('.shade')?.remove(); };
+  $('#sclose').onclick = closeSide;
   $('#acct').onclick = e => { e.stopPropagation(); acctMenu($('#acct'), side); };
   { const op = qs().get('open'); if (op === 'bin') binSheet(); else if (op === 'saved') bookmarksSheet(); } // ลิงก์จากตั้งค่าของหน้าอื่น
-  $('#menu').onclick = () => { side.classList.add('open'); const s = document.createElement('div'); s.className = 'shade'; s.onclick = () => { side.classList.remove('open'); s.remove(); }; side.parentElement.append(s); }; // ใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
+  $('#menu').onclick = openSide; // เงาใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
-  if (!window.DEMO && !id) try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
+  if (!window.DEMO && !id && sideMode === 'chat') try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
     if (!localStorage.getItem('onb')) { localStorage.setItem('onb', '1');
       sheet('เริ่มใช้ AstraCode', `<div class="sheet-form"><p class="sheet-msg"><b>1. เลือกโมเดลหรือปล่อย Auto</b><br>Auto เลือกโมเดลที่คุ้มสุดให้ตามความยากของคำถาม เปลี่ยนเองได้ที่ปุ่มชื่อโมเดล</p>
         <p class="sheet-msg"><b>2. พิมพ์ / เพื่อใช้ Skill</b><br>เช่น /translator /summarizer /code-reviewer ให้ AI ทำงานตามบทบาทนั้น</p>

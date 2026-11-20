@@ -8,7 +8,7 @@ const PAGES = {
   home: ['home', 'AstraCode — AI ทุกตัว ในมือถือเครื่องเดียว', [], DESC, true], // หน้าแรก: เปิดที่ / (ไฟล์ชื่อ home.html)
   login: ['login', 'เข้าสู่ระบบ · AstraCode', [], 'เข้าสู่ระบบหรือสมัคร AstraCode ฟรี ด้วยอีเมล Google หรือ LINE', true],
   chat: ['chat', 'แชต · AstraCode', ['chat.js'], DESC, false],
-  code: ['code', 'Code · AstraCode', ['cm.js', 'code.js'], DESC, false],
+  code: ['code', 'Code · AstraCode', ['chat.js', 'code.js'], DESC, false],
   plans: ['plans', 'แพลนและราคา · AstraCode', ['shop.js'], 'แพลนรายเดือนและรายปีของ AstraCode ลิมิตแสดงเป็น % ทุก 4 ชั่วโมงและรายสัปดาห์ จ่ายผ่าน PromptPay', true],
   account: ['account', 'บัญชี · AstraCode', ['account.js'], DESC, false],
   admin: ['admin', 'หลังบ้าน · AstraCode', ['admin.js'], DESC, false],

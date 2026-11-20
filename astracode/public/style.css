@@ -1631,7 +1631,7 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .sheet .btn.out:hover { background-color: rgba(var(--ov), .06); }
 
 /* Code: หน้าเริ่มโปรเจกต์ใหม่ (แบบ Claude Code) */
-.cstart { min-height: calc(100dvh - 64px); display: flex; align-items: center; justify-content: center; padding-top: 24px; padding-bottom: 48px; }
+.cstart { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px 16px 48px; }
 .cs-in { width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 16px; }
 .cs-h { margin: 0; text-align: center; font: 500 clamp(26px, 5vw, 34px)/1.3 var(--display); letter-spacing: -.01em; }
 .cs-box.cbox { display: block; background: var(--carbon); border: 1px solid var(--hair); border-radius: 22px; padding: 8px 10px 10px; box-shadow: 0 6px 24px rgba(31, 26, 22, .08); backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -1651,3 +1651,13 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .view.with-side .cs-box textarea, .view.with-side .cs-box textarea:focus { border: 0; background: transparent; box-shadow: none; outline: none; padding: 8px 8px 4px; border-radius: 0; }
 .cs-box:focus-within { border-color: var(--steel); }
 .cs-in .err:empty { display: none; }
+
+/* Chat + Code ในหน้าเดียว: ฝั่งขวาของโหมด Code */
+.cmain { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; background: var(--obsidian); }
+.cmain > .ide { position: absolute; inset: 0; }
+.cs-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.cs-bar { border-bottom: 0; }
+.cs-bar .ctitle { flex: 1; }
+.cs-load { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; }
+.cmain .cs-box textarea, .cmain .cs-box textarea:focus { border: 0; background: transparent; box-shadow: none; outline: none; padding: 8px 8px 4px; border-radius: 0; }
+.side-nav button { width: 100%; }

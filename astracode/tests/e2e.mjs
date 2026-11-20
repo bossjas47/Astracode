@@ -200,9 +200,10 @@ const FLOWS = [
   ['phone: new sidebar switches to Code projects; the account menu and settings keep plans, top-up, API, desktop app, pricing and support', async () => {
     const { page, errs } = await open('/chat', { '/api/projects': [{ id: 7, name: 'โปรเจกต์ทดสอบ', updated_at: Date.now(), files: 3, shared: 0 }] });
     await page.click('#menu'); await page.waitForTimeout(200);
-    await page.click('[data-mode=code]'); await page.waitForTimeout(300);
+    await page.click('[data-mode=code]'); await page.waitForTimeout(800); // Code เปิดในหน้าเดียวกัน แถบข้างปิดเอง
+    await page.click('#cmain [data-side]'); await page.waitForTimeout(300);
     const proj = await page.locator('#plist a[href="/code?p=7"]').count();
-    await page.click('[data-mode=chat]'); await page.click('#acct'); await page.waitForTimeout(200);
+    await page.click('[data-mode=chat]'); await page.waitForTimeout(300); await page.click('#menu'); await page.waitForTimeout(200); await page.click('#acct'); await page.waitForTimeout(200);
     const menu = await page.locator('.acct-pop').innerText().catch(() => '');
     await page.click('[data-ap=settings]'); await page.waitForTimeout(200);
     const hrefs = await page.$$eval('.sheet-bg a.opt', as => as.map(a => a.getAttribute('href')));
@@ -308,6 +309,19 @@ const FLOWS = [
     const back = await page.evaluate(() => ({ same: window.__same, home: !!document.querySelector('#nt'), url: location.pathname + location.search }));
     return [!errs.length || errs.join(' | '), /"template":"starter"/.test(make?.body || '') || 'no project created: ' + make?.body, /"name":"เว็บร้านกาแฟ/.test(make?.body || '') || 'name not from prompt: ' + make?.body,
       st.same === 1 || 'page reloaded', st.url === '/code?p=7' || 'url ' + st.url, st.ide || 'editor not open', /ร้านกาแฟ/.test(send?.body || '') || 'prompt not sent to AI', pick.m && pick.plus || 'no model/tools buttons', eff || 'no effort for a thinking model', tools >= 6 || 'tools sheet has ' + tools, /"model_id":2/.test(send?.body || '') || 'picked model not used', back.same === 1 && back.home && back.url === '/code' || 'back to New project failed: ' + JSON.stringify(back)];
+  }],
+  ['Chat and Code share one page: switching never reloads, and an open project is still there when coming back', async () => {
+    const { page, errs } = await open('/chat', { '/api/projects': q => q.method() === 'POST' ? { id: 7 } : [], '/api/projects/7': { id: 7, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] } });
+    await page.evaluate(() => { window.__same = 1; document.querySelector('[data-mode="code"]').click(); }); await page.waitForTimeout(1200);
+    const a = await page.evaluate(() => ({ url: location.pathname, composer: !!document.querySelector('#cmain:not([hidden]) #nt'), chatHidden: document.querySelector('.chat > .main').hidden }));
+    await page.fill('#nt', 'เว็บทดสอบ'); await page.click('#ngo'); await page.waitForTimeout(1500);
+    await page.evaluate(() => document.querySelector('.dr-exit').click()); await page.waitForTimeout(400);
+    const b = await page.evaluate(() => ({ url: location.pathname, chat: !document.querySelector('.chat > .main').hidden, kept: !!document.querySelector('#cmain[hidden] .ide') }));
+    await page.evaluate(() => document.querySelector('[data-mode="code"]').click()); await page.waitForTimeout(400);
+    const c = await page.evaluate(() => ({ same: window.__same, url: location.pathname + location.search, ide: !!document.querySelector('#cmain:not([hidden]) .ide') }));
+    await page.goBack(); await page.waitForTimeout(400); const d = await page.evaluate(() => location.pathname + ' ' + !document.querySelector('.chat > .main').hidden);
+    return [!errs.length || errs.join(' | '), a.url === '/code' && a.composer && a.chatHidden || 'Code did not open: ' + JSON.stringify(a), b.url === '/chat' && b.chat && b.kept || 'back to chat failed: ' + JSON.stringify(b),
+      c.same === 1 || 'page reloaded', c.url === '/code?p=7' && c.ide || 'project not kept: ' + JSON.stringify(c), d === '/chat true' || 'browser back: ' + d];
   }],
   ['page audit finds missing title, alt and viewport, and passes a clean page', async () => {
     const { page, errs } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<html><body><img src="a.png"><h1>x</h1></body></html>' }] } });

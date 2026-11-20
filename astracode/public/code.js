@@ -1,5 +1,8 @@
 // AstraCode: โหมด Code ใช้ตัวแปรกลางจาก app.js
-PAGES.code = () => qs().get('remix') ? codeRemix(qs().get('remix')) : qs().get('p') ? codeView(qs().get('p')) : codeHome();
+// เปิดในหน้าเดียวกับแชต (chat.js: switchMode) · วาดลงฝั่งขวา #cmain ข้างแถบข้าง
+function codeDispatch() { return qs().get('remix') ? codeRemix(qs().get('remix')) : qs().get('p') ? codeView(qs().get('p')) : codeHome(); }
+const codeHost = () => $('#cmain') || app;
+const needCM = () => (window.CM ? Promise.resolve() : (window.cmJs ||= loadJs('/cm.js').catch(x => { window.cmJs = null; throw x; }))).then(() => { if (!wrap) { wrap = new CM.Compartment(); ghostC = new CM.Compartment(); } }); // ตัวแก้โค้ด (ใหญ่) โหลดเมื่อเปิดโปรเจกต์ครั้งแรก
 // เปิดจากปุ่ม Remix ในหน้าที่แชร์ (/p/...) หรือแกลเลอรี: คัดลอกเป็นโปรเจกต์ของเรา แล้วเปิดเลย
 async function codeRemix(t) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
@@ -34,7 +37,7 @@ async function codeHome() {
   document.title = 'Code · ASTRACODE';
   let tpl = 'auto';
   const tplName = () => TPLS.find(x => x[0] === tpl)[1];
-  page(nav() + `<div class="wrap cstart"><div class="cs-in">
+  const host = codeHost(); host.innerHTML = `<div class="cs-wrap"><div class="bar cs-bar"><button class="menu-btn" type="button" data-side aria-label="เมนู">${ic('menu')}</button><div class="ctitle"><b>Code</b></div><button class="lim" data-lim aria-label="ลิมิตการใช้งาน">${limHTML(me.usage || {})}</button></div><div class="cstart"><div class="cs-in">
     <h1 class="cs-h">What should we build?</h1>
     <form class="cbox cs-box" id="nf"><textarea id="nt" rows="3" placeholder="อธิบายสิ่งที่อยากสร้าง เช่น เว็บร้านกาแฟ มีเมนูและปุ่มสั่งซื้อ" aria-label="สิ่งที่อยากสร้าง" maxlength="4000"></textarea>
       <div id="nflags" class="cflags"></div>
@@ -42,14 +45,16 @@ async function codeHome() {
         <button class="send" id="ngo" aria-label="เริ่มสร้าง">${ic('up')}</button></div>
       <select id="nmodel" hidden>${me.models.filter(m => !m.locked).map(m => `<option value="${m.id}" ${String(m.id) === localStorage.getItem('model') ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
       <select id="neffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></form>
-    <div class="err" id="e"></div>
+    <div class="err" id="ne"></div>
     <div class="cs-ideas">${CODE_IDEAS.map(([l, t]) => `<button type="button" class="cs-idea" data-idea="${esc(t)}">${esc(l)}</button>`).join('')}</div>
     <p class="cs-foot"><button type="button" class="linkish" id="nempty">Start with an empty editor</button> · <button type="button" class="linkish" id="nall">All projects</button><span id="ngal"></span></p>
-  </div></div>`);
+  </div></div></div>`;
+  host.querySelector('[data-side]').onclick = () => openSide(); host.querySelector('[data-lim]').onclick = limitSheet;
+  if (!window.CM && !window.DEMO) setTimeout(() => prefetch('/cm.js'), 1500); // ตัวแก้โค้ดพร้อมก่อนกดส่ง
   const ta = $('#nt'), grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 260) + 'px'; };
   ta.oninput = grow; if (!isPhone()) ta.focus();
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isPhone()) { e.preventDefault(); $('#nf').requestSubmit(); } };
-  app.querySelectorAll('[data-idea]').forEach(b => b.onclick = () => { ta.value = b.dataset.idea; grow(); ta.focus(); });
+  host.querySelectorAll('[data-idea]').forEach(b => b.onclick = () => { ta.value = b.dataset.idea; grow(); ta.focus(); });
   // โมเดล / ระดับความคิด / เครื่องมือ: ใช้ค่าเดียวกับกล่อง AI ในตัวแก้โค้ด (จำไว้ต่อเครื่อง)
   const curM = () => me.models.find(x => x.id === +$('#nmodel').value) || me.models.find(x => !x.locked) || me.models[0];
   const ui = () => {
@@ -101,11 +106,11 @@ async function codeHome() {
   };
   $('#nf').onsubmit = async e => {
     e.preventDefault(); const t = ta.value.trim(); if (!t) return ta.focus();
-    const btn = $('#ngo'); btn.disabled = true; $('#e').textContent = '';
+    const btn = $('#ngo'); btn.disabled = true; $('#ne').textContent = '';
     try { await create({ name: nameFor(t), template: tpl === 'auto' ? tplFor(t) : tpl }, t); }
-    catch (x) { $('#e').textContent = x.message; btn.disabled = false; }
+    catch (x) { $('#ne').textContent = x.message; btn.disabled = false; }
   };
-  $('#nempty').onclick = async e => { e.target.disabled = true; try { await create({ name: 'โปรเจกต์ใหม่', template: tpl === 'auto' ? 'starter' : tpl }); } catch (x) { $('#e').textContent = x.message; e.target.disabled = false; } };
+  $('#nempty').onclick = async e => { e.target.disabled = true; try { await create({ name: 'โปรเจกต์ใหม่', template: tpl === 'auto' ? 'starter' : tpl }); } catch (x) { $('#ne').textContent = x.message; e.target.disabled = false; } };
   $('#nall').onclick = projectsSheet;
   const openLocal = async () => { // โปรเจกต์ใหม่ที่ผูกกับโฟลเดอร์ในเครื่อง: ไฟล์ในโฟลเดอร์ขึ้นมาเป็นไฟล์ในโปรเจกต์
     try {
@@ -113,7 +118,7 @@ async function codeHome() {
       const l = await DESK.link('p:' + id).catch(x => { toast(x.message, 'bad'); return null; });
       if (!l) { await api('/projects/' + id, { method: 'DELETE' }); return; }
       await api('/projects/' + id, { method: 'PUT', body: { name: l.name.slice(0, 60) } }); delete sideCache.code; openProject(id);
-    } catch (x) { $('#e').textContent = x.message; }
+    } catch (x) { $('#ne').textContent = x.message; }
   };
   api('/gallery').then(g => { if (g.length && $('#ngal')) { $('#ngal').innerHTML = ' · <button type="button" class="linkish" id="ngalb">Gallery</button>'; $('#ngalb').onclick = () => gallerySheet(g); } }).catch(() => {});
 }
@@ -160,7 +165,7 @@ async function cloneSheet() {
     };
   });
 }
-// ลิงก์ /code ทั้งหมดในหน้านี้ (แถบข้าง, ปุ่ม New project, ‹ Projects) เปิดในหน้าเดิม · ปุ่มย้อนกลับของเบราว์เซอร์ใช้ได้
+// ออกจากตัวแก้โค้ด (ไป New project / โปรเจกต์อื่น): หยุดคำตอบที่ค้าง บันทึกไฟล์ ปิดตัวรัน
 function leaveIDE() {
   if (!IDE.pid) return;
   if (IDE.busy) codeStop();
@@ -170,16 +175,7 @@ function leaveIDE() {
   document.querySelector('.tmenu')?.remove(); document.querySelector('.sheet-bg')?.remove();
   IDE.pid = null;
 }
-function codeRoute() { leaveIDE(); document.querySelector('.shade')?.remove(); return PAGES.code(); }
-if (!window.DEMO) {
-  document.addEventListener('click', e => {
-    const a = e.target.closest?.('a[href^="/code"]'); if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || a.target) return;
-    const u = new URL(a.href, location.href); if (u.searchParams.get('remix')) return;
-    e.preventDefault(); if (u.pathname + u.search === location.pathname + location.search && !IDE.pid) return codeRoute();
-    setUrl(u.pathname + u.search); codeRoute();
-  });
-  addEventListener('popstate', () => { if (location.pathname.startsWith('/code')) codeRoute(); });
-}
+function codeRoute() { leaveIDE(); return codeDispatch(); }
 
 // ---------- ตัวแก้โค้ด ----------
 const edLight = () => document.documentElement.dataset.theme === 'light';
@@ -205,7 +201,7 @@ const edTheme = () => edLight() ? CM.EditorView.theme({ // ธีมขาว: �
   '.cm-panels': { backgroundColor: '#1a1f2e', color: '#e6ebff' },
   '.cm-ghost': { color: '#5f6b8c', cursor: 'pointer' },
 }, { dark: true });
-const wrap = new CM.Compartment(), ghostC = new CM.Compartment();
+let wrap, ghostC; // สร้างหลังโหลด cm.js (needCM)
 // เติมโค้ดอัตโนมัติ: AI เดาต่อจากเคอร์เซอร์ (Tab หรือแตะข้อความเทาเพื่อรับ)
 const ghostExt = () => localStorage.getItem('ghost') === '0' || window.DEMO ? [] : CM.ghost((prefix, suffix) => api('/complete', { method: 'POST', body: { prefix, suffix, path: IDE.active } }).then(r => r.text));
 function extensions(path) {
@@ -532,7 +528,7 @@ function runPython(main) {
   log('info', `▶ python ${main}`);
   IDE.worker.postMessage({ main, files: [...IDE.files.keys()].map(p => ({ path: p, content: content(p) })) });
 }
-function stopRun() {
+function stopCode() {
   if (IDE.local) DESK.kill();
   if (IDE.node?.jobs.size) { for (const j of IDE.node.jobs.values()) j({ code: 130, stdout: '', stderr: 'หยุดแล้ว (ต้องติดตั้งแพ็กเกจใหม่)', files: [] }); IDE.node.f.remove(); IDE.node = null; termOut('■ หยุดแล้ว\n', 'err'); }
   if (IDE.worker && IDE.running) { IDE.worker.terminate(); IDE.worker = null; IDE.running = false; log('warn', '■ หยุดแล้ว'); $('#run-status').textContent = 'หยุดแล้ว'; }
@@ -1575,13 +1571,13 @@ async function gitPanel() {
 // ---------- หน้าหลักโหมด Code ----------
 async function codeView(id, prompt) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
-  const d = await api('/projects/' + id);
+  const [d] = await Promise.all([api('/projects/' + id), needCM()]);
   IDE.node?.f.remove(); IDE.node = null; // เทอร์มินัลของโปรเจกต์ก่อน
   Object.assign(IDE, { pid: d.id, name: d.name, instructions: d.instructions || '', gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,
     dirty: new Set(), filter: '', recent: (() => { try { return JSON.parse(localStorage.getItem('recent:' + d.id) || '[]'); } catch { return []; } })(), msgs: [], chatId: null, busy: false, logs: [], frame: null });
   if (IDE.worker) { IDE.worker.terminate(); IDE.worker = null; }
   const saved = localStorage.getItem('model');
-  app.innerHTML = `<div class="ide view" data-pane="code">
+  codeHost().innerHTML = `<div class="ide view" data-pane="code">
     <header class="ide-bar"><button type="button" class="icon-btn sm ide-burger" id="burger" aria-label="เมนูไฟล์" aria-expanded="false">${ic('menu')}</button><a class="icon-btn sm ide-back" href="/code" aria-label="กลับไปหน้าโปรเจกต์">‹</a><b class="pname">${esc(d.name)}</b><span id="ide-status" class="muted"></span><span style="flex:1"></span>
       <button class="btn out sm" id="srvb" hidden></button><button class="btn out sm" id="localb" hidden title="ไฟล์ในโปรเจกต์ = ไฟล์จริงในโฟลเดอร์นี้ · RUN รันในเครื่อง"></button><button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} Run</button></header>
     <div class="ide-body">
@@ -1640,7 +1636,7 @@ async function codeView(id, prompt) {
   document.querySelectorAll('[data-dr]').forEach(b => b.onclick = () => { const k = b.dataset.dr; if (k === 'files') return; drawer(false); if (k === 'ai') openAI(true); else if (k === 'find') $('#gfind').click(); else if (k === 'git') $('#git').click(); });
   $('.ide-files').addEventListener('click', e => { if (e.target.closest('.dr-back, .dr-exit, .dr-tabs a')) drawer(false); });
   $('#term-f').onsubmit = async e => { e.preventDefault(); const i = $('#term-i'), cmd = i.value.trim(); if (!cmd || IDE.termBusy) return; i.value = ''; IDE.termBusy = true; try { await nodeRun(cmd); } finally { IDE.termBusy = false; i.focus(); } };
-  $('#run').onclick = run; $('#git').onclick = () => gitPanel(); $('#stop').onclick = stopRun; $('#clr').onclick = () => { IDE.logs = []; $('#console').innerHTML = ''; };
+  $('#run').onclick = run; $('#git').onclick = () => gitPanel(); $('#stop').onclick = stopCode; $('#clr').onclick = () => { IDE.logs = []; $('#console').innerHTML = ''; };
   $('#hiderun').onclick = () => { $('.ide').classList.remove('run-full'); $('#rfull')?.classList.remove('on'); showRun(false); setPane('code'); };
   document.querySelectorAll('[data-rtab]').forEach(b => b.onclick = () => runTab(b.dataset.rtab));
   // แบ่งจอบนมือถือ: โค้ดด้านบน ผลลัพธ์ด้านล่าง (จำค่าไว้)
