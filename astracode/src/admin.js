@@ -337,10 +337,10 @@ export async function admin(req, env, path, url, me) {
       DB.prepare(`SELECT u.id,u.email,pl.name plan,
         COALESCE((SELECT SUM(cost) FROM usage WHERE user_id=u.id AND created_at>=?1),0) cost,
         COALESCE((SELECT SUM(amount) FROM payments WHERE user_id=u.id AND kind='plan' AND status='approved' AND COALESCE(approved_at,created_at)>=?1),0) rev_plan,
-        COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE user_id=u.id AND kind IN ('api','overflow','agentpack') AND created_at>=?1),0) rev_wallet
+        COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE user_id=u.id AND kind IN ('api','overflow','agentpack','wallet') AND created_at>=?1),0) rev_wallet
         FROM users u LEFT JOIN plans pl ON pl.id=u.plan_id AND u.plan_expires>?2
         WHERE EXISTS (SELECT 1 FROM usage WHERE user_id=u.id AND created_at>=?1) OR EXISTS (SELECT 1 FROM payments WHERE user_id=u.id AND status='approved' AND created_at>=?1)`).bind(from, now).all(),
-      DB.prepare(`SELECT COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack') AND created_at>=?1),0) charges,
+      DB.prepare(`SELECT COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND created_at>=?1),0) charges,
         COALESCE((SELECT SUM(cost) FROM usage WHERE units=0 AND model_id>0 AND created_at>=?1),0) api_cost,
         COALESCE((SELECT SUM(amount) FROM payments WHERE kind='topup' AND status='approved' AND COALESCE(approved_at,created_at)>=?1),0) topups,
         COALESCE((SELECT SUM(balance) FROM users WHERE balance>0),0) liability`).bind(from).first(),
@@ -352,11 +352,11 @@ export async function admin(req, env, path, url, me) {
       DB.prepare('SELECT g.model_id id, md.name, COUNT(*) n, COALESCE(SUM(g.cost),0) cost, COALESCE(SUM(g.tokens_in),0) tin, COALESCE(SUM(g.tokens_out),0) tout, COALESCE(SUM(g.tokens_cache),0) tcache FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? AND g.model_id>0 GROUP BY g.model_id ORDER BY cost DESC').bind(from).all(),
       DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(SUM(cost),0) cost FROM usage WHERE created_at>=? GROUP BY d`).bind(from).all(),
       DB.prepare(`SELECT ${dayOf('COALESCE(approved_at,created_at)')} d, COALESCE(SUM(amount),0) rev FROM payments WHERE kind='plan' AND status='approved' AND COALESCE(approved_at,created_at)>=? GROUP BY d`).bind(from).all(),
-      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(-SUM(amount),0) rev FROM wallet_tx WHERE kind IN ('api','overflow','agentpack') AND created_at>=? GROUP BY d`).bind(from).all(),
+      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(-SUM(amount),0) rev FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND created_at>=? GROUP BY d`).bind(from).all(),
     ]);
     const dayMap = new Map(); const put = (rows, k) => rows.results.forEach(r => { const o = dayMap.get(r.d) || { d: r.d, cost: 0, rev: 0 }; o[k] += r[k]; dayMap.set(r.d, o); }); put(pd, 'cost'); put(pr, 'rev'); put(pw, 'rev');
     const daily = [...dayMap.values()].sort((a, b) => b.d - a.d).slice(0, 60).map(x => ({ ...x, date: new Date(x.d * DAY).toISOString().slice(0, 10), profit: x.rev - x.cost }));
-    return json({ days, total: { rev, cost, profit: rev - cost }, plans: plans.results, wallet: w, users: us.slice(0, 100), losers: us.filter(x => x.profit < 0).length, models: pm.results, daily });
+    return json({ days, total: { rev, cost, profit: rev - cost }, plans: plans.results, wallet: w, users: us.slice(0, 100), losers: us.filter(x => x.profit < 0).length, models: pm.results, daily, forecast: await profitForecast(env, now) });
   }
   if (path === '/api/admin/export') { // CSV สำหรับทำบัญชี (เปิดใน Excel ภาษาไทยได้)
     const type = url.searchParams.get('type'), days = Math.min(3650, Math.max(1, +url.searchParams.get('days') || 31)), from = Date.now() - days * DAY;
@@ -683,4 +683,43 @@ async function agentBench(env, me, m) {
     } catch (x) { detail.push('✕ ' + task.slice(0, 24) + ' (' + String(x.message).slice(0, 60) + ')'); }
   }
   return { name: m.name, score, of: BENCH_TASKS.length, ms: Date.now() - t0, cost: Math.round(cost * 1e4) / 1e4, detail };
+}
+
+// คาดการณ์ทั้งเดือน + ผู้ใช้แพลนที่อาจขาดทุนก่อนแพลนหมด
+// แพลนจ่ายล่วงหน้าทั้งรอบ แต่ต้นทุนทยอยเกิดทุกวัน: กำไรช่วงต้นรอบจึงดูดีเกินจริง
+// ต้นทุนต่อวันของแต่ละคน = ต้นทุนที่หักลิมิต (units>0) ใน 7 วันล่าสุด ÷ จำนวนวันที่ใช้จริง · ไม่เกินเพดานลิมิตรายสัปดาห์ (limit_week ÷ 7 ต่อวัน, ตัวคูณ 1)
+export async function profitForecast(env, now = Date.now()) {
+  const DB = env.DB, d = new Date(now + BKK), mStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) - BKK, mEnd = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - BKK;
+  const win = 3 * DAY, since7 = now - 7 * DAY;
+  const [m, r, subs] = await Promise.all([
+    DB.prepare(`SELECT
+      COALESCE((SELECT SUM(cost) FROM usage WHERE created_at>=?1),0) cost,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='plan' AND COALESCE(approved_at,created_at)>=?1),0) plan_rev,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='plan' AND slip_key<>'wallet' AND COALESCE(approved_at,created_at)>=?1),0) plan_cash,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='topup' AND COALESCE(approved_at,created_at)>=?1),0) topups,
+      COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND created_at>=?1),0) wallet_rev`).bind(mStart).first(),
+    DB.prepare(`SELECT COALESCE((SELECT SUM(cost) FROM usage WHERE created_at>=?1),0) cost, COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND created_at>=?1),0) wallet_rev`).bind(now - win).first(),
+    DB.prepare(`SELECT u.id, u.email, pl.name plan, pl.price, pl.limit_week, u.plan_expires,
+      (SELECT amount FROM payments x WHERE x.user_id=u.id AND x.status='approved' AND x.kind='plan' AND x.plan_id=u.plan_id ORDER BY COALESCE(x.approved_at,x.created_at) DESC LIMIT 1) paid,
+      (SELECT COALESCE(x.approved_at,x.created_at) FROM payments x WHERE x.user_id=u.id AND x.status='approved' AND x.kind='plan' AND x.plan_id=u.plan_id ORDER BY COALESCE(x.approved_at,x.created_at) DESC LIMIT 1) paid_at,
+      COALESCE((SELECT SUM(cost) FROM usage g WHERE g.user_id=u.id AND g.units>0 AND g.created_at>=?2),0) cost7,
+      (SELECT MIN(created_at) FROM usage g WHERE g.user_id=u.id AND g.units>0 AND g.created_at>=?2) first7
+      FROM users u JOIN plans pl ON pl.id=u.plan_id WHERE u.banned=0 AND pl.price>0 AND u.plan_expires>?1`).bind(now, since7).all(),
+  ]);
+  const left = Math.max(0, (mEnd - now) / DAY), elapsed = Math.max(1 / 24, (now - mStart) / DAY);
+  const costDay = r.cost / 3, walletDay = r.wallet_rev / 3;
+  const projCost = m.cost + costDay * left, projRev = m.plan_rev + m.wallet_rev + walletDay * left;
+  const people = await Promise.all(subs.results.map(async x => {
+    const start = x.paid_at || x.plan_expires - 30 * DAY, periodLeft = Math.max(0, (x.plan_expires - now) / DAY);
+    const spent = (await DB.prepare('SELECT COALESCE(SUM(cost),0) c FROM usage WHERE user_id=? AND units>0 AND created_at>=?').bind(x.id, start).first()).c;
+    const usedDays = x.first7 ? Math.max(1, (now - x.first7) / DAY) : 7;
+    const cap = x.limit_week / 7, rate = Math.min(x.cost7 / Math.min(7, usedDays), cap);
+    const future = rate * periodLeft, paid = x.paid || 0;
+    return { id: x.id, email: x.email, plan: x.plan, price: x.price, paid, free: !x.paid, spent, rate, days_left: periodLeft, future, total: spent + future, profit: paid - spent - future, worst: paid - spent - cap * periodLeft };
+  }));
+  people.sort((a, b) => a.profit - b.profit);
+  const owed = people.reduce((a, x) => a + x.future, 0), worstOwed = people.reduce((a, x) => a + Math.max(0, x.paid - x.spent - x.worst), 0);
+  return { month: new Date(mStart + BKK).toISOString().slice(0, 7), elapsed, left, so_far: { cost: m.cost, plan_rev: m.plan_rev, wallet_rev: m.wallet_rev, cash_in: m.plan_cash + m.topups, profit: m.plan_rev + m.wallet_rev - m.cost },
+    rate: { cost_day: costDay, wallet_day: walletDay }, proj: { cost: projCost, rev: projRev, profit: projRev - projCost },
+    subs: { n: people.length, owed, worst_owed: worstOwed, at_risk: people.filter(x => x.profit < 0).length }, people: people.slice(0, 15) };
 }

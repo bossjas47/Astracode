@@ -43,6 +43,23 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>', refunded: '<span class="pill">คืนเงินแล้ว</span>' };
+// คาดการณ์ทั้งเดือน (แท็บกำไร): แพลนจ่ายล่วงหน้า ต้นทุนทยอยมา จึงต้องดูต้นทุนที่ยังต้องจ่ายให้ลูกค้าแพลนด้วย
+function forecastHTML(f) {
+  if (!f) return '';
+  const c = v => v < -0.005 ? 'bad' : v > 0.005 ? 'ok' : 'muted', p = f.people || [];
+  return `<section class="panel"><div class="ph"><h2>คาดการณ์เดือน ${esc(f.month)}</h2><span class="muted">ผ่านไป ${f.elapsed.toFixed(1)} วัน · เหลือ ${f.left.toFixed(1)} วัน</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="muted">กำไรถึงตอนนี้</div><div class="stat ${c(f.so_far.profit)}">฿${baht(f.so_far.profit)}</div><div class="kd muted">รายได้ ฿${baht(f.so_far.plan_rev + f.so_far.wallet_rev)} − ต้นทุน ฿${baht(f.so_far.cost)}</div></div>
+      <div class="kpi"><div class="muted">ต้นทุนต่อวันตอนนี้</div><div class="stat">฿${baht(f.rate.cost_day)}</div><div class="kd muted">เฉลี่ย 3 วันล่าสุด · Wallet เข้า ฿${baht(f.rate.wallet_day)}/วัน</div></div>
+      <div class="kpi"><div class="muted">คาดกำไรทั้งเดือน</div><div class="stat ${c(f.proj.profit)}">฿${baht(f.proj.profit)}</div><div class="kd muted">ถ้าใช้เท่า 3 วันล่าสุด · ไม่รวมแพลนที่จะซื้อเพิ่ม</div></div>
+      <div class="kpi"><div class="muted">ต้นทุนที่ยังต้องจ่ายให้ลูกค้าแพลน</div><div class="stat">฿${baht(f.subs.owed)}</div><div class="kd muted">${num(f.subs.n)} คนที่แพลนยังไม่หมด · เสี่ยงขาดทุน <b class="${f.subs.at_risk ? 'bad' : ''}">${num(f.subs.at_risk)}</b> คน</div></div>
+    </div>
+    <p class="muted" style="font-size:12.5px">เงินเข้าจริงเดือนนี้ (สลิป + เติม Wallet ไม่นับแพลนที่ตัดจาก Wallet ซ้ำ) ฿${baht(f.so_far.cash_in)} · ค่าแพลนจ่ายล่วงหน้าทั้งรอบ แต่ต้นทุนทยอยเกิด กำไรช่วงต้นรอบจึงดูสูงกว่าจริง</p>
+    ${p.length ? `<div class="tw"><table class="tbl"><tr><th>ลูกค้าแพลน (เสี่ยงสุดอยู่บน)</th><th>แพลน</th><th>จ่าย</th><th>ใช้ไปแล้ว</th><th>ต่อวัน</th><th>เหลือ</th><th>คาดกำไรจบรอบ</th><th>แย่สุด</th></tr>
+    ${p.map(x => `<tr class="click" data-user="${x.id}"><td>${esc(x.email)}${x.free ? ' <span class="pill">ไม่ได้จ่าย</span>' : ''}</td><td>${esc(x.plan)}</td><td>฿${baht(x.paid)}</td><td>฿${baht(x.spent)}</td><td>฿${baht(x.rate)}</td><td>${x.days_left.toFixed(0)} วัน</td><td class="${c(x.profit)}">฿${baht(x.profit)}</td><td class="${c(x.worst)}">฿${baht(x.worst)}</td></tr>`).join('')}</table></div>
+    <p class="muted" style="font-size:12.5px">คาดกำไร = จ่าย − ใช้ไปแล้ว − (ต้นทุนต่อวัน × วันที่เหลือ) · แย่สุด = ถ้าใช้เต็มลิมิตทุกสัปดาห์จนแพลนหมด (ไม่นับสิทธิ์รีเซ็ตลิมิตที่แจกเพิ่ม)</p>` : ''}
+  </section>`;
+}
 const TABS = [['stats', 'pie', 'ภาพรวม'], ['live', 'activity', 'ต้นทุนสด'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
@@ -331,6 +348,7 @@ const ADMIN = {
         <div class="kpi"><div class="muted">กำไรขั้นต้น</div><div class="stat ${cls(t.profit)}">฿${baht(t.profit)}</div><div class="kd muted">มาร์จิ้น ${pct(t.profit, t.rev)}</div></div>
         <div class="kpi"><div class="muted">ผู้ใช้ที่ขาดทุน</div><div class="stat ${d.losers ? 'bad' : ''}">${num(d.losers)}</div><div class="kd muted">ต้นทุนเกินเงินที่จ่าย</div></div>
       </div>
+      ${forecastHTML(d.forecast)}
       <section class="panel"><div class="ph"><h2>แยกตามแพลน</h2><span class="muted">${days} วัน</span></div>
         <div class="tw"><table class="tbl"><tr><th>แพลน</th><th>สมาชิกตอนนี้</th><th>รายได้</th><th>ต้นทุน</th><th>กำไร</th><th>ต้นทุน/คน</th></tr>
         ${d.plans.map(p => `<tr><td>${esc(p.name)} <span class="muted">${p.price ? '฿' + baht(p.price) : 'ฟรี'}</span></td><td>${num(p.subs)}</td><td>฿${baht(p.rev)}</td><td>฿${baht(p.cost)}</td><td class="${cls(p.rev - p.cost)}">฿${baht(p.rev - p.cost)}</td><td>${p.subs ? '฿' + baht(p.cost / p.subs) : '-'}${p.price && p.subs && p.cost / p.subs > p.price * days / 30 ? ' <span class="bad">เกินค่าแพลน</span>' : ''}</td></tr>`).join('')}</table></div>

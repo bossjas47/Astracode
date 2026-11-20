@@ -624,3 +624,26 @@ test('provider 503 before answering is retried, the user still gets the answer',
   const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'hi' } }));
   assert.ok(ev.some(e => e.t === 'fine'), JSON.stringify(ev)); assert.equal(n, 2); fm.close();
 });
+
+test('admin profit forecast: plan subscribers get a projected cost to the end of their plan (capped by the weekly limit), wallet charges of every kind count as revenue', async () => {
+  const t = await makeEnv({ K: 'k' }); const adm = await t.user({ role: 'admin' }), u = await t.user(), g = await t.user();
+  const now = Date.now(), DAYMS = 864e5;
+  const plan = addPlan(t.DB, { models: [1], limit_4h: 100, limit_week: 70, price: 300 }); // เพดาน 10 บาท/วัน
+  for (const [x, paid] of [[u, true], [g, false]]) {
+    t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, now + 20 * DAYMS, x.id);
+    if (paid) t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,created_at,approved_at) VALUES (?,?,300,'slip/x','approved','plan',?,?)").run(x.id, plan.id, now - 10 * DAYMS, now - 10 * DAYMS);
+  }
+  const use = (x, cost, ago, units = cost) => t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,?,?,?,?,?,?)').run(x.id, 1, 1, 1, 0, units, cost, now - ago);
+  for (let i = 1; i <= 7; i++) use(u, 40, i * DAYMS - 3600e3); // 40 บาท/วัน เกินเพดาน 10 บาท/วัน
+  use(g, 5, 3600e3);
+  t.DB.raw.prepare("INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,0,'wallet','m',?)").run(u.id, -12, now - 3600e3);
+  const p = (await t.json('/api/admin/profit?days=7', { cookie: adm.cookie })).data, f = p.forecast;
+  assert.ok(p.total.rev >= 12, 'wallet kind counts as revenue: ' + p.total.rev);
+  const pu = f.people.find(x => x.email === u.email), pg = f.people.find(x => x.email === g.email);
+  assert.ok(Math.abs(pu.rate - 10) < 0.01, 'rate capped at limit_week/7: ' + pu.rate);
+  assert.ok(Math.abs(pu.future - 10 * pu.days_left) < 0.5);
+  assert.ok(pu.profit < 0 && f.subs.at_risk >= 1, 'paid 300, spent 280, 20 days at 10/day left');
+  assert.equal(pg.free, true); assert.ok(pg.profit < 0);
+  assert.equal(f.people[0].email, u.email, 'riskiest first');
+  assert.ok(f.so_far.cost > 0 && f.rate.cost_day >= 0 && typeof f.proj.profit === 'number');
+});
