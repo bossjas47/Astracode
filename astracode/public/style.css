@@ -497,7 +497,7 @@ textarea { border-radius: 20px; }
 .msg.user { flex-wrap: wrap; } .msg.user .acts { width: 100%; justify-content: flex-end; opacity: 0; transition: opacity .2s; }
 .msg.user:hover .acts, .msg.user:focus-within .acts { opacity: 1; }
 @media (pointer: coarse) { .msg.user .acts { opacity: 1; } }
-@media (max-width: 760px) { .msg img.gen { display: block; max-width: min(100%, 512px); border-radius: 20px; margin: 4px 0; }
+.msg img.gen { display: block; max-width: min(100%, 512px); border-radius: 20px; margin: 4px 0; }
 .code-h .run-code { margin-right: 4px; }
 /* หน้าต่างแสดงผล HTML */
 .modal { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.7); display: grid; place-items: center; padding: 12px; }
@@ -1299,7 +1299,7 @@ button.ctxm { background: none; border: 0; padding: 0; font: inherit; cursor: po
 @media (max-width: 440px) { .nav-r { gap: 5px; } .nav .logo { letter-spacing: 0; } }
 
 /* โหมดเสียงแบบโทรคุย */
-@media (prefers-reduced-motion: reduce) { 
+
 /* ห้องทำงานทีม Agent แบบการ์ตูน */
 .ag-stage { position: relative; margin: 4px 0 10px; border-radius: 18px; overflow: hidden; background: linear-gradient(#f6f1e8, #ece3d4); aspect-ratio: 360 / 230; }
 .ag-stage svg { display: block; width: 100%; height: 100%; }
