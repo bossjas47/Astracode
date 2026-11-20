@@ -1093,7 +1093,8 @@ function ctxMeter() {
     const q = new URLSearchParams({ project_id: IDE.pid, model_id: $('#cmodel')?.value || '' }); if (IDE.chatId) q.set('chat_id', IDE.chatId); if (IDE.skills?.length) q.set('skills', IDE.skills.join(','));
     const r = await api('/context?' + q).catch(() => null); if (!r) return;
     const k = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace(/0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
-    b.hidden = false; b.className = 'ctxm ' + (r.pct >= 90 ? 'bad' : r.pct >= 70 ? 'warn' : ''); b.textContent = `ctx ${k(r.used)}/${k(r.max)} · ${Math.round(r.pct)}%`;
+    const pct = Number.isFinite(r.pct) ? r.pct : r.max ? r.used / r.max * 100 : 0;
+    b.hidden = false; b.className = 'ctxm ' + (pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : ''); b.textContent = `ctx ${k(r.used)}/${k(r.max)} · ${Math.round(pct)}%`;
   }, 400);
 }
 function codeTools() {
@@ -1448,7 +1449,7 @@ async function autoPush() {
       await pull(); r = await push();
     }
     const br = note.push.branch;
-    Object.assign(note.push, r.nothing ? { state: 'none' } : { state: 'ok', sha: r.commit, url: r.url, n: r.files, message, canPr: !!IDE.ghDefault && br !== IDE.ghDefault, pr: IDE.prs?.[br] || null });
+    Object.assign(note.push, r.nothing ? { state: 'none' } : { state: 'ok', sha: r.commit, url: r.url, n: r.files ?? files.length, message, canPr: !!IDE.ghDefault && br !== IDE.ghDefault, pr: IDE.prs?.[br] || null });
   } catch (x) { Object.assign(note.push, { state: 'bad', error: x.data?.conflicts ? 'ไฟล์ถูกแก้ทั้งในนี้และบน GitHub เลือกได้ว่าจะใช้ของฝั่งไหน' : x.message }); }
   if (IDE.pid === pid) drawAI();
 }
