@@ -1580,3 +1580,9 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .nav .nav-panel { background-image: none; box-shadow: none; }
 .nav.open .nav-panel { box-shadow: 0 18px 48px rgba(0, 0, 0, .3); }
 @media (min-width: 1000px) { .view.with-side > .nav.open .nav-panel { box-shadow: none; } }
+/* หน้าแรก (ยังไม่ล็อกอิน): ฟอร์มเข้าสู่ระบบ/สมัครอยู่ใน hero แทนปุ่ม */
+.home-auth { width: 100%; max-width: 400px; margin: 8px auto 0; text-align: left; }
+.auth-inline { padding: 0; margin: 0; max-width: none; }
+.auth-inline .tabs { justify-content: center; margin-bottom: 12px; }
+.auth-inline .card { margin: 0; background-image: none; background-color: var(--carbon); border: 1px solid var(--hair); box-shadow: 0 8px 28px rgba(0, 0, 0, .08); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.auth-inline h1 { font-size: 22px; text-align: center; margin: 0 0 12px; }

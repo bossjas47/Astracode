@@ -54,6 +54,7 @@ async function open(url, extra = {}) {
       if (u.pathname === '/api/chat' && extra.chat) return r.fulfill({ status: 200, contentType: 'text/event-stream', body: extra.chat(q).map(x => 'data: ' + JSON.stringify(x) + '\n\n').join('') });
       if (u.pathname === '/api/chat') return r.fulfill({ status: 200, contentType: 'text/event-stream', body: ['{"chat_id":7}', '{"t":"สวัสดีครับ ทดสอบ"}', '{"done":true,"pct4h":12,"pctWeek":34,"mid":99}'].map(x => 'data: ' + x + '\n\n').join('') });
       const d = typeof api[u.pathname] === 'function' ? api[u.pathname](q) : api[u.pathname];
+      if (d === null) return r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"unauthorized"}' }); // null = ยังไม่ล็อกอิน
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d ?? []) });
     }
     const f = join(pub, u.pathname === '/' ? 'home.html' : u.pathname), hit = [f, f + '.html'].find(x => existsSync(x) && statSync(x).isFile());
@@ -241,6 +242,18 @@ const FLOWS = [
     const hrefs = await page.$$eval('.sheet-bg a.opt', as => as.map(a => a.getAttribute('href')));
     const need = ['/plans?topup=1', '/developers', '/support', '/pricing', '/chat?open=bin', '/blog', '/status'].filter(h => !hrefs.includes(h));
     return [!errs.length || errs.join(' | '), recent === 1 || 'recent chat not in the sidebar', /Log out/.test(menu) || 'account menu missing', !need.length || 'settings missing ' + need.join(', ')];
+  }],
+  ['home: guests log in or sign up right on the home page; logged-in users still see Open Chat', async () => {
+    const g = await open('/', { '/api/me': null });
+    const form = await g.page.locator('#homeAuth form input[name=email]').count();
+    await g.page.evaluate(() => document.querySelector('#homeAuth [data-m=register]').click()); await g.page.waitForTimeout(150);
+    const reg = await g.page.locator('#homeAuth input[autocomplete=new-password]').count();
+    await g.page.fill('#homeAuth input[name=email]', 'a@b.co'); await g.page.fill('#homeAuth input[name=password]', 'longpassword1');
+    await g.page.evaluate(() => document.querySelector('#homeAuth form').requestSubmit()); await g.page.waitForTimeout(300);
+    const sent = g.calls.find(c => c.m === 'POST' && c.p === '/api/auth' && /"action":"register"/.test(c.body));
+    const u = await open('/');
+    const cta = await u.page.locator('a.btn.blue[href="/chat"]').count(), noForm = await u.page.locator('#homeAuth').count();
+    return [!g.errs.length || g.errs.join(' | '), form === 1 || 'no login form on home', reg === 1 || 'sign up tab does not switch', !!sent || 'sign up did not call /api/auth', cta === 1 && noForm === 0 || 'logged-in home changed'];
   }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });

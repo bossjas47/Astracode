@@ -430,7 +430,7 @@ async function landing() {
   page(nav() + `<section class="hero"><div class="name">AstraCode</div>
     <h1>AI ทุกตัว<br>ที่ทำงานแทนคุณได้จริง</h1>
     <p>Claude, ChatGPT, Gemini และ DeepSeek ในที่เดียว ใช้ได้ทั้งมือถือ เว็บ และแอปบนคอมที่ให้ Agent คุมเครื่องทำงานจนเสร็จ${cheapest ? ` · เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''}</p>
-    <div class="row" style="justify-content:center">${me ? `<a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>` : `<a class="btn blue" href="/login">Get started free</a><a class="btn out" href="#plans">View plans</a>`}${window.astraDesktop ? '' : `<a class="btn out" href="#download" data-dlgo>${ic('download', 'sm')} ดาวน์โหลดแอปคอม</a>`}</div>
+    ${me ? `<div class="row" style="justify-content:center"><a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>${window.astraDesktop ? '' : `<a class="btn out" href="#download" data-dlgo>${ic('download', 'sm')} ดาวน์โหลดแอปคอม</a>`}</div>` : '<div id="homeAuth" class="home-auth"></div>'}
     <a class="statusb" href="/status" id="stb" hidden></a>
     <div class="showcase" aria-hidden="true" inert>
       <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="ring" style="--p:24"></i>24%</span></div>
@@ -492,6 +492,7 @@ async function landing() {
   bindCur();
   bindInstall();
   homeFx();
+  if (!me && $('#homeAuth')) auth($('#homeAuth')); // ยังไม่ล็อกอิน: ฟอร์มเข้าสู่ระบบ/สมัครอยู่บนหน้าแรกเลย
 }
 
 // ลูกเล่นหน้าแรก: แสงตามเมาส์ที่ hero และขอบการ์ด, เลื่อนแล้วค่อยๆ โผล่ (ปิดเองเมื่อผู้ใช้ตั้งลดการเคลื่อนไหว)
@@ -505,7 +506,7 @@ function homeFx() {
 }
 
 // ---------- เข้าสู่ระบบ / สมัคร / ลืมรหัส / 2FA ----------
-function auth() {
+function auth(host = null) { // host = วางฟอร์มในหน้าอื่น (หน้าแรก) · ไม่ส่ง = หน้า /login เต็มหน้า
   const q = qs();
   if (q.get('ref')) localStorage.setItem('ref', q.get('ref'));
   const ref = localStorage.getItem('ref') || '';
@@ -533,7 +534,7 @@ function auth() {
   };
   const draw = () => {
     const tabs = mode === 'login' || mode === 'register';
-    page(nav() + `<div class="auth wrap"><h1>${title[mode]}</h1>
+    const html = `<div class="auth ${host ? 'auth-inline' : 'wrap'}">${host && tabs ? '' : `<h1>${title[mode]}</h1>`}
       ${tabs ? `<div class="tabs"><button class="${mode === 'login' ? 'on' : ''}" data-m="login">Log in</button><button class="${mode === 'register' ? 'on' : ''}" data-m="register">Sign up</button></div>` : ''}
       <form class="card" id="f">${tabs && (site.google || site.line) ? `<div class="social">${site.google ? `<a class="btn out" href="/api/oauth/google${ref ? '?ref=' + encodeURIComponent(ref) : ''}">Continue with Google</a>` : ''}
         ${site.line ? `<a class="btn out line" href="/api/oauth/line${ref ? '?ref=' + encodeURIComponent(ref) : ''}">Continue with LINE</a>` : ''}<div class="or"><span>หรือ</span></div></div>` : ''}
@@ -543,8 +544,9 @@ function auth() {
       ${mode === 'login' && window.PublicKeyCredential ? '<button type="button" class="btn out" id="pkl" style="width:100%;margin-top:10px">เข้าสู่ระบบด้วย Passkey</button>' : ''}
       ${mode === 'login' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="forgot">ลืมรหัสผ่าน?</a></p>' : ''}
       ${!tabs && mode !== 'verify' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="login">กลับไปเข้าสู่ระบบ</a></p>' : ''}
-      <p class="muted" style="text-align:center;margin:12px 0 0">การ${mode === 'register' ? 'สมัคร' : 'ใช้งาน'}ถือว่ายอมรับ<a href="/terms">เงื่อนไขและนโยบายความเป็นส่วนตัว</a></p></form></div>`);
-    app.querySelectorAll('[data-m]').forEach(b => b.onclick = e => { e.preventDefault(); mode = b.dataset.m; msg = ''; draw(); });
+      <p class="muted" style="text-align:center;margin:12px 0 0">การ${mode === 'register' ? 'สมัคร' : 'ใช้งาน'}ถือว่ายอมรับ<a href="/terms">เงื่อนไขและนโยบายความเป็นส่วนตัว</a></p></form></div>`;
+    if (host) { if (!document.body.contains(host)) return; host.innerHTML = html; } else page(nav() + html);
+    (host || app).querySelectorAll('[data-m]').forEach(b => b.onclick = e => { e.preventDefault(); mode = b.dataset.m; msg = ''; draw(); });
     if (site.turnstile && $('#cft')) { // กันบอท (เปิดเมื่อแอดมินตั้ง Turnstile)
       const go = () => window.turnstile.render('#cft', { sitekey: site.turnstile, theme: 'dark' });
       if (window.turnstile) go(); else { const sc = document.createElement('script'); sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; sc.onload = go; document.head.append(sc); }
