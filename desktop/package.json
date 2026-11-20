@@ -1,6 +1,6 @@
 {
   "name": "astracode-desktop",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "description": "AstraCode Desktop: the AstraCode website in an app window, with access to files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "AstraCode",
@@ -72,7 +72,10 @@
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.developer-tools",
-      "artifactName": "AstraCode-Desktop-mac.${ext}"
+      "artifactName": "AstraCode-Desktop-mac.${ext}",
+      "identity": null,
+      "notarize": false,
+      "gatekeeperAssess": false
     },
     "linux": {
       "target": [

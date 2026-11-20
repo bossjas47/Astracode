@@ -60,7 +60,7 @@ const show = () => { if (!web) return; if (web.isMinimized()) web.restore(); web
 function makeTray() {
   try {
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')).resize({ width: 16, height: 16 }));
-    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; } }, { label: 'ออกจากแอป', click: quit }]);
+    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; } }, ...(Object.values(settings.autoRun || {}).some(Boolean) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = {}; save(); } }] : []), { label: 'ออกจากแอป', click: quit }]);
     tray.setToolTip('AstraCode'); tray.setContextMenu(menu()); tray.on('click', show); tray.on('right-click', () => tray.setContextMenu(menu()));
   } catch { tray = null; } // บาง Linux ไม่มีถาด: ปิดหน้าต่าง = ออกจากแอป
 }
@@ -74,7 +74,7 @@ const h = (ch, fn) => ipcMain.handle(ch, (e, ...a) => { if (!fromSite(e)) throw 
 // โฟลเดอร์ในเครื่อง: เว็บอ้างถึงด้วยชื่อช่อง (p:<id โปรเจกต์> หรือ chat) ไม่เคยส่งพาธเต็มมาเอง · ผู้ใช้เลือกโฟลเดอร์ผ่านหน้าต่างของ Windows เท่านั้น
 const slot = k => { if (!/^(p:\d{1,12}|chat)$/.test(String(k))) throw new Error('ช่องโฟลเดอร์ไม่ถูกต้อง'); return String(k); };
 const rootOf = k => { const r = (settings.links || {})[slot(k)]; if (!r || !fs.existsSync(r)) throw new Error('ยังไม่ได้เชื่อมโฟลเดอร์ในเครื่อง หรือโฟลเดอร์ถูกย้าย/ลบไปแล้ว'); return r; };
-const info = r => ({ name: path.basename(r), path: r, auto: !!settings.autoRun?.[r] });
+const info = r => ({ name: path.basename(r), path: r, auto: settings.autoRun?.[r] || false }); // false | true (รันเองยกเว้นอันตราย) | 'all' (รันเองทุกคำสั่ง)
 h('desk:link', async (_, k) => {
   const r = await dialog.showOpenDialog(web, { title: 'เลือกโฟลเดอร์ที่ให้ AstraCode ทำงาน', properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
@@ -95,14 +95,28 @@ h('desk:open', (_, k) => shell.openPath(rootOf(k)));
 
 // รันคำสั่ง: ถามด้วยหน้าต่างของ Windows (หน้าเว็บกดแทนไม่ได้) · เลือก "รันอัตโนมัติ" ได้ต่อโฟลเดอร์ (จำถาวร) แต่คำสั่งอันตรายยังถามทุกครั้ง
 const jobs = new Map();
-const ask = async (r, cmd, auto) => (await dialog.showMessageBox(web, { type: auto ? 'warning' : 'question', title: 'อนุญาตให้รันคำสั่ง?', message: auto ? 'คำสั่งนี้อาจลบหรือเปลี่ยนแปลงข้อมูล ตรวจก่อนอนุญาต' : 'AstraCode ขอรันคำสั่งนี้ในเครื่องของคุณ', detail: `โฟลเดอร์: ${r}\n\n${cmd.slice(0, 1500)}`, buttons: auto ? ['อนุญาตครั้งนี้', 'ไม่อนุญาต'] : ['อนุญาต', 'รันอัตโนมัติในโฟลเดอร์นี้ (ยกเว้นคำสั่งอันตราย)', 'ไม่อนุญาต'], defaultId: auto ? 1 : 0, cancelId: auto ? 1 : 2, noLink: true })).response;
-// ขออนุญาตรันคำสั่ง → null = อนุญาต, ไม่งั้นคืนผลแบบถูกปฏิเสธ
+const DENIED = { code: 1, stdout: '', stderr: 'ผู้ใช้ไม่อนุญาตให้รันคำสั่งนี้', denied: true };
+// ขออนุญาตรันคำสั่งจากหน้าเว็บ (โหมด Code) → null = รันได้ · จำการตั้งค่าต่อโฟลเดอร์: true = รันเองยกเว้นคำสั่งอันตราย, 'all' = รันเองทุกคำสั่งไม่ต้องถาม
 async function allow(r, cmd) {
-  const auto = !!settings.autoRun?.[r];
-  if (auto && !isDanger(cmd)) return null;
-  const a = await ask(r, cmd, auto);
-  if (auto ? a === 1 : a === 2) return { code: 1, stdout: '', stderr: 'ผู้ใช้ไม่อนุญาตให้รันคำสั่งนี้', denied: true };
-  if (!auto && a === 1) { settings.autoRun = { ...settings.autoRun, [r]: true }; save(); }
+  const lvl = settings.autoRun?.[r];
+  if (lvl === 'all') return null;                       // รันเองทุกคำสั่งแล้ว
+  if (lvl && !isDanger(cmd)) return null;               // รันเองยกเว้นคำสั่งอันตราย และคำสั่งนี้ไม่อันตราย
+  const setLvl = v => { settings.autoRun = { ...settings.autoRun, [r]: v }; save(); };
+  const box = o => dialog.showMessageBox(web, { detail: `โฟลเดอร์: ${r}\n\n${cmd.slice(0, 1500)}`, noLink: true, ...o }).then(x => x.response);
+  if (lvl) { // อยู่โหมดรันเองอยู่แล้ว แต่เจอคำสั่งอันตราย → ให้เลือกยกระดับเป็นรันเองทุกคำสั่งได้
+    const a = await box({ type: 'warning', title: 'อนุญาตให้รันคำสั่ง?', message: 'คำสั่งนี้อาจลบหรือเปลี่ยนแปลงข้อมูล ตรวจก่อนอนุญาต', buttons: ['อนุญาตครั้งนี้', 'รันเองทุกคำสั่งไม่ต้องถามอีก (รวมคำสั่งอันตราย)', 'ไม่อนุญาต'], defaultId: 0, cancelId: 2 });
+    if (a === 2) return DENIED;
+    if (a === 1) setLvl('all');
+    return null;
+  }
+  const a = await box({ type: 'question', title: 'อนุญาตให้รันคำสั่ง?', message: 'AstraCode ขอรันคำสั่งนี้ในเครื่องของคุณ', buttons: ['อนุญาตครั้งนี้', 'รันเองในโฟลเดอร์นี้ (ยกเว้นคำสั่งอันตราย)', 'รันเองทุกคำสั่ง (รวมคำสั่งอันตราย)', 'ไม่อนุญาต'], defaultId: 0, cancelId: 3 });
+  if (a === 3) return DENIED;
+  if (a === 1) setLvl(true);
+  if (a === 2) { // รันเองทุกคำสั่ง = เสี่ยง ยืนยันอีกชั้นก่อนเปิด
+    const c = await dialog.showMessageBox(web, { type: 'warning', title: 'รันทุกคำสั่งเองโดยไม่ถาม?', message: '⚠ AstraCode จะรันทุกคำสั่งในโฟลเดอร์นี้เองโดยไม่ถามอีก', detail: `รวมคำสั่งลบไฟล์ ติดตั้งโปรแกรม และ git push ในโฟลเดอร์ ${r}\nถ้า AI เข้าใจผิด ข้อมูลอาจหายถาวรและย้อนไม่ได้ ควรใช้กับโฟลเดอร์ที่สำรองไว้แล้ว · ปิดได้ทุกเมื่อที่ไอคอนถาดมุมจอ → ปิดการรันคำสั่งอัตโนมัติ`, buttons: ['เปิดโหมดนี้', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
+    if (c.response !== 0) return DENIED;
+    setLvl('all');
+  }
   return null;
 }
 h('desk:run', async (e, k, cmd, id) => {
