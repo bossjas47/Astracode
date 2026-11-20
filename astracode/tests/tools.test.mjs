@@ -240,3 +240,15 @@ test('image size: the size the user picked reaches the image provider (chat and 
   assert.equal(r.status, 200); assert.equal(sizes[0], '1536x1024');
   fm.close();
 });
+
+test('a picture stored as a data URL in an earlier answer is not sent to the next model as text', async () => {
+  const { t, m, u, fm } = await setup((fm, res) => fm.sse(res, 'ได้ครับ'), { tools: 'off' });
+  const cid = t.DB.raw.prepare("INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id").get(u.id, 'รูป', Date.now()).id;
+  t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)").run(cid, 'user', 'วาดน้ำกระเซ็น', Date.now());
+  t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)").run(cid, 'assistant', '![water splash](data:image/jpeg;base64,' + 'A'.repeat(250000) + ')', Date.now());
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ปรับเป็นลายการ์ตูน', model_id: m.id, chat_id: cid } }));
+  assert.ok(ev.some(e => e.t === 'ได้ครับ'));
+  const sent = JSON.stringify(fm.hits[0].body.messages);
+  assert.ok(sent.length < 20000, 'request size ' + sent.length); assert.match(sent, /\[image created: water splash\]/);
+  fm.close();
+});

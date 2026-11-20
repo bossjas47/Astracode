@@ -151,6 +151,8 @@ const b64u8 = s => { const b = new TextEncoder().encode(s); let o = ''; for (let
 export const dlMarker = (name, content) => `\n\n[[dl:${name}|${b64u8(content)}]]\n`;
 export const pyMarker = code => `\n\n[[py:${b64u8(code)}]]\n`;
 const unb64u8 = s => { try { return new TextDecoder().decode(Uint8Array.from(atob(s), c => c.charCodeAt(0))); } catch { return ''; } };
-export const stripMarkers = t => String(t || '').replace(/\[\[dl:([^|\]\n]{1,120})\|[A-Za-z0-9+/=]+\]\]/g, '[file created: $1]')
+export const stripMarkers = t => String(t || '')
+  .replace(/!\[([^\]\n]{0,200})\]\(data:image\/[^)]+\)/g, (_, alt) => `[image created${alt ? ': ' + alt : ''}]`) // รูปที่เก็บเป็น data URL (หลายร้อย KB) ไม่ส่งให้โมเดลอ่านเป็นข้อความ
+  .replace(/\[\[dl:([^|\]\n]{1,120})\|[A-Za-z0-9+/=]+\]\]/g, '[file created: $1]')
   .replace(/\[\[mem:\d+\|([^\]\n]{1,300})\]\]/g, '[remembered: $1]')
   .replace(/\[\[py:([A-Za-z0-9+/=]+)\]\]/g, (_, b) => 'Python code I ran:\n```python\n' + unb64u8(b).slice(0, 6000) + '\n```'); // โมเดลเห็นโค้ดที่เคยรัน (แก้ต่อได้) แต่ไม่เห็นไฟล์ base64
