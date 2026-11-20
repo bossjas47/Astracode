@@ -625,3 +625,25 @@ test('context sheet: real context from the provider matches the chat header; inp
   assert.deepEqual([r.tokens.fresh, r.tokens.cw, r.tokens.cr, r.tokens.out, r.tokens.hit], [100, 300, 600, 50, 60]);
   fm.close();
 });
+
+test('chat stream closes as soon as done is sent, even while work after the answer (compaction, mail) is still running; nothing is sent after done', async () => {
+  const { ChatRun } = await import('../src/jobs.js');
+  const store = new Map(), cr = new ChatRun({ storage: { get: async k => store.get(k), put: async (k, v) => store.set(k, v), delete: async k => store.delete(k), setAlarm: async () => {} } }, {});
+  await cr.fetch(new Request('https://run/start', { method: 'POST', body: '{}' })); await store.delete('job'); // งานเริ่มแล้ว (alarm หยิบไปทำ)
+  const res = await cr.fetch(new Request('https://run/stream?from=0')), text = res.text();
+  cr.push({ t: 'ตอบ' }); cr.push({ done: true }); cr.push({ compacted: true });
+  const body = await Promise.race([text, new Promise(r => setTimeout(() => r('TIMEOUT'), 1500))]);
+  assert.notEqual(body, 'TIMEOUT', 'stream must close at done although the run is not finished'); assert.match(body, /"done":true/); assert.doesNotMatch(body, /compacted/);
+  assert.equal(cr.done, false, 'the run itself is still going');
+});
+
+test('Code: which files an AI reply was applied to is saved on the message, only by its owner, and comes back with the chat', async () => {
+  const t = await makeEnv(), u = await t.user(), other = await t.user(); await t.json('/api/version');
+  const cid = t.DB.raw.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').get(u.id, 'c', Date.now()).id;
+  const mid = t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,'assistant','x',?) RETURNING id").get(cid, Date.now()).id;
+  assert.equal((await t.json(`/api/messages/${mid}/applied`, { method: 'POST', cookie: other.cookie, body: { paths: ['a.js'] } })).status, 404, 'not your message');
+  assert.equal((await t.json(`/api/messages/${mid}/applied`, { method: 'POST', cookie: u.cookie, body: { paths: ['index.html', 'index.html', 'app.js'] } })).status, 200);
+  assert.deepEqual(JSON.parse((await t.json('/api/chats/' + cid, { cookie: u.cookie })).data.at(-1).applied), ['index.html', 'app.js']);
+  await t.json(`/api/messages/${mid}/applied`, { method: 'POST', cookie: u.cookie, body: { paths: null } }); // Undo
+  assert.equal((await t.json('/api/chats/' + cid, { cookie: u.cookie })).data.at(-1).applied, null);
+});

@@ -1275,9 +1275,16 @@ function lineDiff(a, b) {
   }
   return { before: A.slice(Math.max(0, s - 3), s), ops, after: A.slice(ea, ea + 3), start: s, add: ops.filter(o => o[0] === '+').length, del: ops.filter(o => o[0] === '-').length };
 }
+// สถานะ "ใช้แล้ว" ของการแก้ไขในข้อความ AI: เก็บถาวรในฐานข้อมูล (messages.applied = path ที่ใช้แล้ว) ไม่ใช่แค่ในหน่วยความจำ
+// รีเฟรชแล้วการ์ดยังขึ้น "ใช้แล้ว ✓" แม้ไฟล์ถูกแก้ต่อในข้อความหลัง (SEARCH เดิมหาไม่เจอแล้ว) และไม่ชวนให้ Apply ของเก่าทับของใหม่
+function appliedSet(m) { let a = m.applied; if (typeof a === 'string') { try { a = JSON.parse(a); } catch { a = null; } m.applied = a; } return new Set(Array.isArray(a) ? a : []); }
+function saveApplied(m) { if (m?.id) api(`/messages/${m.id}/applied`, { method: 'POST', body: { paths: m.applied?.length ? m.applied : null } }).catch(() => {}); }
+function markApplied(m, path) { if (!m) return; const s = appliedSet(m); if (s.has(path)) return; s.add(path); m.applied = [...s]; saveApplied(m); }
 function changeCards(m, i) {
   const ch = changesOf(m.content, undefined, activeRef()); if (!ch.length) return '';
+  const done = appliedSet(m);
   return `<div class="changes">${ch.map((c, k) => {
+    if (done.has(c.path) && (c.error || (has(c.path) ? content(c.path) : null) !== c.content)) return `<div class="chg"><span class="cpath" data-openf="${esc(c.path)}" role="button" tabindex="0" title="เปิดไฟล์">${icon(c.path)} ${esc(c.path)}</span><span class="muted">ใช้แล้ว ✓</span></div>`; // ใช้แล้ว แต่ไฟล์ถูกแก้ต่อภายหลัง
     if (c.error) return `<div class="chg"><span class="cpath">${icon(c.path)} ${esc(c.path)}</span><span class="bad" title="${esc(c.error)}">แก้ไม่ได้</span><span class="muted" style="font-size:12px">${esc(c.error.slice(0, 90))}</span></div>`;
     const cur = has(c.path) ? content(c.path) : null;
     const same = c.del ? cur == null : cur === c.content;
@@ -1286,7 +1293,7 @@ function changeCards(m, i) {
     const tag = c.del ? '<span class="bad">ลบ</span>' : cur == null || (pv && !pv.existed) ? '<span class="ok">ไฟล์ใหม่</span>' : d ? `<span class="ok">+${d.add}</span> <span class="bad">−${d.del}</span>` : '';
     return `<div class="chg"><span class="cpath" data-openf="${esc(c.path)}" role="button" tabindex="0" title="เปิดไฟล์">${icon(c.path)} ${esc(c.path)}</span>${tag}
       ${same ? '<span class="muted">ใช้แล้ว ✓</span>' : `${c.del ? '' : `<button data-diff="${i}:${k}">View diff</button>`}<button class="ap" data-apply="${i}:${k}">${c.del ? 'Delete file' : c.guess ? 'Apply to this file' : 'Apply'}</button>`}</div>`;
-  }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(needsApply).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply all</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} Undo this batch</button>` : ''}</div></div>`;
+  }).join('')}<div class="row" style="padding:2px 6px">${ch.filter(c => needsApply(c) && !done.has(c.path)).length > 1 ? `<button class="btn blue sm" data-applyall="${i}">Apply all</button>` : ''}${m._prev?.length ? `<button class="btn out sm" data-revert="${i}">${ic('undo', 'sm')} Undo this batch</button>` : ''}</div></div>`;
 }
 const activeRef = () => IDE.active && has(IDE.active) && !isImg(IDE.active) ? { path: IDE.active } : null;
 const needsApply = c => !c.error && !c.guess && (c.del ? has(c.path) : !has(c.path) || content(c.path) !== c.content);
@@ -1294,8 +1301,9 @@ const needsApply = c => !c.error && !c.guess && (c.del ? has(c.path) : !has(c.pa
 async function applyChanges(ch, msg) {
   const bad = [];
   for (const c of ch) {
+    if (msg && appliedSet(msg).has(c.path)) continue; // ใช้ไปแล้ว (จำไว้ในฐานข้อมูล): ไม่ทำซ้ำ ไม่แจ้งว่าแก้ไม่ได้
     if (c.error) { bad.push(`${c.path}: ${c.error}`); continue; }
-    if (!needsApply(c)) continue;
+    if (!needsApply(c)) { if (msg) markApplied(msg, c.path); continue; }
     try { await apply(c, msg, false); } catch (x) { if (x.problem) bad.push(`${c.path}: ${x.message}`); else throw x; }
   }
   if (bad.length) { msg.rejected = bad; $('#ce').textContent = 'มีไฟล์ที่ยังไม่ถูกใช้: ' + bad.length + ' ไฟล์'; drawAI(); }
@@ -1318,6 +1326,7 @@ async function apply(c, msg, force = true) {
     if (!has(c.path)) return;
     await delFile(c.path); dropFile(c.path);
   } else await writeFiles([{ path: c.path, content: c.content }]);
+  markApplied(msg, c.path);
   refresh(); drawAI();
 }
 // diff ทีละบรรทัด (LCS) แบ่งเป็นจุดๆ ให้เลือกรับ/ไม่รับทีละจุด · ไฟล์ใหญ่มาก (เกิน ~4 ล้านคู่บรรทัด) คืน null แล้วใช้แบบรวมก้อนเดียว
@@ -1389,7 +1398,16 @@ function fenceBare(text) {
   }
   return out.join('\n');
 }
-const stripTools = text => String(text || '').split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/(\S)(READ path=)/g, '$1\n$2').replace(/^(\u2063*)[ \t]*(?:READ|LIST)\b[ \t]*(?:path=)?[`'"]?[\w./@~-]*[`'"]?/gm, '$1').replace(/^(\u2063*)[ \t]*(?:GREP|RUN|IMAGE)\b.*$/gm, '$1')).join('```').replace(/\n{3,}/g, '\n\n').trim();
+// แบบแชต: บล็อกแก้ไฟล์ (path=…, SEARCH/REPLACE) ไม่แสดงในข้อความ ดูจากการ์ดไฟล์แทน · ระหว่างสตรีม บล็อกที่ยังเขียนไม่จบแสดงเป็นบรรทัด "กำลังแก้ …"
+// เดิมซ่อนเฉพาะตอนตอบจบ → ระหว่างพิมพ์ (หรือสตรีมค้าง) เห็นบล็อก diff ดิบ ">>>>>>> REPLACE" เต็มจอ
+function hideEditBlocks(t) {
+  if (typeof chatLayout !== 'function' || !chatLayout()) return t;
+  t = t.replace(/```[^\n`]*\bpath=[^\n]*\n[\s\S]*?```\n?/g, '');
+  const at = t.lastIndexOf('```');
+  if (at >= 0 && (t.match(/```/g) || []).length % 2 === 1) { const head = t.slice(at, t.indexOf('\n', at) < 0 ? t.length : t.indexOf('\n', at)), path = head.match(/\bpath=([^\s`]+)/)?.[1]; if (path) t = t.slice(0, at) + `\n_✎ กำลังแก้ ${path}…_\n`; }
+  return t;
+}
+const stripTools = text => hideEditBlocks(String(text || '')).split(/```/).map((part, idx) => idx % 2 ? part : part.replace(/(\S)(READ path=)/g, '$1\n$2').replace(/^(\u2063*)[ \t]*(?:READ|LIST)\b[ \t]*(?:path=)?[`'"]?[\w./@~-]*[`'"]?/gm, '$1').replace(/^(\u2063*)[ \t]*(?:GREP|RUN|IMAGE)\b.*$/gm, '$1')).join('```').replace(/\n{3,}/g, '\n\n').trim();
 function stepsBar(m, i) {
   const s = stepsOf(m.content); if (!s.length) return '';
   const cnt = k => s.filter(x => x.op === k).length;
@@ -1499,6 +1517,31 @@ function drawAI() {
       <div class="chips">${['อธิบายโค้ดไฟล์นี้', 'หาบั๊กและแก้ให้', 'เพิ่มคอมเมนต์ภาษาไทย', 'ทำให้หน้าเว็บสวยขึ้น'].map(s => `<button data-cs="${s}">${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight; renderRich(box);
 }
+// ---------- ซิงก์กับเซิร์ฟเวอร์แบบ event-driven (ไม่ poll): กลับมาที่แท็บ / เน็ตกลับมา / สตรีมหลุดแล้วโหลดใหม่ ----------
+// คำตอบที่ได้มาจากการโหลดใหม่ (ไม่ผ่านสตรีม) ยังไม่ได้ใช้การแก้ไขกับไฟล์ เพราะการเขียนไฟล์ทำที่หน้าเว็บ → โหมด Auto ใช้ให้เลย และจำว่าใช้แล้ว
+async function applyMissed(fromId) {
+  if ((IDE.perm || 'auto') !== 'auto') return;
+  for (const m of IDE.msgs) {
+    if (m.role !== 'assistant' || !(+m.id > fromId) || !m.content) continue;
+    const ch = changesOf(m.content, undefined, activeRef()).filter(c => !appliedSet(m).has(c.path)); if (!ch.length) continue;
+    await applyChanges(ch, m).catch(x => { $('#ce').textContent = x.message; });
+  }
+}
+async function reloadMsgs() {
+  const mine = Math.max(0, ...IDE.msgs.map(m => +m.id || 0)), list = await api('/chats/' + IDE.chatId).catch(() => null);
+  if (!Array.isArray(list) || IDE.busy) return false;
+  if ((list.at(-1)?.id || 0) <= mine && list.length <= IDE.msgs.filter(m => !m.push).length) return false; // ไม่มีอะไรใหม่: ไม่วาดใหม่ (การ์ด push ที่มีเฉพาะในหน้านี้ยังอยู่)
+  IDE.msgs = list; drawAI(); ctxMeter(); await applyMissed(mine);
+  if (IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); // AI ยังทำงานอยู่ที่เซิร์ฟเวอร์: ต่อสตรีม
+  return true;
+}
+async function codeResync() {
+  if (!IDE.pid || !IDE.chatId || document.hidden || !$('#cmsgs')) return;
+  if (IDE.busy) { if (IDE.reader && Date.now() - (IDE.lastEv || 0) > 15000) { IDE.resyncing = true; IDE.ctrl?.abort(); } return; } // สตรีมเงียบนานหลังพับจอ: ตัดแล้วต่อใหม่
+  await reloadMsgs();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) codeResync(); });
+window.addEventListener('online', () => codeResync());
 function codeStop() {
   IDE.round = 99; if (IDE.local) DESK.kill();
   if (IDE.chatId) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: IDE.chatId }) }).catch(() => {});
@@ -1537,20 +1580,22 @@ async function codeSend(auto) {
   if (!resume) IDE.msgs.push({ role: 'user', content: withFiles(full, files), imgs: images.length ? images : null, auto: !!auto });
   const ai = { role: 'assistant', content: '', model: m.name, streaming: true, perm: IDE.perm }; IDE.msgs.push(ai); drawAI();
   IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop');
-  let raf = 0, started = false, netLost = false;
+  let raf = 0, started = false, netLost = false, reload = false;
   try {
     const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps, agent: !!IDE.agent, perm: IDE.perm || 'auto', local: IDE.local ? { os: navigator.userAgentData?.platform || navigator.platform } : undefined };
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal, body: JSON.stringify(reqBody) });
     if (!r.ok) { const d = await r.json(); throw new Error(r.status === 429 && d.pct4h != null ? 'ลิมิตเต็มแล้ว' : d.error); }
     started = true;
-    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', ended = false; IDE.lastEv = Date.now(); IDE.reader = rd;
     for (;;) {
-      const { done, value } = await rd.read(); if (done) break;
-      buf += dec.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      const { done, value } = await rd.read();
+      // จบสตรีม: ถอดรหัสส่วนที่เหลือ + เติมตัวคั่น เพื่อให้ event สุดท้ายที่ไม่มี \n\n ปิดท้ายถูกอ่านด้วย (เดิมตกหล่น → done ไม่ถูกประมวลผล)
+      buf += (done ? dec.decode() + '\n\n' : dec.decode(value, { stream: true })).replace(/\r\n/g, '\n'); IDE.lastEv = Date.now();
       let k; while ((k = buf.indexOf('\n\n')) >= 0) {
         const line = buf.slice(0, k); buf = buf.slice(k + 2);
         if (!line.startsWith('data: ')) continue;
-        const d = JSON.parse(line.slice(6));
+        let d; try { d = JSON.parse(line.slice(6)); } catch { continue; } // event ขาดครึ่ง (สตรีมถูกตัด) ไม่ทำให้ทั้งคำตอบพัง
+        if (d.done) { ended = true; if (d.mid) ai.id = d.mid; }
         if (d.chat_id) { const fresh = !IDE.chatId; IDE.chatId = d.chat_id; if (fresh) { setUrl(`/code?p=${IDE.pid}&s=${d.chat_id}`, true); sessionsChanged(); } } // session ใหม่ได้เลขแล้ว
         if (d.todo) { ai.todos = d.todo; if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
@@ -1565,16 +1610,21 @@ async function codeSend(auto) {
         if (d.compacted) toast(`ย่อแชตอัตโนมัติแล้ว (${d.why})`, 'ok');
         if (d.trimmed) toast('context เต็ม: ตัดข้อความเก่าบางส่วนออกจากที่ส่งให้ AI', 'bad');
         if (d.done && IDE.agent && document.hidden && 'Notification' in window && Notification.permission === 'granted') try { new Notification('AstraCode', { body: 'AI ทำงานเสร็จแล้ว แตะเพื่อดูผล' }); } catch { /* บางเบราว์เซอร์ต้องใช้ service worker */ }
-        if (d.done) { me.usage = d; $('#clim').innerHTML = limHTML(d); lowWarn(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; ctxMeter(); if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
+        if (d.done) { me.usage = d; if ($('#clim')) $('#clim').innerHTML = limHTML(d); lowWarn(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; ctxMeter(); if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }
+      if (done || ended) { if (!done) rd.cancel().catch(() => {}); break; } // ได้ done แล้วจบทันที ไม่รอให้เซิร์ฟเวอร์ปิดการเชื่อมต่อ
     }
+    // สตรีมปิดโดยไม่มี done (เซิร์ฟเวอร์ตัด/เครือข่ายหลุดเงียบๆ): ดึงผลจริงจากเซิร์ฟเวอร์ แทนที่จะถือว่าคำตอบครึ่งเดียวคือคำตอบสุดท้าย
+    if (!ended && IDE.chatId) { if (resume) reload = true; else if ((IDE.resumeTries = (IDE.resumeTries || 0) + 1) <= 8) netLost = true; }
   } catch (x) {
-    if (x.name !== 'AbortError') {
+    if (x.name === 'AbortError' && IDE.resyncing && started && IDE.chatId) netLost = true; // กลับมาที่แท็บแล้วสตรีมเงียบนาน: ตัดแล้วต่อใหม่จากเซิร์ฟเวอร์ (ไม่ใช่ผู้ใช้กดหยุด)
+    else if (x.name !== 'AbortError') {
       // เครือข่ายหลุดกลางคำตอบ (สลับแอป ปิดจอ): เซิร์ฟเวอร์ยังตอบต่อเบื้องหลัง จึงต่อสตรีมกลับมาให้เอง แทนที่จะแจ้ง network error
       if (started && IDE.chatId && (IDE.resumeTries = (IDE.resumeTries || 0) + 1) <= 8) netLost = true;
       else { $('#ce').textContent = x.message; if (!started && !resume) { IDE.msgs.splice(-2, 2); if (!auto) t.value = text; } }
     }
   }
+  IDE.resyncing = false; IDE.reader = null;
   cancelAnimationFrame(raf); ai.streaming = false; if (!ai.content && !ai.thinking && IDE.msgs.at(-1) === ai) IDE.msgs.pop();
   if (netLost) { // ทิ้งข้อความที่ได้มาครึ่งเดียว แล้วรอจนหน้าจอกลับมา เพื่อดึงคำตอบเต็มจากเซิร์ฟเวอร์
     if (IDE.msgs.at(-1) === ai) IDE.msgs.pop();
@@ -1584,7 +1634,7 @@ async function codeSend(auto) {
     else setTimeout(go, 2000);
     return;
   }
-  if (resume && !ai.content && !ai.thinking && IDE.chatId) { IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => IDE.msgs); IDE.resumeTries = 0; IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI(); return; } // ต้องคืนปุ่มส่งด้วย ไม่งั้นปุ่มหยุดค้างหลังต่อสตรีมกลับมาแล้วพบว่าตอบจบไปแล้ว // เซิร์ฟเวอร์ตอบจบไปแล้ว: โหลดคำตอบที่บันทึกไว้
+  if (resume && (reload || (!ai.content && !ai.thinking)) && IDE.chatId) { const mine = Math.max(0, ...IDE.msgs.map(m => +m.id || 0)); IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => IDE.msgs); IDE.resumeTries = 0; IDE.busy = false; await applyMissed(mine); IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI(); return; } // ต้องคืนปุ่มส่งด้วย ไม่งั้นปุ่มหยุดค้างหลังต่อสตรีมกลับมาแล้วพบว่าตอบจบไปแล้ว // เซิร์ฟเวอร์ตอบจบไปแล้ว: โหลดคำตอบที่บันทึกไว้
   IDE.busy = false; $('#cgo').innerHTML = ic('up'); $('#cgo').classList.remove('stop'); drawAI();
   // โหมดอัตโนมัติ: ใช้การแก้ไขทันที แล้วให้ AI ดูผลลัพธ์เอง (สูงสุด 3 รอบ)
   // Auto-apply: ใช้การแก้ไขทันที (และรันคำสั่งที่ AI ขอ) · ตรวจผลเอง: ใช้การแก้ไข แล้วรัน + จับภาพให้ AI ดู (สูงสุด 3 รอบ)
@@ -1960,7 +2010,7 @@ async function codeView(id, prompt) {
         if (c.error) { toast(c.error, 'bad'); return; }
         const why = c.del ? '' : problemOf(c.path, c.content, has(c.path) ? content(c.path) : null);
         if (why && !await confirmSheet(`${why}\n\nเขียนทับต่อไหม?`, { title: 'ตรวจพบปัญหาในไฟล์', ok: 'เขียนทับ', danger: true })) return;
-        b.disabled = true; await apply(c);
+        b.disabled = true; await apply(c, IDE.msgs[ref[0]]);
       }
       if (b.dataset.steps != null) {
         const steps = stepsOf(IDE.msgs[+b.dataset.steps]?.content);
@@ -1974,7 +2024,7 @@ async function codeView(id, prompt) {
         for (const p of msg._prev) { if (p.existed) writes.push({ path: p.path, content: p.prev }); else dels.push(p.path); }
         if (writes.length) await writeFiles(writes);
         for (const dp of dels) { await delFile(dp); dropFile(dp); }
-        delete msg._prev; refresh(); drawAI(); toast('ย้อนกลับไฟล์เรียบร้อย', 'ok'); return;
+        delete msg._prev; msg.applied = null; saveApplied(msg); refresh(); drawAI(); toast('ย้อนกลับไฟล์เรียบร้อย', 'ok'); return;
       }
       if (b.dataset.applyall) { b.disabled = true; const m = IDE.msgs[+b.dataset.applyall], bad = await applyChanges(changesOf(m.content, undefined, activeRef()), m); if (bad.length) toast(bad[0], 'bad'); }
     } catch (x) { $('#ce').textContent = x.message; drawAI(); }

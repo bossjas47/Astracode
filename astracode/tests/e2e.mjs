@@ -349,6 +349,21 @@ const FLOWS = [
     return [!errs.length || errs.join(' | '), pane === 'ai' || 'phone did not open on the chat: ' + pane, r.file?.trim() === '<h1>new</h1>' || 'edit not applied: ' + r.file, /อ่าน 1/.test(r.steps) && /แก้ 1/.test(r.steps) || 'steps: ' + r.steps,
       /เปลี่ยนหัวข้อเป็น new/.test(push?.body || '') && /index\.html/.test(push?.body || '') || 'push message: ' + push?.body, /main/.test(r.push) && /abc1234/.test(r.push) || 'push note: ' + r.push];
   }],
+  ['Code stream: a SEARCH/REPLACE edit is applied and saved as applied, no raw diff left on screen, Send comes back; after reload the card stays "applied" even when the file changed later', async () => {
+    const edit = '```html path=index.html\n<<<<<<< SEARCH\n<h1>old</h1>\n=======\n<h1>new</h1>\n>>>>>>> REPLACE\n```';
+    const { page, errs, calls } = await open('/code?p=8', {
+      '/api/projects/8': { id: 8, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>old</h1>' }] },
+      chat: () => [{ chat_id: 80 }, { mcp: { server: 'ไฟล์', tool: 'แก้ index.html', ok: true } }, { t: 'แก้หัวข้อ\n\n' + edit.slice(0, 40) }, { t: edit.slice(40) + '\nเสร็จแล้ว' }, { done: true, pct4h: 1, pctWeek: 1, mid: 5 }],
+    });
+    await page.fill('#ct', 'เปลี่ยนหัวข้อ'); await page.click('#cgo'); await page.waitForTimeout(1500);
+    const r = await page.evaluate(() => ({ file: IDE.files.get('index.html'), stop: document.querySelector('#cgo').classList.contains('stop'), text: document.querySelector('#cmsgs').innerText, live: !!document.querySelector('.tsteps.live') }));
+    const saved = calls.find(c => c.p === '/api/messages/5/applied');
+    const later = await open('/code?p=8&s=80', { '/api/projects/8': { id: 8, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>newer</h1>' }] }, '/api/chats': [{ id: 80, title: 'x' }],
+      '/api/chats/80': [{ id: 4, role: 'user', content: 'เปลี่ยนหัวข้อ' }, { id: 5, role: 'assistant', content: 'แก้หัวข้อ\n\n' + edit, applied: '["index.html"]' }] });
+    const card = await later.page.evaluate(() => document.querySelector('.chg')?.innerText || '');
+    return [!errs.length || errs.join(' | '), !later.errs.length || later.errs.join(' | '), r.file?.trim() === '<h1>new</h1>' || 'edit not applied: ' + r.file, !r.stop || 'Stop button stuck', !r.live || 'step dot still live',
+      !/REPLACE|SEARCH|<<<<<<<|>>>>>>>/.test(r.text) || 'raw diff on screen', /index\.html/.test(saved?.body || '') || 'applied state not saved', /ใช้แล้ว/.test(card) && !/Apply/.test(card) || 'card after reload: ' + card];
+  }],
   ['Code like Claude Code: Plan mode then Start building, a live to-do list, a new branch with a PR button, and sessions in the sidebar', async () => {
     let n = 0;
     const { page, errs, calls } = await open('/code?p=7', {

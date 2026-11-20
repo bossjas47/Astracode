@@ -212,12 +212,12 @@ export async function blogPage(req, env, slugQ) { // ใส่ title/description
 
 // Durable Object: ทำงานตอบแชตต่อจนเสร็จ แม้ผู้ใช้ปิดจอ (ใช้ alarm เพราะไม่ถูกตัดตามคำขอ) · เก็บ event ไว้ในหน่วยความจำให้ต่อสตรีมกลับมาดูได้
 export class ChatRun {
-  constructor(state, env) { this.s = state; this.env = env; this.ev = []; this.done = true; this.wake = []; this.st = { gone: false }; }
+  constructor(state, env) { this.s = state; this.env = env; this.ev = []; this.done = true; this.ended = false; this.wake = []; this.st = { gone: false }; }
   async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname === '/start') {
       await this.s.storage.put('job', await req.json());
-      this.ev = []; this.done = false; this.st = { gone: false };
+      this.ev = []; this.done = false; this.ended = false; this.st = { gone: false };
       await this.s.storage.setAlarm(Date.now());
       return new Response('ok');
     }
@@ -228,10 +228,13 @@ export class ChatRun {
     if (this.done && !this.ev.length && await this.s.storage.get('job')) this.done = false;
     return new Response(new ReadableStream({ async pull(c) {
       const o = this.o;
-      while (i >= o.ev.length && !o.done) await new Promise(r => o.wake.push(r));
+      // ปิดสตรีมทันทีที่ส่ง done: งานหลังตอบ (ย่อแชตซึ่งเรียกโมเดลอีกรอบ, อีเมลแจ้งลิมิต) ทำต่อเบื้องหลังได้ แต่หน้าเว็บต้องรู้ว่าจบแล้ว
+      // เดิมสตรีมค้างจนงานเหล่านั้นเสร็จ → ปุ่ม Stop ค้าง, การ์ดไฟล์/Apply ไม่ขึ้น, ต้องรีเฟรชถึงเห็นผล
+      while (i >= o.ev.length && !o.done && !o.ended) await new Promise(r => o.wake.push(r));
       if (i < o.ev.length) c.enqueue(enc.encode('data: ' + JSON.stringify(o.ev[i++]) + '\n\n')); else c.close();
     }, o: this }), SSE);
   }
+  push(o) { if (this.ended) return; this.ev.push(o); if (o.done) this.ended = true; this.wake.splice(0).forEach(r => r()); } // หลัง done ไม่ส่งอะไรเข้าสตรีมอีก
   async alarm() {
     const J = await this.s.storage.get('job'); if (!J) return;
     await this.s.storage.delete('job'); // alarm ที่ถูกลองซ้ำจะไม่ตอบซ้ำ
@@ -240,7 +243,7 @@ export class ChatRun {
       try { await runAgent(this.env, J.agent_id, this.st); } catch (e) { console.log('agent run', e.message); }
       this.done = true; this.wake.splice(0).forEach(r => r()); return;
     }
-    const send = async o => { this.ev.push(o); this.wake.splice(0).forEach(r => r()); };
+    const send = async o => this.push(o);
     try { await runChat(this.env, J, send, this.st); }
     catch (e) { console.log('run', e.message); await unlimit(this.env, J.lock).catch(() => {}); await send({ error: 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' }); await send({ done: true }); }
     this.done = true; this.wake.splice(0).forEach(r => r());

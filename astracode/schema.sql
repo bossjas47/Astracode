@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS messages (
   , starred INTEGER                         -- บุ๊กมาร์ก
   , tcr INTEGER, tcw INTEGER                -- token ขาเข้าที่อ่านจาก cache / เขียนลง cache (รวมอยู่ใน tin)
   , tctx INTEGER                            -- context จริงของรอบสุดท้าย: input + output ตามผู้ให้บริการ
+  , applied TEXT                            -- โหมด Code: ไฟล์ที่ใช้การแก้ไขของข้อความนี้แล้ว (JSON ของ path) · กันการ์ดเด้งให้ Apply ซ้ำหลังรีเฟรช
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 
@@ -368,6 +369,7 @@ CREATE TABLE IF NOT EXISTS messages (
   , starred INTEGER                         -- บุ๊กมาร์ก
   , tcr INTEGER, tcw INTEGER                -- token ขาเข้าที่อ่านจาก cache / เขียนลง cache (รวมอยู่ใน tin)
   , tctx INTEGER                            -- context จริงของรอบสุดท้าย: input + output ตามผู้ให้บริการ
+  , applied TEXT                            -- โหมด Code: ไฟล์ที่ใช้การแก้ไขของข้อความนี้แล้ว (JSON ของ path) · กันการ์ดเด้งให้ Apply ซ้ำหลังรีเฟรช
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 

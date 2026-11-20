@@ -369,6 +369,11 @@ export async function route(req, env, ctx, url, path, M) {
         const q = (url.searchParams.get('q') || '').trim();
         return json((await env.DB.prepare(`SELECT m.id,m.chat_id,substr(m.content,1,400) content,m.created_at,c.title FROM messages m JOIN chats c ON c.id=m.chat_id WHERE c.user_id=? AND m.starred=1 AND c.deleted_at IS NULL ${q ? 'AND m.content LIKE ?' : ''} ORDER BY m.id DESC LIMIT 100`).bind(...(q ? [u.id, '%' + q + '%'] : [u.id])).all()).results);
       }
+      if ((r = path.match(/^\/api\/messages\/(\d+)\/applied$/)) && M === 'POST') { // โหมด Code: จำว่าการแก้ไขของข้อความนี้ใช้กับไฟล์ไหนแล้ว (null = ย้อนกลับแล้ว)
+        const b = await req.json().catch(() => ({})), paths = Array.isArray(b.paths) ? [...new Set(b.paths.map(x => String(x).slice(0, 300)))].slice(0, 200) : null;
+        const ok = await env.DB.prepare('UPDATE messages SET applied=? WHERE id=? AND role=\'assistant\' AND chat_id IN (SELECT id FROM chats WHERE user_id=?)').bind(paths ? JSON.stringify(paths) : null, +r[1], u.id).run();
+        return ok.meta.changes ? json({ ok: true }) : err('ไม่พบข้อความ', 404);
+      }
       if ((r = path.match(/^\/api\/messages\/(\d+)\/star$/)) && M === 'POST') {
         const b = await req.json().catch(() => ({})), ok = await env.DB.prepare('UPDATE messages SET starred=? WHERE id=? AND chat_id IN (SELECT id FROM chats WHERE user_id=?)').bind(b.on ? 1 : 0, +r[1], u.id).run();
         return ok.meta.changes ? json({ ok: true }) : err('ไม่พบข้อความ', 404);
@@ -394,7 +399,7 @@ export async function route(req, env, ctx, url, path, M) {
           return json({ ok: true });
         }
         await ensureFb(env);
-        return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,m.starred,md.name model,(SELECT vote FROM feedback f WHERE f.message_id=m.id AND f.user_id=?2) vote FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=?1 ORDER BY m.id').bind(r[1], u.id).all()).results);
+        return json((await env.DB.prepare('SELECT m.id,m.role,m.content,m.thinking,m.sources,m.tin,m.tout,m.starred,m.applied,md.name model,(SELECT vote FROM feedback f WHERE f.message_id=m.id AND f.user_id=?2) vote FROM messages m LEFT JOIN models md ON md.id=m.model_id WHERE m.chat_id=?1 ORDER BY m.id').bind(r[1], u.id).all()).results);
       }
       if ((r = path.match(/^\/api\/shared\/([0-9a-f]{16})\/([0-3])$/)) && env.SLIPS) { // ไฟล์ที่แชร์มาจากแอปอื่น: ส่งครั้งเดียวแล้วลบ
         const k = `share/${r[1]}/${r[2]}`, o = await env.SLIPS.get(k); if (!o) return err('ไฟล์หมดอายุแล้ว', 404);
