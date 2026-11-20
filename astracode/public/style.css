@@ -1537,3 +1537,46 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .sp-h { margin: 14px 4px 2px; font: 600 12px var(--font); color: var(--ash); }
 .sp-del { margin-top: 10px; align-self: flex-start; color: var(--red, #e5484d); }
 .linkish { border: 0; background: none; padding: 0; font: inherit; color: var(--link); text-decoration: underline; cursor: pointer; min-height: 0 !important; min-width: 0 !important; }
+
+/* ---------- แถบข้างเดียวกับหน้าแชต ทุกหน้า (เมนู .nav เดิม) ---------- */
+.nav .nav-panel { background-color: var(--graphite); border-right: 1px solid var(--hair); gap: 6px; padding: 14px 12px calc(12px + env(safe-area-inset-bottom)); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.nav .nav-head .logo, .nav .nav-top .logo { font: 700 17px var(--font); letter-spacing: .8px; text-transform: uppercase; }
+.nav .nav-panel .mode-seg a { text-decoration: none; }
+.nav .nav-panel .side-sec { padding: 10px 10px 2px; }
+.nav-recents { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.nav-recents p { padding: 6px 12px; margin: 0; font-size: 13px; }
+.nav .nav-panel .nav-recents a.l { min-height: 40px; padding: 0 12px; border-radius: 10px; font-size: 14px; gap: 10px; color: var(--porcelain); }
+.nav .nav-panel .nav-recents a.l span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .nav-panel .nav-recents a.l .ic { width: 16px; height: 16px; color: var(--ash); }
+.nav .nav-panel .nav-recents a.l .ic.bm-on { color: #e8a33d; }
+.nav .nav-panel a.l { border-radius: 12px; min-height: 44px; font-size: 14px; }
+.nav .nav-panel .side-user { margin-top: 6px; padding: 8px 6px; border-top: 1px solid var(--hair); border-radius: 12px; display: flex; align-items: center; gap: 10px; color: var(--porcelain); }
+.nav .nav-panel .side-user:hover { background: rgba(var(--ov), .06); }
+.nav .nav-panel .acct-pop { bottom: calc(76px + env(safe-area-inset-bottom)); }
+.nav .nav-r .nav-wal, .nav .nav-r .nav-av { display: none; } /* ยอดเงินและบัญชีอยู่ที่แถวผู้ใช้ในแถบข้าง */
+@media (min-width: 1000px) {
+  .view.with-side { padding-left: 280px; }
+  .view.with-side > .nav .nav-panel { transform: none; width: 280px; transition: none; box-shadow: none; }
+  .view.with-side > .nav .nav-scrim, .view.with-side > .nav .nav-x, .view.with-side > .nav .nav-top .nav-btn, .view.with-side > .nav .nav-top .logo { display: none; }
+  .view.with-side > .nav .nav-top { background-color: rgba(var(--bg0), .7); border-bottom: 1px solid var(--hair); }
+}
+@media (max-width: 999px) { .nav .nav-panel { width: min(320px, 88vw); } }
+.nav .nav-panel .side-user { flex: none; width: 100%; min-height: 52px; }
+@media (min-width: 1000px) { .view.with-side > .nav .nav-r .btn { display: none; } } /* ยังไม่ล็อกอิน: ปุ่มเข้าสู่ระบบอยู่ในแถบข้างแล้ว */
+/* หน้าตาสะอาดแบบหน้าแชต: พื้นผิวเรียบ เส้นขอบบาง เงาเบา (เฉพาะหน้าที่มีแถบข้างใหม่ · ไม่แตะหน้าแชต) */
+.view.with-side .card, .view.with-side .tile, .view.with-side .showcase {
+  background-image: none; background-color: var(--carbon); border: 1px solid var(--hair);
+  -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
+}
+.view.with-side .btn.out, .view.with-side .btn.dark, .view.with-side .tabs button, .view.with-side .tabs a, .view.with-side .chips button, .view.with-side .seg, .view.with-side .sc-pill {
+  background-image: none; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; border: 1px solid var(--hair);
+}
+.view.with-side .btn.out:hover, .view.with-side .btn.dark:hover, .view.with-side .tabs button:hover { background-color: rgba(var(--ov), .06); }
+.view.with-side input, .view.with-side select, .view.with-side textarea { background: var(--carbon); border: 1px solid var(--hair); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
+.view.with-side input:focus, .view.with-side select:focus, .view.with-side textarea:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px rgba(217, 119, 87, .18); }
+.view.with-side .btn.blue { box-shadow: none; }
+.view.with-side .tile.plan.feat { box-shadow: 0 0 0 2px var(--porcelain); }
+.view.with-side .hero h1, .view.with-side h1 { letter-spacing: -.01em; }
+.nav .nav-panel { background-image: none; box-shadow: none; }
+.nav.open .nav-panel { box-shadow: 0 18px 48px rgba(0, 0, 0, .3); }
+@media (min-width: 1000px) { .view.with-side > .nav.open .nav-panel { box-shadow: none; } }

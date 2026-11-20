@@ -230,6 +230,18 @@ const FLOWS = [
     await page.evaluate(() => document.querySelector('#newc').click()); await page.waitForTimeout(500);
     return [!errs.length || errs.join(' | '), new URL(page.url()).search === '' || 'still on the old chat: ' + page.url(), await page.locator('#msgs .empty').count() === 1 || 'empty chat not shown'];
   }],
+  ['every page has the chat-style sidebar: recents, account menu and settings work outside the chat page too', async () => {
+    const { page, errs } = await open('/plans', { '/api/chats': [{ id: 91, title: 'แชตล่าสุด', pinned: 1 }] });
+    await page.waitForTimeout(300);
+    const recent = await page.locator('.nav-recents a[href="/chat?id=91"]').count();
+    await page.click('.nav-top .nav-btn'); await page.waitForTimeout(300);
+    await page.click('.nav [data-acct]'); await page.waitForTimeout(200);
+    const menu = await page.locator('.nav .acct-pop').innerText().catch(() => '');
+    await page.click('.nav .acct-pop [data-ap=settings]'); await page.waitForTimeout(200);
+    const hrefs = await page.$$eval('.sheet-bg a.opt', as => as.map(a => a.getAttribute('href')));
+    const need = ['/plans?topup=1', '/developers', '/support', '/pricing', '/chat?open=bin', '/blog', '/status'].filter(h => !hrefs.includes(h));
+    return [!errs.length || errs.join(' | '), recent === 1 || 'recent chat not in the sidebar', /Log out/.test(menu) || 'account menu missing', !need.length || 'settings missing ' + need.join(', ')];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);

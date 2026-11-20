@@ -261,10 +261,92 @@ const langSeg = () => `<div class="seg langseg" role="group" aria-label="Languag
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-lang]'); if (!b || b.dataset.lang === (window.LANG || 'th')) return; try { localStorage.setItem('lang', b.dataset.lang); } catch { /* ไม่มีที่เก็บ */ } location.reload(); });
 // การ์ดโปรไฟล์ในเมนูข้าง: วงกลมตัวอักษร + อีเมล + แพลน (กดไปหน้าบัญชี)
 const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
-const nav = () => `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
+// แถบข้างเดียวกับหน้าแชตทุกหน้า: จอกว้างแสดงค้างไว้ · มือถือเป็นลิ้นชักจากปุ่มเมนู
+// ล็อกอินแล้ว = สลับ Chat / Code, แชตใหม่, แชตล่าสุด, แถวผู้ใช้ (เมนูบัญชี + ตั้งค่า) · ยังไม่ล็อกอิน = ลิงก์หน้าสาธารณะ + เข้าสู่ระบบ
+const nav = () => {
+  const path = curl().pathname, inCode = path.startsWith('/code');
+  const body = me ? `<div class="mode-seg" role="group" aria-label="Mode"><a href="/chat" class="${inCode ? '' : path === '/chat' ? 'on' : ''}">${ic('msg', 'sm')}<span>Chat</span></a><a href="/code" class="${inCode ? 'on' : ''}">${ic('code', 'sm')}<span>Code</span></a></div>
+    <a class="side-new" href="${inCode ? '/code' : '/chat'}">${ic('plus', 'sm')}<span>${inCode ? 'New project' : 'New chat'}</span></a>${deskLink('l')}
+    <div class="side-sec"><span>${inCode ? 'Projects' : 'Recents'}</span></div>
+    <div class="nav-recents" data-kind="${inCode ? 'code' : 'chat'}"><p class="muted">Loading…</p></div>
+    <button type="button" class="side-user" data-acct aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}"><span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span><span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan?.name || '')} · ${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}% used</small></span>${ic('up', 'sm')}</button>`
+    : `${navL('/', 'Home', 'sparkles')}${navL('/pricing', 'Pricing', 'tag')}${navL('/plans', 'Plans', 'layers')}${window.astraDesktop ? '' : navL('/#download', 'Desktop app', 'download')}${navL('/blog', 'Blog', 'news')}${navL('/status', 'Status', 'activity')}
+    <span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`;
+  return `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
-  ${me ? `${navL('/chat', 'Chat', 'msg')}${navL('/code', 'Code', 'code')}${deskLink('l')}${dlLink('l')}${navL('/plans', 'Plans', 'layers')}${navL('/plans?topup=1', 'เติมเงิน', 'wallet')}${navL('/pricing', 'Pricing', 'tag')}${navL('/blog', 'Blog', 'news')}<a class="l" href="/blog?c=1" id="clnav">${ic('sparkles')}<span>มีอะไรใหม่</span></a>${navL('/support', 'ติดต่อเรา / แจ้งปัญหา', 'mail').replace('class="l', 'class="l contact-l')}${['admin', 'support', 'viewer'].includes(me.role) ? navL('/admin', 'Admin', 'dash') : ''}<span class="sp"></span>${langSeg()}${navProfile()}`
-       : `${navL('/plans', 'Plans', 'layers')}${navL('/pricing', 'Pricing', 'tag')}${window.astraDesktop ? '' : navL('/#download', 'ดาวน์โหลด', 'download')}${navL('/blog', 'Blog', 'news')}<span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`}</div></nav>`;
+  ${body}</div></nav>`;
+};
+// แชตล่าสุด / โปรเจกต์ในแถบข้างของหน้าอื่น (โหลดครั้งเดียวต่อ 60 วินาที)
+let sideCache = {};
+async function navRecents() {
+  const box = document.querySelector('.nav-recents'); if (!box || !me) return;
+  const kind = box.dataset.kind, hit = sideCache[kind];
+  const rows = hit && Date.now() - hit.at < 60e3 ? hit.rows : await api(kind === 'code' ? '/projects' : '/chats').catch(() => null);
+  if (rows) sideCache[kind] = { at: Date.now(), rows };
+  if (!document.body.contains(box)) return;
+  const clean = t => esc(String(t || '').replace(/^\p{Extended_Pictographic}️?\s*/u, ''));
+  box.innerHTML = !rows ? '<p class="muted">Could not load</p>'
+    : kind === 'code' ? (rows.slice(0, 15).map(p => `<a class="l" href="/code?p=${p.id}">${ic('code', 'sm')}<span>${clean(p.name)}</span></a>`).join('') || '<p class="muted">No projects yet</p>')
+    : (rows.filter(c => !c.folder_id).sort((a, b) => (b.pinned || 0) - (a.pinned || 0)).slice(0, 15).map(c => `<a class="l" href="/chat?id=${c.id}">${ic(c.pinned ? 'star' : 'msg', c.pinned ? 'sm bm-on' : 'sm')}<span>${clean(c.title)}</span></a>`).join('') || '<p class="muted">No chats yet</p>');
+}
+// เมนูบัญชี (แถวผู้ใช้ล่างแถบข้าง ทุกหน้า): ลิมิต, ตั้งค่า, แพลน, เติมเงิน, ติดต่อ, หลังบ้าน, ออกจากระบบ
+function acctMenu(btn, host) {
+  const old = host?.querySelector('.acct-pop');
+  if (old) { old.remove(); btn?.setAttribute('aria-expanded', 'false'); return; }
+  const u = me.usage || {}, bar = (label, v) => `<div class="ap-bar"><span>${label}</span><span>${Math.round(v || 0)}%</span><i><b style="width:${Math.min(100, Math.max(2, v || 0))}%"></b></i></div>`;
+  const pop = document.createElement('div'); pop.className = 'acct-pop'; pop.setAttribute('role', 'menu'); pop.setAttribute('aria-label', 'Account menu');
+  pop.innerHTML = `<div class="ap-head"><div class="ap-who"><span>${esc(me.email)}</span><em>${esc(me.plan?.name || '')}</em></div>${u.use4h === false ? '' : bar('4-hour window', u.pct4h)}${bar('This week', u.pctWeek)}</div>
+    <button type="button" role="menuitem" data-ap="settings">${ic('settings')}<span>Settings</span></button>
+    <a role="menuitem" href="/plans">${ic('layers')}<span>Plans &amp; upgrade</span></a>
+    <a role="menuitem" href="/plans?topup=1">${ic('wallet')}<span>Top up</span><small>฿${baht(me.balance)}</small></a>
+    <hr>
+    <a role="menuitem" href="/support">${ic('mail')}<span>Contact &amp; support</span></a>
+    ${['admin', 'support', 'viewer'].includes(me.role) ? `<a role="menuitem" href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
+    <button type="button" role="menuitem" data-ap="out" class="ap-out">${ic('logout')}<span>Log out</span></button>`;
+  host.append(pop); btn?.setAttribute('aria-expanded', 'true'); pop.querySelector('[role=menuitem]')?.focus();
+  const close = () => { pop.remove(); btn?.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', outside, true); };
+  const outside = e => { if (!pop.contains(e.target) && !btn?.contains(e.target)) close(); };
+  setTimeout(() => document.addEventListener('click', outside, true));
+  pop.onkeydown = e => { if (e.key === 'Escape') { close(); btn?.focus(); } };
+  pop.onclick = async e => {
+    const it = e.target.closest('[role=menuitem]'); if (!it) return;
+    close();
+    if (it.dataset.ap === 'settings') { e.preventDefault(); settingsSheet(); }
+    if (it.dataset.ap === 'out') { e.preventDefault(); await api('/logout', { method: 'POST' }).catch(() => {}); me = null; go('/'); }
+  };
+}
+// ตั้งค่า (ทุกหน้า): แพลน, เติมเงิน, ลิมิต, บัญชี, แชต (ถังขยะ/ข้อความที่บันทึก), นักพัฒนา, แอปคอม, ช่วยเหลือ, ภาษา
+function settingsSheet() {
+  const row = (href, icon, t, d = '') => `<a class="opt" href="${href}"><span class="opt-t">${ic(icon)}${t}</span>${d ? `<span class="opt-d">${d}</span>` : ''}</a>`;
+  const btn = (k, icon, t, d = '') => `<button type="button" class="opt" data-k="${k}"><span class="opt-t">${ic(icon)}${t}</span>${d ? `<span class="opt-d">${d}</span>` : ''}</button>`;
+  const onChat = typeof binSheet === 'function'; // หน้าแชตเปิดถังขยะ/ข้อความที่บันทึกได้ทันที · หน้าอื่นพาไปเปิดที่หน้าแชต
+  sheet('Settings', `<div class="sheet-form set-sheet">
+    <h4>Plan &amp; usage</h4>
+    ${row('/plans', 'layers', 'Plan · ' + esc(me.plan?.name || ''), 'View or change your plan')}
+    ${row('/plans?topup=1', 'wallet', 'Top up · ฿' + baht(me.balance), 'PromptPay · for models outside your plan and when the limit is full')}
+    ${btn('lim', 'clock', 'Usage limits', '4-hour and weekly windows')}
+    <h4>Account</h4>
+    ${row('/account', 'user', 'Account &amp; security', 'Profile, 2FA, passkeys, custom instructions, memory, theme')}
+    <h4>Chats</h4>
+    ${onChat ? btn('bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days') : row('/chat?open=bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days')}
+    ${onChat ? btn('saved', 'book', 'Saved messages', 'Answers you bookmarked before') : row('/chat?open=saved', 'book', 'Saved messages', 'Answers you bookmarked before')}
+    <h4>Developers &amp; apps</h4>
+    ${row('/developers', 'braces', 'Developer API', 'API keys and OpenAI-compatible usage')}
+    ${window.astraDesktop ? '' : row('/#download', 'download', 'Desktop app', 'Windows · Mac · Linux: let the AI work with files on your computer')}
+    <h4>Help</h4>
+    ${row('/support', 'mail', 'Contact &amp; support')}
+    ${row('/pricing', 'tag', 'Pricing', 'Model prices per 1M tokens')}
+    ${row('/blog?c=1', 'sparkles', 'What’s new')}
+    ${row('/blog', 'news', 'Blog')}
+    ${row('/status', 'activity', 'System status')}
+    <h4>Language</h4>${langSeg()}
+  </div>`, (d, close) => {
+    d.querySelectorAll('a.opt').forEach(a => a.addEventListener('click', close));
+    d.querySelector('[data-k=lim]').onclick = () => { close(); limitSheet(); };
+    if (onChat) { d.querySelector('[data-k=bin]').onclick = () => { close(); binSheet(); }; d.querySelector('[data-k=saved]').onclick = () => { close(); bookmarksSheet(); }; }
+  });
+}
+document.addEventListener('click', e => { const b = e.target.closest?.('.nav [data-acct]'); if (!b || !me) return; e.stopPropagation(); acctMenu(b, b.closest('.nav-panel')); });
 // เมนูข้าง: มือถือกดปุ่มเมนูเปิด/ปิดลิ้นชัก
 document.addEventListener('click', e => {
   if (e.target.closest?.('.nav-lim') && me) return limitSheet();
@@ -275,7 +357,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelector('.nav.open')?.classList.remove('open'); });
 // วาดซ้ำหน้าเดิม (เช่น สลับสกุลเงิน): ไม่เล่นแอนิเมชันเข้าหน้าซ้ำ และคงตำแหน่งที่เลื่อนอยู่
-const page = html => { const again = !!app.querySelector('.view'), y = scrollY; app.innerHTML = `<div class="view${again ? ' still' : ''}">${html}</div>`; if (again) scrollTo(0, y); let seen = 0; try { seen = +localStorage.getItem('clSeen') || 0; } catch { /* ไม่มีที่เก็บ */ } if (site?.cl_latest > seen) app.querySelector('#clnav')?.classList.add('dot'); if (me) notifLoad(); };
+const page = html => { const again = !!app.querySelector('.view'), y = scrollY; app.innerHTML = `<div class="view${again ? ' still' : ''}${html.startsWith('<nav class="nav"') ? ' with-side' : ''}">${html}</div>`; navRecents(); if (again) scrollTo(0, y); let seen = 0; try { seen = +localStorage.getItem('clSeen') || 0; } catch { /* ไม่มีที่เก็บ */ } if (site?.cl_latest > seen) app.querySelector('#clnav')?.classList.add('dot'); if (me) notifLoad(); };
 
 // การ์ดแพลน: บอกแค่ใช้ได้กี่เท่าของ Free + ชื่อโมเดล (ตามลำดับที่ตั้งในหลังบ้าน ที่เหลือพับไว้) · ไม่โชว์จำนวนข้อความ
 const PLAN_TOP = 8, pmChip = (m, hide) => `<span class="pm-chip"${hide ? ' hidden' : ''}>${esc(m.name)}</span>`;

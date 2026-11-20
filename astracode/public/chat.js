@@ -133,7 +133,8 @@ async function chatView(id) {
   side.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
   if (sideMode === 'code') drawProjects();
   $('#sclose').onclick = () => { side.classList.remove('open'); side.parentElement.querySelector('.shade')?.remove(); };
-  $('#acct').onclick = e => { e.stopPropagation(); acctMenu(); };
+  $('#acct').onclick = e => { e.stopPropagation(); acctMenu($('#acct'), side); };
+  { const op = qs().get('open'); if (op === 'bin') binSheet(); else if (op === 'saved') bookmarksSheet(); } // ลิงก์จากตั้งค่าของหน้าอื่น
   $('#menu').onclick = () => { side.classList.add('open'); const s = document.createElement('div'); s.className = 'shade'; s.onclick = () => { side.classList.remove('open'); s.remove(); }; side.parentElement.append(s); }; // ใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
   if (!window.DEMO && !id) try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
@@ -530,60 +531,6 @@ async function drawProjects(cached) {
   box.innerHTML = !chat.projects ? '<p class="muted" style="padding:8px 12px">Could not load projects</p>'
     : ps.length ? ps.map(p => `<div class="item"><a href="/code?p=${p.id}">${ic(p.shared ? 'users' : 'code', 'sm ci')}<span class="pi"><b>${esc(p.name)}</b><small>${when(p.updated_at)} · ${p.files} files${p.shared ? ' · shared with me' : ''}</small></span></a></div>`).join('')
     : `<p class="muted" style="padding:8px 12px">${q ? 'No projects found' : 'No projects yet · tap New project'}</p>`;
-}
-// เมนูบัญชี (กดชื่อผู้ใช้ล่างแถบข้าง): ลิมิต, ตั้งค่า, แพลน, เติมเงิน, ติดต่อ, หลังบ้าน, ออกจากระบบ
-function acctMenu() {
-  const side = $('#side'), old = side?.querySelector('.acct-pop'), btn = $('#acct');
-  if (old) { old.remove(); btn?.setAttribute('aria-expanded', 'false'); return; }
-  const u = me.usage || {}, bar = (label, v) => `<div class="ap-bar"><span>${label}</span><span>${Math.round(v || 0)}%</span><i><b style="width:${Math.min(100, Math.max(2, v || 0))}%"></b></i></div>`;
-  const pop = document.createElement('div'); pop.className = 'acct-pop'; pop.setAttribute('role', 'menu'); pop.setAttribute('aria-label', 'Account menu');
-  pop.innerHTML = `<div class="ap-head"><div class="ap-who"><span>${esc(me.email)}</span><em>${esc(me.plan.name)}</em></div>${u.use4h === false ? '' : bar('4-hour window', u.pct4h)}${bar('This week', u.pctWeek)}</div>
-    <button type="button" role="menuitem" data-ap="settings">${ic('settings')}<span>Settings</span></button>
-    <a role="menuitem" href="/plans">${ic('layers')}<span>Plans &amp; upgrade</span></a>
-    <a role="menuitem" href="/plans?topup=1">${ic('wallet')}<span>Top up</span><small>฿${baht(me.balance)}</small></a>
-    <hr>
-    <a role="menuitem" href="/support">${ic('mail')}<span>Contact &amp; support</span></a>
-    ${['admin', 'support', 'viewer'].includes(me.role) ? `<a role="menuitem" href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
-    <button type="button" role="menuitem" data-ap="out" class="ap-out">${ic('logout')}<span>Log out</span></button>`;
-  side.append(pop); btn?.setAttribute('aria-expanded', 'true'); pop.querySelector('[role=menuitem]')?.focus();
-  const close = () => { pop.remove(); btn?.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', outside, true); };
-  const outside = e => { if (!pop.contains(e.target) && !btn?.contains(e.target)) close(); };
-  setTimeout(() => document.addEventListener('click', outside, true));
-  pop.onkeydown = e => { if (e.key === 'Escape') { close(); btn?.focus(); } };
-  pop.onclick = async e => {
-    const it = e.target.closest('[role=menuitem]'); if (!it) return;
-    close();
-    if (it.dataset.ap === 'settings') { e.preventDefault(); settingsSheet(); }
-    if (it.dataset.ap === 'out') { e.preventDefault(); await api('/logout', { method: 'POST' }).catch(() => {}); me = null; go('/'); }
-  };
-}
-// ตั้งค่า: รวมเมนูที่ย้ายออกจากแถบข้าง (แพลน, เติมเงิน, Pricing, Developer API, แอปคอม, ติดต่อเรา) + บัญชี
-function settingsSheet() {
-  const row = (href, icon, t, d = '') => `<a class="opt" href="${href}"><span class="opt-t">${ic(icon)}${t}</span>${d ? `<span class="opt-d">${d}</span>` : ''}</a>`;
-  const btn = (k, icon, t, d = '') => `<button type="button" class="opt" data-k="${k}"><span class="opt-t">${ic(icon)}${t}</span>${d ? `<span class="opt-d">${d}</span>` : ''}</button>`;
-  const dl = window.astraDesktop ? '' : row('/#download', 'download', 'Desktop app', 'Windows · Mac · Linux: let the AI work with files on your computer');
-  sheet('Settings', `<div class="sheet-form set-sheet">
-    <h4>Plan &amp; usage</h4>
-    ${row('/plans', 'layers', 'Plan · ' + esc(me.plan.name), 'View or change your plan')}
-    ${row('/plans?topup=1', 'wallet', 'Top up · ฿' + baht(me.balance), 'PromptPay · for models outside your plan and when the limit is full')}
-    ${btn('lim', 'clock', 'Usage limits', '4-hour and weekly windows')}
-    <h4>Account</h4>
-    ${row('/account', 'user', 'Account &amp; security', 'Profile, 2FA, passkeys, custom instructions, memory, theme')}
-    <h4>Chats</h4>
-    ${btn('bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days')}
-    ${btn('saved', 'book', 'Saved messages', 'Answers you bookmarked before')}
-    <h4>Developers &amp; apps</h4>
-    ${row('/developers', 'braces', 'Developer API', 'API keys and OpenAI-compatible usage')}
-    ${dl}
-    <h4>Help</h4>
-    ${row('/support', 'mail', 'Contact &amp; support')}
-    ${row('/pricing', 'tag', 'Pricing', 'Model prices per 1M tokens')}
-  </div>`, (d, close) => {
-    d.querySelectorAll('a.opt').forEach(a => a.addEventListener('click', close));
-    d.querySelector('[data-k=lim]').onclick = () => { close(); limitSheet(); };
-    d.querySelector('[data-k=bin]').onclick = () => { close(); binSheet(); };
-    d.querySelector('[data-k=saved]').onclick = () => { close(); bookmarksSheet(); };
-  });
 }
 // บุ๊กมาร์กแชต (ใช้ค่า pinned เดิม): กดเลือกแชตที่จะบุ๊กมาร์ก · แชตที่บุ๊กมาร์กขึ้นดาวและอยู่บนสุดของแถบข้าง กดดาวเพื่อยกเลิก
 async function setBookmark(id, on) {
