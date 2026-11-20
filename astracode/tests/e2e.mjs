@@ -298,13 +298,16 @@ const FLOWS = [
   ['Code: New project starts from a prompt, opens the editor in place and the AI starts right away', async () => {
     const { page, errs, calls } = await open('/code', { '/api/projects': q => q.method() === 'POST' ? { id: 7 } : [{ id: 3, name: 'Old', files: 1, size: 10, updated_at: Date.now() }], '/api/projects/7': { id: 7, name: 'เว็บร้านกาแฟ', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] } });
     await page.evaluate(() => { window.__same = 1; });
+    const pick = await page.evaluate(() => ({ m: !!document.querySelector('#nmdl:not([hidden])'), plus: !!document.querySelector('#nplus') }));
+    await page.click('#nmdl'); await page.waitForTimeout(200); await page.click('.sheet [data-v="2"]'); await page.waitForTimeout(100); const eff = await page.locator('#neff').isVisible();
+    await page.click('#nplus'); await page.waitForTimeout(200); const tools = await page.locator('.sheet .opt').count(); await page.click('.sheet .x');
     await page.fill('#nt', 'ทำเว็บร้านกาแฟ มีเมนูและปุ่มสั่งซื้อ'); await page.click('#ngo'); await page.waitForTimeout(1500);
     const make = calls.find(c => c.m === 'POST' && c.p === '/api/projects'), send = calls.find(c => c.p === '/api/chat');
     const st = await page.evaluate(() => ({ same: window.__same, url: location.pathname + location.search, ide: !!document.querySelector('.ide') }));
     await page.evaluate(() => document.querySelector('.dr-back').click()); await page.waitForTimeout(400);
     const back = await page.evaluate(() => ({ same: window.__same, home: !!document.querySelector('#nt'), url: location.pathname + location.search }));
     return [!errs.length || errs.join(' | '), /"template":"starter"/.test(make?.body || '') || 'no project created: ' + make?.body, /"name":"เว็บร้านกาแฟ/.test(make?.body || '') || 'name not from prompt: ' + make?.body,
-      st.same === 1 || 'page reloaded', st.url === '/code?p=7' || 'url ' + st.url, st.ide || 'editor not open', /ร้านกาแฟ/.test(send?.body || '') || 'prompt not sent to AI', back.same === 1 && back.home && back.url === '/code' || 'back to New project failed: ' + JSON.stringify(back)];
+      st.same === 1 || 'page reloaded', st.url === '/code?p=7' || 'url ' + st.url, st.ide || 'editor not open', /ร้านกาแฟ/.test(send?.body || '') || 'prompt not sent to AI', pick.m && pick.plus || 'no model/tools buttons', eff || 'no effort for a thinking model', tools >= 6 || 'tools sheet has ' + tools, /"model_id":2/.test(send?.body || '') || 'picked model not used', back.same === 1 && back.home && back.url === '/code' || 'back to New project failed: ' + JSON.stringify(back)];
   }],
   ['page audit finds missing title, alt and viewport, and passes a clean page', async () => {
     const { page, errs } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<html><body><img src="a.png"><h1>x</h1></body></html>' }] } });

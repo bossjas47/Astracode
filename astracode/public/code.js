@@ -37,9 +37,11 @@ async function codeHome() {
   page(nav() + `<div class="wrap cstart"><div class="cs-in">
     <h1 class="cs-h">What should we build?</h1>
     <form class="cbox cs-box" id="nf"><textarea id="nt" rows="3" placeholder="อธิบายสิ่งที่อยากสร้าง เช่น เว็บร้านกาแฟ มีเมนูและปุ่มสั่งซื้อ" aria-label="สิ่งที่อยากสร้าง" maxlength="4000"></textarea>
-      <div class="crow"><button type="button" class="cb pick" id="ntpl" aria-haspopup="dialog">${ic('layers', 'sm')}<span>${tplName()}</span></button>
-        <button type="button" class="cb" id="nclone" aria-label="Clone จาก GitHub">${ic('branch', 'sm')}<span class="cs-lbl">GitHub</span></button>${DESK ? `<button type="button" class="cb" id="openlocal" aria-label="เปิดโฟลเดอร์ในเครื่อง">${ic('folder', 'sm')}<span class="cs-lbl">Folder</span></button>` : ''}
-        <button class="send" id="ngo" aria-label="เริ่มสร้าง">${ic('up')}</button></div></form>
+      <div id="nflags" class="cflags"></div>
+      <div class="crow"><button type="button" class="cb" id="nplus" aria-label="เครื่องมือและตัวเลือก" aria-haspopup="dialog">${ic('plus')}</button><button type="button" class="cb pick" id="nmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="neff" aria-haspopup="dialog"></button>
+        <button class="send" id="ngo" aria-label="เริ่มสร้าง">${ic('up')}</button></div>
+      <select id="nmodel" hidden>${me.models.filter(m => !m.locked).map(m => `<option value="${m.id}" ${String(m.id) === localStorage.getItem('model') ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
+      <select id="neffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></form>
     <div class="err" id="e"></div>
     <div class="cs-ideas">${CODE_IDEAS.map(([l, t]) => `<button type="button" class="cs-idea" data-idea="${esc(t)}">${esc(l)}</button>`).join('')}</div>
     <p class="cs-foot"><button type="button" class="linkish" id="nempty">Start with an empty editor</button> · <button type="button" class="linkish" id="nall">All projects</button><span id="ngal"></span></p>
@@ -48,7 +50,52 @@ async function codeHome() {
   ta.oninput = grow; if (!isPhone()) ta.focus();
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isPhone()) { e.preventDefault(); $('#nf').requestSubmit(); } };
   app.querySelectorAll('[data-idea]').forEach(b => b.onclick = () => { ta.value = b.dataset.idea; grow(); ta.focus(); });
-  $('#ntpl').onclick = () => sheet('Template', TPLS.map(([v, t, d]) => optHTML(v, esc(t), esc(d), v === tpl)).join(''), (d, close) => d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = () => { tpl = b.dataset.v; $('#ntpl span').textContent = tplName(); close(); ta.focus(); }));
+  // โมเดล / ระดับความคิด / เครื่องมือ: ใช้ค่าเดียวกับกล่อง AI ในตัวแก้โค้ด (จำไว้ต่อเครื่อง)
+  const curM = () => me.models.find(x => x.id === +$('#nmodel').value) || me.models.find(x => !x.locked) || me.models[0];
+  const ui = () => {
+    const m = curM(), efs = modelEfforts(m);
+    $('#nmdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
+    $('#neff').hidden = !efs.length;
+    if (efs.length && !efs.includes($('#neffort').value)) $('#neffort').value = efs[0];
+    $('#neff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#neffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
+    $('#nflags').innerHTML = (tpl !== 'auto' ? `<button type="button" class="flag" data-nf="tpl">${ic('layers', 'sm')}${esc(tplName())}${ic('x', 'sm')}</button>` : '')
+      + (IDE.cloud ? `<button type="button" class="flag agent-on" data-nf="cloud">${ic('terminal', 'sm')}Agent บนคลาวด์${ic('x', 'sm')}</button>` : '')
+      + (IDE.agent ? `<button type="button" class="flag agent-on" data-nf="agent">${ic('sparkles', 'sm')}Agent ON${ic('x', 'sm')}</button>` : '')
+      + (_skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-nf="sk" data-id="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
+      + (_mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-nf="mc" data-id="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
+  };
+  IDE.cloud = localStorage.getItem('ccloud') === '1';
+  $('#neffort').value = localStorage.getItem('effort') || '';
+  $('#nmodel').onchange = e => { localStorage.setItem('model', e.target.value); ui(); };
+  $('#neffort').onchange = e => { localStorage.setItem('effort', e.target.value); ui(); };
+  $('#nmdl').onclick = () => modelSheet('#nmodel'); $('#neff').onclick = () => effortSheet('#neffort', curM());
+  const setSkills = ids => { IDE.skills = ids; localStorage.setItem('cskills', JSON.stringify(ids)); ui(); }, setMcps = ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); ui(); };
+  const setAgent = on => { IDE.agent = on; localStorage.setItem('agent', on ? '1' : '0'); ui(); }, setCloud = on => { IDE.cloud = on; localStorage.setItem('ccloud', on ? '1' : '0'); ui(); };
+  $('#nflags').onclick = e => {
+    const f = e.target.closest('[data-nf]'); if (!f) return; const k = f.dataset.nf, id = +f.dataset.id;
+    if (k === 'tpl') { tpl = 'auto'; ui(); } else if (k === 'agent') setAgent(false); else if (k === 'cloud') setCloud(false);
+    else if (k === 'sk') setSkills(IDE.skills.filter(x => x !== id)); else if (k === 'mc') setMcps(IDE.mcps.filter(x => x !== id));
+  };
+  const tplSheet = () => sheet('Template', TPLS.map(([v, t, d]) => optHTML(v, esc(t), esc(d), v === tpl)).join(''), (d, close) => d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = () => { tpl = b.dataset.v; close(); ui(); ta.focus(); }));
+  $('#nplus').onclick = () => sheet('เครื่องมือ', optHTML('tpl', ic('layers') + 'แม่แบบ: ' + esc(tplName()), 'Auto = เลือกให้จากสิ่งที่พิมพ์ หรือเลือกเอง (React, Python, Node.js, เกม ฯลฯ)')
+    + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว): ' + (IDE.agent ? 'เปิด' : 'ปิด'), me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
+    + optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้): ' + (IDE.cloud ? 'เปิด' : 'ปิด'), 'Agent แก้ไฟล์ รัน npm / python / git ทดสอบเองในเครื่องแยก ปิดแอปได้', IDE.cloud)
+    + optHTML('skl', ic('sparkles') + 'Skills', 'เลือก Skill ให้ AI ใช้ในโหมด Code (สูงสุด 3)')
+    + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
+    + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
+    + optHTML('clone', ic('branch') + 'Clone จาก GitHub', 'ดึง repo มาเป็นโปรเจกต์ใหม่')
+    + (DESK ? optHTML('local', ic('folder') + 'เปิดโฟลเดอร์ในเครื่อง', 'ไฟล์ในโฟลเดอร์ขึ้นมาเป็นโปรเจกต์ AI แก้ไฟล์จริงในเครื่อง') : ''), (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
+    close(); const v = b.dataset.v;
+    if (v === 'tpl') tplSheet();
+    if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); setAgent(!IDE.agent); }
+    if (v === 'cloud') setCloud(!IDE.cloud);
+    if (v === 'skl') skillsSheet(IDE.skills, setSkills);
+    if (v === 'mcp') mcpSheet(IDE.mcps, setMcps);
+    if (v === 'prm') promptLibSheet(p => { ta.value = p + ta.value; grow(); ta.focus(); });
+    if (v === 'clone') cloneSheet();
+    if (v === 'local') openLocal();
+  }));
+  ui(); if (IDE.skills.length) loadSkills().then(ui).catch(() => {}); if (IDE.mcps.length) loadMcps().then(ui).catch(() => {});
   const create = async (body, prompt) => {
     const r = await api('/projects', { method: 'POST', body }); delete sideCache.code; openProject(r.id, prompt);
   };
@@ -60,16 +107,14 @@ async function codeHome() {
   };
   $('#nempty').onclick = async e => { e.target.disabled = true; try { await create({ name: 'โปรเจกต์ใหม่', template: tpl === 'auto' ? 'starter' : tpl }); } catch (x) { $('#e').textContent = x.message; e.target.disabled = false; } };
   $('#nall').onclick = projectsSheet;
-  $('#nclone').onclick = cloneSheet;
-  $('#openlocal')?.addEventListener('click', async e => { // โปรเจกต์ใหม่ที่ผูกกับโฟลเดอร์ในเครื่อง: ไฟล์ในโฟลเดอร์ขึ้นมาเป็นไฟล์ในโปรเจกต์
-    const b = e.currentTarget; b.disabled = true;
+  const openLocal = async () => { // โปรเจกต์ใหม่ที่ผูกกับโฟลเดอร์ในเครื่อง: ไฟล์ในโฟลเดอร์ขึ้นมาเป็นไฟล์ในโปรเจกต์
     try {
       const { id } = await api('/projects', { method: 'POST', body: { name: 'โฟลเดอร์ในเครื่อง', empty: true } });
       const l = await DESK.link('p:' + id).catch(x => { toast(x.message, 'bad'); return null; });
-      if (!l) { await api('/projects/' + id, { method: 'DELETE' }); b.disabled = false; return; }
+      if (!l) { await api('/projects/' + id, { method: 'DELETE' }); return; }
       await api('/projects/' + id, { method: 'PUT', body: { name: l.name.slice(0, 60) } }); delete sideCache.code; openProject(id);
-    } catch (x) { $('#e').textContent = x.message; b.disabled = false; }
-  });
+    } catch (x) { $('#e').textContent = x.message; }
+  };
   api('/gallery').then(g => { if (g.length && $('#ngal')) { $('#ngal').innerHTML = ' · <button type="button" class="linkish" id="ngalb">Gallery</button>'; $('#ngalb').onclick = () => gallerySheet(g); } }).catch(() => {});
 }
 // เปิดโปรเจกต์ในหน้าเดิม (ไม่โหลดหน้าใหม่) · prompt = ส่งให้ AI เริ่มทำทันที
