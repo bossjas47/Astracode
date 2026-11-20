@@ -268,6 +268,18 @@ const FLOWS = [
     const back = calls.filter(c => c.m === 'POST' && c.p === '/api/chat').map(c => JSON.parse(c.body).text || '');
     return [!errs.length || errs.join(' | '), /price\.csv/.test(card) || 'no download card', dl?.suggestedFilename() === 'price.csv' || 'download did not start ' + JSON.stringify({ toastT, dlAttr, name: dl?.suggestedFilename() }), back.length === 2 && back[1].startsWith('[ผลรัน Python]') || 'python output not sent back: ' + JSON.stringify(back)];
   }],
+  ['auto-save memory: the settings switch saves the choice; a saved memory shows "remembered" with an undo button', async () => {
+    const { page, errs, calls } = await open('/chat', { chat: () => [{ chat_id: 7 }, { t: 'ยินดีที่รู้จักครับ' }, { t: '\n\n[[mem:42|ชื่อบอส]]\n' }, { done: true, pct4h: 1, pctWeek: 1, mid: 5 }] });
+    await page.click('#menu'); await page.click('#acct'); await page.click('[data-ap=settings]'); await page.waitForTimeout(200);
+    await page.evaluate(() => { const c = document.querySelector('.sheet-bg [data-k=automem]'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }); await page.waitForTimeout(300);
+    const put = calls.find(c => c.m === 'PUT' && c.p === '/api/me' && /"auto_memory":true/.test(c.body));
+    await page.evaluate(() => document.querySelector('.sheet-bg .x')?.click());
+    await page.fill('#t', 'ผมชื่อบอส'); await page.evaluate(() => document.querySelector('#go').click()); await page.waitForTimeout(800);
+    const note = await page.locator('.mem-saved').innerText().catch(() => '');
+    await page.evaluate(() => document.querySelector('[data-unmem="42"]').click()); await page.waitForTimeout(300);
+    const del = calls.find(c => c.m === 'DELETE' && c.p === '/api/memories/42');
+    return [!errs.length || errs.join(' | '), !!put || 'switch did not save', /จำแล้ว: ชื่อบอส/.test(note) || 'no remembered note', !!del || 'undo did not delete'];
+  }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
     await page.evaluate(() => document.querySelector('[data-cmenu="80"]').click()); await page.waitForTimeout(200);

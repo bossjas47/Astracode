@@ -1,4 +1,4 @@
-import { HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
+import { DAY, HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, webTools } from './codetools.js';
@@ -129,6 +129,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     };
     let res = await call({ output_format: 'jpeg', output_compression: 80 }); // JPEG เพื่อให้ไฟล์เล็กพอเก็บในแชต (D1 แถวละไม่เกิน ~2MB)
     if (res.status === 400) res = await call({}); // ผู้ให้บริการบางรายไม่รับพารามิเตอร์ข้างบน ลองใหม่แบบเรียบง่าย
+    if (res.status === 400 && imageOpts.size && imageOpts.size !== '1024x1024') { imageOpts = { ...imageOpts, size: '1024x1024' }; res = await call({}); } // ไม่รับขนาดที่เลือก: ใช้จัตุรัส
     const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(`upstream ${res.status}: ${JSON.stringify(d.error || d).slice(0, 300)}`);
     const item = d.data?.[0]; let src;
@@ -542,7 +543,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid, local: localOf(b.local) };
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid, local: localOf(b.local), img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -641,7 +642,7 @@ export async function runChat(env, J, send, st) {
       arm(firstMs); let stopR = '', rawT = '';
       try {
         const tl = toolsNow(); toolsSent = tl.length > 0;
-        for await (const e of callModel(env, model, msgs, { effort, cacheTtl: '1h', images: imgs, system: sysNow(), tools: tl.length ? tl : undefined, userId: u.id, signal: ac.signal })) {
+        for await (const e of callModel(env, model, msgs, { effort, cacheTtl: '1h', images: imgs, system: sysNow(), tools: tl.length ? tl : undefined, userId: u.id, signal: ac.signal, imageOpts: J.img_size ? { size: J.img_size } : {} })) {
           arm(idleMs);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }
@@ -956,10 +957,20 @@ export async function chatTool(env, u, cid, name, a, st) {
     if (!st.image) return fail('image generation is turned off', 'สร้างรูป');
     if (st.imgUsed) return fail('only one image per answer', 'สร้างรูป');
     const p = noFence(a.prompt).trim().slice(0, 1500); if (!p) return fail('prompt is empty', 'สร้างรูป');
-    return { result: 'The image is being created and will appear under your answer. Do not paste a link or describe it as already visible.', emit: '\n\n```image\n' + p + '\n```\n', ok: true, label: 'สร้างรูป' };
+    const sz = { square: 'sq', landscape: 'land', portrait: 'port' }[a.size] || ''; // ไม่ระบุ = ขนาดที่ผู้ใช้เลือกไว้ในหน้าเว็บ
+    return { result: 'The image is being created and will appear under your answer. Do not paste a link or describe it as already visible.', emit: '\n\n```image' + (sz ? ' ' + sz : '') + '\n' + p + '\n```\n', ok: true, label: 'สร้างรูป' };
   }
   if (name === 'save_memory') {
     const t = noFence(a.text).trim().slice(0, 200); if (!t) return fail('text is empty', 'ความจำ');
+    if (u.auto_memory) { // ผู้ใช้เปิดบันทึกอัตโนมัติ: บันทึกเลย (ไม่ซ้ำ · ไม่เกิน 3 ข้อต่อวัน · รวมไม่เกิน 50) แล้วให้หน้าเว็บโชว์ปุ่มยกเลิก
+      const key = x => x.toLowerCase().replace(/[\s.,!?'"“”]+/g, ''), all = (await env.DB.prepare('SELECT text, created_at FROM memories WHERE user_id=?').bind(u.id).all()).results;
+      if (all.some(x => { const a1 = key(x.text), b1 = key(t); return a1 === b1 || (b1.length > 8 && a1.includes(b1)) || (a1.length > 8 && b1.includes(a1)); })) return { result: 'Already remembered; nothing new saved.', ok: true, label: 'จำไว้แล้ว' };
+      const today = all.filter(x => x.created_at > Date.now() - DAY).length;
+      if (today < 3 && all.length < 50) {
+        const row = await env.DB.prepare('INSERT INTO memories (user_id,text,created_at) VALUES (?,?,?) RETURNING id').bind(u.id, t, Date.now()).first();
+        return { result: 'Saved to memory. The user can undo it from the note under your answer.', emit: `\n\n[[mem:${row.id}|${t.replace(/[\]\n|]/g, ' ')}]]\n`, ok: true, label: 'บันทึกความจำ' };
+      } // ครบเพดาน: กลับไปเป็นแบบเสนอให้กดเอง
+    }
     return { result: 'Suggested. The user sees a button to save it; it is not saved until they tap it.', emit: '\n\n```remember\n' + t + '\n```\n', ok: true, label: 'เสนอให้จำ' };
   }
   if (name === 'search_chats') {

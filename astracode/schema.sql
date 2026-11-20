@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
   , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
   , wallet_day_cap REAL                   -- เพดานใช้ Wallet ต่อวัน (บาท) ที่ผู้ใช้ตั้งเอง
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
+  , auto_memory INTEGER                    -- 1 = ให้ AI บันทึกความจำเอง (ค่าเริ่มต้นปิด)
   , agent_pack_from INTEGER, agent_pack_until INTEGER, agent_pack_units REAL -- แพ็กเสริม Agent ที่ซื้อด้วย Wallet
 );
 
@@ -264,6 +265,7 @@ CREATE TABLE IF NOT EXISTS users (
   , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
   , wallet_day_cap REAL                   -- เพดานใช้ Wallet ต่อวัน (บาท) ที่ผู้ใช้ตั้งเอง
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
+  , auto_memory INTEGER                    -- 1 = ให้ AI บันทึกความจำเอง (ค่าเริ่มต้นปิด)
   , agent_pack_from INTEGER, agent_pack_until INTEGER, agent_pack_units REAL -- แพ็กเสริม Agent ที่ซื้อด้วย Wallet
 );
 

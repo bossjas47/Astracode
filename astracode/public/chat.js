@@ -176,7 +176,7 @@ async function chatView(id) {
     try { rec.start(); } catch { chat.rec = null; btn.classList.remove('rec'); toast('เริ่มพิมพ์ด้วยเสียงไม่ได้ ลองใหม่อีกครั้ง', 'err'); }
   });
   $('#lim').onclick = limitSheet;
-  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
+  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'kb') { localStorage.setItem('kb', '0'); modelUI(); } if (f === 'voice') toggleVoice(); if (f === 'cmp') toggleCompare(); if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
   $('#spc').onclick = spacesSheet; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
@@ -330,7 +330,7 @@ function modelUI() {
   if (efs.length && !efs.includes($('#effort').value)) $('#effort').value = efs[0];
   $('#eff').innerHTML = `${ic('sparkles', 'sm')}${(EFFORT_INFO[$('#effort').value] || EFFORT_INFO[''])[0]}${ic('down', 'sm')}`;
   const img = isImgMode(); $('#t').placeholder = img ? 'Describe the image you want · attach a picture as a reference' : 'Ask anything · type / for Skills';
-  $('#flags').innerHTML = (img ? `<button type="button" class="flag on" data-flag="img" aria-label="ออกจากโหมดสร้างภาพ">${ic('palette', 'sm')}สร้างภาพ${ic('x', 'sm')}</button><button type="button" class="flag" data-flag="enh">${ic('sparkles', 'sm')}ปรับ prompt</button><button type="button" class="flag ${localStorage.getItem('imgAuto') !== '0' ? 'on' : ''}" data-flag="enhauto" aria-pressed="${localStorage.getItem('imgAuto') !== '0'}">ปรับอัตโนมัติ: ${localStorage.getItem('imgAuto') !== '0' ? 'เปิด' : 'ปิด'}</button>` : '')
+  $('#flags').innerHTML = (img ? `<button type="button" class="flag on" data-flag="img" aria-label="ออกจากโหมดสร้างภาพ">${ic('palette', 'sm')}สร้างภาพ${ic('x', 'sm')}</button><button type="button" class="flag" data-flag="imgsize" aria-label="ขนาดภาพ">${ic('image', 'sm')}${IMG_SIZES[imgSize()][1]}</button><button type="button" class="flag" data-flag="enh">${ic('sparkles', 'sm')}ปรับ prompt</button><button type="button" class="flag ${localStorage.getItem('imgAuto') !== '0' ? 'on' : ''}" data-flag="enhauto" aria-pressed="${localStorage.getItem('imgAuto') !== '0'}">ปรับอัตโนมัติ: ${localStorage.getItem('imgAuto') !== '0' ? 'เปิด' : 'ปิด'}</button>` : '')
     + (localStorage.getItem('web') === '1' && site.search ? `<button type="button" class="flag" data-flag="web" aria-label="ปิดค้นเว็บ">${ic('globe', 'sm')}ค้นเว็บ${ic('x', 'sm')}</button>` : '')
     + (PCD && !pcOn() && !img ? `<button type="button" class="flag on" data-flag="pcset">${ic('folder', 'sm')}ให้ AI ทำงานในคอม: เลือกโฟลเดอร์</button>` : '') // ในแอป: ปุ่มเห็นชัด ไม่งั้นลูกค้าไม่รู้ว่าต้องเปิดเอง แล้ว AI ได้แค่บอกให้รันเอง
     + (pcOn() ? `<button type="button" class="flag" data-flag="pc" aria-label="ปิดใช้คอมเครื่องนี้">${ic('folder', 'sm')}${esc(chat.pc.name)}${ic('x', 'sm')}</button>` : '')
@@ -629,11 +629,12 @@ function drawSide() {
 // บล็อก ```image ที่ AI สั่งสร้างรูป → ซ่อนจากข้อความ แล้วให้หน้าเว็บสร้างรูปใต้คำตอบเอง
 function parseImg(content, streaming) {
   let s = String(content || ''), prompt = '';
-  s = s.replace(/```image[ \t]*\n([\s\S]*?)```/g, (_, b) => { prompt ||= b.trim().slice(0, 1500); return ''; });
+  let size = '';
+  s = s.replace(/```image[ \t]*(\w*)[ \t]*\n([\s\S]*?)```/g, (_, z, b) => { if (!prompt) { prompt = b.trim().slice(0, 1500); size = IMG_SIZES[z] ? z : ''; } return ''; });
   const open = s.search(/```image/);
   if (open >= 0) s = s.slice(0, open);
   else if (streaming) s = s.replace(/`{1,3}(?:i(?:m(?:a(?:g(?:e)?)?)?)?)?$/, '');
-  return { text: s.trim(), prompt };
+  return { text: s.trim(), prompt, size };
 }
 function parseMem(content, streaming) {
   let s = String(content || ''), mem = '';
@@ -675,7 +676,7 @@ function exportMenu() {
     };
   });
 }
-async function genImage(auto, silent) { // auto = คำบรรยายที่ AI เขียนเอง (silent: ไม่มีข้อความฝั่งผู้ใช้)
+async function genImage(auto, silent, size) { // size = sq/land/port (AI เลือกได้ผ่าน generate_image) · ไม่ส่ง = ตามที่ผู้ใช้เลือกไว้ // auto = คำบรรยายที่ AI เขียนเอง (silent: ไม่มีข้อความฝั่งผู้ใช้)
   if (chat.busy) return;
   if (chat.compare) return showErr('ปิดโหมดเทียบก่อนสร้างรูป');
   const t = $('#t'), prompt_ = typeof auto === 'string' ? auto : t.value.trim() || await promptSheet('บรรยายรูปที่ต้องการสร้าง', '', { title: 'สร้างรูปด้วย AI', placeholder: 'เช่น แมวส้มใส่แว่นกันแดด สไตล์อนิเมะ', ok: 'Generate image' });
@@ -683,7 +684,7 @@ async function genImage(auto, silent) { // auto = คำบรรยายที
   if (!silent) { t.value = ''; t.style.height = 'auto'; $('#e').textContent = ''; chat.msgs.push({ role: 'user', content: '🎨 ' + prompt_ }); appendMsg(chat.msgs.at(-1)); }
   const ai = { role: 'assistant', content: '', model: 'สร้างรูป', streaming: true }; chat.msgs.push(ai); appendMsg(ai);
   setBusy(true);
-  try { const r = await api('/image', { method: 'POST', body: { prompt: prompt_, chat_id: chat.id, silent: !!silent } }); ai.content = `![${prompt_.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${r.src})`; setUsage(r.usage); }
+  try { const r = await api('/image', { method: 'POST', body: { prompt: prompt_, chat_id: chat.id, silent: !!silent, size: IMG_SIZES[size && IMG_SIZES[size] ? size : imgSize()][0] } }); ai.content = `![${prompt_.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${r.src})`; setUsage(r.usage); }
   catch (x) { if (silent) chat.msgs.pop(); else { chat.msgs.splice(-2, 2); t.value = prompt_; } showErr(x.message); }
   ai.streaming = false; setBusy(false); renderAll();
 }
@@ -872,11 +873,11 @@ function msgHTML(m, i, isNew) {
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts"><button data-copy="${i}" aria-label="คัดลอกข้อความ">${ic('copy', 'sm')}</button>${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}" class="${MEM_RE.test(m.content) ? 'memhint' : ''}">${MEM_RE.test(m.content) ? ic('bulb') + ' ให้ AI จำเรื่องนี้?' : 'Remember'}</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  const { text: tTools, files: dlFiles, py: pyCodes } = parseTools(m.content);
+  const { text: tTools, files: dlFiles, py: pyCodes, mems: memSaved } = parseTools(m.content);
   const { text: t00, mem } = parseMem(tTools, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
-    ${toolCards(m, i, dlFiles, pyCodes)}
+    ${toolCards(m, i, dlFiles, pyCodes)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
@@ -1014,7 +1015,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   const t0 = Date.now();
   let started = false, streamErr = null, aborted = false, raf = 0;
   try {
-    await stream({ chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps, local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
+    await stream({ img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps, local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
       started = true;
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
@@ -1053,7 +1054,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   const empty = !ai.content && !ai.thinking;
   if (empty && chat.msgs.at(-1) === ai) chat.msgs.pop();
   setBusy(false); renderAll();
-  if (!streamErr && !aborted && !empty && !chat.compare) { const g = parseImg(ai.content); if (g.prompt) genImage(g.prompt, true); } // AI สั่งสร้างรูปเอง
+  if (!streamErr && !aborted && !empty && !chat.compare) { const g = parseImg(ai.content); if (g.prompt) genImage(g.prompt, true, g.size); } // AI สั่งสร้างรูปเอง
   if (streamErr) { showErr(streamErr, true); if (chat.voice) voiceListen(); }
   else if (chat.voice && !aborted) voiceFeed(ai.content, true);
   else if (aborted) showErr('หยุดแล้ว · ถ้าเซิร์ฟเวอร์ตอบจบแล้ว ระบบจะดึงคำตอบมาแสดงให้เอง');
@@ -1378,8 +1379,9 @@ const DL_RE = /\[\[dl:([^|\]\n]{1,120})\|([A-Za-z0-9+/=]+)\]\]/g, PY_RE = /\[\[p
 const unb64t = b => { try { return new TextDecoder().decode(Uint8Array.from(atob(b), c => c.charCodeAt(0))); } catch { return ''; } };
 function parseTools(content) {
   const files = [], py = [];
-  const text = String(content || '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; });
-  return { text, files, py };
+  const mems = [];
+  const text = String(content || '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; });
+  return { text, files, py, mems };
 }
 function toolCards(m, i, files, py) {
   if (!files.length && !py.length && !m.pyOut) return '';
@@ -1432,3 +1434,18 @@ async function pyRun(ai) {
   chat.files = []; chat.images = vision ? res.imgs.slice(0, 2) : []; chat.pyAuto = true;
   const p = send(); [t.value, chat.files, chat.images] = keep; drawThumbs(); return p;
 }
+
+// ---------- ขนาดภาพที่สร้าง: จัตุรัส / แนวนอน / แนวตั้ง (จำไว้ต่อเครื่อง · ใช้ทั้งโหมดสร้างภาพและรูปที่ AI สร้างในแชต) ----------
+const IMG_SIZES = { sq: ['1024x1024', 'จัตุรัส 1:1'], land: ['1536x1024', 'แนวนอน 3:2'], port: ['1024x1536', 'แนวตั้ง 2:3'] };
+const imgSize = () => { try { const v = localStorage.getItem('imgSize'); return IMG_SIZES[v] ? v : 'sq'; } catch { return 'sq'; } };
+function imgSizeSheet() {
+  sheet('ขนาดภาพ', Object.entries(IMG_SIZES).map(([k, [px, label]]) => optHTML(k, ic('image') + label, px + ' พิกเซล' + (k === 'land' ? ' · เหมาะกับปก แบนเนอร์' : k === 'port' ? ' · เหมาะกับสตอรี่ โปสเตอร์' : ' · เหมาะกับโพสต์ โลโก้'), imgSize() === k)).join(''), (d, close) => {
+    d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { try { localStorage.setItem('imgSize', b.dataset.v); } catch { /* ไม่มีที่เก็บ */ } close(); modelUI(); toast('ขนาดภาพ: ' + IMG_SIZES[b.dataset.v][1], 'ok'); });
+  });
+}
+// ---------- ความจำที่บันทึกอัตโนมัติ [[mem:id|ข้อความ]]: แสดง "จำแล้ว" + ปุ่มยกเลิก ----------
+const MEM_MARK = /\[\[mem:(\d+)\|([^\]\n]{1,300})\]\]/g;
+document.addEventListener('click', async e => {
+  const b = e.target.closest?.('[data-unmem]'); if (!b) return;
+  try { await api('/memories/' + b.dataset.unmem, { method: 'DELETE' }); b.closest('.mem-saved').innerHTML = `${ic('x', 'sm')}<span>ยกเลิกความจำนี้แล้ว</span>`; toast('ลบความจำแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); }
+});

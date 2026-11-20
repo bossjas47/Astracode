@@ -204,3 +204,39 @@ test('an image the provider refuses (copyright / safety) gets a clear message an
   assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM events WHERE kind='refused'").get().n, 1);
   fm.close();
 });
+
+test('auto-save memory: off = suggest only; on = saved with an undo marker, no duplicates, at most 3 a day', async () => {
+  let fact = '';
+  const { t, m, u, fm } = await setup((fm, res, body) => body.messages.some(x => x.role === 'tool') ? fm.sse(res, 'โอเค') : toolSSE(res, [['save_memory', { text: fact }]]));
+  const ask = async text => { t.DB.raw.exec('DELETE FROM rate'); fact = text; const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'เล่า', model_id: m.id } })); return ev.filter(e => e.t).map(e => e.t).join(''); };
+  const count = () => t.DB.raw.prepare('SELECT COUNT(*) n FROM memories WHERE user_id=?').get(u.id).n;
+  assert.match(await ask('ชื่อบอส'), /```remember\nชื่อบอส/); assert.equal(count(), 0, 'off: nothing saved');
+  assert.equal((await t.json('/api/me', { method: 'PUT', cookie: u.cookie, body: { auto_memory: true } })).status, 200);
+  assert.equal((await t.json('/api/me', { cookie: u.cookie })).data.auto_memory, 1);
+  const saved = await ask('ชื่อบอส ทำร้านกาแฟ');
+  assert.match(saved, /\[\[mem:\d+\|ชื่อบอส ทำร้านกาแฟ\]\]/); assert.equal(count(), 1);
+  await ask('ชื่อบอส ทำร้านกาแฟ'); assert.equal(count(), 1, 'duplicate not saved');
+  await ask('ชอบกาแฟดำ'); await ask('อยู่เชียงใหม่'); assert.equal(count(), 3);
+  assert.match(await ask('มีแมวสองตัว'), /```remember\nมีแมวสองตัว/, 'over 3 a day: back to suggesting'); assert.equal(count(), 3);
+  const last = fm.hits.at(-1).body.messages;
+  assert.doesNotMatch(JSON.stringify(last), /\[\[mem:/); 
+  fm.close();
+});
+
+test('image size: the size the user picked reaches the image provider (chat and /api/image); a rejected size falls back to square', async () => {
+  const sizes = [];
+  const fm = await fakeModel((req, res, body) => { sizes.push(body.size); if (body.size === '1024x1536') { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"error":{"message":"bad size"}}'); } res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data: [{ b64_json: Buffer.from('JPEGDATA').toString('base64') }] })); });
+  const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'Img', provider: 'image', base_url: fm.url });
+  const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 0 });
+  const u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ภูเขา', model_id: m.id, img_size: '1536x1024' } }));
+  assert.equal(sizes[0], '1536x1024');
+  t.DB.raw.exec('DELETE FROM rate'); sizes.length = 0;
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ภูเขา', model_id: m.id, img_size: '1024x1536' } }));
+  assert.equal(sizes.at(-1), '1024x1024', 'rejected portrait falls back to square');
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('image_enabled','1'),('image_base_url',?),('image_model','img'),('image_key_name','K')").run(fm.url); sizes.length = 0;
+  const r = await t.json('/api/image', { method: 'POST', cookie: u.cookie, body: { prompt: 'ทะเล', size: '1536x1024' } });
+  assert.equal(r.status, 200); assert.equal(sizes[0], '1536x1024');
+  fm.close();
+});

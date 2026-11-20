@@ -62,6 +62,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     await DB.prepare('UPDATE users SET instructions=COALESCE(?,instructions), wallet_overflow=COALESCE(?,wallet_overflow), auto_renew=COALESCE(?,auto_renew) WHERE id=?')
       .bind(typeof b.instructions === 'string' ? b.instructions.slice(0, 3000) : null, 'wallet_overflow' in b ? (b.wallet_overflow ? 1 : 0) : null, 'auto_renew' in b ? (b.auto_renew ? 1 : 0) : null, u.id).run();
     if ('auto_compact' in b) await DB.prepare('UPDATE users SET auto_compact=? WHERE id=?').bind(b.auto_compact ? 1 : 0, u.id).run();
+    if ('auto_memory' in b) await DB.prepare('UPDATE users SET auto_memory=? WHERE id=?').bind(b.auto_memory ? 1 : 0, u.id).run();
     if ('digest' in b) await DB.prepare('UPDATE users SET digest_off=? WHERE id=?').bind(b.digest ? 0 : 1, u.id).run();
     if ('wallet_day_cap' in b) { const c = Math.round(+b.wallet_day_cap * 100) / 100; await DB.prepare('UPDATE users SET wallet_day_cap=? WHERE id=?').bind(c > 0 ? Math.min(c, 1e6) : null, u.id).run(); } // 0/ว่าง = ไม่จำกัด
     if ('webhook_url' in b) { // Webhook แจ้งเมื่อ API key ใช้งบถึง 80% / 100% (https เท่านั้น ห้ามที่อยู่ภายใน)
@@ -601,16 +602,18 @@ export async function oauth(req, env, url, path) {
 
 // ---------- สร้างรูป (API แบบ OpenAI images) ----------
 const IMG_PROMPT_SYS = 'You write prompts for an image generation model. Turn the user\'s idea into ONE excellent prompt: keep their subject and intent exactly, then add concrete details: style or medium, composition and framing, camera or lens when photographic, lighting, color palette, mood, background, and fine details. If pictures are attached they are inspiration only: describe their style, character look, colors and atmosphere so the new image feels similar, but do not copy text, logos or watermarks. If the user wants text inside the image, keep that text exactly in quotes. Write the prompt in English (keep requested on-image text in its original language), at most 120 words, one paragraph, no lists, no explanations. Output only the prompt.';
+export const IMG_SIZE_OK = new Set(['1024x1024', '1536x1024', '1024x1536']); // จัตุรัส / แนวนอน / แนวตั้ง
 export async function imageGen(req, env, u) {
   const s = await getSettings(env, ['image_enabled', 'image_base_url', 'image_model', 'image_key_name', 'image_cost']);
   if (s.image_enabled !== '1' || !env[s.image_key_name]) return err('ระบบสร้างรูปยังไม่เปิดใช้');
-  const b = await req.json(), prompt = String(b.prompt || '').trim().slice(0, 2000);
+  const b = await req.json(), prompt = String(b.prompt || '').trim().slice(0, 2000), size = IMG_SIZE_OK.has(b.size) ? b.size : '1024x1024';
   if (!prompt) return err('บอกว่าอยากได้รูปแบบไหน');
   const plan = await planOf(env, u), st = await usageStatus(env, u, plan);
   if (st.pct4h >= 100 || st.pctWeek >= 100) return json({ error: 'ลิมิตเต็มแล้ว', ...st }, 429);
   if (await limited(env, 'img:' + u.id, 10, 3600e3)) return err('สร้างรูปได้ชั่วโมงละ 10 รูป', 429);
-  const r = await fetch(s.image_base_url.replace(/\/$/, '') + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env[s.image_key_name] },
-    body: JSON.stringify({ model: s.image_model, prompt, n: 1, size: '1024x1024' }) });
+  const gen = sz => fetch(s.image_base_url.replace(/\/$/, '') + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env[s.image_key_name] },
+    body: JSON.stringify({ model: s.image_model, prompt, n: 1, size: sz }) });
+  let r = await gen(size); if (r.status === 400 && size !== '1024x1024') r = await gen('1024x1024'); // ผู้ให้บริการไม่รับขนาดนี้: ใช้จัตุรัสแทน
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { await event(env, 'error', null, 'image: ' + (d.error?.message || r.status)); return err(u.role === 'admin' ? 'แอดมิน: ' + (d.error?.message || r.status) : 'สร้างรูปไม่สำเร็จ ลองใหม่อีกครั้ง', 502); }
   const item = d.data?.[0]; let bytes;

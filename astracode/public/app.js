@@ -328,6 +328,7 @@ function settingsSheet() {
     ${btn('lim', 'clock', 'Usage limits', '4-hour and weekly windows')}
     <h4>Account</h4>
     ${row('/account', 'user', 'Account &amp; security', 'Profile, 2FA, passkeys, custom instructions, memory, theme')}
+    <label class="opt set-toggle"><span class="opt-t">${ic('bulb')}Auto-save memory</span><span class="opt-d">AI remembers lasting facts you share (up to 3 a day). You can undo each one.</span><input type="checkbox" data-k="automem" ${me.auto_memory ? 'checked' : ''}></label>
     <h4>Chats</h4>
     ${onChat ? btn('bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days') : row('/chat?open=bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days')}
     ${onChat ? btn('saved', 'book', 'Saved messages', 'Answers you bookmarked before') : row('/chat?open=saved', 'book', 'Saved messages', 'Answers you bookmarked before')}
@@ -344,6 +345,7 @@ function settingsSheet() {
   </div>`, (d, close) => {
     d.querySelectorAll('a.opt').forEach(a => a.addEventListener('click', close));
     d.querySelector('[data-k=lim]').onclick = () => { close(); limitSheet(); };
+    d.querySelector('[data-k=automem]').onchange = async e => { const on = e.target.checked; try { await api('/me', { method: 'PUT', body: { auto_memory: on } }); me.auto_memory = on ? 1 : 0; toast(on ? 'Auto-save memory on' : 'Auto-save memory off', 'ok'); } catch (x) { e.target.checked = !on; toast(x.message, 'bad'); } };
     if (onChat) { d.querySelector('[data-k=bin]').onclick = () => { close(); binSheet(); }; d.querySelector('[data-k=saved]').onclick = () => { close(); bookmarksSheet(); }; }
   });
 }

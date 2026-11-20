@@ -1601,3 +1601,10 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .pyrun pre { margin: 0; padding: 10px 12px; max-height: 320px; overflow: auto; font-size: 12.5px; background: #14110f; color: #f4efe8; border-radius: 0 0 12px 12px; }
 .pyout pre { margin: 0; padding: 10px 12px; max-height: 260px; overflow: auto; font-size: 12.5px; white-space: pre-wrap; border: 1px solid var(--hair); border-radius: 12px; background: var(--carbon); }
 .pyout img { display: block; max-width: 100%; margin-top: 8px; border-radius: 12px; border: 1px solid var(--hair); background: #fff; }
+/* ความจำที่บันทึกอัตโนมัติ: แถบเล็กใต้คำตอบ + ปุ่มยกเลิก · สวิตช์ในตั้งค่า */
+.mem-saved { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 2px; padding: 6px 8px 6px 12px; border: 1px solid var(--hair); border-radius: 9999px; font-size: 13px; color: var(--ash); background: rgba(var(--ov), .03); max-width: 100%; }
+.mem-saved .ic { width: 14px; height: 14px; color: var(--green, #1e8a3c); flex: none; }
+.mem-saved span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-saved button { border: 0; background: none; color: var(--link); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 4px 6px; min-height: 32px; }
+.set-toggle { cursor: pointer; }
+.set-toggle input { grid-row: 1 / 3; grid-column: 2; align-self: center; width: 22px; height: 22px; min-height: 0; margin: 0; accent-color: var(--blue); }
