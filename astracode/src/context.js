@@ -2,7 +2,6 @@
 import { HISTORY, HISTORY_CODE, SYSTEM, SYSTEM_CODE, allowedModels, ctxMax, estTokens, histStart, json, err, planOf, projectFor } from './core.js';
 import { familyHint, stripOpenFile } from './ai.js';
 
-export const COMPACT_DEFAULT_PCT = 75;
 const FILE_RE = /\n*\[\[file:([^\]\n]+)\]\]\n([\s\S]*?)\n\[\[\/file\]\]/g;
 
 export async function contextReport(env, u, { cid, pid, model, skill_ids = [] }) {

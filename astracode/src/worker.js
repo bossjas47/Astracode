@@ -1,5 +1,5 @@
 import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy, WALLET_MIN } from './core.js';
-import { bundleProject, callModel, chat, compact, ensureFb, logUsage } from './ai.js';
+import { callModel, chat, compact, ensureFb, logUsage } from './ai.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal, unseal } from './projects.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
@@ -8,7 +8,6 @@ import { contextApi } from './context.js';
 import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
-import { SHOWCASE_SLUG, seedShowcase } from './showcase.js';
 import { passkeyApi, passkeyPublic } from './passkey.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
@@ -57,16 +56,6 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
-    if ((r = path.match(/^\/p\/([a-z0-9][a-z0-9-]{2,39})\/src$/))) return secure(await sourceView(env, r[1])); // ดูโค้ดของโปรเจกต์ที่แชร์ (อ่านอย่างเดียว)
-    if ((r = path.match(/^\/p\/([a-z0-9][a-z0-9-]{2,39})(?:\/((?:[\w-]+\/)*[\w.-]+\.html?)?)?$/))) { // /p/<ลิงก์>/<หน้า>.html = เว็บหลายหน้า // token 24 ตัว หรือชื่อลิงก์ที่เจ้าของตั้งเอง // โปรเจกต์ที่แชร์: หน้าเว็บอ่านอย่างเดียว รันใน sandbox (ไม่มีคุกกี้/ข้อมูลของเว็บเรา)
-      await ensureCols(env);
-      if (r[1] === SHOWCASE_SLUG) await seedShowcase(env).catch(e => console.log('showcase', e.message));
-      const pr = await env.DB.prepare('SELECT id FROM projects WHERE share_token IS NOT NULL AND (share_token=?1 OR slug=?1)').bind(r[1]).first();
-      const rows = pr ? (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pr.id).all()).results : [];
-      const html = rows.length ? bundleProject(new Map(rows.map(f => [f.path, f.content])), r[2] || null)?.replace(/<head[^>]*>/i, h => `${h}<base href="/p/${r[1]}/${(r[2] || '').replace(/[^/]*$/, '')}">`) + '<a href="/support" rel="noopener" style="position:fixed;right:8px;top:calc(50% + 4px);z-index:2147483647;font:11px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:99px;text-decoration:none">รายงานหน้านี้ · Report</a><a href="/code?remix=' + r[1] + '" target="_blank" rel="noopener" style="position:fixed;right:8px;top:calc(50% - 26px);z-index:2147483647;font:11px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:99px;text-decoration:none">Remix ใน AstraCode</a>' : null; // ปุ่มรายงานคงที่ ให้ผู้พบหน้าผิดกฎแจ้งแอดมินได้
-      if (!html) return new Response('ไม่พบโปรเจกต์นี้ หรือเจ้าของยกเลิกการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60', 'x-robots-tag': 'noindex', 'content-security-policy': "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self'; sandbox allow-scripts allow-modals allow-forms allow-popups", 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } });
-    }
     // Cloudflare อาจ redirect /preview.html → /preview จึงรับทั้งสองแบบ
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
     if (path === '/node-runner' || path === '/node-runner.html') return sandboxed(await env.ASSETS.fetch(req), '/preview.html'); // เทอร์มินัล Node: origin แยกเหมือนหน้าแสดงผล
@@ -194,7 +183,6 @@ export async function route(req, env, ctx, url, path, M) {
         const wilson = (u, n) => { const z = 1.96, p = u / n; return (p + z * z / (2 * n) - z * Math.sqrt((p * (1 - p) + z * z / (4 * n)) / n)) / (1 + z * z / n); };
         return json(rows.map(x => ({ name: x.name, votes: x.up + x.down, pct: Math.round(x.up / (x.up + x.down) * 100), score: wilson(x.up, x.up + x.down) })).sort((a, b) => b.score - a.score).map(({ score, ...x }) => x), 200, { 'cache-control': 'public, max-age=300' });
       }
-      if (path === '/api/gallery') { await seedShowcase(env).catch(() => {}); return await projects(req, env, null, path, url); } // ผลงานเด่น: เปิดดูได้โดยไม่ต้องล็อกอิน
       if ((r = path.match(/^\/api\/share\/([a-f0-9]{12,48})$/))) {
         const c = await env.DB.prepare('SELECT id,title,created_at FROM chats WHERE share_token=? AND deleted_at IS NULL').bind(r[1]).first();
         if (!c) return err('ไม่พบแชตที่แชร์ หรือถูกยกเลิกแล้ว', 404);
@@ -314,7 +302,7 @@ export async function route(req, env, ctx, url, path, M) {
         const pj = url.searchParams.get('project');
         return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,instructions,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
       }
-      if (path === '/api/gallery' || path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
+      if (path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
       if (path === '/api/github/repos' && M === 'GET') { // repo ของผู้ใช้ (ล่าสุดก่อน) ให้เลือกแตะเดียวตอนเข้าหน้า Code ครั้งแรก
         if (!u.gh_token) return json([]);
         const list = await gh(await unseal(env, u.gh_token), '/user/repos?sort=pushed&per_page=30&affiliation=owner,collaborator,organization_member', { base: env.GITHUB_API }).catch(() => []);
@@ -441,21 +429,6 @@ async function searchTerms(env, u, q) {
   return [...new Set([q, ...out.split(/[,\n]/).map(x => x.replace(/^[\s\d.)\-*"']+|["']+$/g, '').trim()).filter(x => x.length >= 2 && x.length <= 40)])].slice(0, 8);
 }
 
-// หน้าโค้ดอ่านอย่างเดียวของโปรเจกต์ที่แชร์: รายชื่อไฟล์ + เนื้อหา (escape แล้ว ไม่มีสคริปต์) · ไม่แสดง .env
-// ใครมีลิงก์แชร์ก็ Remix เอาโค้ดไปได้อยู่แล้ว หน้านี้จึงไม่เปิดเผยอะไรเพิ่ม
-async function sourceView(env, link) {
-  await ensureCols(env);
-  const pr = await env.DB.prepare('SELECT id,name FROM projects WHERE share_token IS NOT NULL AND (share_token=?1 OR slug=?1)').bind(link).first();
-  const files = pr ? (await env.DB.prepare('SELECT path,content FROM project_files WHERE project_id=? ORDER BY path').bind(pr.id).all()).results.filter(f => !/(^|\/)\.env(\.|$)/.test(f.path) && !/^data:/.test(f.content)) : [];
-  if (!pr) return new Response('ไม่พบโปรเจกต์นี้ หรือเจ้าของยกเลิกการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-  const e = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])), id = p => 'f-' + p.replace(/[^\w-]/g, '_');
-  const html = `<!doctype html><html lang="th"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${e(pr.name)} · โค้ด</title>
-<style>body{margin:0;font:14px/1.5 system-ui,sans-serif;background:#0f0f10;color:#e8e8ea}header{padding:14px 16px;border-bottom:1px solid #2a2a2e;display:flex;gap:12px;align-items:center;flex-wrap:wrap}header a{color:#8ab4ff}nav{padding:8px 16px;display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid #2a2a2e}nav a{color:#cfcfd4;background:#1b1b1e;border-radius:8px;padding:4px 10px;text-decoration:none;font-size:13px}section{padding:0 16px 8px}h2{font-size:14px;margin:18px 0 6px;color:#9a9aa2}pre{margin:0;background:#161618;border:1px solid #2a2a2e;border-radius:10px;padding:12px;overflow:auto;font:12.5px/1.5 ui-monospace,Menlo,monospace;tab-size:2}</style>
-<header><b>${e(pr.name)}</b><span style="color:#9a9aa2">โค้ดอ่านอย่างเดียว · ${files.length} ไฟล์</span><a href="/p/${e(link)}">เปิดหน้าเว็บ</a><a href="/code?remix=${e(link)}">Remix ไปแก้เอง</a></header>
-<nav>${files.map(f => `<a href="#${id(f.path)}">${e(f.path)}</a>`).join('')}</nav>
-${files.map(f => `<section id="${id(f.path)}"><h2>${e(f.path)}</h2><pre>${e(f.content.slice(0, 200000))}</pre></section>`).join('')}</html>`;
-  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60', 'x-robots-tag': 'noindex' } });
-}
 
 // สิทธิ์หลังบ้าน: admin = ทุกอย่าง · support = ดูแลลูกค้า (ชำระเงิน, ติดต่อ, รายงาน, ดูผู้ใช้) · viewer = ดูอย่างเดียว ไม่ดาวน์โหลดข้อมูลดิบ
 export const STAFF = ['admin', 'support', 'viewer'];

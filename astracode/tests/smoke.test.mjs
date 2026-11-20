@@ -73,11 +73,3 @@ test('share target: text goes to the chat URL, files are kept once in R2 and ser
   assert.equal((await t.call(`/api/shared/${tok}/0`, { cookie: u.cookie })).status, 404, 'served once');
 });
 
-test('shared project source view lists files read-only, escaped, without .env', async () => {
-  const t = await makeEnv(), u = await t.user();
-  const p = t.DB.raw.prepare("INSERT INTO projects (user_id,name,share_token,created_at,updated_at) VALUES (?,?,?,?,?) RETURNING id").get(u.id, 'Shop', 'abc123token', Date.now(), Date.now()).id;
-  for (const [path, c] of [['index.html', '<h1>Hi</h1>'], ['.env', 'SECRET=1'], ['a.js', 'x<y']]) t.DB.raw.prepare('INSERT INTO project_files VALUES (?,?,?,?)').run(p, path, c, Date.now());
-  const r = await t.call('/p/abc123token/src'); const h = await r.text();
-  assert.equal(r.status, 200); assert.match(h, /&lt;h1&gt;Hi/); assert.match(h, /x&lt;y/); assert.doesNotMatch(h, /SECRET/);
-  assert.equal((await t.call('/p/nope-nope/src')).status, 404);
-});

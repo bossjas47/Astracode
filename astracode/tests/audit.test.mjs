@@ -20,18 +20,6 @@ test('team invite codes: guessing is rate limited', async () => {
   assert.equal(last.status, 429);
 });
 
-test('admin can list and close shared project links', async () => {
-  const t = await makeEnv(), owner = await t.user(), adm = await t.user({ role: 'admin' }), other = await t.user();
-  const p = await t.json('/api/projects', { method: 'POST', cookie: owner.cookie, body: { name: 'Shop' } }); const pid = p.data.id ?? p.data.project?.id;
-  t.DB.raw.prepare("INSERT OR REPLACE INTO project_files (project_id,path,content,updated_at) VALUES (?,?,?,?)").run(pid, 'index.html', '<h1>hi</h1>', Date.now());
-  const sh = await t.json(`/api/projects/${pid}/share`, { method: 'POST', cookie: owner.cookie }); assert.equal(sh.status, 200);
-  const page = await (await t.call('/p/' + sh.data.token)).text(); assert.match(page, /href="\/support"/, 'report link on shared page');
-  assert.equal((await t.json('/api/admin/shared', { cookie: other.cookie })).status, 403);
-  const list = await t.json('/api/admin/shared', { cookie: adm.cookie }); assert.equal(list.data.length, 1); assert.equal(list.data[0].id, pid);
-  assert.equal((await t.json('/api/admin/shared/' + pid, { method: 'DELETE', cookie: adm.cookie })).status, 200);
-  assert.equal((await t.call('/p/' + sh.data.token)).status, 404);
-});
-
 test('project can be created from posted files (Canvas → Code); bad paths and huge files are refused', async () => {
   const t = await makeEnv(), u = await t.user();
   const ok = await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'จาก Canvas', files: { 'index.html': '<h1>x</h1>' } } }); assert.equal(ok.status, 200);
@@ -70,16 +58,10 @@ test('prompt library: a saved prompt keeps its as_text flag; chat cost route sum
   assert.equal((await t.json(`/api/chats/${c}/cost`, { cookie: o.cookie })).status, 404);
 });
 
-test('project secrets (.env): stored sealed, readable only by the owner, never part of the project files; React template exists', async () => {
+test('React template exists', async () => {
   const t = await makeEnv({ SECRET_KEY: 'test-secret-key-for-sealing-0123456789' }), u = await t.user(), o = await t.user();
   const p = await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'R', template: 'react' } }); assert.equal(p.status, 200);
   assert.deepEqual(t.DB.raw.prepare('SELECT path FROM project_files WHERE project_id=? ORDER BY path').all(p.data.id).map(r => r.path), ['app.jsx', 'index.html', 'style.css']);
-  assert.equal((await t.json(`/api/projects/${p.data.id}/env`, { cookie: u.cookie })).data.text, '');
-  assert.equal((await t.json(`/api/projects/${p.data.id}/env`, { method: 'PUT', cookie: u.cookie, body: { text: 'API_KEY=abc123' } })).status, 200);
-  assert.equal((await t.json(`/api/projects/${p.data.id}/env`, { cookie: u.cookie })).data.text, 'API_KEY=abc123');
-  assert.ok(!t.DB.raw.prepare('SELECT env_sealed FROM projects WHERE id=?').get(p.data.id).env_sealed.includes('abc123'), 'sealed at rest');
-  assert.equal((await t.json(`/api/projects/${p.data.id}/env`, { cookie: o.cookie })).status, 404, 'other users cannot read it');
-  const full = JSON.stringify((await t.json(`/api/projects/${p.data.id}`, { cookie: u.cookie })).data); assert.ok(!full.includes('abc123') && !full.includes('env_sealed'), 'not in the project payload');
 });
 
 test('monthly digest: paid users with usage last month get one email, opted-out users none, re-runs do not resend', async () => {
@@ -191,20 +173,6 @@ test('web push: subscribe validates the endpoint host and stores one row per end
   assert.equal((await t.json('/api/push/sub', { cookie: u.cookie })).data.n, 1);
 });
 
-test('remix copies a shared project to the caller; gallery lists only featured shared projects', async () => {
-  const t = await makeEnv(), a = await t.user(), b = await t.user(), adm = await t.user({ role: 'admin' });
-  const p = (await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'เว็บเดโม' } })).data;
-  const tok = (await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: a.cookie })).data.token;
-  assert.equal((await t.json('/api/projects/remix', { method: 'POST', cookie: b.cookie, body: { token: 'nope-nope' } })).status, 404);
-  const r = (await t.json('/api/projects/remix', { method: 'POST', cookie: b.cookie, body: { token: tok } })).data;
-  const n = id => t.DB.raw.prepare('SELECT COUNT(*) n FROM project_files WHERE project_id=?').get(id).n;
-  assert.ok(n(r.id) > 0); assert.equal(n(r.id), n(p.id));
-  assert.equal(t.DB.raw.prepare('SELECT user_id FROM projects WHERE id=?').get(r.id).user_id, b.id);
-  assert.equal((await t.json('/api/gallery', { cookie: b.cookie })).data.length, 0);
-  assert.equal((await t.json('/api/admin/shared/' + p.id, { method: 'PUT', cookie: adm.cookie, body: { featured: true } })).status, 200);
-  assert.equal((await t.json('/api/gallery', { cookie: b.cookie })).data[0].link, tok);
-});
-
 test('long PDF excerpts keep the page number in front of chunks cut from mid-page', async () => {
   const { excerptFiles } = await import('../src/ai.js');
   const pages = []; for (let i = 1; i <= 40; i++) pages.push(`--- หน้า ${i} ---\n` + (i === 33 ? 'ยอดขายไตรมาสสาม ' : 'ข้อความทั่วไป ').repeat(90));
@@ -256,27 +224,13 @@ test('agent live status: writing a file shows its line, editing shows the matche
   assert.match(doingNow('```js path=a.js\nx\n```\nเสร็จแล้ว').text, /^กำลังคิด: เสร็จแล้ว/);
 });
 
-test('shared multi-page site: /p/<link>/<page>.html serves that page with a base href; defer scripts move after the body', async () => {
+test('bundled site: defer scripts move after the body', async () => {
   const { bundleProject } = await import('../src/ai.js');
   const out = bundleProject(new Map([['index.html', '<html><head><script src="a.js" defer></script></head><body data-page="x"><a href="add.html">add</a></body></html>'], ['a.js', 'document.body.dataset.page'], ['add.html', '<html><head></head><body>ADD</body></html>']]));
   assert.ok(out.indexOf('document.body.dataset.page') > out.indexOf('<body')); assert.doesNotMatch(out, /defer/);
-  const t = await makeEnv(), u = await t.user();
-  const p = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'multi' } })).data;
-  t.DB.raw.prepare("INSERT OR REPLACE INTO project_files (project_id,path,content,updated_at) VALUES (?,?,?,0)").run(p.id, 'add.html', '<html><head></head><body>ADD PAGE</body></html>');
-  const tok = (await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: u.cookie })).data.token;
-  const h = await (await t.call(`/p/${tok}/add.html`)).text();
-  assert.match(h, /ADD PAGE/); assert.match(h, new RegExp(`<base href="/p/${tok}/">`));
 });
 
-test('gallery submission waits for admin approval; agent line diff counts adds and removals', async () => {
-  const t = await makeEnv(), u = await t.user(), adm = await t.user({ role: 'admin' });
-  const p = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'ผลงาน' } })).data;
-  assert.equal((await t.json(`/api/projects/${p.id}/gallery`, { method: 'POST', cookie: u.cookie, body: { blurb: 'แอปตัวอย่างทำด้วย Agent' } })).status, 400); // ยังไม่แชร์
-  await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: u.cookie });
-  assert.equal((await t.json(`/api/projects/${p.id}/gallery`, { method: 'POST', cookie: u.cookie, body: { blurb: 'แอปตัวอย่างทำด้วย Agent' } })).data.featured, 2);
-  assert.equal((await t.json('/api/gallery')).data.length, 0);
-  await t.json('/api/admin/shared/' + p.id, { method: 'PUT', cookie: adm.cookie, body: { featured: true } });
-  assert.equal((await t.json('/api/gallery')).data[0].blurb, 'แอปตัวอย่างทำด้วย Agent');
+test('agent line diff counts adds and removals', async () => {
   const { lineDiff } = await import('../src/agent.js');
   assert.deepEqual(lineDiff('a\nb\nc', 'a\nc\nd\ne'), [2, 1]); assert.deepEqual(lineDiff('', 'x\ny'), [2, 0]);
 });
@@ -314,20 +268,6 @@ test('changelog lists only published posts marked changelog; public settings exp
   ins.run('a', 'บทความ', 'x', 1, 0, 1); ins.run('b', 'ฟีเจอร์ใหม่', 'y', 1, 1, 5); ins.run('c', 'ร่าง', 'z', 0, 1, 9);
   assert.deepEqual((await t.json('/api/changelog')).data.map(p => p.slug), ['b']);
   assert.equal((await t.json('/api/settings/public')).data.cl_latest, 5);
-});
-
-test('project members: owner invites by email, member edits files but cannot delete, share or read secrets; outsiders get 404', async () => {
-  const t = await makeEnv(), a = await t.user(), b = await t.user(), c = await t.user();
-  const p = (await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'ทีม' } })).data;
-  const bEmail = t.DB.raw.prepare('SELECT email FROM users WHERE id=?').get(b.id).email;
-  assert.equal((await t.json(`/api/projects/${p.id}`, { cookie: b.cookie })).status, 404);
-  assert.equal((await t.json(`/api/projects/${p.id}/members`, { method: 'POST', cookie: a.cookie, body: { email: bEmail } })).status, 200);
-  assert.ok((await t.json('/api/projects', { cookie: b.cookie })).data.some(x => x.id === p.id && x.shared));
-  assert.equal((await t.json(`/api/projects/${p.id}/file`, { method: 'PUT', cookie: b.cookie, body: { path: 'b.txt', content: 'hi' } })).status, 200);
-  for (const [path, method] of [[`/api/projects/${p.id}`, 'DELETE'], [`/api/projects/${p.id}/share`, 'POST'], [`/api/projects/${p.id}/env`, 'GET'], [`/api/projects/${p.id}/members`, 'POST']]) assert.equal((await t.json(path, { method, cookie: b.cookie, ...(method === 'GET' ? {} : { body: {} }) })).status, 403, path);
-  assert.equal((await t.json(`/api/projects/${p.id}`, { cookie: c.cookie })).status, 404);
-  assert.equal((await t.json(`/api/projects/${p.id}/members`, { method: 'DELETE', cookie: b.cookie, body: {} })).status, 200);
-  assert.equal((await t.json(`/api/projects/${p.id}`, { cookie: b.cookie })).status, 404);
 });
 
 test('agent page screenshot: off without Cloudflare settings, sends the bundled page when set', async () => {
@@ -376,21 +316,6 @@ test('bookmarks: star a message, list and search it; per-chat instructions are s
   assert.equal((await t.json('/api/bookmarks?q=zzz', { cookie: u.cookie })).data.length, 0);
   await t.json('/api/chats/' + c.id, { method: 'PUT', cookie: u.cookie, body: { instructions: 'ตอบเป็นภาษาอังกฤษ' } });
   assert.equal(t.DB.raw.prepare('SELECT instructions FROM chats WHERE id=?').get(c.id).instructions, 'ตอบเป็นภาษาอังกฤษ');
-});
-
-test('deploy to Vercel: token stored sealed, files sent without .env, images as base64', async () => {
-  const t = await makeEnv({ SECRET_KEY: 'test-secret-key-for-sealing-0123456789' }), u = await t.user();
-  const p = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'My Site' } })).data;
-  t.DB.raw.prepare("INSERT OR REPLACE INTO project_files (project_id,path,content,updated_at) VALUES (?,?,?,0),(?,?,?,0)").run(p.id, '.env', 'KEY=secret', p.id, 'logo.png', 'data:image/png;base64,AAAA');
-  const f0 = globalThis.fetch; let sent;
-  globalThis.fetch = async (url, o) => { if (String(url).startsWith('https://api.vercel.com')) { sent = { url: String(url), auth: o.headers.authorization, body: JSON.parse(o.body) }; return Response.json({ url: 'my-site-abc.vercel.app', alias: ['my-site.vercel.app'] }); } return f0(url, o); };
-  try {
-    const r = await t.json(`/api/projects/${p.id}/vercel`, { method: 'POST', cookie: u.cookie, body: { token: 'vercel_token_1234567890abc' } });
-    assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.url, 'https://my-site.vercel.app');
-    assert.equal(sent.auth, 'Bearer vercel_token_1234567890abc'); assert.equal(sent.body.name, 'my-site');
-    assert.ok(!sent.body.files.some(f => f.file === '.env')); assert.deepEqual(sent.body.files.find(f => f.file === 'logo.png'), { file: 'logo.png', data: 'AAAA', encoding: 'base64' });
-    assert.doesNotMatch(t.DB.raw.prepare('SELECT vercel_token FROM users WHERE id=?').get(u.id).vercel_token, /vercel_token_1234567890abc/);
-  } finally { globalThis.fetch = f0; }
 });
 
 test('roadmap voting (one vote per user, toggle) and SEO pages generated per public model', async () => {

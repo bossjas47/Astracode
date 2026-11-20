@@ -1,7 +1,4 @@
-import { err, esc, hex, json, limited, projectFor, rand, sha, userErr } from './core.js';
-import { sendPush } from './push.js';
-import { status } from './jobs.js';
-import { mail, mailBox, notify, siteUrl } from './billing.js';
+import { err, hex, json, projectFor, userErr } from './core.js';
 // ---------- projects (โหมด Code) ----------
 export const PATH_RE = /^(?!.*\.\.)(?!.*\/\/)(?!.*\/$)[^\/\\\x00-\x1f<>:"|?*][^\\\x00-\x1f<>:"|?*]{0,199}$/;
 export const FILE_LIMIT = 500e3, PROJECT_LIMIT = 10e6, FILES_PER_PROJECT = 600, PROJECTS_PER_USER = 20;
@@ -49,21 +46,9 @@ export async function snapshot(env, pid, files, source) {
 }
 export async function projects(req, env, u, path, url) {
   const DB = env.DB, M = req.method, now = Date.now();
-  if (path === '/api/gallery') { // โปรเจกต์เด่นที่แอดมินเลือก (ต้องแชร์อยู่)
-    return json((await DB.prepare('SELECT p.name, p.blurb, COALESCE(p.slug,p.share_token) link, p.updated_at, (SELECT COUNT(*) FROM project_files f WHERE f.project_id=p.id) files FROM projects p WHERE p.featured=1 AND p.share_token IS NOT NULL ORDER BY p.updated_at DESC LIMIT 24').all()).results);
-  }
-  if (path === '/api/projects/remix' && M === 'POST') { // คัดลอกโปรเจกต์ที่แชร์เป็นของตัวเอง (ต้นฉบับไม่เปลี่ยน)
-    const t = String((await req.json().catch(() => ({}))).token || '').toLowerCase();
-    const src = /^[a-z0-9][a-z0-9-]{2,47}$/.test(t) && await DB.prepare('SELECT id,name,user_id FROM projects WHERE share_token IS NOT NULL AND (share_token=?1 OR slug=?1)').bind(t).first();
-    if (!src) return err('ไม่พบโปรเจกต์นี้ หรือเจ้าของยกเลิกการแชร์แล้ว', 404);
-    if ((await DB.prepare('SELECT COUNT(*) n FROM projects WHERE user_id=?').bind(u.id).first()).n >= PROJECTS_PER_USER) return err(`สร้างได้สูงสุด ${PROJECTS_PER_USER} โปรเจกต์`);
-    const id = (await DB.prepare('INSERT INTO projects (user_id,name,created_at,updated_at) VALUES (?,?,?,?) RETURNING id').bind(u.id, (src.user_id === u.id ? 'สำเนา ' : 'Remix ') + src.name.slice(0, 50), now, now).first()).id;
-    await DB.prepare('INSERT INTO project_files (project_id,path,content,updated_at) SELECT ?,path,content,? FROM project_files WHERE project_id=?').bind(id, now, src.id).run(); // ไม่คัดลอก .env ที่ซีลไว้/GitHub/ลิงก์แชร์
-    return json({ id });
-  }
   if (path === '/api/projects') {
     if (M === 'GET') return json((await DB.prepare(`SELECT p.id,p.name,p.updated_at,COUNT(f.path) files,COALESCE(SUM(length(f.content)),0) size
-      , p.user_id<>?1 shared FROM projects p LEFT JOIN project_files f ON f.project_id=p.id WHERE p.user_id=?1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id=?1) GROUP BY p.id ORDER BY p.updated_at DESC`).bind(u.id).all()).results);
+      , 0 shared FROM projects p LEFT JOIN project_files f ON f.project_id=p.id WHERE p.user_id=?1 GROUP BY p.id ORDER BY p.updated_at DESC`).bind(u.id).all()).results);
     if (M === 'POST') {
       const b = await req.json(), name = String(b.name || '').trim().slice(0, 60);
       if (!name) return err('ตั้งชื่อโปรเจกต์ก่อน');
@@ -84,21 +69,7 @@ export async function projects(req, env, u, path, url) {
   const pid = +r[1], sub = r[2] || '';
   const p = await projectFor(env, pid, u.id);
   if (!p) return err('ไม่พบโปรเจกต์', 404);
-  // สมาชิกที่ถูกเชิญแก้ไฟล์/ใช้ AI ได้ แต่ลบโปรเจกต์ แชร์ ตั้งค่า GitHub หรือดูตัวแปรลับไม่ได้
-  if (!p.owner && (sub.startsWith('/github') || ['/env', '/gallery', '/share', '/vercel'].includes(sub) || (!sub && M === 'DELETE') || (sub === '/members' && M === 'POST'))) return err('เฉพาะเจ้าของโปรเจกต์', 403);
-  if (sub === '/members') { // สมาชิกที่แก้โปรเจกต์ได้ (สูงสุด 5 คน) · DELETE ตัวเอง = ออกจากโปรเจกต์
-    if (M === 'GET') return json({ owner: (await DB.prepare('SELECT email FROM users WHERE id=?').bind(p.user_id).first())?.email, me_owner: p.owner, members: (await DB.prepare('SELECT u.id,u.email,m.created_at FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? ORDER BY m.created_at').bind(pid).all()).results });
-    const b = await req.json().catch(() => ({}));
-    if (M === 'DELETE') { const who = +b.user_id || u.id; if (!p.owner && who !== u.id) return err('เฉพาะเจ้าของโปรเจกต์', 403); await DB.prepare('DELETE FROM project_members WHERE project_id=? AND user_id=?').bind(pid, who).run(); return json({ ok: true }); }
-    const email = String(b.email || '').trim().toLowerCase(), v = email && await DB.prepare('SELECT id,email FROM users WHERE email=? AND banned=0').bind(email).first();
-    if (!v) return err('ไม่พบผู้ใช้อีเมลนี้ ให้เพื่อนสมัคร AstraCode ก่อน', 404);
-    if (v.id === u.id) return err('คุณเป็นเจ้าของโปรเจกต์นี้อยู่แล้ว');
-    if ((await DB.prepare('SELECT COUNT(*) n FROM project_members WHERE project_id=?').bind(pid).first()).n >= 5) return err('เชิญได้สูงสุด 5 คนต่อโปรเจกต์');
-    await DB.prepare('INSERT OR IGNORE INTO project_members (project_id,user_id,created_at) VALUES (?,?,?)').bind(pid, v.id, now).run();
-    await mail(env, v.email, `AstraCode: ${u.email} ชวนคุณแก้โปรเจกต์ ${p.name}`, mailBox('คุณได้รับเชิญเข้าโปรเจกต์', `${esc(u.email)} เชิญคุณร่วมแก้โปรเจกต์ <b>${esc(p.name)}</b> ในโหมด Code`, 'เปิดโปรเจกต์', `${siteUrl(env)}/code?p=${pid}`)).catch(() => {});
-    await sendPush(env, v.id, { title: 'ได้รับเชิญเข้าโปรเจกต์', body: `${u.email} ชวนแก้ ${p.name}`, url: '/code?p=' + pid });
-    return json({ ok: true });
-  }
+  if (!p.owner && (sub.startsWith('/github') || (!sub && M === 'DELETE'))) return err('เฉพาะเจ้าของโปรเจกต์', 403);
   const touch = DB.prepare('UPDATE projects SET updated_at=? WHERE id=?').bind(now, pid);
   if (sub.startsWith('/github')) return github(req, env, u, p, sub, now);
   // ตรวจขนาดรวมและจำนวนไฟล์ หลังเขียนไฟล์ชุดนี้
@@ -162,52 +133,6 @@ export async function projects(req, env, u, path, url) {
     if (moves.some(([, n]) => rows.includes(n) && !moves.some(([o]) => o === n))) return err('มีไฟล์ชื่อนี้อยู่แล้ว');
     await DB.batch([...moves.map(([o, n]) => DB.prepare('UPDATE project_files SET path=?, updated_at=? WHERE project_id=? AND path=?').bind(n, now, pid, o)), touch]);
     return json({ ok: true });
-  }
-  if (sub === '/env') { // ตัวแปรลับของโปรเจกต์ (KEY=VALUE): เก็บแบบเข้ารหัส ไม่ปนกับไฟล์ (AI/GitHub/zip ไม่เห็น) ส่งให้เทอร์มินัลตอนรันเท่านั้น
-    if (M === 'GET') return json({ text: p.env_sealed ? await unseal(env, p.env_sealed).catch(() => '') : '' });
-    if (M !== 'PUT') return err('method not allowed', 405);
-    const text = String((await req.json()).text ?? '').slice(0, 8000);
-    await DB.prepare('UPDATE projects SET env_sealed=? WHERE id=?').bind(text.trim() ? await seal(env, text) : null, pid).run();
-    return json({ ok: true });
-  }
-  if (sub === '/vercel') { // Deploy ขึ้นบัญชี Vercel ของผู้ใช้เอง (token เก็บแบบเข้ารหัส) · GET = เชื่อมแล้วหรือยัง · DELETE = ลบ token
-    if (M === 'GET') return json({ connected: !!u.vercel_token });
-    if (M === 'DELETE') { await DB.prepare('UPDATE users SET vercel_token=NULL WHERE id=?').bind(u.id).run(); return json({ ok: true }); }
-    const b = await req.json().catch(() => ({}));
-    if (b.token) { if (!env.SECRET_KEY) return err('ระบบยังไม่ได้ตั้ง SECRET_KEY', 503); const t = String(b.token).trim(); if (!/^[\w-]{20,200}$/.test(t)) return err('token ไม่ถูกต้อง'); await DB.prepare('UPDATE users SET vercel_token=? WHERE id=?').bind(await seal(env, t), u.id).run(); u.vercel_token = 1; }
-    const row = await DB.prepare('SELECT vercel_token FROM users WHERE id=?').bind(u.id).first(), tok = row?.vercel_token && await unseal(env, row.vercel_token).catch(() => null);
-    if (!tok) return err('ใส่ Vercel token ก่อน', 400);
-    if (await limited(env, 'vercel:' + u.id, 20, 3600e3)) return err('deploy บ่อยเกินไป รอสักครู่', 429);
-    const rows = (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pid).all()).results.filter(f => f.path !== '.env');
-    if (!rows.some(f => /(^|\/)index\.html?$/i.test(f.path))) return err('ต้องมี index.html ถึงจะ deploy เป็นเว็บได้');
-    const files = rows.map(f => { const m = /^data:[^;]+;base64,(.*)$/s.exec(f.content); return m ? { file: f.path, data: m[1], encoding: 'base64' } : { file: f.path, data: f.content }; });
-    const name = (p.slug || p.name).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'astracode-' + pid;
-    const r = await fetch('https://api.vercel.com/v13/deployments?skipAutoDetectionConfirmation=1', { method: 'POST', headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/json' }, body: JSON.stringify({ name, files, target: 'production', projectSettings: { framework: null } }), signal: AbortSignal.timeout(60e3) }).catch(e => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) return err('Vercel: ' + String(d.error?.message || 'deploy ไม่สำเร็จ (HTTP ' + r.status + ')').slice(0, 200), r.status === 403 || r.status === 401 ? 401 : 502);
-    return json({ url: 'https://' + (d.alias?.[0] || d.url), inspect: d.inspectorUrl || null });
-  }
-  if (sub === '/gallery') { // เจ้าของส่งเข้าแกลเลอรี (featured=2 รอแอดมินอนุมัติ) · DELETE = ถอนออก
-    if (M === 'DELETE') { await DB.prepare('UPDATE projects SET featured=0 WHERE id=?').bind(pid).run(); return json({ ok: true }); }
-    if (!p.share_token) return err('แชร์ลิงก์ก่อน แล้วค่อยส่งเข้าแกลเลอรี');
-    const blurb = String((await req.json().catch(() => ({}))).blurb || '').trim().slice(0, 160); if (blurb.length < 10) return err('เขียนคำอธิบายสั้นๆ อย่างน้อย 10 ตัวอักษร');
-    await DB.prepare('UPDATE projects SET blurb=?, featured=CASE WHEN featured=1 THEN 1 ELSE 2 END WHERE id=?').bind(blurb, pid).run();
-    if (p.featured !== 1) await notify(env, `🖼️ มีโปรเจกต์ส่งเข้าแกลเลอรี: ${p.name} (/p/${p.slug || p.share_token}) รออนุมัติในหลังบ้าน แท็บลิงก์แชร์`).catch(() => {});
-    return json({ ok: true, featured: p.featured === 1 ? 1 : 2 });
-  }
-  if (sub === '/share') { // ลิงก์อ่านอย่างเดียวของโปรเจกต์ (หน้าเว็บที่รันได้ที่ /p/<token>) · DELETE = ยกเลิกลิงก์
-    if (M === 'DELETE') { await DB.prepare('UPDATE projects SET share_token=NULL, slug=NULL WHERE id=?').bind(pid).run(); return json({ ok: true }); }
-    const token = p.share_token || rand(12);
-    if (!p.share_token) await DB.prepare('UPDATE projects SET share_token=? WHERE id=?').bind(token, pid).run();
-    const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
-    if ('slug' in b) { // ตั้งชื่อลิงก์เอง: a-z 0-9 - ยาว 3-40 ไม่ซ้ำกับคนอื่น และไม่ใช่รูปแบบ token (กันชนกัน)
-      const slug = String(b.slug || '').trim().toLowerCase();
-      if (slug && (!/^[a-z0-9][a-z0-9-]{2,39}$/.test(slug) || /^[a-f0-9]{24}$/.test(slug))) return err('ชื่อลิงก์ใช้ได้เฉพาะ a-z 0-9 และ - ยาว 3–40 ตัว');
-      if (slug && await DB.prepare('SELECT 1 FROM projects WHERE slug=? AND id<>?').bind(slug, pid).first()) return err('ชื่อลิงก์นี้มีคนใช้แล้ว');
-      await DB.prepare('UPDATE projects SET slug=? WHERE id=?').bind(slug || null, pid).run();
-      return json({ token, slug: slug || null });
-    }
-    return json({ token, slug: p.slug || null, featured: p.featured || 0, blurb: p.blurb || '' });
   }
   if (sub === '/checkpoint' && M === 'POST') { // จุดบันทึกตั้งชื่อ (คล้าย commit): เก็บทุกไฟล์ตอนนี้ไว้ ไม่ถูกลบตามโควตา 30 เวอร์ชัน · เก็บได้ 20 จุดต่อโปรเจกต์
     const name = String((await req.json()).name || '').trim().slice(0, 40); if (!name) return err('ตั้งชื่อจุดบันทึกก่อน');

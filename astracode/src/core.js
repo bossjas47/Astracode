@@ -257,7 +257,7 @@ const NEW_COLS = [['skills', 'plugin', 'TEXT'], ['mcp_servers', 'connector', 'TE
 const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
 const PAY_UQ = ["CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_key_uq ON payments(slip_key) WHERE slip_key LIKE 'slip/%'", "CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_ref_uq ON payments(slip_ref) WHERE slip_ref IS NOT NULL AND status<>'rejected'", "CREATE UNIQUE INDEX IF NOT EXISTS wallet_first_bonus_uq ON wallet_tx(user_id) WHERE kind='first_bonus'"]; // โบนัสเติมเงินครั้งแรกได้ครั้งเดียวต่อบัญชี แม้อนุมัติสองรายการพร้อมกัน
 // โปรเจกต์ที่ผู้ใช้เข้าถึงได้: เจ้าของ หรือสมาชิกที่ถูกเชิญให้แก้ (owner = true เฉพาะเจ้าของ)
-export const projectFor = async (env, pid, uid) => { const p = await env.DB.prepare('SELECT * FROM projects p WHERE id=?1 AND (user_id=?2 OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?2))').bind(pid, uid).first(); return p && { ...p, owner: p.user_id === uid }; };
+export const projectFor = async (env, pid, uid) => { const p = await env.DB.prepare('SELECT * FROM projects p WHERE id=?1 AND user_id=?2').bind(pid, uid).first(); return p && { ...p, owner: p.user_id === uid }; };
 export const ensureCols = env => colsDone ||= (async () => {
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
   try {

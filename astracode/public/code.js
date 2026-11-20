@@ -1,14 +1,8 @@
 // AstraCode: โหมด Code ใช้ตัวแปรกลางจาก app.js
 // เปิดในหน้าเดียวกับแชต (chat.js: switchMode) · วาดลงฝั่งขวา #cmain ข้างแถบข้าง
-function codeDispatch() { return qs().get('remix') ? codeRemix(qs().get('remix')) : qs().get('p') ? codeView(qs().get('p')) : codeHome(); }
+function codeDispatch() { return qs().get('p') ? codeView(qs().get('p')) : codeHome(); }
 const codeHost = () => $('#cmain') || app;
 const needCM = () => (window.CM ? Promise.resolve() : (window.cmJs ||= loadJs('/cm.js').catch(x => { window.cmJs = null; throw x; }))).then(() => { if (!wrap) { wrap = new CM.Compartment(); ghostC = new CM.Compartment(); } }); // ตัวแก้โค้ด (ใหญ่) โหลดเมื่อเปิดโปรเจกต์ครั้งแรก
-// เปิดจากปุ่ม Remix ในหน้าที่แชร์ (/p/...) หรือแกลเลอรี: คัดลอกเป็นโปรเจกต์ของเรา แล้วเปิดเลย
-async function codeRemix(t) {
-  if (!me) return go('/login?next=' + encodeURIComponent(here()));
-  try { const r = await api('/projects/remix', { method: 'POST', body: { token: t } }); toast('คัดลอกโปรเจกต์มาแล้ว แก้ได้เลย', 'ok'); go('/code?p=' + r.id); }
-  catch (x) { toast(x.message, 'bad'); go('/code'); }
-}
 const IDE = {
   pid: null, name: '', files: new Map(), states: new Map(), open: [], active: null, view: null,
   dirty: new Set(), saveT: null, status: '', closed: new Set(),
@@ -47,7 +41,7 @@ async function codeHome() {
       <select id="neffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></form>
     <div class="err" id="ne"></div>
     <div class="cs-ideas">${CODE_IDEAS.map(([l, t]) => `<button type="button" class="cs-idea" data-idea="${esc(t)}">${esc(l)}</button>`).join('')}</div>
-    <p class="cs-foot"><button type="button" class="linkish" id="nempty">Start with an empty editor</button> · <button type="button" class="linkish" id="nall">All projects</button><span id="ngal"></span></p>
+    <p class="cs-foot"><button type="button" class="linkish" id="nempty">Start with an empty editor</button> · <button type="button" class="linkish" id="nall">All projects</button></p>
   </div></div></div>`;
   host.querySelector('[data-side]').onclick = () => openSide(); host.querySelector('[data-lim]').onclick = limitSheet;
   if (!window.CM && !window.DEMO) setTimeout(() => prefetch('/cm.js'), 1500); // ตัวแก้โค้ดพร้อมก่อนกดส่ง
@@ -123,7 +117,6 @@ async function codeHome() {
       await api('/projects/' + id, { method: 'PUT', body: { name: l.name.slice(0, 60) } }); delete sideCache.code; openProject(id);
     } catch (x) { $('#ne').textContent = x.message; }
   };
-  api('/gallery').then(g => { if (g.length && $('#ngal')) { $('#ngal').innerHTML = ' · <button type="button" class="linkish" id="ngalb">Gallery</button>'; $('#ngalb').onclick = () => gallerySheet(g); } }).catch(() => {});
 }
 // เปิดโปรเจกต์ในหน้าเดิม (ไม่โหลดหน้าใหม่) · prompt = ส่งให้ AI เริ่มทำทันที
 function openProject(id, prompt) { setUrl('/code?p=' + id); codeView(id, prompt); }
@@ -143,9 +136,6 @@ function projectsSheet() {
       projectsSheet();
     });
   })).catch(x => toast(x.message, 'bad'));
-}
-function gallerySheet(gal) {
-  sheet('Gallery', `<p class="sheet-msg">โปรเจกต์เด่นจากผู้ใช้ เปิดดูหรือกด Remix เพื่อคัดลอกไปแก้ต่อ</p><div class="plist">${gal.map(g => `<div class="prow"><span><b>${esc(g.name)}</b><small class="muted">${g.blurb ? esc(g.blurb) + ' · ' : ''}${g.files} files</small></span><a class="btn out sm" href="/p/${esc(g.link)}" target="_blank" rel="noopener">View</a><a class="btn blue sm" href="/code?remix=${esc(g.link)}">Remix</a></div>`).join('')}</div>`);
 }
 // first = เข้าหน้า Code ครั้งแรก: ชวนเชื่อม repo ทันที · เชื่อม GitHub แล้วมีรายการ repo ให้แตะเลือก
 async function cloneSheet(first = false) {
@@ -431,11 +421,6 @@ async function reload(openPath) {
 function refresh() { drawTree(); drawTabs(); }
 
 // ---------- อัปโหลด / zip ----------
-async function readText(f) {
-  if (f.size > 500e3) throw new Error(`${f.name} ใหญ่เกิน 500KB`);
-  const t = await f.text(); if (t.includes('\u0000')) throw new Error(`${f.name} ไม่ใช่ไฟล์ข้อความ`);
-  return t;
-}
 async function uploadFiles(list) {
   const out = [], skip = [];
   for (const f of list) try { if (/^image\/(?!svg)/.test(f.type) || IMG_RE.test(f.name)) { out.push(await imageFile(f)); continue; } const r = await fileEntry(f.name, new Uint8Array(await f.arrayBuffer())); r.file ? out.push(r.file) : skip.push([f.name, r.why]); } catch (x) { skip.push([f.name, x.message]); }
@@ -734,12 +719,6 @@ async function syntaxCheck() { // หลังบันทึก: ไฟล์�
   } catch (x) { const m = /position (\d+)/.exec(x.message); if (m && x instanceof SyntaxError) x.loc = { start: { line: content(path).slice(0, +m[1]).split('\n').length } }; synFail(path, x); }
 }
 // ตัวแปรลับของโปรเจกต์ (.env): เก็บเข้ารหัสแยกจากไฟล์ ส่งให้เทอร์มินัลเป็นไฟล์ .env ชั่วคราวตอนรันเท่านั้น (ไม่เข้า AI, GitHub, zip)
-async function envSheet() {
-  const cur = await api(`/projects/${IDE.pid}/env`).catch(() => ({ text: '' }));
-  sheet('ตัวแปรลับ (.env)', `<div class="sheet-form"><p class="muted" style="margin:0">บรรทัดละ 1 ตัว เช่น <code>API_KEY=abc123</code> เก็บเข้ารหัส AI และ GitHub ไม่เห็น เทอร์มินัลจะได้รับเป็นไฟล์ <code>.env</code> ชั่วคราวตอนรัน (อ่านด้วย dotenv หรือ fs ได้ <code>process.env</code> ตรงๆ ยังไม่รองรับ)</p><textarea id="envt" rows="7" spellcheck="false" placeholder="API_KEY=...">${esc(cur.text || '')}</textarea><button class="btn blue sm" id="envs">Save</button></div>`, (d, close) => {
-    d.querySelector('#envs').onclick = async () => { try { const text = d.querySelector('#envt').value; await api(`/projects/${IDE.pid}/env`, { method: 'PUT', body: { text } }); IDE.env = text; toast('บันทึกตัวแปรลับแล้ว', 'ok'); close(); } catch (x) { toast(x.message, 'bad'); } };
-  });
-}
 // รันคำสั่ง: ส่งไฟล์โปรเจกต์ไปด้วย ไฟล์ที่คำสั่งสร้าง/แก้ (ยกเว้น node_modules) จะถูกบันทึกกลับเข้าโปรเจกต์
 async function nodeRun(cmd) {
   if (IDE.local) return localRun(cmd);
@@ -890,38 +869,6 @@ function cUI() {
 }
 function setOpt(k, on) { localStorage.setItem(k, on ? '1' : '0'); if (k === 'auto') IDE.autoMode = on; else IDE.autoApply = on; }
 // สมาชิกโปรเจกต์: เจ้าของเชิญ/ลบได้ · สมาชิกกดออกจากโปรเจกต์ได้ · แก้ไฟล์เดียวกันพร้อมกัน = บันทึกหลังสุดชนะ
-async function membersSheet() {
-  const r = await api(`/projects/${IDE.pid}/members`);
-  sheet('สมาชิกโปรเจกต์', `<div class="sheet-form"><p class="muted" style="margin:0">เจ้าของ: ${esc(r.owner || '')} · สมาชิกแก้ไฟล์และใช้ AI ได้ แต่ลบโปรเจกต์ แชร์ หรือตั้งค่า GitHub ไม่ได้ · ถ้าแก้ไฟล์เดียวกันพร้อมกัน ไฟล์ที่บันทึกหลังสุดจะทับ</p>
-    ${r.members.map(m => `<div class="row" style="justify-content:space-between;padding:6px 0"><span>${esc(m.email)}</span>${r.me_owner || m.id === me.id ? `<button type="button" class="btn red sm" data-mrm="${m.id}">${m.id === me.id ? 'ออกจากโปรเจกต์' : 'ลบ'}</button>` : ''}</div>`).join('') || '<p class="muted">ยังไม่มีสมาชิก</p>'}
-    ${r.me_owner ? '<form id="mf" class="row" style="flex-wrap:nowrap"><input name="email" type="email" required placeholder="อีเมลของเพื่อน (ต้องสมัคร AstraCode แล้ว)"><button class="btn blue sm">เชิญ</button></form>' : ''}</div>`, (d, close) => {
-    d.querySelector('#mf')?.addEventListener('submit', async e => { e.preventDefault(); try { await api(`/projects/${IDE.pid}/members`, { method: 'POST', body: { email: new FormData(e.target).get('email') } }); toast('เชิญแล้ว เพื่อนจะได้รับอีเมล', 'ok'); close(); membersSheet(); } catch (x) { toast(x.message, 'bad'); } });
-    d.querySelectorAll('[data-mrm]').forEach(b => b.onclick = async () => { const self = +b.dataset.mrm === me.id; if (!await confirmSheet(self ? 'ออกจากโปรเจกต์นี้?' : 'ลบสมาชิกคนนี้?', { title: 'สมาชิกโปรเจกต์', ok: 'ยืนยัน', danger: true })) return; await api(`/projects/${IDE.pid}/members`, { method: 'DELETE', body: { user_id: +b.dataset.mrm } }); close(); if (self) go('/code'); else membersSheet(); });
-  });
-}
-async function vercelSheet() {
-  const st = await api(`/projects/${IDE.pid}/vercel`).catch(() => ({ connected: false }));
-  sheet('Deploy ขึ้น Vercel', `<form class="sheet-form" id="vf">${st.connected ? '<p class="muted" style="margin:0">เชื่อม Vercel แล้ว กด Deploy เพื่ออัปไฟล์ล่าสุดขึ้นเว็บ (ไม่ส่งไฟล์ .env)</p>' : '<p class="muted" style="margin:0">สร้าง token ที่ vercel.com/account/tokens แล้ววางที่นี่ (เก็บแบบเข้ารหัส ใช้แค่ deploy โปรเจกต์ของคุณ)</p><input name="token" type="password" autocomplete="off" placeholder="Vercel token" required>'}
-    <button class="btn blue">${ic('globe', 'sm')} Deploy</button><p id="vm" class="muted" style="margin:0"></p>${st.connected ? '<button type="button" class="btn out sm" id="vx">ลบ token</button>' : ''}</form>`, (d, close) => {
-    d.querySelector('#vf').onsubmit = async e => { e.preventDefault(); const b = e.submitter; b.disabled = true; d.querySelector('#vm').textContent = 'กำลังอัปขึ้น Vercel...'; await saveNow();
-      try { const r = await api(`/projects/${IDE.pid}/vercel`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); d.querySelector('#vm').innerHTML = `ขึ้นแล้ว: <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a> (เว็บอาจใช้เวลาสร้าง 10-30 วินาที)`; }
-      catch (x) { d.querySelector('#vm').innerHTML = `<span class="bad">${esc(x.message)}</span>`; } b.disabled = false; };
-    d.querySelector('#vx')?.addEventListener('click', async () => { await api(`/projects/${IDE.pid}/vercel`, { method: 'DELETE' }); close(); toast('ลบ token แล้ว'); });
-  });
-}
-async function shareProject() {
-  const r = await api(`/projects/${IDE.pid}/share`, { method: 'POST' }), url = `${location.origin}/p/${r.slug || r.token}`;
-  sheet('แชร์โปรเจกต์ (อ่านอย่างเดียว)', `<p class="muted" style="margin:0 0 12px">ใครมีลิงก์นี้เปิดดูหน้าเว็บของโปรเจกต์ได้ แต่แก้ไฟล์ไม่ได้ · หน้าจะอัปเดตตามไฟล์ล่าสุดเสมอ</p>
-    <div class="row" style="flex-wrap:nowrap"><input readonly id="shu" value="${esc(url)}"><button class="btn out sm" id="shc">Copy</button></div><p class="muted" style="font-size:12.5px;margin:6px 0 0">ลิงก์ดูโค้ดอ่านอย่างเดียว (ไม่รวม .env): <a href="${esc(url)}/src" target="_blank" rel="noopener">${esc(url)}/src</a> <button type="button" class="btn out sm" id="shsrc">Copy</button></p><form id="shs" class="row" style="flex-wrap:nowrap;margin-top:10px"><input name="slug" value="${esc(r.slug || '')}" placeholder="ตั้งชื่อลิงก์เอง เช่น my-shop" pattern="[a-z0-9][a-z0-9-]{2,39}" autocapitalize="none"><button class="btn blue sm">Save name</button></form><p class="muted" style="margin:6px 0 0;font-size:12.5px">ลิงก์แสดงไฟล์ล่าสุดของโปรเจกต์เสมอ แก้แล้วคนเปิดลิงก์เห็นของใหม่ภายใน 1 นาที</p><button class="btn red sm" id="shx" style="margin-top:12px">Stop sharing</button>
-    <form id="shg" class="sheet-form" style="margin-top:16px;border-top:1px solid var(--hair);padding-top:14px"><b>ส่งเข้าแกลเลอรี</b><p class="muted" style="margin:0;font-size:12.5px">${r.featured === 1 ? 'อยู่ในแกลเลอรีแล้ว ✓ (หน้า Code และหน้าแรก)' : r.featured === 2 ? 'ส่งแล้ว รอแอดมินอนุมัติ' : 'ให้คนอื่นเห็นผลงานและกด Remix ได้ · แอดมินตรวจก่อนขึ้น'}</p><input name="blurb" maxlength="160" required minlength="10" value="${esc(r.blurb || '')}" placeholder="คำอธิบายสั้นๆ เช่น แอปจดรายจ่าย ทำด้วยทีม Agent"><div class="row"><button class="btn blue sm">${r.featured ? 'อัปเดตคำอธิบาย' : 'ส่งเข้าแกลเลอรี'}</button>${r.featured ? '<button type="button" class="btn out sm" id="shgx">ถอนออก</button>' : ''}</div></form>`, (d, close) => {
-    d.querySelector('#shs').onsubmit = async e => { e.preventDefault(); try { await api(`/projects/${IDE.pid}/share`, { method: 'POST', body: { slug: new FormData(e.target).get('slug') } }); toast('บันทึกชื่อลิงก์แล้ว', 'ok'); shareProject(); } catch (x) { toast(x.message, 'bad'); } };
-    d.querySelector('#shc').onclick = e => copy(url, e.target);
-    d.querySelector('#shsrc').onclick = e => copy(url + '/src', e.target);
-    d.querySelector('#shg').onsubmit = async e => { e.preventDefault(); try { const g = await api(`/projects/${IDE.pid}/gallery`, { method: 'POST', body: { blurb: new FormData(e.target).get('blurb') } }); toast(g.featured === 1 ? 'อัปเดตแล้ว' : 'ส่งแล้ว รอแอดมินอนุมัติ', 'ok'); shareProject(); } catch (x) { toast(x.message, 'bad'); } };
-    d.querySelector('#shgx')?.addEventListener('click', async () => { await api(`/projects/${IDE.pid}/gallery`, { method: 'DELETE' }); toast('ถอนออกจากแกลเลอรีแล้ว'); shareProject(); });
-    d.querySelector('#shx').onclick = async () => { await api(`/projects/${IDE.pid}/share`, { method: 'DELETE' }); close(); toast('ยกเลิกการแชร์แล้ว', 'ok'); };
-  });
-}
 // Agent เบื้องหลัง: ส่งงานให้เซิร์ฟเวอร์ทำเองทั้งชุด (ปิดแอปได้) · ดูสถานะ/หยุด/โหลดไฟล์ใหม่
 const AG_LABEL = { queued: 'รอคิว', running: 'กำลังทำงาน', stopping: 'กำลังหยุด', done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิต', failed: 'ไม่สำเร็จ', timeout: 'หมดเวลา', waiting: 'รอคิว (ไฟล์ชนกัน)', team: 'ทีมกำลังทำงาน', reviewing: 'กำลังตรวจรวม', plan: 'รอยืนยันแผน', planned: 'ในแผน' };
 const agBusy = j => ['queued', 'running', 'stopping', 'team', 'reviewing', 'plan'].includes(j?.status);
@@ -1131,9 +1078,6 @@ function codeTools() {
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
     + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
-    + optHTML('members', ic('users') + 'ชวนเพื่อนมาแก้ด้วยกัน', 'เชิญด้วยอีเมล (สูงสุด 5 คน) แก้ไฟล์และใช้ AI ในโปรเจกต์นี้ได้ ใช้ลิมิตของแต่ละคนเอง')
-    + optHTML('vercel', ic('globe') + 'Deploy ขึ้น Vercel ของคุณ', 'ขึ้นเว็บจริงในบัญชี Vercel ของคุณ ผูกโดเมนเองได้ที่ Vercel')
-    + optHTML('share', ic('share') + 'แชร์โปรเจกต์ (ลิงก์อ่านอย่างเดียว)', 'ให้คนอื่นเปิดดูหน้าเว็บที่รันแล้วได้ แก้ไฟล์ไม่ได้')
     + optHTML('audit', ic('activity') + 'ตรวจหน้าเว็บ (ความเร็ว / SEO / การเข้าถึง)', 'ให้คะแนนพร้อมรายการที่ควรแก้ แล้วส่งให้ AI แก้ได้ในคลิกเดียว')
     + optHTML('hist', ic('undo') + 'ประวัติโปรเจกต์ / ย้อนทั้งโปรเจกต์', 'ย้อนไฟล์ทั้งหมดไปสถานะก่อนช่วงเวลาที่เลือก')
     + optHTML('exphtml', ic('download') + 'ส่งออก HTML ไฟล์เดียว', 'รวม HTML/CSS/JS เป็นไฟล์เดียวพร้อมเปิดใช้งาน')
@@ -1143,8 +1087,6 @@ function codeTools() {
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const v = b.dataset.v;
       if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
-      if (v === 'members') return membersSheet();
-      if (v === 'vercel') return vercelSheet();
       if (v === 'autotest') { const on = localStorage.getItem('autoTest') === '0'; localStorage.setItem('autoTest', on ? '1' : '0'); toast('รันเทสต์อัตโนมัติ: ' + (on ? 'เปิด' : 'ปิด')); }
       if (v === 'bgagent') { seen('team'); return bgAgentSheet(); }
       if (v === 'cloud') { IDE.cloud = !IDE.cloud; localStorage.setItem('ccloud', IDE.cloud ? '1' : '0'); cUI(); return toast(IDE.cloud ? 'Agent บนคลาวด์: พิมพ์งานในแชตแล้วส่งได้เลย' : 'ปิด Agent บนคลาวด์', 'ok'); }
@@ -1153,7 +1095,6 @@ function codeTools() {
       if (v === 'check') { IDE.round = 0; check().catch(x => $('#ce').textContent = x.message); }
       if (v === 'mcp') mcpSheet(IDE.mcps, ids => { IDE.mcps = ids; localStorage.setItem('cmcps', JSON.stringify(ids)); cUI(); });
       if (v === 'skl') skillsSheet(IDE.skills, ids => { IDE.skills = ids; localStorage.setItem('cskills', JSON.stringify(ids)); cUI(); });
-      if (v === 'share') shareProject().catch(x => $('#ce').textContent = x.message);
       if (v === 'hist') projectHistory().catch(x => $('#ce').textContent = x.message);
       if (v === 'audit') auditSheet();
       if (v === 'rules') {
@@ -1821,7 +1762,7 @@ async function codeView(id, prompt) {
         <div class="dr-head"><div><b>${esc(d.name)}</b><div class="dr-links"><a href="/code" class="dr-back">‹ Projects</a><a href="/chat" class="dr-exit">Exit Code mode</a></div></div><button type="button" class="icon-btn sm" id="edset" aria-label="ตั้งค่าตัวแก้ไข">${ic('settings')}</button></div>
         <div class="dr-find"><input id="tfilter" type="search" placeholder="ค้นหาชื่อไฟล์" aria-label="ค้นหาชื่อไฟล์" autocomplete="off"></div><div id="recent" class="recent"></div>
         <div id="tree" class="tree"></div>
-        <div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="nfold">+ Folder</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="envb">${ic('settings', 'sm')} .env</button><button class="btn out sm" id="upl">Upload</button>
+        <div class="ftools"><button class="btn out sm" id="nfile">+ File</button><button class="btn out sm" id="nfold">+ Folder</button><button class="btn out sm" id="gfind">${ic('search', 'sm')} ทั้งโปรเจกต์</button><button class="btn out sm" id="upl">Upload</button>
         <button class="btn out sm" id="zin">Import zip</button><button class="btn out sm" id="zout">Export zip</button>
         <input type="file" id="uplf" multiple hidden><input type="file" id="zinf" accept=".zip,application/zip" hidden></div></aside>
       <div class="ide-scrim" id="idescrim"></div>
@@ -1934,7 +1875,7 @@ async function codeView(id, prompt) {
     ct.value = `จากไฟล์ \`${IDE.active}\` บรรทัด ${l1}${l2 > l1 ? '-' + l2 : ''}:\n\`\`\`\n${code}\n\`\`\`\nช่วย`;
     ct.oninput(); ct.focus();
   };
-  $('#fmtb').onclick = formatActive; $('#envb').onclick = envSheet;
+  $('#fmtb').onclick = formatActive;
   $('#ide-status')?.addEventListener('click', () => { const e = IDE.synErr; if (!e) return; if (e.path !== IDE.active) openFile(e.path); if (e.ln) { const ln = Math.min(e.ln, IDE.view.state.doc.lines); IDE.view.dispatch({ selection: { anchor: IDE.view.state.doc.line(ln).from }, scrollIntoView: true }); IDE.view.focus(); } });
   $('#gfind').onclick = () => {
     document.querySelector('.gsearch')?.remove();

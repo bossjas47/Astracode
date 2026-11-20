@@ -217,19 +217,6 @@ const project = (t, u, files) => {
   return p;
 };
 
-test('shared project: owner gets a link, anyone sees a bundled sandboxed page, revoking removes it', async () => {
-  const t = await makeEnv(); const u = await t.user(), other = await t.user();
-  const png = 'data:image/jpeg;base64,/9j/AAAA';
-  const p = project(t, u, { 'index.html': '<html><head><link rel="stylesheet" href="style.css"></head><body><img src="images/a.jpg"><script src="app.js"></script></body></html>', 'style.css': 'body{color:red}', 'app.js': 'window.x=1', 'images/a.jpg': png });
-  assert.equal((await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: other.cookie })).status, 404);
-  const sh = await t.json(`/api/projects/${p.id}/share`, { method: 'POST', cookie: u.cookie }); assert.match(sh.data.token, /^[a-f0-9]{24}$/);
-  const page = await t.call('/p/' + sh.data.token); const html = await page.text();
-  assert.equal(page.status, 200); assert.ok(html.includes('body{color:red}') && html.includes('window.x=1') && html.includes(png) && !html.includes('href="style.css"'));
-  assert.match(page.headers.get('content-security-policy'), /sandbox/);
-  await t.json(`/api/projects/${p.id}/share`, { method: 'DELETE', cookie: u.cookie });
-  assert.equal((await t.call('/p/' + sh.data.token)).status, 404);
-});
-
 test('project restore points bring files back to an earlier state and are themselves undoable', async () => {
   const t = await makeEnv(); const u = await t.user(); const p = project(t, u, { 'a.txt': 'v3', 'b.txt': 'b3' });
   const ins = t.DB.raw.prepare('INSERT INTO file_versions (project_id,path,content,source,created_at) VALUES (?,?,?,?,?)');
@@ -385,7 +372,7 @@ test('gift codes move wallet money once; request cap, blocked words, key expiry 
   fm.close();
 });
 
-test('shared skills and project slug', async () => {
+test('shared skills', async () => {
   const seen = []; const fm = await fakeModel((q, res, body) => { seen.push(body); fm.sse(res, 'answer'); }); const t = await makeEnv({ K: 'k' });
   const m = addModel(t.DB, { name: 'KB', base_url: fm.url }); const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 100 });
   const a = await t.user(), b = await t.user(); give(t.DB, a, plan);
@@ -394,11 +381,6 @@ test('shared skills and project slug', async () => {
   const sh = await t.json(`/api/skills/${sk.data.id}/share`, { method: 'POST', cookie: a.cookie });
   const im = await t.json('/api/skills/import', { method: 'POST', cookie: b.cookie, body: { token: sh.data.token } }); assert.equal(im.status, 200); assert.equal(im.data.name, 'bot');
   assert.equal((await t.json('/api/skills/import', { method: 'POST', cookie: b.cookie, body: { token: 'nope' } })).status, 404);
-  // project slug
-  const pr = await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'Shop' } }), pid = pr.data.id;
-  const s1 = await t.json(`/api/projects/${pid}/share`, { method: 'POST', cookie: a.cookie, body: { slug: 'my-shop' } }); assert.equal(s1.data.slug, 'my-shop', JSON.stringify(s1.data));
-  assert.equal((await t.call('/p/my-shop')).status, 200); assert.equal((await t.call('/p/' + s1.data.token)).status, 200); assert.equal((await t.call('/p/other-name')).status, 404);
-  assert.equal((await t.json(`/api/projects/${pid}/share`, { method: 'POST', cookie: a.cookie, body: { slug: 'Bad Slug!' } })).status, 400);
   fm.close();
 });
 

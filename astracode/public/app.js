@@ -439,7 +439,7 @@ function dlBand() {
 }
 // ---------- หน้าแรก ----------
 async function landing() {
-  const [plans, posts, pr, gal] = await Promise.all([api('/plans').catch(() => []), api('/blog').catch(() => []), api('/pricing').catch(() => ({ models: [] })), api('/gallery').catch(() => [])]);
+  const [plans, posts, pr] = await Promise.all([api('/plans').catch(() => []), api('/blog').catch(() => []), api('/pricing').catch(() => ({ models: [] }))]);
   const cheapest = plans.filter(p => p.price > 0).sort((a, b) => a.price - b.price)[0];
   // ถูกกว่าซื้อ API ทางการ: เฉพาะโมเดลที่ตั้งราคาทางการไว้และเราถูกกว่า (เรียงตามลำดับโมเดลในระบบ) · ทางการแปลงเป็นบาทด้วยอัตราเดียวกับหน้าราคา
   const vs = pr.models.filter(m => m.official?.in > 0 && m.official?.out > 0 && m.out > 0).map(m => ({ m, pct: Math.round((1 - m.out / (m.official.out * usdRate())) * 100) })).filter(x => x.pct > 0).slice(0, 6);
@@ -485,7 +485,6 @@ async function landing() {
         ${[['ราคาและรุ่น', 6], ['สถานีชาร์จ', 4], ['ต้นทุนต่อเดือน', 5]].map(([t, n], i) => `<div class="dm-row w" style="--i:${i + 1}"><b>ค้น</b><span>${t} <small>${n} แหล่ง</small></span><i class="dm-bar"><i></i></i><em>✓</em></div>`).join('')}
         <div class="dm-rep"><i></i><i></i><i></i><small>รายงานพร้อมอ้างอิง [1]–[15]</small></div></div>
     </div></div>
-    ${gal.length ? `<div class="band" id="showcase"><h2>ผลงานที่สร้างด้วย AstraCode</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">เปิดลองใช้ได้เลย ไม่ต้องสมัคร · กด Remix เพื่อคัดลอกไปแก้ต่อในโหมด Code</p><div class="grid">${gal.slice(0, 6).map(g => `<div class="tile"><b style="font:600 18px var(--display)">${esc(g.name)}</b>${g.blurb ? `<p class="muted" style="margin:6px 0 10px">${esc(g.blurb)}</p>` : ''}<div class="row"><a class="btn blue sm" href="/p/${esc(g.link)}" target="_blank" rel="noopener">เปิดดู Demo</a><a class="btn out sm" href="/code?remix=${esc(g.link)}">Remix</a></div></div>`).join('')}</div></div>` : ''}
     <div class="band" id="cmp"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>
     <div class="band"><h2>คำถามที่พบบ่อย</h2>${faqHTML()}</div>
@@ -1194,7 +1193,7 @@ const loadSite = async () => { site = await api('/settings/public').catch(() => 
 Promise.all([loadMe(), loadSite(), domReady]).then(boot);
 // เริ่มโหลดหน้าถัดไปตั้งแต่นิ้วแตะลิงก์ (prerender) และโหลด HTML ล่วงหน้าเมื่อชี้/ใกล้แตะ · ไม่แตะ /api (ดาวน์โหลด, OAuth) และลิงก์ที่เปิดแท็บใหม่
 if (!window.DEMO && HTMLScriptElement.supports?.('speculationrules')) {
-  const where = { and: [{ href_matches: '/*' }, { not: { href_matches: ['/api/*', '/v1/*', '/p/*', '/share*'] } }, { not: { selector_matches: '[download], [target=_blank], [data-new], [data-chat]' } }] };
+  const where = { and: [{ href_matches: '/*' }, { not: { href_matches: ['/api/*', '/v1/*', '/share*'] } }, { not: { selector_matches: '[download], [target=_blank], [data-new], [data-chat]' } }] };
   const sr = document.createElement('script'); sr.type = 'speculationrules';
   sr.textContent = JSON.stringify({ prerender: [{ where, eagerness: 'conservative' }], prefetch: [{ where, eagerness: 'moderate' }] });
   document.head.append(sr);

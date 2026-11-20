@@ -95,7 +95,6 @@ const LEAD_NOTE = `You lead a small team of coding agents working on the user's 
 You may first look at files with READ/GREP/LIST lines (then stop your reply). When ready, reply with ONLY one JSON object, no prose:
 {"tasks":[{"title":"short title","prompt":"detailed instructions for this sub-task: what to build, which existing names/ids/classes to use, how it connects to the other parts","files":["paths this sub-task may create or change"]}]}
 Rules: each file belongs to at most one sub-task when possible (sub-tasks that share a file run one after another); every sub-task lists at least one file; keep sub-tasks small and concrete; write prompts in the user's language.`;
-const REVIEW_NOTE = 'You are the reviewer of a team of agents. READ the changed files, check that the parts work together (links, imports, element ids, CSS classes, function names, missing pieces) and fix real problems directly. Do not rewrite working code. Finish with a short summary for the user in their language: what the team built, what you fixed, what the user should test.';
 export const parsePlan = text => { // แผนของหัวหน้า: ดึง JSON ก้อนแรกที่มี tasks แล้วตรวจรูปแบบ
   const src = String(text || ''), fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(src), raw = fence ? fence[1] : src.slice(src.indexOf('{'), src.lastIndexOf('}') + 1);
   let d; try { d = JSON.parse(raw); } catch { return null; }

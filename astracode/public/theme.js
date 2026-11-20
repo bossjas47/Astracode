@@ -15,7 +15,7 @@
     const p = location.pathname, li = get('li') === '1', want = ['/me', '/settings/public'];
     if (li && p === '/chat') { want.push('/chats', '/folders'); const id = new URLSearchParams(location.search).get('id'); if (/^\d+$/.test(id || '')) want.push('/chats/' + id); }
     else if (li && !/^\/(admin|share|preview|node-runner|p\/)/.test(p)) want.push(p.startsWith('/code') ? '/projects' : '/chats');
-    want.push(...({ '/': ['/plans', '/blog', '/pricing', '/gallery'], '/plans': ['/plans'], '/pricing': ['/pricing'] }[p] || [])); // ข้อมูลหลักของหน้าสาธารณะ
+    want.push(...({ '/': ['/plans', '/blog', '/pricing'], '/plans': ['/plans'], '/pricing': ['/pricing'] }[p] || [])); // ข้อมูลหลักของหน้าสาธารณะ
     if (li) want.push(...({ '/plans': ['/pay'], '/account': ['/wallet', '/memories', '/usage/daily', '/team'] }[p] || []));
     window.__pre = Object.fromEntries([...new Set(want)].map(k => [k, fetch('/api' + k, { credentials: 'same-origin' })]));
   } catch { /* เบราว์เซอร์เก่า: app.js ขอเองตามปกติ */ }

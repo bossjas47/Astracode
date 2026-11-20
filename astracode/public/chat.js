@@ -83,7 +83,7 @@ addEventListener('popstate', () => { if (!$('#cmain')) return; const p = locatio
 document.addEventListener('click', e => {
   const a = e.target.closest?.('a[href]'); if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || a.target || a.hasAttribute('download') || !$('#cmain') || window.DEMO) return;
   const u = new URL(a.href, location.href); if (u.origin !== location.origin) return;
-  if (u.pathname === '/code' && !u.searchParams.get('remix')) { e.preventDefault(); switchMode('code', u.pathname + u.search); }
+  if (u.pathname === '/code') { e.preventDefault(); switchMode('code', u.pathname + u.search); }
   else if (u.pathname === '/chat' && curMode() === 'code') { e.preventDefault(); switchMode('chat', u.search ? u.pathname + u.search : null); }
 });
 function notice(u) {
