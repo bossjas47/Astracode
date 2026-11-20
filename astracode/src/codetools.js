@@ -167,4 +167,5 @@ export const stripMarkers = t => String(t || '')
   .replace(/!\[([^\]\n]{0,200})\]\(data:image\/[^)]+\)/g, (_, alt) => `[image created${alt ? ': ' + alt : ''}]`) // รูปที่เก็บเป็น data URL (หลายร้อย KB) ไม่ส่งให้โมเดลอ่านเป็นข้อความ
   .replace(/\[\[dl:([^|\]\n]{1,120})\|[A-Za-z0-9+/=]+\]\]/g, '[file created: $1]')
   .replace(/\[\[mem:\d+\|([^\]\n]{1,300})\]\]/g, '[remembered: $1]')
+  .replace(/\[\[approve:\d+\|([^\]\n]{1,120})\]\]/g, '[asked the user to approve: $1]')
   .replace(/\[\[py:([A-Za-z0-9+/=]+)\]\]/g, (_, b) => 'Python code I ran:\n```python\n' + unb64u8(b).slice(0, 6000) + '\n```'); // โมเดลเห็นโค้ดที่เคยรัน (แก้ต่อได้) แต่ไม่เห็นไฟล์ base64

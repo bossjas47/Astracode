@@ -321,6 +321,12 @@ function acctMenu(btn, host) {
   };
 }
 // ตั้งค่า (ทุกหน้า): แพลน, เติมเงิน, ลิมิต, บัญชี, แชต (ถังขยะ/ข้อความที่บันทึก), นักพัฒนา, แอปคอม, ช่วยเหลือ, ภาษา
+// ตั้งค่า → Connectors / Skills / Plugins: โค้ดหน้านี้โหลดเมื่อเปิดครั้งแรก (ไม่ทำให้ทุกหน้าหนักขึ้น)
+let connJs = null;
+function openConnectors(tab, view) {
+  connJs ||= new Promise((ok, no) => { const s = document.createElement('script'); s.src = '/connectors-ui.js'; s.onload = ok; s.onerror = () => { connJs = null; no(new Error('โหลดไม่สำเร็จ ลองใหม่')); }; document.head.append(s); });
+  return connJs.then(() => window.connectorsPage(tab, view)).catch(x => toast(x.message, 'bad'));
+}
 function settingsSheet() {
   const row = (href, icon, t, d = '') => `<a class="opt" href="${href}"><span class="opt-t">${ic(icon)}${t}</span>${d ? `<span class="opt-d">${d}</span>` : ''}</a>`;
   const btn = (k, icon, t, d = '') => `<button type="button" class="opt" data-k="${k}"><span class="opt-t">${ic(icon)}${t}</span>${d ? `<span class="opt-d">${d}</span>` : ''}</button>`;
@@ -336,6 +342,8 @@ function settingsSheet() {
     <h4>Chats</h4>
     ${onChat ? btn('bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days') : row('/chat?open=bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days')}
     ${onChat ? btn('saved', 'book', 'Saved messages', 'Answers you bookmarked before') : row('/chat?open=saved', 'book', 'Saved messages', 'Answers you bookmarked before')}
+    <h4>Connectors &amp; tools</h4>
+    ${btn('conn', 'layers', 'Connectors · Skills · Plugins', 'Connect Google, Notion, GitHub and more so the AI can use them in every chat')}
     <h4>Developers &amp; apps</h4>
     ${row('/developers', 'braces', 'Developer API', 'API keys and OpenAI-compatible usage')}
     ${window.astraDesktop ? '' : row('/#download', 'download', 'Desktop app', 'Windows · Mac · Linux: let the AI work with files on your computer')}
@@ -349,6 +357,7 @@ function settingsSheet() {
   </div>`, (d, close) => {
     d.querySelectorAll('a.opt').forEach(a => a.addEventListener('click', close));
     d.querySelector('[data-k=lim]').onclick = () => { close(); limitSheet(); };
+    d.querySelector('[data-k=conn]').onclick = () => { close(); openConnectors(); };
     d.querySelector('[data-k=automem]').onchange = async e => { const on = e.target.checked; try { await api('/me', { method: 'PUT', body: { auto_memory: on } }); me.auto_memory = on ? 1 : 0; toast(on ? 'Auto-save memory on' : 'Auto-save memory off', 'ok'); } catch (x) { e.target.checked = !on; toast(x.message, 'bad'); } };
     if (onChat) { d.querySelector('[data-k=bin]').onclick = () => { close(); binSheet(); }; d.querySelector('[data-k=saved]').onclick = () => { close(); bookmarksSheet(); }; }
   });

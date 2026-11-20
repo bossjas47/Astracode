@@ -553,7 +553,8 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   token_enc TEXT,
   tools_json TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  connector TEXT, auto INTEGER, oauth_enc TEXT, perms_json TEXT, last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS mcp_user ON mcp_servers(user_id, id);
 
@@ -624,7 +625,8 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   token_enc TEXT,
   tools_json TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  connector TEXT, auto INTEGER, oauth_enc TEXT, perms_json TEXT, last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS mcp_user ON mcp_servers(user_id, id);
 

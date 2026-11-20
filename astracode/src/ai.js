@@ -3,6 +3,7 @@ import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, 
 import { b64, projects, unb64, unseal } from './projects.js';
 import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, PLAN_NOTE, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, todosOf, webTools } from './codetools.js';
 import { GOOGLE_TOOLS, GOOGLE_URL, googleCall } from './google.js';
+import { askApproval, connCall, connTools } from './connectors.js';
 import { admin } from './admin.js';
 import { v1 } from './api.js';
 import { cron, status } from './jobs.js';
@@ -543,7 +544,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid, local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
+  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), kb: !!b.kb && !pid, local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -583,7 +584,7 @@ export async function runChat(env, J, send, st) {
     (async () => !pid && (J.search || (!useTools && await autoSearch(env, lastText))) ? smartSearch(env, u, hist) : [])(),
     pid ? env.DB.batch([env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid), env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid)]).then(r => r.map(x => x.results?.[0])) : [],
     systemFor(env, u, '', J.skill_ids),
-    J.mcp_ids?.length ? env.DB.prepare(`SELECT * FROM mcp_servers WHERE id IN (${J.mcp_ids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...J.mcp_ids, u.id).all().then(r => r.results).catch(() => []) : [],
+    connTools(env, u.id, { ids: J.mcp_ids || [], off: J.mcp_off || [], askOk: !pid }).catch(() => ({ tools: [], map: new Map() })), // connectors ที่เปิดใช้ทุกแชต + ที่เลือกเพิ่ม · โหมด Code ไม่มีปุ่มอนุญาต จึงได้เฉพาะเครื่องมือที่อนุญาตเสมอ
     model.fallback_id ? modelDown(env, model.id) : false,
     J.kb ? kbBlock(env, u.id, lastText) : '',
     !pid ? readLinks(lastText).catch(() => []) : [],
@@ -596,16 +597,7 @@ export async function runChat(env, J, send, st) {
   const projIns = pid ? [projRows[1]?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : ''].filter(Boolean).join('\n\n') : '';
   // systemFor ต่อท้ายคำสั่งผู้ใช้/ความจำ/Skills หลังข้อความหลัก จึงคำนวณส่วนท้ายครั้งเดียวแล้ววางต่อจากข้อความหลักของโหมดนั้น
   const system = (pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM + (m.sys_prompt?.trim() ? '\n\n' + m.sys_prompt.trim() : '')) + systemBase + (J.summary ?  `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.folder_ins ? `\n\nInstructions for every chat in this folder (follow them):\n${J.folder_ins}` : '') + folderDocs(J.folder_docs) + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + imgPrompt; // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
-  const mcpTools = [], mcpMap = new Map();
-  for (const sv of mcpSrvs) {
-    const tok = sv.token_enc ? await unseal(env, sv.token_enc).catch(() => null) : null;
-    let list = []; try { list = JSON.parse(sv.tools_json || '[]'); } catch {}
-    for (const t of list) {
-      const safe = `mcp_${sv.id}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48)}`;
-      mcpMap.set(safe, { url: sv.url, tok, name: t.name, server: sv.name });
-      mcpTools.push({ type: 'function', function: { name: safe, description: `[${sv.name}] ${t.description || t.name}`, parameters: t.inputSchema } });
-    }
-  }
+  const mcpTools = mcpSrvs.tools, mcpMap = mcpSrvs.map; let askStop = false;
   // zip ที่แนบไว้ในแชต ([[zipref:id]] ในข้อความผู้ใช้): ให้ AI เปิดเฉพาะไฟล์ที่ต้องใช้ด้วย read_file / grep_files
   const zipIds = !pid && env.SLIPS ? [...new Set(hist.filter(x => x.role === 'user').flatMap(x => [...String(x.content).matchAll(/\[\[zipref:([0-9a-f]{16})\]\]/g)].map(y => y[1])))] : [];
   let zipCache = null;
@@ -729,9 +721,16 @@ export async function runChat(env, J, send, st) {
         let resText = 'ไม่พบเครื่องมือนี้', ok = false;
         if (meta) {
           let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch {}
-          try { resText = await mcpCall(meta.url, meta.tok, meta.name, args, env); ok = true; }
-          catch (err) { resText = 'Error: ' + err.message; }
-          await send({ mcp: { server: meta.server, tool: meta.name, ok } });
+          if (meta.perm === 'ask') { // แก้/ส่งข้อมูลออกไป: ยังไม่ทำ ขึ้นปุ่มให้ผู้ใช้อนุญาตก่อน (กดแล้วหน้าเว็บส่งผลกลับมาเป็นข้อความถัดไป)
+            const aid = await askApproval(env, u.id, cid, meta, args), mk = `\n\n[[approve:${aid}|${meta.server} · ${meta.name}]]\n`;
+            out += mk; await send({ t: mk }); lastKind = 't'; askStop = true; ok = true;
+            resText = 'Not done yet: this action needs the user\'s approval and they now see Allow / Deny buttons. Do not call any more tools. The result will arrive in the next message if they allow it.';
+            await send({ mcp: { server: meta.server, tool: meta.name + ' · รออนุญาต', ok: true } });
+          } else {
+            try { resText = await connCall(env, meta.sv, meta.name, args); ok = true; }
+            catch (err) { resText = 'Error: ' + err.message; }
+            await send({ mcp: { server: meta.server, tool: meta.name, ok } });
+          }
         }
         msgs.push({ role: 'tool', tool_call_id: tc.id, content: resText });
       }
@@ -739,7 +738,7 @@ export async function runChat(env, J, send, st) {
       lastKind = 't';
       // รอบที่มีแต่การแก้ไฟล์และสำเร็จทุกอัน = งานเสร็จ (โมเดลเขียนสรุปมาในรอบเดียวกันแล้ว) ไม่ต้องเรียกโมเดลอีกรอบให้ผู้ใช้รอ
       if (ws && useTools && onlyWrites && allOk) break;
-      if (pyStop) break; // หน้าเว็บรัน Python แล้วส่งผลกลับเป็นข้อความถัดไป
+      if (pyStop || askStop) break; // หน้าเว็บรัน Python / รอผู้ใช้อนุญาต แล้วส่งผลกลับเป็นข้อความถัดไป
       if (ws && useTools && doing.length) await send({ round: round + 2, of: maxRounds + 3, doing: doing.slice(0, 3).join(', ').slice(0, 120) });
       continue;
     }
@@ -839,7 +838,7 @@ export async function mcpRpc(url, token, method, params = {}, sessionId = null, 
   const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(10000) });
   const sid = r.headers.get('mcp-session-id') || sessionId;
   if (notifyOnly) return { data: null, sessionId: sid };
-  if (!r.ok) throw userErr(`MCP ตอบกลับ HTTP ${r.status}: ${(await r.text().catch(() => '')).slice(0, 150)}`, 502);
+  if (!r.ok) throw Object.assign(userErr(r.status === 401 || r.status === 403 ? 'ต้องเชื่อมต่อใหม่ (สิทธิ์หมดอายุหรือถูกถอน)' : `MCP ตอบกลับ HTTP ${r.status}: ${(await r.text().catch(() => '')).slice(0, 150)}`, 502), { http: r.status, auth: r.headers.get('www-authenticate') || '' });
   const ct = r.headers.get('content-type') || '';
   let data = null;
   if (ct.includes('text/event-stream')) {
@@ -857,15 +856,18 @@ export async function mcpRpc(url, token, method, params = {}, sessionId = null, 
   if (data.error) throw userErr('MCP error: ' + (data.error.message || JSON.stringify(data.error)).slice(0, 200), 502);
   return { data: data.result, sessionId: sid };
 }
+// ชื่อเครื่องมือที่ดูเป็นการอ่าน (ใช้เมื่อเซิร์ฟเวอร์ไม่ได้บอก readOnlyHint)
+export const READ_NAME = /^(get|list|search|read|fetch|find|query|lookup|describe|view|show|retrieve|count|check|resolve|ask|explain)(?:[_-]|[A-Z]|$)|(?:[_-])(get|list|search|read|fetch|find|query|lookup|view|retrieve)(?:[_-]|$)/i;
 export async function mcpSync(url, token) {
   if (url === GOOGLE_URL) return GOOGLE_TOOLS;
   const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'AstraCode', version: '1.0.0' } });
   await mcpRpc(url, token, 'notifications/initialized', {}, init.sessionId, true).catch(() => {});
   const res = await mcpRpc(url, token, 'tools/list', {}, init.sessionId);
-  const tools = (res.data?.tools || []).slice(0, 30).map(t => ({
+  const tools = (res.data?.tools || []).slice(0, 40).map(t => ({
     name: String(t.name || '').slice(0, 60),
     description: String(t.description || '').slice(0, 300),
     inputSchema: t.inputSchema && typeof t.inputSchema === 'object' ? t.inputSchema : { type: 'object', properties: {} },
+    ro: t.annotations?.readOnlyHint === true || (t.annotations?.readOnlyHint !== false && READ_NAME.test(String(t.name || ''))), // อ่านอย่างเดียว: ใช้ได้เลยโดยไม่ต้องถาม
   })).filter(t => t.name);
   return tools;
 }

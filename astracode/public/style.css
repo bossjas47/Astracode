@@ -1734,3 +1734,52 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .mac-cmd { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .mac-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 8px 10px; border-radius: 8px; background: var(--carbon); border: 1px solid var(--hair); font-family: var(--mono, monospace); font-size: 12.5px; }
 .mac-cmd .btn { flex: none; }
+
+/* ตั้งค่า → Connectors / Skills / Plugins */
+.sheet.cn-sheet { width: min(960px, 96vw); max-width: none; }
+@media (min-width: 700px) { .sheet.cn-sheet { height: min(820px, 88dvh); } .sheet.cn-sheet .sheet-b { overflow: auto; } }
+.cn-wrap { display: flex; flex-direction: column; gap: 12px; }
+.cn-top .seg, .cn-bar .seg { margin: 0; }
+.cn-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cn-bar input[type=search] { flex: 1; min-width: 140px; min-height: 38px; }
+.cn-cat { margin: 10px 0 2px; font-size: 13px; color: var(--ash); font-weight: 600; }
+.cn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.cn-card, .cn-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 14px; border: 1px solid var(--hair); border-radius: 14px; background: var(--carbon); color: var(--porcelain); text-align: left; font: inherit; cursor: pointer; }
+.cn-row { align-items: center; padding: 10px 12px; }
+@media (hover: hover) { .cn-card:hover, .cn-row:hover { border-color: var(--steel); } }
+.cn-ico { flex: none; width: 36px; height: 36px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--c, #6b7280); color: #fff; font: 700 16px var(--font); overflow: hidden; }
+.cn-ico.big { width: 48px; height: 48px; border-radius: 12px; font-size: 20px; }
+.cn-ico img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.cn-ico .ic { color: #fff; }
+.cn-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cn-txt b { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.cn-txt span { font-size: 13px; color: var(--ash); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cn-txt small { font-size: 12px; color: var(--ash); }
+.cn-ok .ic { color: var(--green); }
+.cn-plus { flex: none; width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--hair); display: inline-flex; align-items: center; justify-content: center; }
+.cn-list { display: flex; flex-direction: column; gap: 8px; }
+.cn-row .pill { flex: none; } .pill.ok { color: var(--green); } .pill.bad { color: var(--red); }
+.cn-empty { text-align: center; padding: 28px 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.cn-empty p { margin: 0; max-width: 460px; }
+.cn-head { display: flex; align-items: center; gap: 12px; } .cn-head b { font-size: 18px; display: block; } .cn-head small { color: var(--ash); }
+.cn-back { align-self: flex-start; }
+.cn-form { display: flex; gap: 8px; flex-wrap: wrap; } .cn-form input { flex: 1; min-width: 200px; }
+.cn-hint { font-size: 12.5px; margin: 0; }
+.cn-acts { gap: 8px; flex-wrap: wrap; }
+.cn-tools { display: flex; flex-direction: column; gap: 6px; }
+.cn-tool { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--hair); border-radius: 10px; flex-wrap: wrap; }
+.cn-tool > div:first-child { min-width: 0; flex: 1 1 200px; } .cn-tool b { font: 500 13px var(--mono, monospace); word-break: break-all; } .cn-tool small { display: block; color: var(--ash); font-size: 12px; }
+.seg.sm { margin: 0; } .seg.sm button { min-height: 30px; padding: 0 10px; font-size: 12px; }
+.cn-pre { white-space: pre-wrap; max-height: 320px; overflow: auto; font-size: 12.5px; background: var(--obsidian); border: 1px solid var(--hair); border-radius: 10px; padding: 10px; }
+/* ปุ่มอนุญาตเครื่องมือในแชต */
+.approve { border: 1px solid var(--blue); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
+.approve:not(.pending) { border-color: var(--hair); }
+.approve .ap-h { display: flex; align-items: center; gap: 6px; }
+.ap-args { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; max-height: 180px; overflow: auto; word-break: break-word; }
+.ap-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+/* หน้าปิดป๊อปอัปหลังล็อกอิน */
+.connected { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--obsidian); color: var(--porcelain); font-family: var(--font); }
+.cn-done { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 360px; }
+.cn-done h1 { margin: 0; font: 600 22px var(--font); }
+.cn-mark { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 700 26px var(--font); color: #fff; background: var(--ash); }
+.cn-mark.ok { background: var(--green); } .cn-mark.bad { background: var(--red); }

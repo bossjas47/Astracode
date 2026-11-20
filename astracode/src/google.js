@@ -28,16 +28,16 @@ const ensure = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS google_links (u
 async function client(env) { const g = await getSettings(env, ['google_client_id', 'google_client_secret']); return { id: env.GOOGLE_CLIENT_ID || g.google_client_id, secret: env.GOOGLE_CLIENT_SECRET || g.google_client_secret }; }
 
 // เริ่มเชื่อม: ใช้ redirect URI เดิมของปุ่มล็อกอิน Google (ไม่ต้องลงทะเบียน URI ใหม่) แยกด้วยคุกกี้ gconn
-export async function googleConnectStart(env, base, u) {
+export async function googleConnectStart(env, base, u, popup = false) {
   const c = await client(env); if (!c.id) return err('ยังไม่ได้ตั้งค่า Google Client ID', 404);
   const state = rand(16);
   const q = new URLSearchParams({ response_type: 'code', client_id: c.id, redirect_uri: `${base}/api/oauth/google/callback`, scope: SCOPES, state, access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true' });
-  return new Response(null, { status: 302, headers: { location: 'https://accounts.google.com/o/oauth2/v2/auth?' + q, 'set-cookie': `gconn=${state}.${u.id}; Path=/api/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600` } });
+  return new Response(null, { status: 302, headers: { location: 'https://accounts.google.com/o/oauth2/v2/auth?' + q, 'set-cookie': `gconn=${state}.${u.id}${popup ? '.p' : ''}; Path=/api/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600` } });
 }
 // เรียกจาก /api/oauth/google/callback เมื่อมีคุกกี้ gconn (ไม่ใช่การล็อกอิน) · ต้องเป็นผู้ใช้คนเดิมที่ล็อกอินอยู่
 export async function googleConnectFinish(req, env, url, base, me) {
-  const back = m => Response.redirect(`${base}/chat?google=${encodeURIComponent(m)}`, 302), del = 'gconn=; Path=/api/oauth; Max-Age=0';
-  const [state, uid] = ((req.headers.get('cookie') || '').match(/(?:^|;\s*)gconn=([\w.]+)/)?.[1] || '').split('.');
+  const [state, uid, pop] = ((req.headers.get('cookie') || '').match(/(?:^|;\s*)gconn=([\w.]+)/)?.[1] || '').split('.'), del = 'gconn=; Path=/api/oauth; Max-Age=0';
+  const back = m => pop ? Response.redirect(`${base}/connected?ok=0&error=${encodeURIComponent(m)}`, 302) : Response.redirect(`${base}/chat?google=${encodeURIComponent(m)}`, 302); // เปิดจากตั้งค่า → Connectors (ป๊อปอัป) ปิดหน้าต่างเอง
   if (!state || !same(state, url.searchParams.get('state') || '') || !me || me.id !== +uid) return back('หมดเวลา ลองใหม่อีกครั้ง');
   if (url.searchParams.get('error')) return back('ยกเลิกการเชื่อมต่อ');
   const c = await client(env);
@@ -49,7 +49,7 @@ export async function googleConnectFinish(req, env, url, base, me) {
   const old = await env.DB.prepare('SELECT id FROM mcp_servers WHERE user_id=? AND url=?').bind(me.id, GOOGLE_URL).first();
   const id = old ? (await env.DB.prepare('UPDATE mcp_servers SET tools_json=?, enabled=1, name=? WHERE id=? RETURNING id').bind(JSON.stringify(GOOGLE_TOOLS), 'Google' + (email ? ' · ' + email : ''), old.id).first()).id
     : (await env.DB.prepare('INSERT INTO mcp_servers (user_id,name,url,token_enc,tools_json,enabled,created_at) VALUES (?,?,?,?,?,1,?) RETURNING id').bind(me.id, 'Google' + (email ? ' · ' + email : ''), GOOGLE_URL, await seal(env, String(me.id)), JSON.stringify(GOOGLE_TOOLS), Date.now()).first()).id;
-  return new Response(null, { status: 302, headers: { location: `${base}/chat?google=ok&mcp_on=${id}`, 'set-cookie': del } });
+  return new Response(null, { status: 302, headers: { location: pop ? `${base}/connected?ok=1&id=${id}` : `${base}/chat?google=ok&mcp_on=${id}`, 'set-cookie': del } });
 }
 export async function googleStatus(env, u) { await ensure(env); const r = await env.DB.prepare('SELECT email, created_at FROM google_links WHERE user_id=?').bind(u.id).first(); return json({ connected: !!r, email: r?.email || null, enabled: !!(await client(env)).id }); }
 export async function googleDisconnect(env, u) {

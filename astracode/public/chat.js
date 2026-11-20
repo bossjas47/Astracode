@@ -175,7 +175,7 @@ async function chatView(id) {
   if (sideMode === 'code') drawProjects();
   $('#sclose').onclick = closeSide;
   $('#acct').onclick = e => { e.stopPropagation(); acctMenu($('#acct'), side); };
-  { const op = qs().get('open'); if (op === 'bin') binSheet(); else if (op === 'saved') bookmarksSheet(); } // ลิงก์จากตั้งค่าของหน้าอื่น
+  { const op = qs().get('open'), cn = qs().get('connectors'); if (op === 'bin') binSheet(); else if (op === 'saved') bookmarksSheet(); else if (op === 'connectors' || cn) { openConnectors('connectors', 'mine'); if (cn === 'ok') toast('เชื่อมต่อแล้ว · AI ใช้ได้ทุกแชต', 'ok'); else if (cn === 'err') toast('เชื่อมต่อไม่สำเร็จ ลองอีกครั้ง', 'bad'); if (cn) history.replaceState(null, '', location.pathname + (chat.id ? '?id=' + chat.id : '')); } } // ลิงก์จากตั้งค่าของหน้าอื่น / กลับจากหน้าล็อกอิน connector
   $('#menu').onclick = openSide; // เงาใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
   if (!window.DEMO && !id && sideMode === 'chat') try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
@@ -468,7 +468,7 @@ function toolRows(web) {
     cmp: ['compare', 'Compare 2 models', 'ถามครั้งเดียว ได้คำตอบจาก 2 โมเดล', chat.compare],
     kb: ['book', 'คลังความรู้', 'เก็บเอกสารไว้ถาวร แล้วถามได้จากทุกแชต', localStorage.getItem('kb') === '1'],
     skl: ['sparkles', 'Skills', 'สอนวิธีทำงานให้ AI · เปิดปิดหรือสร้างเอง'],
-    mcp: ['server', 'MCP / ปลั๊กอิน', PCD ? 'ต่อแอปให้ AI ใช้: ปลั๊กอินสำเร็จรูป, MCP ในเครื่อง (Blender ฯลฯ), GitHub/Notion ออนไลน์' : 'ต่อแอปให้ AI ใช้: GitHub, Notion, n8n ผ่าน Remote MCP', (chat.mcps?.length || 0) > 0],
+    mcp: ['layers', 'Connectors', PCD ? 'Google, Notion, GitHub ฯลฯ + ปลั๊กอินและ MCP ในเครื่อง · เปิด/ปิดในแชตนี้' : 'Google, Notion, GitHub ฯลฯ ที่เชื่อมไว้ · เปิด/ปิดในแชตนี้', mcpOff().length > 0],
     exp: ['download', 'Export chat', 'บันทึกเป็น Markdown หรือ PDF'],
   }, use = toolUse();
   const avail = TOOL_ORDER.filter(v => defs[v]), mine = avail.filter(v => use[v] >= 3).sort((a, b) => use[b] - use[a]).slice(0, 3);
@@ -517,7 +517,7 @@ function toolSheet() {
     <div class="tlist">${toolRows(web)}</div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); toolUsed(b.dataset.v); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: enterImageMode, web: toggleWeb, cmp: toggleCompare, mcp: () => PCD ? mcpHub() : mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); }), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, kb: kbSheet, rsch: () => { seen('rsch'); researchSheet(); }, voice: toggleVoice, img: enterImageMode, web: toggleWeb, cmp: toggleCompare, mcp: () => connInChat(), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 // Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล
@@ -913,6 +913,7 @@ function bubbleText(el) {
 }
 // รูปแบบเดียวกับที่เซิร์ฟเวอร์บันทึก: [[file:ชื่อ]] ... [[/file]]
 function msgHTML(m, i, isNew) {
+  if (m.role === 'user' && m.content.startsWith(APPR_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('check', 'sm')} ผลจากเครื่องมือที่อนุญาต</summary><pre>${esc(m.content.slice(APPR_RES.length).trim())}</pre></details></div>`;
   if (m.role === 'user' && m.content.startsWith(PY_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('terminal', 'sm')} ผลรัน Python</summary>${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}<pre>${esc(m.content.slice(PY_RES.length).trim())}</pre></details></div>`;
   if (m.role === 'user' && m.content.startsWith(PC_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('folder', 'sm')} ผลจากเครื่อง</summary>${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}<pre>${esc(m.content.slice(PC_RES.length).trim())}</pre></details></div>`;
   if (m.role === 'user') {
@@ -921,11 +922,11 @@ function msgHTML(m, i, isNew) {
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts"><button data-copy="${i}" aria-label="คัดลอกข้อความ">${ic('copy', 'sm')}</button>${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}" class="${MEM_RE.test(m.content) ? 'memhint' : ''}">${MEM_RE.test(m.content) ? ic('bulb') + ' ให้ AI จำเรื่องนี้?' : 'Remember'}</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  const { text: tTools, files: dlFiles, py: pyCodes, mems: memSaved } = parseTools(m.content);
+  const { text: tTools, files: dlFiles, py: pyCodes, mems: memSaved, approves } = parseTools(m.content);
   const { text: t00, mem } = parseMem(tTools, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
-    ${toolCards(m, i, dlFiles, pyCodes)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
+    ${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
@@ -1063,7 +1064,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   const t0 = Date.now();
   let started = false, streamErr = null, aborted = false, raf = 0;
   try {
-    await stream({ img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps, local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
+    await stream({ img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, kb: localStorage.getItem('kb') === '1', skill_ids: chat.skills, mcp_ids: chat.mcps, mcp_off: mcpOff(), local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
       started = true;
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
@@ -1167,10 +1168,10 @@ function mcpHub() {
   sheet('MCP / ปลั๊กอิน', `<p class="sheet-msg">MCP = ตัวเชื่อมให้ AI ใช้แอปอื่นได้ เลือกแบบที่ต้องการ</p>`
     + (PCD.plugins ? optHTML('plug', ic('layers') + 'ปลั๊กอินสำเร็จรูป (แนะนำ)', 'กดติดตั้งคลิกเดียว: คุมเบราว์เซอร์, GitHub, ความจำ, เอกสาร' + need) : '')
     + optHTML('local', ic('server') + 'MCP ในเครื่อง', 'ใส่คำสั่ง MCP เอง เช่น Blender, ฐานข้อมูล, ไฟล์ config จาก Claude Desktop' + need)
-    + optHTML('remote', ic('globe') + 'Remote MCP (ออนไลน์)', 'ต่อ GitHub, Notion, n8n ผ่านลิงก์ · ใช้ได้ทั้งเว็บและแอป' + (chat.mcps?.length ? ` · เปิดอยู่ ${chat.mcps.length}` : '')),
+    + optHTML('remote', ic('globe') + 'Connectors ออนไลน์', 'Google, Notion, GitHub ฯลฯ · ใช้ได้ทั้งเว็บและแอป'),
   (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
     close(); const v = b.dataset.v;
-    if (v === 'remote') return mcpSheet(chat.mcps, ids => { chat.mcps = ids; localStorage.setItem('mcps', JSON.stringify(ids)); modelUI(); });
+    if (v === 'remote') return openConnectors('connectors', 'browse');
     if (!pcOn()) { toast('เลือกโฟลเดอร์งานก่อน แล้วกดปุ่ม ' + (v === 'plug' ? 'ปลั๊กอิน' : 'MCP ในเครื่อง') + ' ในหน้านี้'); return pcSheet(); }
     return v === 'plug' ? pluginSheet() : mcpLocalSheet();
   }));
@@ -1427,16 +1428,16 @@ const DL_RE = /\[\[dl:([^|\]\n]{1,120})\|([A-Za-z0-9+/=]+)\]\]/g, PY_RE = /\[\[p
 const unb64t = b => { try { return new TextDecoder().decode(Uint8Array.from(atob(b), c => c.charCodeAt(0))); } catch { return ''; } };
 function parseTools(content) {
   const files = [], py = [];
-  const mems = [];
-  const text = String(content || '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; });
-  return { text, files, py, mems };
+  const mems = [], approves = [];
+  const text = String(content || '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; }).replace(APPROVE_RE, (_, id, label) => { approves.push({ id: +id, label }); return ''; });
+  return { text, files, py, mems, approves };
 }
-function toolCards(m, i, files, py) {
-  if (!files.length && !py.length && !m.pyOut) return '';
+function toolCards(m, i, files, py, asks = []) {
+  if (!files.length && !py.length && !m.pyOut && !asks.length) return '';
   const fileBtn = (f, k) => `<button type="button" class="dl-card" data-dl="${i}:${k}">${ic('download', 'sm')}<span><b>${esc(f.name)}</b><small>${{ xlsx: 'Excel', csv: 'CSV', docx: 'Word', pdf: 'PDF (พิมพ์/บันทึก)', md: 'Markdown', txt: 'ข้อความ', html: 'HTML', json: 'JSON' }[f.name.split('.').pop().toLowerCase()] || 'ไฟล์'} · กดเพื่อดาวน์โหลด</small></span></button>`;
   const pyBox = code => `<details class="pyrun"><summary>${ic('terminal', 'sm')} Python ${m.pyOut ? '' : '· กำลังรอรัน'}</summary><pre><code>${esc(code)}</code></pre></details>`;
   const out = m.pyOut ? `<div class="pyout"><pre>${esc(m.pyOut.text)}</pre>${m.pyOut.imgs.map(d => `<img src="${d}" alt="กราฟจาก Python">`).join('')}</div>` : '';
-  return `<div class="tool-cards">${files.map(fileBtn).join('')}${py.map(pyBox).join('')}${out}</div>`;
+  return `<div class="tool-cards">${files.map(fileBtn).join('')}${py.map(pyBox).join('')}${out}${asks.map(a => approveHTML(a, i)).join('')}</div>`;
 }
 // สร้างไฟล์ในเบราว์เซอร์: Excel ด้วย SheetJS, Word = HTML เปิดใน Word (.doc), PDF = หน้าพิมพ์ (บันทึกเป็น PDF), ที่เหลือเป็นข้อความ
 async function makeFile(name, content) {
@@ -1491,6 +1492,38 @@ function imgSizeSheet() {
     d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { try { localStorage.setItem('imgSize', b.dataset.v); } catch { /* ไม่มีที่เก็บ */ } close(); modelUI(); toast('ขนาดภาพ: ' + IMG_SIZES[b.dataset.v][1], 'ok'); });
   });
 }
+// ---------- Connectors ในแชต: เปิด/ปิดชั่วคราว (จำไว้ต่อเครื่อง) · ขออนุญาตก่อนแก้/ส่งข้อมูล ----------
+const mcpOff = () => { try { return JSON.parse(localStorage.getItem('mcpOff') || '[]').filter(Number.isInteger); } catch { return []; } };
+async function connInChat() {
+  const d = await api('/connectors').catch(x => { toast(x.message, 'bad'); return null; }); if (!d) return;
+  const off = new Set(mcpOff()), list = d.mine.filter(x => x.enabled && (x.auto || chat.mcps.includes(x.id)));
+  sheet('Connectors ในแชตนี้', `<div class="sheet-form">${list.length ? list.map(x => `<label class="tg"><input type="checkbox" data-cn="${x.id}" ${off.has(x.id) ? '' : 'checked'}><span><b>${esc(x.name)}</b><small class="muted">${x.tools.length} เครื่องมือ${x.status === 'error' ? ' · <span class="bad">ต้องเชื่อมใหม่</span>' : ''}</small></span></label>`).join('')
+      : '<p class="sheet-msg">ยังไม่ได้เชื่อมต่อบริการไหน เชื่อม Google, Notion, GitHub ฯลฯ แล้ว AI ใช้ได้ทุกแชต</p>'}
+    <button type="button" class="btn ${list.length ? 'out' : 'blue'}" data-manage>${ic('layers', 'sm')} ${list.length ? 'จัดการ / เพิ่ม Connectors' : 'เลือก Connectors'}</button>${PCD ? `<button type="button" class="btn out" data-pc>${ic('server', 'sm')} ปลั๊กอินและ MCP ในเครื่อง</button>` : ''}</div>`, (dd, close) => {
+    dd.querySelectorAll('[data-cn]').forEach(b => b.onchange = () => { const id = +b.dataset.cn, s = new Set(mcpOff()); b.checked ? s.delete(id) : s.add(id); localStorage.setItem('mcpOff', JSON.stringify([...s])); modelUI(); });
+    dd.querySelector('[data-manage]').onclick = () => { close(); openConnectors('connectors', list.length ? 'mine' : 'browse'); };
+    dd.querySelector('[data-pc]')?.addEventListener('click', () => { close(); mcpHub(); });
+  });
+}
+const APPROVE_RE = /\[\[approve:(\d+)\|([^\]\n]{1,120})\]\]/g, APPR = new Map(), APPR_RES = '[ผลจากเครื่องมือที่อนุญาต]';
+function approveHTML(a) {
+  const st = APPR.get(a.id); if (!st) { api('/connectors/approve/' + a.id).then(v => { APPR.set(a.id, v); renderAll(); }).catch(() => { APPR.set(a.id, { status: 'gone' }); renderAll(); }); }
+  const v = st || { status: 'loading' }, args = v.args ? Object.entries(v.args).slice(0, 6).map(([k, x]) => `<div><span class="muted">${esc(k)}</span> ${esc(typeof x === 'string' ? x : JSON.stringify(x)).slice(0, 300)}</div>`).join('') : '';
+  const body = v.status === 'pending' ? `<div class="ap-args">${args || '<span class="muted">ไม่มีรายละเอียด</span>'}</div><div class="ap-btns"><button type="button" class="btn blue sm" data-appr="${a.id}" data-d="once">อนุญาตครั้งนี้</button><button type="button" class="btn out sm" data-appr="${a.id}" data-d="always">อนุญาตเสมอ</button><button type="button" class="btn out sm" data-appr="${a.id}" data-d="deny">ไม่อนุญาต</button></div>`
+    : `<div class="muted">${{ loading: 'กำลังโหลด…', running: 'กำลังทำ…', done: '✓ ทำแล้ว ส่งผลให้ AI แล้ว', denied: 'ไม่อนุญาต', failed: 'ทำไม่สำเร็จ', expired: 'หมดเวลา', gone: 'คำขอนี้ไม่มีแล้ว' }[v.status] || esc(v.status)}</div>`;
+  return `<div class="approve ${v.status}"><div class="ap-h">${ic(v.status === 'pending' ? 'hand' : v.status === 'done' ? 'check' : 'alert', 'sm')}<b>AI ขอใช้ ${esc(a.label)}</b></div>${body}</div>`;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest?.('[data-appr]'); if (!b || chat.busy) return;
+  const id = +b.dataset.appr, dec = b.dataset.d; b.closest('.ap-btns').querySelectorAll('button').forEach(x => x.disabled = true);
+  try {
+    const v = await api('/connectors/approve/' + id, { method: 'POST', body: { decision: dec } }); APPR.set(id, v); renderAll();
+    if (dec === 'deny') return;
+    const t = $('#t'), keep = [t.value, chat.files, chat.images]; // ผลกลับไปให้ AI ทำต่อ (แบบเดียวกับผลรัน Python)
+    t.value = `${APPR_RES}\n${v.server} · ${v.tool}\n${String(v.result || '').slice(0, 8000)}`; chat.files = []; chat.images = []; chat.pyAuto = true;
+    const p = send(); [t.value, chat.files, chat.images] = keep; drawThumbs(); await p;
+  } catch (x) { toast(x.message, 'bad'); APPR.delete(id); renderAll(); }
+});
 // ---------- ความจำที่บันทึกอัตโนมัติ [[mem:id|ข้อความ]]: แสดง "จำแล้ว" + ปุ่มยกเลิก ----------
 const MEM_MARK = /\[\[mem:(\d+)\|([^\]\n]{1,300})\]\]/g;
 document.addEventListener('click', async e => {

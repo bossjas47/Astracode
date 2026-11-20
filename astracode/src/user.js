@@ -1,3 +1,4 @@
+import { connectorRoutes } from './connectors.js';
 import { BKK, DAY, getUser, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus, WALLET_MIN } from './core.js';
 import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
@@ -10,6 +11,7 @@ import { googleConnectFinish, googleConnectStart, googleDisconnect, googleStatus
 export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
 export async function userRoutes(req, env, ctx, url, path, M, u) {
+  if (path.startsWith('/api/connectors')) { const cr = await connectorRoutes(req, env, url, path, M, u); if (cr) return cr; }
   const DB = env.DB; let r;
   // zip ที่แนบในแชต: เก็บ zip ต้นฉบับ + ไฟล์ข้อความ (JSON) ใน R2 · AI เปิดอ่านทีละไฟล์ด้วยเครื่องมือ read_file แทนการยัดทั้งก้อนลงข้อความ
   if (path === '/api/zipref' && M === 'POST') {
@@ -251,7 +253,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   // แพ็กเสริม Agent: ซื้อด้วย Wallet ได้โควตาใช้ Agent (แอป Desktop / คลาวด์) แยกจากลิมิตแชต · ปิดไว้จนแอดมินเปิด (agent_pack_enabled)
   if (path === '/api/google' && M === 'GET') return googleStatus(env, u);
   if (path === '/api/google' && M === 'DELETE') return googleDisconnect(env, u);
-  if (path === '/api/google/connect' && M === 'GET') return googleConnectStart(env, origin(req, env), u);
+  if (path === '/api/google/connect' && M === 'GET') return googleConnectStart(env, origin(req, env), u, url.searchParams.get('popup') === '1');
   if (path.startsWith('/api/cloud-agent')) { const r = await cloudApi(req, env, u, path, M); if (r) return r; }
   if (path === '/api/agent-pack') {
     const s = await getSettings(env, ['agent_pack_enabled', 'agent_pack_price', 'agent_pack_units', 'agent_pack_days']), price = +s.agent_pack_price || 199, units = +s.agent_pack_units || 120, days = +s.agent_pack_days || 30, now = Date.now();

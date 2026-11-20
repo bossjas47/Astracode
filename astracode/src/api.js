@@ -1,5 +1,6 @@
 import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
-import { SSE, callModel, chat, logUsage, mcpCall, webSearch } from './ai.js';
+import { SSE, callModel, chat, logUsage, webSearch } from './ai.js';
+import { connCall, connTools } from './connectors.js';
 import { unseal } from './projects.js';
 import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl, walletAdd } from './billing.js';
 import { status } from './jobs.js';
@@ -74,12 +75,12 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     }
     // Connector (Remote MCP ที่ลูกค้าเชื่อมไว้บนเว็บ เช่น Gmail/Notion ผ่าน Zapier/Composio): Agent ในแอปเรียกผ่านเซิร์ฟเวอร์ token ไม่ออกจากเซิร์ฟเวอร์
     if (path === '/v1/mcp/tools' || (path === '/v1/mcp/call' && req.method === 'POST')) {
-      const srvs = (await env.DB.prepare('SELECT * FROM mcp_servers WHERE (user_id=0 OR user_id=?) AND enabled=1').bind(k.id).all().catch(() => ({ results: [] }))).results;
-      const tools = []; for (const sv of srvs) { let list = []; try { list = JSON.parse(sv.tools_json || '[]'); } catch { /* ว่าง */ } for (const t of list) tools.push({ name: `rmcp_${sv.id}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48)}`, description: `[${sv.name}] ${t.description || t.name}`.slice(0, 1000), parameters: t.inputSchema || { type: 'object', properties: {} }, sv, tool: t.name }); }
+      const ct = await connTools(env, k.id, { ids: (await env.DB.prepare('SELECT id FROM mcp_servers WHERE user_id=0 AND enabled=1').all().catch(() => ({ results: [] }))).results.map(x => x.id), prefix: 'rmcp_' });
+      const tools = ct.tools.map(t => { const x = ct.map.get(t.function.name); return { name: t.function.name, description: t.function.description, parameters: t.function.parameters, sv: x.sv, tool: x.name }; }); // ไม่รวมเครื่องมือที่ผู้ใช้ตั้ง "ห้ามใช้" · แอปถามผู้ใช้เองก่อนใช้
       if (path === '/v1/mcp/tools') return out({ tools: tools.map(({ name, description, parameters }) => ({ name, description, parameters })) });
       if (await limited(env, 'vmcp:' + k.kid, 300, 3600e3)) return fail('เรียก connector บ่อยเกินไป', 429, 'rate_limit_error');
       const b = await req.json().catch(() => ({})), t = tools.find(x => x.name === b.name); if (!t) return fail('ไม่พบเครื่องมือ ' + String(b.name || '').slice(0, 80), 404);
-      try { const tok = t.sv.token_enc ? await unseal(env, t.sv.token_enc).catch(() => null) : null; return out({ text: String(await mcpCall(t.sv.url, tok, t.tool, b.args && typeof b.args === 'object' ? b.args : {}, env)).slice(0, 100000) }); }
+      try { return out({ text: String(await connCall(env, t.sv, t.tool, b.args && typeof b.args === 'object' ? b.args : {})).slice(0, 100000) }); }
       catch (e) { return out({ text: 'Error: ' + String(e.message).slice(0, 500) }); }
     }
     // ค้นเว็บให้ agent ในแอป Desktop (ไม่คิดเงิน จำกัด 60 ครั้ง/ชม. ต่อ key)

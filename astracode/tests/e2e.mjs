@@ -21,7 +21,7 @@ const API = (admin, loggedIn) => ({
   '/api/admin/quality': { votes: [], reports: [], cache: [{ model_id: 1, name: 'Flash', n: 3, fresh: 100, cached: 300 }] },
   '/api/admin/settings': { env: {}, health_check: '0' }, '/api/admin/live': { accounts: [{ name: 'maxplus', keys: ['UNCEN_KEY', 'KIRO_KEY'], credits: 688, rate: 3, at: Date.now() - 3600e3, left: 650, days: 6.2, perDay: 35 }], keys: [{ k: 'UNCEN_KEY', h1: 2.26, d1: 13.2, d3: 30, d7: 51, n: 40, flagged: 3, series: Array.from({ length: 24 }, (_, i) => i % 5), fund: { credits: 300, rate: 3, at: Date.now() - 3600e3 }, left: 260, days: 8.6 }], feed: [{ id: 1, t: Date.now(), uid: 5, email: 'a@b.c', model: 'ChatGPT 6 Astra Uncen', k: 'UNCEN_KEY', src: 'api', tin: 113000, tout: 1, tc: 0, cost: 2.26, charge: null, units: 2.26, ms: 900, flag: 'gone' }], errs: [], hot: [{ uid: 5, email: 'a@b.c', plan: 'Plus', n: 40, h1: 6, d1: 13, charge: 0, units: 13, balance: 0, flagged: 3 }], losers: [{ uid: 5, email: 'a@b.c', plan: 'Plus', paid: 349, cost: 400, profit: -51 }], settings: {} }, '/api/pay': [], '/api/skills': [{ id: 1, user_id: 0, name: 'translator', description: 'แปล', content: 'x', enabled: 1 }],
 });
-const PAGES = [['/', 0, 1], ['/login', 0, 0], ['/chat', 0, 1], ['/plans', 0, 1], ['/plans?team=1', 0, 1], ['/pricing', 0, 1], ['/pricing', 0, 0], ['/account', 0, 1], ['/developers', 0, 1], ['/status', 0, 0], ['/terms', 0, 0], ['/support', 0, 1], ['/code', 0, 1], ['/admin?tab=quality', 1, 1], ['/admin?tab=live', 1, 1], ['/admin?tab=settings', 1, 1], ['/admin?tab=models', 1, 1]];
+const PAGES = [['/', 0, 1], ['/login', 0, 0], ['/chat', 0, 1], ['/plans', 0, 1], ['/plans?team=1', 0, 1], ['/pricing', 0, 1], ['/pricing', 0, 0], ['/account', 0, 1], ['/developers', 0, 1], ['/status', 0, 0], ['/terms', 0, 0], ['/support', 0, 1], ['/code', 0, 1], ['/admin?tab=quality', 1, 1], ['/admin?tab=live', 1, 1], ['/admin?tab=settings', 1, 1], ['/admin?tab=models', 1, 1], ['/admin?tab=connectors', 1, 1]];
 const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] } : {}); let failed = 0;
 for (const [url, admin, loggedIn] of PAGES) {
   const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], api = API(admin, loggedIn);
@@ -364,6 +364,27 @@ const FLOWS = [
     return [!errs.length || errs.join(' | '), /"perm":"plan"/.test(sent[0]?.body || '') || 'plan not sent', /1\/2/.test(plan.todo) && /เปลี่ยนหัวข้อ/.test(plan.todo) || 'todo: ' + plan.todo, plan.go || 'no Start building', plan.file === '<h1>old</h1>' || 'plan changed a file',
       /"perm":"auto"/.test(sent[1]?.body || '') || 'build not in auto', /"name":"astra\//.test(mk?.body || '') || 'no new branch: ' + mk?.body, /astra\//.test(note) || 'note: ' + note, /Pull Request #5/.test(pr) || 'pr: ' + pr,
       sess.length === 2 || 'sessions: ' + sess, sw.id === 71 && /s=71/.test(sw.url) && /ตอบงานสอง/.test(sw.text) || 'session switch: ' + JSON.stringify(sw).slice(0, 200)];
+  }],
+  ['Connectors: connect from Settings, the AI asks before a write action, Allow runs it and the result goes back to the AI', async () => {
+    let added = false;
+    const dir = [{ slug: 'context7', name: 'Context7', description: 'Docs', auth: 'none', category: 'Dev', by: 'Upstash', icon: '#059669', enabled: true }, { slug: 'notion', name: 'Notion', description: 'Pages', auth: 'oauth', category: 'Docs', by: 'Notion', icon: '#000000', enabled: true }];
+    const row = { id: 7, connector: 'context7', name: 'Context7', host: 'mcp.context7.com', icon: '#059669', auto: true, enabled: true, oauth: false, status: 'ok', tools: [{ name: 'get-docs', description: 'Docs', perm: 'allow' }] };
+    const { page, errs, calls } = await open('/chat?id=9', {
+      '/api/chats': [{ id: 9, title: 'Plan' }], '/api/chats/9': [{ id: 1, role: 'user', content: 'สร้างหน้าแผนงาน' }, { id: 2, role: 'assistant', content: 'จะสร้างหน้าให้\n\n[[approve:3|Notion · create_page]]' }],
+      '/api/connectors': () => ({ directory: dir, mine: added ? [row] : [], github: false, google: false }),
+      '/api/connectors/add/context7': () => { added = true; return { ok: true, id: 7 }; },
+      '/api/connectors/approve/3': q => q.method() === 'POST' ? { id: 3, server: 'Notion', tool: 'create_page', args: { title: 'Plan' }, status: 'done', result: 'created page Plan' } : { id: 3, server: 'Notion', tool: 'create_page', args: { title: 'Plan' }, status: 'pending' },
+    });
+    await page.waitForSelector('[data-appr="3"]', { timeout: 5000 }).catch(() => {});
+    const card = await page.locator('.approve').innerText().catch(() => '');
+    await page.click('[data-appr="3"][data-d="once"]'); await page.waitForTimeout(900);
+    const sent = calls.filter(c => c.p === '/api/chat').at(-1);
+    await page.evaluate(() => openConnectors('connectors', 'browse')); await page.waitForTimeout(600);
+    const cards = await page.locator('.cn-card').count();
+    await page.click('[data-slug="context7"]'); await page.waitForTimeout(300); await page.click('[data-go]'); await page.waitForTimeout(800);
+    const det = await page.locator('.sheet').innerText().catch(() => '');
+    return [!errs.length || errs.join(' | '), /create_page/.test(card) && /Plan/.test(card) || 'card: ' + card, /ผลจากเครื่องมือที่อนุญาต/.test(sent?.body || '') && /created page Plan/.test(sent?.body || '') || 'result not sent to the AI: ' + sent?.body?.slice(0, 200),
+      cards === 2 || 'cards ' + cards, calls.some(c => c.m === 'POST' && c.p === '/api/connectors/add/context7') || 'no connect call', /ใช้ในทุกแชต/.test(det) && /get-docs/.test(det) || 'detail: ' + det.slice(0, 200)];
   }],
   ['page audit finds missing title, alt and viewport, and passes a clean page', async () => {
     const { page, errs } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<html><body><img src="a.png"><h1>x</h1></body></html>' }] } });

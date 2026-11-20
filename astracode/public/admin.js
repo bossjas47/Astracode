@@ -60,7 +60,7 @@ function forecastHTML(f) {
     <p class="muted" style="font-size:12.5px">คาดกำไร = จ่าย − ใช้ไปแล้ว − (ต้นทุนต่อวัน × วันที่เหลือ) · แย่สุด = ถ้าใช้เต็มลิมิตทุกสัปดาห์จนแพลนหมด (ไม่นับสิทธิ์รีเซ็ตลิมิตที่แจกเพิ่ม)</p>` : ''}
   </section>`;
 }
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['live', 'activity', 'ต้นทุนสด'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['live', 'activity', 'ต้นทุนสด'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['connectors', 'layers', 'Connectors'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -856,6 +856,37 @@ ADMIN.mcp = async (box, reload) => {
   });
   box.querySelectorAll('[data-mdel]').forEach(b => b.onclick = async () => {
     if (await confirmSheet('ลบ MCP นี้ถาวร?', { title: 'ลบ MCP', ok: 'Delete forever', danger: true })) { await api('/admin/mcp/' + b.dataset.mdel, { method: 'DELETE' }); reload(); }
+  });
+};
+
+// สารบบ Connectors ที่ผู้ใช้เห็นใน ตั้งค่า → Connectors · ปุ่มทดสอบ = ลองค้นหน้าล็อกอิน (OAuth) / ต่อแบบไม่ล็อกอินจากเซิร์ฟเวอร์จริง
+ADMIN.connectors = async (box, reload) => {
+  const rows = await api('/admin/connectors');
+  const AUTH = [['oauth', 'ล็อกอินในป๊อปอัป (MCP OAuth)'], ['none', 'ไม่ต้องล็อกอิน'], ['token', 'ผู้ใช้วาง API key'], ['url', 'ผู้ใช้วาง URL ส่วนตัว'], ['google', 'Google (ระบบเดิม)'], ['github', 'GitHub token (ระบบเดิม)']];
+  const form = (c = {}) => `<form class="ed-f" data-cslug="${esc(c.slug || '')}">
+    <div class="form2"><div><label>slug (a-z 0-9 -)</label><input name="slug" value="${esc(c.slug || '')}" ${c.slug ? 'readonly' : ''} required></div><div><label>ชื่อ</label><input name="name" value="${esc(c.name || '')}" maxlength="60" required></div></div>
+    <label>คำอธิบาย (ผู้ใช้เห็น)</label><input name="description" value="${esc(c.description || '')}" maxlength="300">
+    <div class="form2"><div><label>ชนิดการเชื่อม</label><select name="auth">${AUTH.map(([v, l]) => `<option value="${v}" ${c.auth === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div><div><label>URL ของ MCP (https://)</label><input name="url" value="${esc(c.url || '')}" placeholder="https://mcp.example.com/mcp"></div></div>
+    <div class="form2"><div><label>หมวด</label><input name="category" value="${esc(c.category || '')}" maxlength="30"></div><div><label>โดย</label><input name="by" value="${esc(c.by || '')}" maxlength="40"></div></div>
+    <div class="form2"><div><label>ไอคอน (#สี หรือ data:image/...)</label><input name="icon" value="${esc(c.icon || '#6b7280')}"></div><div><label>ลำดับ</label><input name="sort" type="number" value="${c.sort ?? 100}"></div></div>
+    <details><summary class="muted">OAuth ขั้นสูง: ผู้ให้บริการที่ไม่ลงทะเบียนแอปอัตโนมัติ</summary><div class="form2"><div><label>Client ID</label><input name="client_id" value="${esc(c.client_id || '')}"></div><div><label>Client secret ${c.has_secret ? '(เว้นว่าง = ใช้ค่าเดิม)' : ''}</label><input name="client_secret" type="password" autocomplete="off"></div></div><label>Scope (ถ้าต้องระบุ)</label><input name="scope" value="${esc(c.scope || '')}"><p class="muted hint">Redirect URI ที่ต้องลงทะเบียน: ${esc(location.origin)}/api/connectors/callback</p></details>
+    <label class="sw-row"><span class="sw"><input type="checkbox" name="enabled" ${c.enabled !== false ? 'checked' : ''}><span></span></span>แสดงให้ผู้ใช้</label>
+    <div class="row" style="margin-top:12px"><button class="btn blue sm">${c.slug ? 'บันทึก' : 'เพิ่ม'}</button>${c.slug ? `<button type="button" class="btn out sm" data-ctest="${esc(c.slug)}">ทดสอบการเชื่อม</button><button type="button" class="btn red sm" data-cdel="${esc(c.slug)}">ลบ</button>` : ''}<span class="sv muted"></span></div></form>`;
+  box.innerHTML = `<p class="muted hint">บริการที่ผู้ใช้กดเชื่อมได้ใน ตั้งค่า → Connectors · กด "ทดสอบการเชื่อม" เพื่อเช็คว่าผู้ให้บริการเปิดหน้าล็อกอินและลงทะเบียนแอปให้อัตโนมัติได้</p>
+    <div class="ed-list"><details class="ed add"><summary><b>+ เพิ่ม Connector</b></summary>${form()}</details>
+    ${rows.map(c => `<details class="ed"><summary><b>${esc(c.name)}</b><span class="pill ${c.enabled ? 'ok' : ''}">${c.enabled ? 'แสดง' : 'ซ่อน'}</span><span class="pill">${esc(AUTH.find(x => x[0] === c.auth)?.[1] || c.auth)}</span><span class="muted">${esc(c.url || '')}</span></summary>${form(c)}</details>`).join('')}</div>`;
+  box.querySelectorAll('form[data-cslug]').forEach(f => f.onsubmit = async e => {
+    e.preventDefault(); const o = Object.fromEntries(new FormData(f)), btn = f.querySelector('.btn.blue'); btn.disabled = true;
+    try { await api('/admin/connectors', { method: 'POST', body: { ...o, sort: +o.sort || 100, enabled: !!o.enabled } }); if (f.dataset.cslug) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; btn.disabled = false; } else reload(); }
+    catch (x) { toast(x.message, 'bad'); btn.disabled = false; }
+  });
+  box.querySelectorAll('[data-ctest]').forEach(b => b.onclick = async () => {
+    const sv = b.parentElement.querySelector('.sv'); b.disabled = true; sv.textContent = 'กำลังทดสอบ…';
+    try { const r = await api(`/admin/connectors/${b.dataset.ctest}/test`, { method: 'POST' }); sv.className = 'sv ' + (r.ok ? 'ok' : 'bad'); sv.textContent = (r.ok ? '✓ ' : '✗ ') + r.note; } catch (x) { sv.className = 'sv bad'; sv.textContent = x.message; }
+    b.disabled = false;
+  });
+  box.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => {
+    if (await confirmSheet('ลบ connector นี้จากสารบบ? (การเชื่อมที่ผู้ใช้มีอยู่ยังใช้ได้)', { title: 'ลบ Connector', ok: 'Delete', danger: true })) { await api('/admin/connectors/' + b.dataset.cdel, { method: 'DELETE' }); reload(); }
   });
 };
 
