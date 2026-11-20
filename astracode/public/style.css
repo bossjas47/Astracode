@@ -1629,3 +1629,25 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 @media (prefers-reduced-motion: reduce) { .ls-bar i { transition: none; } }
 .sheet .btn.out { background-image: none; background-color: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; border: 1px solid var(--hair); }
 .sheet .btn.out:hover { background-color: rgba(var(--ov), .06); }
+
+/* Code: หน้าเริ่มโปรเจกต์ใหม่ (แบบ Claude Code) */
+.cstart { min-height: calc(100dvh - 64px); display: flex; align-items: center; justify-content: center; padding-top: 24px; padding-bottom: 48px; }
+.cs-in { width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 16px; }
+.cs-h { margin: 0; text-align: center; font: 500 clamp(26px, 5vw, 34px)/1.3 var(--display); letter-spacing: -.01em; }
+.cs-box.cbox { display: block; background: var(--carbon); border: 1px solid var(--hair); border-radius: 22px; padding: 8px 10px 10px; box-shadow: 0 6px 24px rgba(31, 26, 22, .08); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.cs-box textarea { min-height: 72px; resize: none; width: 100%; }
+.cs-box .cb { background: transparent; border-color: var(--hair); }
+.cs-ideas { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.cs-idea { height: 36px; padding: 0 14px; border-radius: 9999px; border: 1px solid var(--hair); background: transparent; color: var(--porcelain); font: 500 13px var(--font); cursor: pointer; }
+@media (hover: hover) { .cs-idea:hover { background: var(--graphite); } }
+.cs-foot { margin: 0; text-align: center; color: var(--ash); font-size: 13px; }
+.cs-foot .linkish { font-size: 13px; }
+@media (max-width: 420px) { .cs-lbl { display: none; } }
+.plist { display: flex; flex-direction: column; gap: 2px; }
+.prow { display: flex; align-items: center; gap: 6px; padding: 8px 6px; border-radius: 12px; }
+.prow > a, .prow > span { flex: 1; min-width: 0; display: flex; flex-direction: column; color: inherit; text-decoration: none; }
+.prow b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) { .prow:hover { background: var(--graphite); } }
+.view.with-side .cs-box textarea, .view.with-side .cs-box textarea:focus { border: 0; background: transparent; box-shadow: none; outline: none; padding: 8px 8px 4px; border-radius: 0; }
+.cs-box:focus-within { border-color: var(--steel); }
+.cs-in .err:empty { display: none; }

@@ -295,6 +295,17 @@ const FLOWS = [
     const put = calls.find(c => c.m === 'PUT' && c.p === '/api/projects/1/file');
     return [!errs.length || errs.join(' | '), !!put || 'no save request', /<p>ok<\/p>/.test(put?.body || '') || 'typed text not saved'];
   }],
+  ['Code: New project starts from a prompt, opens the editor in place and the AI starts right away', async () => {
+    const { page, errs, calls } = await open('/code', { '/api/projects': q => q.method() === 'POST' ? { id: 7 } : [{ id: 3, name: 'Old', files: 1, size: 10, updated_at: Date.now() }], '/api/projects/7': { id: 7, name: 'เว็บร้านกาแฟ', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] } });
+    await page.evaluate(() => { window.__same = 1; });
+    await page.fill('#nt', 'ทำเว็บร้านกาแฟ มีเมนูและปุ่มสั่งซื้อ'); await page.click('#ngo'); await page.waitForTimeout(1500);
+    const make = calls.find(c => c.m === 'POST' && c.p === '/api/projects'), send = calls.find(c => c.p === '/api/chat');
+    const st = await page.evaluate(() => ({ same: window.__same, url: location.pathname + location.search, ide: !!document.querySelector('.ide') }));
+    await page.evaluate(() => document.querySelector('.dr-back').click()); await page.waitForTimeout(400);
+    const back = await page.evaluate(() => ({ same: window.__same, home: !!document.querySelector('#nt'), url: location.pathname + location.search }));
+    return [!errs.length || errs.join(' | '), /"template":"starter"/.test(make?.body || '') || 'no project created: ' + make?.body, /"name":"เว็บร้านกาแฟ/.test(make?.body || '') || 'name not from prompt: ' + make?.body,
+      st.same === 1 || 'page reloaded', st.url === '/code?p=7' || 'url ' + st.url, st.ide || 'editor not open', /ร้านกาแฟ/.test(send?.body || '') || 'prompt not sent to AI', back.same === 1 && back.home && back.url === '/code' || 'back to New project failed: ' + JSON.stringify(back)];
+  }],
   ['page audit finds missing title, alt and viewport, and passes a clean page', async () => {
     const { page, errs } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<html><body><img src="a.png"><h1>x</h1></body></html>' }] } });
     const r = await page.evaluate(() => { const bad = auditProject(IDE.files); const good = auditProject(new Map([['index.html', '<html lang="th"><head><title>ร้าน</title><meta name="description" content="d"><meta name="viewport" content="width=device-width"><meta property="og:title" content="t"></head><body><h1>x</h1><img src="a.png" alt="a"></body></html>']])); return { bad, good }; });

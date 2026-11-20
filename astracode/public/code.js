@@ -17,66 +17,123 @@ const CHECK_RE = /\n\n\[คำสั่งตรวจ\]\n[\s\S]*?(?=\n\n\[ไ�
 const IGNORE = /(^|\/)(__MACOSX|\.git|node_modules|\.DS_Store|dist|build)(\/|$)/;
 const kb = n => n > 1024 ? Math.round(n / 102.4) / 10 + ' KB' : n + ' B';
 
-// ---------- หน้ารวมโปรเจกต์ ----------
+// ---------- หน้าเริ่มโปรเจกต์ใหม่ (แบบ Claude Code): พิมพ์สิ่งที่อยากสร้าง → สร้างโปรเจกต์ + เปิดตัวแก้โค้ดในหน้าเดิม + AI เริ่มทำทันที ----------
+const TPLS = [['auto', 'Auto', 'เลือกให้จากสิ่งที่พิมพ์'], ['starter', 'Web', 'HTML / CSS / JS'], ['tailwind', 'Tailwind', 'HTML + Tailwind CSS'], ['react', 'React', 'ไม่ต้องติดตั้ง'], ['node', 'Node.js', 'package.json + เทอร์มินัล'], ['python', 'Python', 'รันในเบราว์เซอร์'],
+  ['landing', 'Landing page', 'หน้าขายของ'], ['dashboard', 'Dashboard', 'กราฟ Chart.js'], ['game', 'Game', 'Canvas'], ['linebot', 'LINE Bot', 'Node.js'], ['discordbot', 'Discord Bot', 'Node.js'], ['empty', 'Blank', 'โปรเจกต์ว่าง']];
+const CODE_IDEAS = [['Landing page', 'ทำหน้าเว็บขายกาแฟ มีเมนู ราคา และปุ่มสั่งผ่าน LINE'], ['Todo app', 'แอป Todo ด้วย React เพิ่ม ลบ ติ๊กเสร็จ และจำไว้ในเครื่อง'], ['Game', 'เกมงูบน Canvas เล่นบนมือถือได้ด้วยการปัด']];
+// เดาแม่แบบจากคำสั่ง (Auto)
+const tplFor = t => /discord/i.test(t) ? 'discordbot' : /line ?bot|ไลน์ ?บอท|บอท ?line/i.test(t) ? 'linebot' : /react/i.test(t) ? 'react' : /python|ไพทอน|\.py\b|pandas/i.test(t) ? 'python'
+  : /node|express|api server|เซิร์ฟเวอร์/i.test(t) ? 'node' : /tailwind/i.test(t) ? 'tailwind' : /เกม|game|canvas/i.test(t) ? 'game' : /dashboard|แดชบอร์ด|กราฟ|chart/i.test(t) ? 'dashboard' : 'starter';
+const nameFor = t => { // ชื่อโปรเจกต์จากบรรทัดแรกของคำสั่ง (ตัดคำสั่งนำหน้า, ไม่เกิน 40 ตัวอักษร ตัดที่ช่องว่างถ้ามี)
+  let s = String(t).split('\n')[0].replace(/^(ช่วย|ขอ|อยากได้|please|make|build|create)\s*/i, '').replace(/^(ทำ|สร้าง|เขียน)\s*/, '').trim();
+  if (s.length > 40) { const cut = s.slice(0, 40), sp = cut.lastIndexOf(' '); s = sp > 15 ? cut.slice(0, sp) : cut; }
+  return s || 'โปรเจกต์ใหม่';
+};
 async function codeHome() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
-  const [list, gal] = await Promise.all([api('/projects'), api('/gallery').catch(() => [])]);
-  page(nav() + `<div class="wrap"><section class="hero code-hero" style="padding:20px 0 8px"><h1>Code</h1>
-    <p>เขียนโค้ดบนมือถือ มี AI ช่วยแก้ไฟล์ รัน HTML, JavaScript และ Python ได้ในเบราว์เซอร์</p></section>
-    <form class="card row" id="nf"><input name="name" placeholder="ชื่อโปรเจกต์ใหม่" maxlength="60" required style="flex:1;min-width:180px">
-      <select name="template" style="width:auto;min-width:160px"><option value="starter">เว็บเริ่มต้น (HTML/CSS/JS/Py)</option><option value="tailwind">HTML + Tailwind CSS</option><option value="react">React (ไม่ต้องติดตั้ง)</option><option value="node">Node.js (package.json)</option><option value="python">Python</option><option value="landing">หน้าขายของ (Landing page)</option><option value="dashboard">Dashboard กราฟ</option><option value="game">เกม (Canvas)</option><option value="linebot">LINE Bot (Node.js)</option><option value="discordbot">Discord Bot (Node.js)</option><option value="empty">โปรเจกต์ว่าง</option></select>
-      <button class="btn blue">+ New project</button>${DESK ? `<button type="button" class="btn out" id="openlocal">${ic('folder', 'sm')} เปิดโฟลเดอร์ในเครื่อง</button>` : ''}</form>
-    <details class="card clone"><summary><b>${ic('branch')} Clone จาก GitHub</b> <span class="muted">ดึง repo มาเป็นโปรเจกต์ใหม่</span></summary>
-      <form id="cf2" class="form2" style="margin-top:12px"><div><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required></div>
-      <div><label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main"></div>
-      <div id="cftok" hidden style="grid-column:1/-1"><label>GitHub token (ครั้งแรกครั้งเดียว · จำเป็นสำหรับ repo ส่วนตัว)</label><input name="token" type="password" autocomplete="off" placeholder="github_pat_... หรือ ghp_..."><small class="muted">สร้างที่ github.com → Settings → Developer settings → Fine-grained tokens · ให้สิทธิ์ Contents: Read and write</small></div>
-      <div style="align-self:end"><button class="btn blue">Clone</button></div></form>
-      <p class="muted" id="cmsg"></p></details>
+  document.title = 'Code · ASTRACODE';
+  let tpl = 'auto';
+  const tplName = () => TPLS.find(x => x[0] === tpl)[1];
+  page(nav() + `<div class="wrap cstart"><div class="cs-in">
+    <h1 class="cs-h">What should we build?</h1>
+    <form class="cbox cs-box" id="nf"><textarea id="nt" rows="3" placeholder="อธิบายสิ่งที่อยากสร้าง เช่น เว็บร้านกาแฟ มีเมนูและปุ่มสั่งซื้อ" aria-label="สิ่งที่อยากสร้าง" maxlength="4000"></textarea>
+      <div class="crow"><button type="button" class="cb pick" id="ntpl" aria-haspopup="dialog">${ic('layers', 'sm')}<span>${tplName()}</span></button>
+        <button type="button" class="cb" id="nclone" aria-label="Clone จาก GitHub">${ic('branch', 'sm')}<span class="cs-lbl">GitHub</span></button>${DESK ? `<button type="button" class="cb" id="openlocal" aria-label="เปิดโฟลเดอร์ในเครื่อง">${ic('folder', 'sm')}<span class="cs-lbl">Folder</span></button>` : ''}
+        <button class="send" id="ngo" aria-label="เริ่มสร้าง">${ic('up')}</button></div></form>
     <div class="err" id="e"></div>
-    ${list.length > 4 ? '<input id="psearch" type="search" placeholder="ค้นหาโปรเจกต์" aria-label="ค้นหาโปรเจกต์" autocomplete="off" style="margin-bottom:12px">' : ''}
-    <div class="grid" id="pgrid">${list.map(p => `<div class="tile proj" data-name="${esc(p.name.toLowerCase())}"><a href="/code?p=${p.id}" style="color:inherit"><div style="font:600 19px var(--display)">${esc(p.name)}${p.shared ? ' <span class="pill">แชร์กับฉัน</span>' : ''}</div>
-      <div class="muted">${p.files} ไฟล์ · ${kb(p.size)} · แก้ล่าสุด ${when(p.updated_at)}</div></a>
-      <div class="row" style="margin-top:8px"><a class="btn blue sm" href="/code?p=${p.id}">Open</a>${p.shared ? '' : `<button class="btn out sm" data-ren="${p.id}">Rename</button><button class="btn red sm" data-del="${p.id}">Delete</button>`}</div></div>`).join('')
-      || '<p class="muted" style="text-align:center">ยังไม่มีโปรเจกต์ สร้างอันแรกได้เลย ระบบจะใส่ไฟล์ตัวอย่างให้</p>'}</div>
-    ${gal.length ? `<h2 style="margin:28px 0 10px">แกลเลอรี</h2><p class="muted" style="margin:-4px 0 12px">โปรเจกต์เด่นจากผู้ใช้ เปิดดูหรือกด Remix เพื่อคัดลอกไปแก้ต่อ</p><div class="grid">${gal.map(g => `<div class="tile proj"><div style="font:600 17px var(--display)">${esc(g.name)}</div>${g.blurb ? `<div style="margin:4px 0">${esc(g.blurb)}</div>` : ''}<div class="muted">${g.files} ไฟล์ · ${when(g.updated_at)}</div><div class="row" style="margin-top:8px"><a class="btn out sm" href="/p/${esc(g.link)}" target="_blank" rel="noopener">เปิดดู</a><a class="btn blue sm" href="/code?remix=${esc(g.link)}">Remix</a></div></div>`).join('')}</div>` : ''}${footer()}</div>`);
-  $('#psearch')?.addEventListener('input', e => { const q = e.target.value.trim().toLowerCase(); document.querySelectorAll('#pgrid .tile.proj').forEach(t => t.hidden = !!q && !t.dataset.name.includes(q)); });
-  $('#nf').onsubmit = async e => {
-    e.preventDefault(); e.submitter.disabled = true;
-    try { const r = await api('/projects', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); go('/code?p=' + r.id); }
-    catch (x) { $('#e').textContent = x.message; e.submitter.disabled = false; }
+    <div class="cs-ideas">${CODE_IDEAS.map(([l, t]) => `<button type="button" class="cs-idea" data-idea="${esc(t)}">${esc(l)}</button>`).join('')}</div>
+    <p class="cs-foot"><button type="button" class="linkish" id="nempty">Start with an empty editor</button> · <button type="button" class="linkish" id="nall">All projects</button><span id="ngal"></span></p>
+  </div></div>`);
+  const ta = $('#nt'), grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 260) + 'px'; };
+  ta.oninput = grow; if (!isPhone()) ta.focus();
+  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isPhone()) { e.preventDefault(); $('#nf').requestSubmit(); } };
+  app.querySelectorAll('[data-idea]').forEach(b => b.onclick = () => { ta.value = b.dataset.idea; grow(); ta.focus(); });
+  $('#ntpl').onclick = () => sheet('Template', TPLS.map(([v, t, d]) => optHTML(v, esc(t), esc(d), v === tpl)).join(''), (d, close) => d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = () => { tpl = b.dataset.v; $('#ntpl span').textContent = tplName(); close(); ta.focus(); }));
+  const create = async (body, prompt) => {
+    const r = await api('/projects', { method: 'POST', body }); delete sideCache.code; openProject(r.id, prompt);
   };
+  $('#nf').onsubmit = async e => {
+    e.preventDefault(); const t = ta.value.trim(); if (!t) return ta.focus();
+    const btn = $('#ngo'); btn.disabled = true; $('#e').textContent = '';
+    try { await create({ name: nameFor(t), template: tpl === 'auto' ? tplFor(t) : tpl }, t); }
+    catch (x) { $('#e').textContent = x.message; btn.disabled = false; }
+  };
+  $('#nempty').onclick = async e => { e.target.disabled = true; try { await create({ name: 'โปรเจกต์ใหม่', template: tpl === 'auto' ? 'starter' : tpl }); } catch (x) { $('#e').textContent = x.message; e.target.disabled = false; } };
+  $('#nall').onclick = projectsSheet;
+  $('#nclone').onclick = cloneSheet;
   $('#openlocal')?.addEventListener('click', async e => { // โปรเจกต์ใหม่ที่ผูกกับโฟลเดอร์ในเครื่อง: ไฟล์ในโฟลเดอร์ขึ้นมาเป็นไฟล์ในโปรเจกต์
-    e.target.disabled = true;
+    const b = e.currentTarget; b.disabled = true;
     try {
       const { id } = await api('/projects', { method: 'POST', body: { name: 'โฟลเดอร์ในเครื่อง', empty: true } });
       const l = await DESK.link('p:' + id).catch(x => { toast(x.message, 'bad'); return null; });
-      if (!l) { await api('/projects/' + id, { method: 'DELETE' }); e.target.disabled = false; return; }
-      await api('/projects/' + id, { method: 'PUT', body: { name: l.name.slice(0, 60) } }); go('/code?p=' + id);
-    } catch (x) { $('#e').textContent = x.message; e.target.disabled = false; }
+      if (!l) { await api('/projects/' + id, { method: 'DELETE' }); b.disabled = false; return; }
+      await api('/projects/' + id, { method: 'PUT', body: { name: l.name.slice(0, 60) } }); delete sideCache.code; openProject(id);
+    } catch (x) { $('#e').textContent = x.message; b.disabled = false; }
   });
-  // ยังไม่เชื่อม GitHub: ใส่ token ในฟอร์ม Clone ได้เลย ไม่ต้องไปหาปุ่ม Git ในโปรเจกต์อื่นก่อน
-  api('/github').then(g => { $('#cftok').hidden = g.connected; $('#cmsg').textContent = g.connected ? `เชื่อม GitHub แล้ว (${g.login || ''})` : ''; }).catch(() => {});
-  $('#cf2').onsubmit = async e => {
-    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), msg = $('#cmsg'); e.submitter.disabled = true;
-    let id;
-    try {
-      if (f.token?.trim()) { msg.textContent = 'กำลังเชื่อม GitHub...'; await api('/github', { method: 'PUT', body: { token: f.token.trim() } }); $('#cftok').hidden = true; }
-      delete f.token;
-      msg.textContent = 'กำลังสร้างโปรเจกต์...';
-      id = (await api('/projects', { method: 'POST', body: { name: f.repo.replace(/^https:\/\/github\.com\//, '').split('/').pop().replace(/\.git$/, '') || 'repo', empty: true } })).id;
-      msg.textContent = 'กำลังเชื่อม repo...'; await api(`/projects/${id}/github`, { method: 'POST', body: f });
-      msg.textContent = 'กำลังดึงไฟล์จาก GitHub...'; await api(`/projects/${id}/github/pull`, { method: 'POST', body: {} });
-      go('/code?p=' + id);
-    } catch (x) { msg.innerHTML = `<span class="bad">${esc(x.message)}</span>`; e.submitter.disabled = false; if (id) api('/projects/' + id, { method: 'DELETE' }); }
-  };
-  app.querySelectorAll('[data-ren]').forEach(b => b.onclick = async () => {
-    const p = list.find(x => x.id === +b.dataset.ren), name = await promptSheet('ตั้งชื่อโปรเจกต์ใหม่', p.name, { title: 'เปลี่ยนชื่อโปรเจกต์' });
-    if (name?.trim()) { await api('/projects/' + p.id, { method: 'PUT', body: { name } }); codeHome(); }
+  api('/gallery').then(g => { if (g.length && $('#ngal')) { $('#ngal').innerHTML = ' · <button type="button" class="linkish" id="ngalb">Gallery</button>'; $('#ngalb').onclick = () => gallerySheet(g); } }).catch(() => {});
+}
+// เปิดโปรเจกต์ในหน้าเดิม (ไม่โหลดหน้าใหม่) · prompt = ส่งให้ AI เริ่มทำทันที
+function openProject(id, prompt) { setUrl('/code?p=' + id); codeView(id, prompt); }
+function projectsSheet() {
+  api('/projects').then(list => sheet('Projects', `<div class="sheet-form">${list.length > 6 ? '<input id="psearch" type="search" placeholder="Search projects" aria-label="Search projects" autocomplete="off">' : ''}
+    <div class="plist">${list.map(p => `<div class="prow" data-name="${esc(p.name.toLowerCase())}"><a href="/code?p=${p.id}" data-close><b>${esc(p.name)}${p.shared ? ' <span class="pill">shared</span>' : ''}</b><small class="muted">${p.files} files · ${kb(p.size)} · ${when(p.updated_at)}</small></a>
+      ${p.shared ? '' : `<button type="button" class="icon-btn xs ghost" data-ren="${p.id}" aria-label="Rename">${ic('pen', 'sm')}</button><button type="button" class="icon-btn xs ghost" data-del="${p.id}" aria-label="Delete">${ic('trash', 'sm')}</button>`}</div>`).join('') || '<p class="muted">No projects yet</p>'}</div></div>`, (d, close) => {
+    d.querySelector('#psearch')?.addEventListener('input', e => { const q = e.target.value.trim().toLowerCase(); d.querySelectorAll('.prow').forEach(r => r.hidden = !!q && !r.dataset.name.includes(q)); });
+    d.querySelectorAll('[data-close]').forEach(a => a.addEventListener('click', close));
+    d.querySelectorAll('[data-ren]').forEach(b => b.onclick = async () => {
+      const p = list.find(x => x.id === +b.dataset.ren); close(); const name = await promptSheet('ตั้งชื่อโปรเจกต์ใหม่', p.name, { title: 'Rename project' });
+      if (name?.trim()) { await api('/projects/' + p.id, { method: 'PUT', body: { name } }); delete sideCache.code; navRecents(); }
+      projectsSheet();
+    });
+    d.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      close(); if (await confirmSheet('ลบโปรเจกต์นี้? ไฟล์และแชตทั้งหมดจะหายถาวร', { title: 'Delete project', ok: 'Delete forever', danger: true })) { await api('/projects/' + b.dataset.del, { method: 'DELETE' }); delete sideCache.code; navRecents(); }
+      projectsSheet();
+    });
+  })).catch(x => toast(x.message, 'bad'));
+}
+function gallerySheet(gal) {
+  sheet('Gallery', `<p class="sheet-msg">โปรเจกต์เด่นจากผู้ใช้ เปิดดูหรือกด Remix เพื่อคัดลอกไปแก้ต่อ</p><div class="plist">${gal.map(g => `<div class="prow"><span><b>${esc(g.name)}</b><small class="muted">${g.blurb ? esc(g.blurb) + ' · ' : ''}${g.files} files</small></span><a class="btn out sm" href="/p/${esc(g.link)}" target="_blank" rel="noopener">View</a><a class="btn blue sm" href="/code?remix=${esc(g.link)}">Remix</a></div>`).join('')}</div>`);
+}
+async function cloneSheet() {
+  const g = await api('/github').catch(() => ({}));
+  sheet('Clone from GitHub', `<form id="cf2" class="sheet-form"><label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required>
+    <label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main">
+    ${g.connected ? `<p class="muted">เชื่อม GitHub แล้ว (${esc(g.login || '')})</p>` : `<label>GitHub token (ครั้งแรกครั้งเดียว · จำเป็นสำหรับ repo ส่วนตัว)</label><input name="token" type="password" autocomplete="off" placeholder="github_pat_... หรือ ghp_..."><small class="muted">สร้างที่ github.com → Settings → Developer settings → Fine-grained tokens · ให้สิทธิ์ Contents: Read and write</small>`}
+    <p class="muted" id="cmsg"></p><button class="btn blue">Clone</button></form>`, d => {
+    d.querySelector('#cf2').onsubmit = async e => {
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), msg = d.querySelector('#cmsg'); e.submitter.disabled = true;
+      let id;
+      try {
+        if (f.token?.trim()) { msg.textContent = 'กำลังเชื่อม GitHub...'; await api('/github', { method: 'PUT', body: { token: f.token.trim() } }); }
+        delete f.token;
+        msg.textContent = 'กำลังสร้างโปรเจกต์...';
+        id = (await api('/projects', { method: 'POST', body: { name: f.repo.replace(/^https:\/\/github\.com\//, '').split('/').pop().replace(/\.git$/, '') || 'repo', empty: true } })).id;
+        msg.textContent = 'กำลังเชื่อม repo...'; await api(`/projects/${id}/github`, { method: 'POST', body: f });
+        msg.textContent = 'กำลังดึงไฟล์จาก GitHub...'; await api(`/projects/${id}/github/pull`, { method: 'POST', body: {} });
+        d.remove(); delete sideCache.code; openProject(id);
+      } catch (x) { msg.innerHTML = `<span class="bad">${esc(x.message)}</span>`; e.submitter.disabled = false; if (id) api('/projects/' + id, { method: 'DELETE' }); }
+    };
   });
-  app.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-    if (!await confirmSheet('ลบโปรเจกต์นี้? ไฟล์และแชตทั้งหมดจะหายถาวร', { title: 'ลบโปรเจกต์', ok: 'Delete forever', danger: true })) return;
-    await api('/projects/' + b.dataset.del, { method: 'DELETE' }); codeHome();
+}
+// ลิงก์ /code ทั้งหมดในหน้านี้ (แถบข้าง, ปุ่ม New project, ‹ Projects) เปิดในหน้าเดิม · ปุ่มย้อนกลับของเบราว์เซอร์ใช้ได้
+function leaveIDE() {
+  if (!IDE.pid) return;
+  if (IDE.busy) codeStop();
+  if (IDE.dirty.size) saveNow();
+  IDE.node?.f.remove(); IDE.node = null;
+  if (IDE.worker) { IDE.worker.terminate(); IDE.worker = null; }
+  document.querySelector('.tmenu')?.remove(); document.querySelector('.sheet-bg')?.remove();
+  IDE.pid = null;
+}
+function codeRoute() { leaveIDE(); document.querySelector('.shade')?.remove(); return PAGES.code(); }
+if (!window.DEMO) {
+  document.addEventListener('click', e => {
+    const a = e.target.closest?.('a[href^="/code"]'); if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || a.target) return;
+    const u = new URL(a.href, location.href); if (u.searchParams.get('remix')) return;
+    e.preventDefault(); if (u.pathname + u.search === location.pathname + location.search && !IDE.pid) return codeRoute();
+    setUrl(u.pathname + u.search); codeRoute();
   });
+  addEventListener('popstate', () => { if (location.pathname.startsWith('/code')) codeRoute(); });
 }
 
 // ---------- ตัวแก้โค้ด ----------
@@ -1471,7 +1528,7 @@ async function gitPanel() {
 }
 
 // ---------- หน้าหลักโหมด Code ----------
-async function codeView(id) {
+async function codeView(id, prompt) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   const d = await api('/projects/' + id);
   IDE.node?.f.remove(); IDE.node = null; // เทอร์มินัลของโปรเจกต์ก่อน
@@ -1695,6 +1752,9 @@ async function codeView(id) {
   const chats = await api('/chats?project=' + IDE.pid).catch(() => []); // เปิดแชตล่าสุดของโปรเจกต์
   ctxMeter();
   if (chats[0]) { IDE.chatId = chats[0].id; IDE.msgs = await api('/chats/' + IDE.chatId).catch(() => []); drawAI(); if (IDE.msgs.at(-1)?.role === 'user') codeSend({ resume: true }); }
+  else if (prompt && IDE.pid === d.id) { // มาจากหน้าเริ่มโปรเจกต์: AI เริ่มทำตามที่พิมพ์ทันที
+    openAI(true); const t = $('#ct'); t.value = prompt; t.dispatchEvent(new Event('input')); codeSend();
+  }
 }
 addEventListener('beforeunload', e => { if (IDE.dirty.size) { saveNow(); e.preventDefault(); } });
 
