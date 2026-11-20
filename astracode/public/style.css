@@ -1522,3 +1522,12 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 :root[data-theme="light"] .acct-pop { background: #fff; box-shadow: 0 18px 48px rgba(31,26,22,.18); }
 :root[data-theme="light"] .ap-who em { color: #8a3a1d; }
 @media (prefers-reduced-motion: reduce) { .acct-pop { animation: none; } .side-new { transition: none; } }
+/* บุ๊กมาร์กแชต: ดาวหน้าแชต (กดเพื่อยกเลิก) · หัวข้อ Recents มีปุ่ม + สร้างโฟลเดอร์ */
+.side .bm-star { flex: none; width: 36px; height: 36px; margin-right: -6px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: none; cursor: pointer; opacity: 1; }
+.side .item .bm-star { opacity: 1; }
+.ic.bm-on { fill: #e8a33d; stroke: #e8a33d; color: #e8a33d; }
+.side-sec { padding-right: 2px; }
+.side-sec .icon-btn { width: 32px; height: 32px; }
+.bm-row .opt-t { display: flex; align-items: center; gap: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-row.on { box-shadow: none; }
+@media (max-width: 760px) { .side .bm-star { width: 40px; height: 44px; } .side-sec .icon-btn { width: 44px; height: 44px; } }

@@ -206,7 +206,19 @@ const FLOWS = [
     await page.click('[data-ap=settings]'); await page.waitForTimeout(200);
     const hrefs = await page.$$eval('.sheet-bg a.opt', as => as.map(a => a.getAttribute('href')));
     const need = ['/plans', '/plans?topup=1', '/account', '/developers', '/#download', '/support', '/pricing'].filter(h => !hrefs.includes(h));
-    return [!errs.length || errs.join(' | '), proj === 1 || 'project not listed in the Code tab', /ออกจากระบบ/.test(menu) && /เติมเงิน/.test(menu) || 'account menu incomplete', !need.length || 'settings missing ' + need.join(', ')];
+    return [!errs.length || errs.join(' | '), proj === 1 || 'project not listed in the Code tab', /Log out/.test(menu) && /Top up/.test(menu) || 'account menu incomplete', !need.length || 'settings missing ' + need.join(', ')];
+  }],
+  ['bookmarks: pick a chat to bookmark, it gets a star at the top; tapping the star removes it; no star under answers', async () => {
+    const { page, errs, calls } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'แชตหนึ่ง' }, { id: 82, title: 'แชตสอง' }], '/api/chats/81': [{ id: 5, role: 'assistant', content: 'ok', model: 'Flash' }] });
+    const answerStar = await page.locator('#msgs [data-star]').count();
+    await page.evaluate(() => document.querySelector('#bmk').click()); await page.waitForTimeout(200);
+    await page.evaluate(() => document.querySelector('.sheet-bg [data-bm="82"]').click()); await page.waitForTimeout(300);
+    const on = calls.find(c => c.m === 'PUT' && c.p === '/api/chats/82' && /"pinned":1/.test(c.body));
+    await page.evaluate(() => document.querySelector('.sheet-bg .x').click());
+    const starred = await page.locator('#list [data-unbm="82"]').count();
+    await page.evaluate(() => document.querySelector('#list [data-unbm="82"]').click()); await page.waitForTimeout(300);
+    const off = calls.find(c => c.m === 'PUT' && c.p === '/api/chats/82' && /"pinned":0/.test(c.body));
+    return [!errs.length || errs.join(' | '), answerStar === 0 || 'star still under answers', !!on || 'no PUT pinned 1', starred === 1 || 'no star in front of the chat', !!off || 'no PUT pinned 0'];
   }],
   ['delete a chat moves it to the trash', async () => {
     const { page, errs, calls } = await open('/chat?id=80', { '/api/chats': [{ id: 80, title: 'แชตทดสอบ' }], '/api/chats/80': [] });
