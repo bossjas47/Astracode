@@ -1,4 +1,4 @@
-import { connectorRoutes } from './connectors.js';
+import { connectorRoutes, pluginRoutes } from './connectors.js';
 import { BKK, DAY, getUser, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus, WALLET_MIN } from './core.js';
 import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
@@ -12,6 +12,7 @@ export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
 export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path.startsWith('/api/connectors')) { const cr = await connectorRoutes(req, env, url, path, M, u); if (cr) return cr; }
+  if (path.startsWith('/api/plugins')) { const pr = await pluginRoutes(req, env, path, M, u); if (pr) return pr; }
   const DB = env.DB; let r;
   // zip ที่แนบในแชต: เก็บ zip ต้นฉบับ + ไฟล์ข้อความ (JSON) ใน R2 · AI เปิดอ่านทีละไฟล์ด้วยเครื่องมือ read_file แทนการยัดทั้งก้อนลงข้อความ
   if (path === '/api/zipref' && M === 'POST') {

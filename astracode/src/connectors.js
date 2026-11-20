@@ -312,3 +312,72 @@ export async function approvalRoutes(req, env, path, M, u) {
   await env.DB.prepare('UPDATE tool_approvals SET status=?, result=? WHERE id=?').bind(ok ? 'done' : 'failed', result, a.id).run();
   return json({ ...view, status: ok ? 'done' : 'failed', result });
 }
+
+// ---------- Plugins: ชุดสำเร็จรูป = Connectors + Skills + คำสั่งลัด (/) · แอดมินจัดการ · ติดตั้งครั้งเดียวได้ครบ (เว็บและแอปคอมใช้บัญชีเดียวกัน) ----------
+// skills = [{ name, description, content }] → Skill ของผู้ใช้ · commands = [{ name, text }] → พรอมต์สำเร็จรูป เรียกด้วย / ในแชต
+export const DEFAULT_PLUGINS = [
+  ['dev', 'ชุดนักพัฒนา', 'เอกสารไลบรารีล่าสุด อ่าน repo GitHub ดู error จาก Sentry พร้อมคำสั่งลัดรีวิวโค้ดและอธิบาย repo', '#0EA5E9', ['context7', 'deepwiki', 'github', 'sentry'],
+    [['dev-rules', 'กติกาเขียนโค้ดที่ดี', 'When writing or changing code: read the existing code first and follow its style; prefer small, focused changes; check library docs with the docs tools instead of guessing APIs; add or update tests when behaviour changes; explain risky changes and how to verify them.']],
+    [['review', 'รีวิวโค้ดนี้แบบละเอียด หาบั๊ก ช่องโหว่ และจุดที่ช้า เรียงตามความสำคัญ พร้อมวิธีแก้:\n\n'], ['explain-repo', 'อธิบาย repo GitHub นี้: โครงสร้าง ส่วนสำคัญ วิธีรัน และจุดที่ควรเริ่มอ่าน (ใช้ DeepWiki/GitHub): '], ['fix-error', 'ดู error ล่าสุดของโปรเจกต์ใน Sentry สรุปสาเหตุที่น่าจะเป็นและเสนอวิธีแก้: ']]],
+  ['office', 'ชุดงานเอกสารและอีเมล', 'Gmail, Drive, Sheets, ปฏิทิน และ Notion พร้อมสไตล์เขียนภาษาไทยแบบมืออาชีพ และคำสั่งลัดสรุปอีเมล ตอบอีเมล จดบันทึกประชุม', '#4285F4', ['google', 'notion'],
+    [['thai-business-writer', 'เขียนภาษาไทยแบบธุรกิจ', 'Write Thai for business: polite but direct, short paragraphs, the main point first, clear next steps with owners and dates. Use ครับ/ค่ะ consistently, avoid slang and English filler. For emails: subject line, greeting, 2–4 short paragraphs, sign-off.']],
+    [['inbox', 'สรุปอีเมลที่ยังไม่ได้อ่านใน Gmail 3 วันล่าสุด จัดกลุ่มเป็น ต้องตอบ / รอดำเนินการ / แจ้งให้ทราบ พร้อมสิ่งที่ควรทำต่อ'], ['reply', 'ร่างอีเมลตอบกลับ (เก็บเป็นฉบับร่างใน Gmail ยังไม่ส่ง) สำหรับอีเมลนี้: '], ['meeting-notes', 'สรุปบันทึกประชุมนี้เป็น: ประเด็นหลัก, การตัดสินใจ, งานที่ต้องทำ (ใคร/เมื่อไร) แล้วสร้างหน้าใน Notion ให้:\n\n']]],
+  ['pm', 'ชุดจัดการโปรเจกต์', 'Linear, Jira และ Confluence: สรุปงานรายวัน ภาพรวมสปรินต์ และเปลี่ยนโน้ตเป็น issue', '#5E6AD2', ['linear', 'atlassian'],
+    [],
+    [['standup', 'สรุป standup วันนี้จาก issue ที่อัปเดตใน 24 ชม. ล่าสุด: ทำอะไรไปแล้ว / กำลังทำ / ติดอะไร'], ['sprint', 'สรุปสปรินต์/cycle ปัจจุบัน: ความคืบหน้า งานเสี่ยงล่าช้า และสิ่งที่ควรตัดสินใจ'], ['to-issues', 'แปลงโน้ตนี้เป็น issue (ชื่อ คำอธิบาย ลำดับความสำคัญ) แสดงให้ดูก่อน แล้วค่อยสร้างเมื่อฉันยืนยัน:\n\n']]],
+  ['data', 'ชุดวิเคราะห์ข้อมูล', 'อ่าน Google Sheets วิเคราะห์ด้วย Python ทำกราฟ และสรุปเป็นภาษาคน', '#0F9D58', ['google'],
+    [['data-analyst', 'นักวิเคราะห์ข้อมูล', 'You are a careful data analyst. Before concluding, check row counts, missing values and units. Use Python (pandas) for any calculation instead of mental math, show the key numbers in a small table, add one chart when it helps, and end with 3 plain-language takeaways and caveats.']],
+    [['analyze-sheet', 'วิเคราะห์ Google Sheet นี้: สรุปแนวโน้ม ค่าผิดปกติ และข้อเสนอแนะ พร้อมกราฟ (ลิงก์หรือชื่อไฟล์): '], ['chart', 'ทำกราฟที่เหมาะที่สุดจากข้อมูลนี้ พร้อมอธิบายว่าบอกอะไร:\n\n']]],
+];
+let pready = null;
+const ensurePlugins = env => pready ||= (async () => {
+  await env.DB.batch([
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS plugins (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL, description TEXT, icon TEXT, connectors_json TEXT NOT NULL DEFAULT \'[]\', skills_json TEXT NOT NULL DEFAULT \'[]\', commands_json TEXT NOT NULL DEFAULT \'[]\', sort INTEGER NOT NULL DEFAULT 100, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS user_plugins (user_id INTEGER NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (user_id, slug))'),
+  ]);
+  if (!(await env.DB.prepare('SELECT COUNT(*) n FROM plugins').first()).n) await env.DB.batch(DEFAULT_PLUGINS.map(([slug, name, d, icon, conns, skills, cmds], i) => env.DB.prepare('INSERT OR IGNORE INTO plugins (slug,name,description,icon,connectors_json,skills_json,commands_json,sort,enabled,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)')
+    .bind(slug, name, d, icon, JSON.stringify(conns), JSON.stringify(skills.map(([n, ds, c]) => ({ name: n, description: ds, content: c }))), JSON.stringify(cmds.map(([n, t]) => ({ name: n, text: t }))), (i + 1) * 10, Date.now())));
+})().catch(e => { pready = null; throw e; });
+const J = s => { try { return JSON.parse(s || '[]'); } catch { return []; } };
+const plOut = (p, dir, mine, installed) => ({ slug: p.slug, name: p.name, description: p.description, icon: p.icon, installed: installed.has(p.slug),
+  connectors: J(p.connectors_json).map(s => { const c = dir.find(x => x.slug === s); return c && { slug: s, name: c.name, auth: c.auth, icon: c.icon, connected: mine.has(s) }; }).filter(Boolean),
+  skills: J(p.skills_json).map(x => ({ name: x.name, description: x.description })), commands: J(p.commands_json).map(x => ({ name: x.name, text: x.text })) });
+export async function pluginRoutes(req, env, path, M, u) {
+  if (!path.startsWith('/api/plugins')) return null;
+  await ensureConnectors(env); await ensurePlugins(env);
+  const DB = env.DB;
+  const ctx = async () => { const [pl, dir, mine, inst] = await Promise.all([DB.prepare('SELECT * FROM plugins WHERE enabled=1 ORDER BY sort, id').all(), dirList(env), DB.prepare("SELECT connector FROM mcp_servers WHERE user_id=? AND enabled=1 AND connector IS NOT NULL").bind(u.id).all(), DB.prepare('SELECT slug FROM user_plugins WHERE user_id=?').bind(u.id).all()]); return { pl: pl.results, dir, mine: new Set(mine.results.map(x => x.connector)), inst: new Set(inst.results.map(x => x.slug)) }; };
+  if (path === '/api/plugins' && M === 'GET') { const c = await ctx(); return json(c.pl.map(p => plOut(p, c.dir, c.mine, c.inst))); }
+  const r = path.match(/^\/api\/plugins\/([\w-]+)$/); if (!r) return null;
+  const p = await DB.prepare('SELECT * FROM plugins WHERE slug=? AND enabled=1').bind(r[1]).first(); if (!p) return err('ไม่พบปลั๊กอินนี้', 404);
+  if (M === 'POST') { // ติดตั้ง: Skill + คำสั่งลัดเป็นของผู้ใช้ (ติดป้ายปลั๊กอิน) · connector ที่ไม่ต้องล็อกอินเชื่อมให้เลย ที่เหลือหน้าเว็บพาไปเชื่อม
+    const have = (await DB.prepare('SELECT COUNT(*) n FROM skills WHERE user_id=? AND COALESCE(plugin,\'\')<>?').bind(u.id, p.slug).first()).n;
+    const items = [...J(p.skills_json).map(x => [x.name, x.description || '', x.content, 0]), ...J(p.commands_json).map(x => [x.name, 'คำสั่งลัดจากปลั๊กอิน ' + p.name, x.text, 1])];
+    if (have + items.length > 30) return err(`Skill และคำสั่งลัดรวมเกิน 30 อัน ลบของเดิมบางส่วนก่อน`);
+    await DB.batch([DB.prepare('DELETE FROM skills WHERE user_id=? AND plugin=?').bind(u.id, p.slug), ...items.map(([n, d, c, t]) => DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at,as_text,plugin) VALUES (?,?,?,?,1,?,?,?)').bind(u.id, String(n).slice(0, 60), String(d).slice(0, 200), String(c).slice(0, 6000), Date.now(), t, p.slug)),
+      DB.prepare('INSERT OR REPLACE INTO user_plugins (user_id,slug,created_at) VALUES (?,?,?)').bind(u.id, p.slug, Date.now())]);
+    const dir = await dirList(env), failed = [];
+    for (const s of J(p.connectors_json)) { const c = dir.find(x => x.slug === s && x.enabled && x.auth === 'none'); if (c && !(await DB.prepare('SELECT 1 FROM mcp_servers WHERE user_id=? AND connector=?').bind(u.id, s).first())) await addRow(env, u, { name: c.name, url: c.url, slug: s }).catch(() => failed.push(c.name)); }
+    const c = await ctx(); return json({ ok: true, plugin: plOut(p, c.dir, c.mine, c.inst), failed });
+  }
+  if (M === 'DELETE') { await DB.batch([DB.prepare('DELETE FROM skills WHERE user_id=? AND plugin=?').bind(u.id, p.slug), DB.prepare('DELETE FROM user_plugins WHERE user_id=? AND slug=?').bind(u.id, p.slug)]); return json({ ok: true }); }
+  return null;
+}
+export async function adminPlugins(req, env, path, M) {
+  await ensurePlugins(env);
+  const DB = env.DB;
+  if (path === '/api/admin/plugins' && M === 'GET') return json((await DB.prepare('SELECT * FROM plugins ORDER BY sort, id').all()).results.map(p => ({ slug: p.slug, name: p.name, description: p.description, icon: p.icon, connectors: J(p.connectors_json), skills: J(p.skills_json), commands: J(p.commands_json), sort: p.sort, enabled: !!p.enabled })));
+  if (path === '/api/admin/plugins' && M === 'POST') {
+    const b = await req.json(), slug = String(b.slug || '').trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(slug)) return err('slug ใช้ a-z 0-9 - เท่านั้น');
+    const arr = (v, f) => (Array.isArray(v) ? v : []).slice(0, 12).map(f).filter(Boolean);
+    const conns = arr(b.connectors, x => /^[a-z0-9-]{2,41}$/.test(x) && x), skills = arr(b.skills, x => x?.name && x?.content && { name: String(x.name).slice(0, 60), description: String(x.description || '').slice(0, 200), content: String(x.content).slice(0, 6000) }), cmds = arr(b.commands, x => x?.name && x?.text && { name: String(x.name).slice(0, 60), text: String(x.text).slice(0, 6000) });
+    const icon = /^#[0-9a-f]{6}$/i.test(b.icon || '') ? b.icon : '#6b7280';
+    await DB.prepare(`INSERT INTO plugins (slug,name,description,icon,connectors_json,skills_json,commands_json,sort,enabled,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+      ON CONFLICT(slug) DO UPDATE SET name=?2, description=?3, icon=?4, connectors_json=?5, skills_json=?6, commands_json=?7, sort=?8, enabled=?9`).bind(slug, String(b.name || slug).slice(0, 60), String(b.description || '').slice(0, 300), icon, JSON.stringify(conns), JSON.stringify(skills), JSON.stringify(cmds), +b.sort || 100, b.enabled === false ? 0 : 1, Date.now()).run();
+    return json({ ok: true });
+  }
+  const r = path.match(/^\/api\/admin\/plugins\/([\w-]+)$/);
+  if (r && M === 'DELETE') { await DB.prepare('DELETE FROM plugins WHERE slug=?').bind(r[1]).run(); return json({ ok: true }); }
+  return null;
+}

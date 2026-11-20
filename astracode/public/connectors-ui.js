@@ -34,11 +34,11 @@
     d.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.q = ''; draw(); });
     d.querySelectorAll('[data-view]').forEach(b => b.onclick = () => { S.view = b.dataset.view; draw(); });
     const q = d.querySelector('#cnq'); if (q) q.oninput = () => { S.q = q.value; const pos = q.selectionStart; draw(); const n = document.querySelector('#cnq'); n?.focus(); n?.setSelectionRange(pos, pos); };
-    d.querySelector('[data-add]')?.addEventListener('click', () => S.tab === 'skills' ? skillNew() : addCustom());
+    d.querySelector('[data-add]')?.addEventListener('click', () => S.tab === 'skills' ? skillNew() : S.tab === 'plugins' ? toast('ปลั๊กอินเพิ่มได้โดยแอดมิน · สร้าง Skill หรือ Connector ของคุณเองได้ที่แท็บนั้น') : addCustom());
     d.querySelectorAll('[data-slug]').forEach(b => b.onclick = () => detail({ slug: b.dataset.slug }));
     d.querySelectorAll('[data-cid]').forEach(b => b.onclick = () => detail({ id: +b.dataset.cid }));
     d.querySelectorAll('[data-sk]').forEach(b => b.onclick = () => skillDetail(+b.dataset.sk));
-    d.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => window.pluginDetail?.(b.dataset.pl));
+    d.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => pluginDetail(b.dataset.pl));
     return close;
   }
   async function draw() {
@@ -46,7 +46,7 @@
     try {
       if (S.tab === 'connectors') { if (!S.d) await load(); body = S.view === 'mine' ? mineHTML() : browseHTML(); }
       else if (S.tab === 'skills') { S.skills = await loadSkills(!S.skills); body = skillsHTML(); }
-      else body = window.pluginsHTML ? await window.pluginsHTML(S) : '<p class="muted">กำลังโหลด…</p>';
+      else { S.plugins = await api('/plugins'); if (!S.d) await load(); body = pluginsHTML(); }
     } catch (x) { body = `<p class="bad">${esc(x.message)}</p>`; }
     sheet('Connectors · Skills · Plugins', shell(body), bind);
   }
@@ -150,6 +150,38 @@
       <div class="sheet-acts"><button type="button" class="btn out" data-c>ยกเลิก</button><button class="btn blue">บันทึก</button></div></form>`, (d, close) => {
       d.querySelector('[data-c]').onclick = () => { close(); draw(); };
       d.querySelector('#sknew').onsubmit = async e => { e.preventDefault(); try { await api('/skills', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); S.skills = null; S.view = 'mine'; close(); toast('สร้าง Skill แล้ว', 'ok'); draw(); } catch (x) { toast(x.message, 'bad'); } };
+    });
+  }
+  // ---- Plugins: ชุด Connectors + Skills + คำสั่งลัด ติดตั้งครั้งเดียว ----
+  function pluginsHTML() {
+    const list = S.plugins.filter(p => (S.view === 'mine' ? p.installed : true) && match(p.name, p.description));
+    if (!list.length) return S.view === 'mine' ? '<div class="cn-empty"><p>ยังไม่ได้ติดตั้งปลั๊กอิน</p><p class="muted">ปลั๊กอิน = ชุดสำเร็จรูป มี Connectors, Skills และคำสั่งลัด (/) สำหรับงานแต่ละแบบ</p><button type="button" class="btn blue" data-view="browse">ดูทั้งหมด</button></div>' : '<p class="muted">ไม่พบปลั๊กอิน</p>';
+    return `<div class="cn-grid">${list.map(p => `<button type="button" class="cn-card" data-pl="${esc(p.slug)}">${icon(p)}<span class="cn-txt"><b>${esc(p.name)}${p.installed ? ` <i class="cn-ok">${ic('check', 'sm')}</i>` : ''}</b><span>${esc(p.description || '')}</span><small>${[p.connectors.length && p.connectors.length + ' connectors', p.skills.length && p.skills.length + ' skills', p.commands.length && p.commands.length + ' คำสั่งลัด'].filter(Boolean).join(' · ')}</small></span><span class="cn-plus">${ic(p.installed ? 'check' : 'plus', 'sm')}</span></button>`).join('')}</div>`;
+  }
+  async function pluginDetail(slug, fresh) {
+    if (fresh || !S.plugins) S.plugins = await api('/plugins');
+    if (fresh) await load();
+    const p = S.plugins.find(x => x.slug === slug); if (!p) return draw();
+    const need = p.connectors.filter(c => !mineFor(c.slug));
+    sheet(p.name, `<div class="cn-wrap"><button type="button" class="linkb cn-back" data-back>‹ กลับ</button>
+      <div class="cn-head">${icon(p, true)}<div><b>${esc(p.name)}</b><small>${p.installed ? 'ติดตั้งแล้ว' : 'ปลั๊กอิน'}</small></div></div><p>${esc(p.description || '')}</p>
+      ${p.installed ? '' : `<button type="button" class="btn blue" data-inst>ติดตั้ง</button>`}
+      ${p.connectors.length ? `<h4 class="cn-cat">Connectors</h4><div class="cn-list">${p.connectors.map(c => `<div class="cn-row cn-static">${icon(c)}<span class="cn-txt"><b>${esc(c.name)}</b><small>${AUTH_TXT[c.auth] || ''}</small></span>${mineFor(c.slug) ? '<span class="pill ok">เชื่อมแล้ว</span>' : p.installed ? `<button type="button" class="btn out sm" data-conn="${esc(c.slug)}">เชื่อมต่อ</button>` : '<span class="pill">ยังไม่เชื่อม</span>'}</div>`).join('')}</div>${p.installed && need.length ? '<p class="muted cn-hint">เชื่อมต่อให้ครบเพื่อให้ปลั๊กอินทำงานได้เต็มที่</p>' : ''}` : ''}
+      ${p.skills.length ? `<h4 class="cn-cat">Skills</h4>${p.skills.map(x => `<div class="cn-line"><b>${esc(x.name)}</b> <span class="muted">${esc(x.description || '')}</span></div>`).join('')}` : ''}
+      ${p.commands.length ? `<h4 class="cn-cat">คำสั่งลัด (พิมพ์ / ในช่องแชต)</h4>${p.commands.map(x => `<div class="cn-line"><b>/${esc(x.name)}</b> <span class="muted">${esc(x.text.slice(0, 110))}${x.text.length > 110 ? '…' : ''}</span></div>`).join('')}` : ''}
+      ${p.installed ? '<div class="row cn-acts"><button type="button" class="btn red sm" data-uninst>ถอนการติดตั้ง</button></div>' : ''}</div>`, (d, close) => {
+      d.querySelector('.sheet')?.classList.add('cn-sheet');
+      d.querySelector('[data-back]').onclick = () => { close(); draw(); };
+      d.querySelector('[data-inst]')?.addEventListener('click', async e => {
+        e.target.disabled = true;
+        try { const r = await api('/plugins/' + slug, { method: 'POST' }); if (typeof loadSkills === 'function') await loadSkills(true).catch(() => {}); toast(`ติดตั้ง ${p.name} แล้ว${r.failed?.length ? ' · เชื่อม ' + r.failed.join(', ') + ' ไม่สำเร็จ' : ''}`, 'ok'); close(); pluginDetail(slug, true); }
+        catch (x) { e.target.disabled = false; toast(x.message, 'bad'); }
+      });
+      d.querySelector('[data-uninst]')?.addEventListener('click', async () => {
+        if (!await confirmSheet(`ถอน ${p.name}? Skills และคำสั่งลัดของปลั๊กอินนี้จะถูกลบ (Connectors ที่เชื่อมไว้ยังอยู่)`, { title: 'ถอนการติดตั้ง', ok: 'ถอนการติดตั้ง', danger: true })) return pluginDetail(slug);
+        await api('/plugins/' + slug, { method: 'DELETE' }).catch(x => toast(x.message, 'bad')); if (typeof loadSkills === 'function') await loadSkills(true).catch(() => {}); toast('ถอนแล้ว', 'ok'); pluginDetail(slug, true);
+      });
+      d.querySelectorAll('[data-conn]').forEach(b => b.onclick = () => { close(); detail({ slug: b.dataset.conn }); });
     });
   }
   window.connectorsPage = (tab = 'connectors', view) => { S.tab = tab; S.view = view || (tab === 'connectors' ? 'mine' : 'browse'); S.q = ''; S.d = null; S.skills = null; draw(); };

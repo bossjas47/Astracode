@@ -527,6 +527,7 @@ CREATE TABLE IF NOT EXISTS skills (
   share_token TEXT
   , as_text INTEGER   -- 1 = พรอมต์สำเร็จรูป: พิมพ์ / แล้วเลือกเพื่อใส่ข้อความลงช่องพิมพ์ (ไม่ใช่คำสั่งระบบ)
   , model_id INTEGER  -- โมเดลประจำของ Skill (เปิดแล้วสลับให้)
+  , plugin TEXT       -- มาจากปลั๊กอินไหน (ถอนปลั๊กอิน = ลบ Skill ชุดนี้)
 );
 CREATE INDEX IF NOT EXISTS skills_user ON skills(user_id, id);
 INSERT OR IGNORE INTO skills (id,user_id,name,description,content,enabled,created_at) VALUES
@@ -598,7 +599,7 @@ CREATE TABLE IF NOT EXISTS skills (
   content TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
-  share_token TEXT
+  share_token TEXT, plugin TEXT
 );
 CREATE INDEX IF NOT EXISTS skills_user ON skills(user_id, id);
 INSERT OR IGNORE INTO skills (id,user_id,name,description,content,enabled,created_at) VALUES

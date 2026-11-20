@@ -111,3 +111,24 @@ test('connectors in chat: used in every chat automatically, read tools run, writ
     assert.ok(!toolsSeen.at(-1).some(n => n.startsWith(`mcp_${sv.id}_`)), 'auto off');
   } finally { fp.restore(); fm.close(); }
 });
+
+test('plugins: seeded bundles; install adds skills + slash commands and connects no-login connectors; uninstall removes only the plugin items', async () => {
+  const t = await makeEnv({ K: 'k', SECRET_KEY: 'x'.repeat(40) }), u = await t.user(), fp = fakeProviders();
+  try {
+    t.DB.raw.prepare("INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (?, 'mine', '', 'x', 1, 0)").run(u.id);
+    const list = (await t.json('/api/plugins', { cookie: u.cookie })).data; const dev = list.find(p => p.slug === 'dev');
+    assert.ok(dev && !dev.installed && dev.connectors.some(c => c.slug === 'context7') && dev.commands.some(c => c.name === 'review'));
+    // context7 ตอบได้ (ไม่ต้องล็อกอิน) · deepwiki ไม่ตอบ (404) = รายงานว่าเชื่อมไม่สำเร็จ
+    const r = (await t.json('/api/plugins/dev', { method: 'POST', cookie: u.cookie })).data;
+    assert.equal(r.plugin.installed, true); assert.ok(r.failed.includes('DeepWiki'));
+    assert.ok(r.plugin.connectors.find(c => c.slug === 'context7').connected);
+    const sk = (await t.json('/api/skills', { cookie: u.cookie })).data.filter(x => x.user_id === u.id);
+    assert.ok(sk.some(x => x.name === 'review' && x.as_text === 1) && sk.some(x => x.name === 'dev-rules' && x.as_text === 0));
+    await t.json('/api/plugins/dev', { method: 'POST', cookie: u.cookie }); // ติดตั้งซ้ำไม่ซ้ำซ้อน
+    assert.equal((await t.json('/api/skills', { cookie: u.cookie })).data.filter(x => x.name === 'review').length, 1);
+    await t.json('/api/plugins/dev', { method: 'DELETE', cookie: u.cookie });
+    const left = (await t.json('/api/skills', { cookie: u.cookie })).data.filter(x => x.user_id === u.id).map(x => x.name);
+    assert.deepEqual(left, ['mine']);
+    assert.equal((await t.json('/api/connectors', { cookie: u.cookie })).data.mine.length, 1, 'connectors stay after uninstall');
+  } finally { fp.restore(); }
+});

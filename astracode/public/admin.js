@@ -60,7 +60,7 @@ function forecastHTML(f) {
     <p class="muted" style="font-size:12.5px">คาดกำไร = จ่าย − ใช้ไปแล้ว − (ต้นทุนต่อวัน × วันที่เหลือ) · แย่สุด = ถ้าใช้เต็มลิมิตทุกสัปดาห์จนแพลนหมด (ไม่นับสิทธิ์รีเซ็ตลิมิตที่แจกเพิ่ม)</p>` : ''}
   </section>`;
 }
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['live', 'activity', 'ต้นทุนสด'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['connectors', 'layers', 'Connectors'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['live', 'activity', 'ต้นทุนสด'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['shared', 'globe', 'ลิงก์แชร์'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['connectors', 'layers', 'Connectors'], ['plugins', 'layers', 'Plugins'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
@@ -859,6 +859,28 @@ ADMIN.mcp = async (box, reload) => {
   });
 };
 
+// ปลั๊กอิน = ชุด Connectors (slug) + Skills + คำสั่งลัด · ผู้ใช้กดติดตั้งใน ตั้งค่า → Plugins
+ADMIN.plugins = async (box, reload) => {
+  const rows = await api('/admin/plugins'), J = v => JSON.stringify(v || [], null, 1);
+  const form = (p = {}) => `<form class="ed-f" data-pslug="${esc(p.slug || '')}">
+    <div class="form2"><div><label>slug</label><input name="slug" value="${esc(p.slug || '')}" ${p.slug ? 'readonly' : ''} required></div><div><label>ชื่อ</label><input name="name" value="${esc(p.name || '')}" required maxlength="60"></div></div>
+    <label>คำอธิบาย</label><input name="description" value="${esc(p.description || '')}" maxlength="300">
+    <div class="form2"><div><label>Connectors (slug คั่นด้วย ,)</label><input name="connectors" value="${esc((p.connectors || []).join(', '))}" placeholder="google, notion"></div><div><label>สี (#hex) · ลำดับ</label><div class="row"><input name="icon" value="${esc(p.icon || '#6b7280')}" style="flex:1"><input name="sort" type="number" value="${p.sort ?? 100}" style="width:90px"></div></div></div>
+    <label>Skills (JSON: [{"name","description","content"}])</label><textarea name="skills" rows="4">${esc(J(p.skills))}</textarea>
+    <label>คำสั่งลัด (JSON: [{"name","text"}])</label><textarea name="commands" rows="4">${esc(J(p.commands))}</textarea>
+    <label class="sw-row"><span class="sw"><input type="checkbox" name="enabled" ${p.enabled !== false ? 'checked' : ''}><span></span></span>แสดงให้ผู้ใช้</label>
+    <div class="row" style="margin-top:12px"><button class="btn blue sm">${p.slug ? 'บันทึก' : 'เพิ่ม'}</button>${p.slug ? `<button type="button" class="btn red sm" data-pdel="${esc(p.slug)}">ลบ</button>` : ''}<span class="sv ok"></span></div></form>`;
+  box.innerHTML = `<p class="muted hint">ผู้ใช้ติดตั้งปลั๊กอินได้ใน ตั้งค่า → Plugins: ได้ Skills + คำสั่งลัด (/) และถูกพาไปเชื่อม Connectors ที่ระบุ</p>
+    <div class="ed-list"><details class="ed add"><summary><b>+ เพิ่ม Plugin</b></summary>${form()}</details>${rows.map(p => `<details class="ed"><summary><b>${esc(p.name)}</b><span class="pill ${p.enabled ? 'ok' : ''}">${p.enabled ? 'แสดง' : 'ซ่อน'}</span><span class="muted">${esc(p.connectors.join(', '))}</span></summary>${form(p)}</details>`).join('')}</div>`;
+  box.querySelectorAll('form[data-pslug]').forEach(f => f.onsubmit = async e => {
+    e.preventDefault(); const o = Object.fromEntries(new FormData(f)), btn = f.querySelector('.btn.blue');
+    let skills, commands; try { skills = JSON.parse(o.skills || '[]'); commands = JSON.parse(o.commands || '[]'); } catch { return toast('JSON ของ Skills / คำสั่งลัดไม่ถูกต้อง', 'bad'); }
+    btn.disabled = true;
+    try { await api('/admin/plugins', { method: 'POST', body: { ...o, connectors: o.connectors.split(',').map(x => x.trim()).filter(Boolean), skills, commands, sort: +o.sort || 100, enabled: !!o.enabled } }); if (f.dataset.pslug) { f.querySelector('.sv').textContent = '✓ บันทึกแล้ว'; btn.disabled = false; } else reload(); }
+    catch (x) { toast(x.message, 'bad'); btn.disabled = false; }
+  });
+  box.querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบปลั๊กอินนี้? (ผู้ที่ติดตั้งแล้วยังมี Skills เดิม)', { title: 'ลบ Plugin', ok: 'Delete', danger: true })) { await api('/admin/plugins/' + b.dataset.pdel, { method: 'DELETE' }); reload(); } });
+};
 // สารบบ Connectors ที่ผู้ใช้เห็นใน ตั้งค่า → Connectors · ปุ่มทดสอบ = ลองค้นหน้าล็อกอิน (OAuth) / ต่อแบบไม่ล็อกอินจากเซิร์ฟเวอร์จริง
 ADMIN.connectors = async (box, reload) => {
   const rows = await api('/admin/connectors');

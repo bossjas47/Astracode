@@ -1783,3 +1783,4 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .cn-done h1 { margin: 0; font: 600 22px var(--font); }
 .cn-mark { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 700 26px var(--font); color: #fff; background: var(--ash); }
 .cn-mark.ok { background: var(--green); } .cn-mark.bad { background: var(--red); }
+.cn-row.cn-static { cursor: default; } .cn-line { font-size: 13.5px; padding: 4px 0; } .cn-line b { font-weight: 600; }

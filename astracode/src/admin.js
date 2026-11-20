@@ -2,7 +2,7 @@ import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, 
 import { callModel, ensureFb, isSafeMcpUrl, logUsage, mcpSync } from './ai.js';
 import { applyPayment, audit, releaseCoupon, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, walletAdd } from './billing.js';
 import { seal } from './projects.js';
-import { adminConnectors } from './connectors.js';
+import { adminConnectors, adminPlugins } from './connectors.js';
 import { slug } from './api.js';
 import { backup, lossModels, status, verifyBackup } from './jobs.js';
 import { ensureAgentTable, launch, workerModel } from './agent.js';
@@ -474,6 +474,7 @@ export async function admin(req, env, path, url, me) {
     if (M === 'POST') return json(await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (0,?,?,?,?,?) RETURNING *').bind(name, desc, content, b.enabled === 0 ? 0 : 1, Date.now()).first());
     if (M === 'PUT' && sid) { await DB.prepare('UPDATE skills SET name=?, description=?, content=?, enabled=? WHERE id=? AND user_id=0').bind(name, desc, content, b.enabled === 0 ? 0 : 1, sid).run(); return json({ ok: true }); }
   }
+  if (path.startsWith('/api/admin/plugins')) { const pr = await adminPlugins(req, env, path, M); if (pr) { if (M !== 'GET') await ctxAudit(M.toLowerCase() + ' plugin', { path }); return pr; } }
   if (path.startsWith('/api/admin/connectors')) { const cr = await adminConnectors(req, env, url, path, M); if (cr) { if (M !== 'GET') await ctxAudit(M.toLowerCase() + ' connector', { path }); return cr; } }
   if ((r = path.match(/^\/api\/admin\/mcp(?:\/(\d+))?$/))) {
     const mid = r[1] ? +r[1] : null;
