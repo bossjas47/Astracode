@@ -609,6 +609,8 @@ const LIBS = { // ล็อกเวอร์ชัน + SRI: ถ้าไฟล
   jszip: [CDN + 'jszip@3.10.1/dist/jszip.min.js', 'sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG'],
   xlsx: [CDN + 'xlsx@0.18.5/dist/xlsx.full.min.js', 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw'],
   xlsxStyle: [CDN + 'xlsx-js-style@1.2.0/dist/xlsx.bundle.js', 'sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb'], // เขียน Excel แบบมีสีพื้น/ตัวหนา/รูปแบบตัวเลข
+  pptx: [CDN + 'pptxgenjs@3.12.0/dist/pptxgen.bundle.js', 'sha384-Cck14aA9cifjYolcnjebXRfWGkz5ltHMBiG4px/j8GS+xQcb7OhNQWZYyWjQ+UwQ'], // สไลด์ PowerPoint
+  html2pdf: [CDN + 'html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js', 'sha384-aBc0BOllaGWrQx51DYt978St/L7B+21jzNGc4N/jnGD0NxGwj8S/ftRgW0AkXIak'], // PDF จริง (วาดจากหน้าเว็บ ภาษาไทยไม่เพี้ยน)
   docx: [CDN + 'docx@8.5.0/build/index.umd.js', 'sha384-4xaIisuLEy2lo2HkB2C4rEf7v8jbTb2kuogX6TkuEt9feTWKBSFSOzsqNNbV+sKh'], // สร้าง Word .docx จริง
 };
 const FILE_MAX = 700000, FILES_MAX = 20, IMG_MAX = 20, RAW_MAX = 20e6; // ตัวอักษรต่อไฟล์, จำนวนไฟล์, ขนาดไฟล์ดิบ

@@ -16,6 +16,7 @@ onmessage = async e => {
       let d = ''; for (const x of parts.filter(Boolean)) { d += '/' + x; try { py.FS.mkdir(d); } catch {} }
       py.FS.writeFile(full, f.content);
     }
+    try { py.FS.mkdir('/out'); } catch {} // ไฟล์ที่โค้ดเขียนลง /out/ = ผลลัพธ์ เก็บเข้าโฟลเดอร์งานในบัญชี
     const code = files.find(f => f.path === main).content;
     py.runPython(`import os, sys\nos.chdir(${JSON.stringify(root)})\nif ${JSON.stringify(root)} not in sys.path: sys.path.insert(0, ${JSON.stringify(root)})`);
     postMessage({ status: 'กำลังรัน ' + main });
@@ -26,6 +27,7 @@ onmessage = async e => {
       const imgs = py.runPython("import base64, io, sys\nout=[]\nif 'matplotlib.pyplot' in sys.modules:\n  import matplotlib.pyplot as plt\n  for n in plt.get_fignums():\n    b=io.BytesIO(); plt.figure(n).savefig(b, format='png', dpi=110, bbox_inches='tight'); out.append(base64.b64encode(b.getvalue()).decode())\n  plt.close('all')\nout").toJs();
       for (const img of imgs) postMessage({ img });
     }
+    for (const n of py.FS.readdir('/out').filter(x => x !== '.' && x !== '..').slice(0, 10)) { const p = '/out/' + n; if (py.FS.isFile(py.FS.stat(p).mode)) postMessage({ outFile: { name: n, bytes: py.FS.readFile(p) } }); }
     postMessage({ done: true });
   } catch (x) { postMessage({ err: String(x.message || x), done: true }); }
 };

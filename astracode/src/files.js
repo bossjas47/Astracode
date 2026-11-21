@@ -159,13 +159,14 @@ export async function fileTool(env, u, cid, name, a) {
 export async function createAccountFile(env, u, cid, fname, content) {
   const kind = kindOf(fname), data = kind === 'sheet' ? parseSheetContent(content) : { md: String(content) };
   const { id, ver } = await saveNew(env, u, cid, fname, kind, data);
-  return { result: `File saved in the user's account: file_id=${id} "${fname}". It opens beside the chat and the user can download it as a real ${kind === 'sheet' ? 'Excel file with working formulas' : 'Word .docx'}. To change it later, call edit_account_file with file_id=${id} instead of creating a new file.`, emit: ufMarker(id, ver, fname), ok: true, label: 'สร้างไฟล์ ' + fname };
+  return { result: `File saved in the user's account: file_id=${id} "${fname}". It opens beside the chat and the user can download it as a real ${kind === 'sheet' ? 'Excel file with working formulas' : /\.pptx$/i.test(fname) ? 'PowerPoint .pptx' : /\.pdf$/i.test(fname) ? 'PDF' : 'Word .docx'}. To change it later, call edit_account_file with file_id=${id} instead of creating a new file.`, emit: ufMarker(id, ver, fname), ok: true, label: 'สร้างไฟล์ ' + fname };
 }
 
 // ---------- API ของเจ้าของ ----------
 export async function filesApi(req, env, u, path, M, url) {
   if (!path.startsWith('/api/files')) return null;
-  if (path === '/api/files' && M === 'GET') return json((await env.DB.prepare('SELECT id,chat_id,name,kind,ver,size,updated_at FROM user_files WHERE user_id=? ORDER BY updated_at DESC LIMIT 300').bind(u.id).all()).results);
+  if (path === '/api/files' && M === 'GET') { const c = +url.searchParams.get('chat_id') || 0; // chat_id = โฟลเดอร์งานของงานนั้น
+    return json((await env.DB.prepare(`SELECT id,chat_id,name,kind,ver,size,updated_at FROM user_files WHERE user_id=?${c ? ' AND chat_id=?' : ''} ORDER BY updated_at DESC LIMIT 300`).bind(u.id, ...(c ? [c] : [])).all()).results); }
   if (path === '/api/files' && M === 'POST') { // ลูกค้าแนบไฟล์ Excel/Word ในแชต: เก็บเข้าบัญชีให้ AI แก้ได้
     const b = await req.json().catch(() => ({})), name = cleanName(b.name); if (!name) return err('ไม่มีชื่อไฟล์');
     const kind = b.kind === 'sheet' ? 'sheet' : 'doc', data = kind === 'sheet' ? normBook(b.data) : { md: String(b.data?.md || '') };

@@ -18,6 +18,7 @@ export const GOOGLE_TOOLS = [
   { name: 'sheets_create', description: 'Create a new Google Sheet, optionally filled with rows (first row = header). Returns id and link.', inputSchema: O({ title: S('Title'), rows: ROWS }, ['title']) },
   { name: 'calendar_list', description: 'List events in the primary Google Calendar between two times (ISO 8601). Defaults to the next 7 days.', inputSchema: O({ time_min: S('ISO start'), time_max: S('ISO end'), query: S('Text filter') }) },
   { name: 'calendar_create', description: 'Create an event in the primary Google Calendar. Times are ISO 8601 with offset, e.g. 2026-11-20T14:00:00+07:00.', inputSchema: O({ summary: S('Title'), start: S('ISO start'), end: S('ISO end'), description: S('Details'), location: S('Place'), attendees: { type: 'array', items: { type: 'string' }, description: 'Guest emails' } }, ['summary', 'start', 'end']) },
+  { name: 'drive_save_file', description: 'Save a file from the user\'s AstraCode account (file_id from create_file / list_account_files) to their Google Drive: spreadsheets become a Google Sheet (all sheets, formulas kept), documents and slides a Google Doc. Returns the link; put it in an email with gmail_draft to share it.', inputSchema: O({ file_id: { type: 'number' } }, ['file_id']) },
   { name: 'gmail_search', description: 'Search Gmail with Gmail query syntax (e.g. "from:bank newer_than:7d"). Returns id, from, subject, date, snippet.', inputSchema: O({ query: S('Gmail search query'), max: { type: 'number' } }, ['query']) },
   { name: 'gmail_read', description: 'Read one email as plain text.', inputSchema: O({ id: S('Message id from gmail_search') }, ['id']) },
   { name: 'gmail_draft', description: 'Create a Gmail draft (not sent). Prefer this unless the user clearly asked to send.', inputSchema: O({ to: S('Recipient emails, comma separated'), subject: S('Subject'), body: S('Plain text body') }, ['to', 'subject', 'body']) },
@@ -79,6 +80,19 @@ function mailText(p) { // หาส่วน text/plain ก่อน ไม่�
 }
 
 // เรียกเครื่องมือ (mcpCall ส่งมาเมื่อ url = astra://google) · uid มาจาก token ที่ผนึกไว้ตอนสร้างแถว ไม่ได้มาจากโมเดล
+// Markdown → HTML ง่าย ๆ สำหรับ Google Docs (หัวข้อ, รายการ, ตาราง, ตัวหนา)
+const hesc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]), inl = s => hesc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<i>$1</i>');
+export function mdHtml(md) {
+  const L = String(md).replace(/\r/g, '').split('\n'), o = [];
+  for (let i = 0; i < L.length; i++) {
+    const l = L[i], h = /^(#{1,4})\s+(.*)$/.exec(l);
+    if (h) { o.push(`<h${h[1].length}>${inl(h[2])}</h${h[1].length}>`); continue; }
+    if (/^\s*\|.*\|\s*$/.test(l)) { const rows = []; while (i < L.length && /^\s*\|.*\|\s*$/.test(L[i])) { if (!/^\s*\|[\s:|-]+\|\s*$/.test(L[i])) rows.push(L[i].trim().replace(/^\||\|$/g, '').split('|')); i++; } i--; o.push('<table border="1" style="border-collapse:collapse">' + rows.map((r, k) => '<tr>' + r.map(c => `<${k ? 'td' : 'th'}>${inl(c.trim())}</${k ? 'td' : 'th'}>`).join('') + '</tr>').join('') + '</table>'); continue; }
+    if (/^\s*[-*•]\s+/.test(l)) { const it = []; while (i < L.length && /^\s*[-*•]\s+/.test(L[i])) it.push(L[i++].replace(/^\s*[-*•]\s+/, '')); i--; o.push('<ul>' + it.map(x => `<li>${inl(x)}</li>`).join('') + '</ul>'); continue; }
+    if (l.trim()) o.push(`<p>${inl(l.replace(/^>\s?/, ''))}</p>`);
+  }
+  return '<html><body>' + o.join('\n') + '</body></html>';
+}
 export async function googleCall(env, uid, name, a = {}) {
   const tok = await accessToken(env, +uid);
   const g = async (u, init = {}) => { const r = await fetch(u, { ...init, headers: { authorization: 'Bearer ' + tok, ...(init.body && typeof init.body === 'string' && !init.headers?.['content-type'] ? { 'content-type': 'application/json' } : {}), ...(init.headers || {}) } }); const t = await r.text(); if (!r.ok) throw new Error(`Google ${r.status}: ${t.slice(0, 300)}`); return init.raw ? t : t ? JSON.parse(t) : {}; };
@@ -97,6 +111,16 @@ export async function googleCall(env, uid, name, a = {}) {
       const bd = 'astra' + rand(8), meta = JSON.stringify({ name: String(a.name || 'เอกสาร').slice(0, 200), mimeType: 'application/vnd.google-apps.document' });
       const d = await g('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', { method: 'POST', headers: { 'content-type': `multipart/related; boundary=${bd}` }, body: `--${bd}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${bd}\r\nContent-Type: ${a.html ? 'text/html' : 'text/plain'}; charset=UTF-8\r\n\r\n${String(a.content || '')}\r\n--${bd}--` });
       return JSON.stringify(d);
+    }
+    case 'drive_save_file': { // ไฟล์ในบัญชี → Google Sheet (ทุกชีต เก็บสูตร) / Google Doc
+      const f = await env.DB.prepare('SELECT name, kind, data FROM user_files WHERE id=? AND user_id=?').bind(+a.file_id || 0, +uid).first(); if (!f) return 'Error: no file with that file_id in this account';
+      const data = JSON.parse(f.data), title = f.name.replace(/\.\w+$/, '');
+      if (f.kind === 'sheet') {
+        const d = await g('https://sheets.googleapis.com/v4/spreadsheets', { method: 'POST', body: JSON.stringify({ properties: { title }, sheets: data.sheets.map(s => ({ properties: { title: s.name, gridProperties: { frozenRowCount: s.header !== false ? 1 : 0 } } })) }) });
+        if (data.sheets.some(s => s.rows.length)) await g(`https://sheets.googleapis.com/v4/spreadsheets/${d.spreadsheetId}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: data.sheets.filter(s => s.rows.length).map(s => ({ range: `'${s.name.replace(/'/g, "''")}'!A1`, values: vals(s.rows) })) }) });
+        return JSON.stringify({ id: d.spreadsheetId, link: d.spreadsheetUrl, type: 'Google Sheet' });
+      }
+      return googleCall(env, uid, 'drive_create_doc', { name: title, content: mdHtml(data.md || ''), html: true });
     }
     case 'sheets_read': { const d = await g(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(a.spreadsheet_id)}/values/${encodeURIComponent(a.range)}`); return JSON.stringify(d.values || []).slice(0, 100000); }
     case 'sheets_write': {

@@ -313,7 +313,7 @@ export async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/chats') {
         const pj = url.searchParams.get('project');
-        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,instructions,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
+        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,instructions,task,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
       }
       if (path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
       if (path === '/api/github/repos' && M === 'GET') { // repo ของผู้ใช้ (ล่าสุดก่อน) ให้เลือกแตะเดียวตอนเข้าหน้า Code ครั้งแรก

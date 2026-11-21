@@ -92,3 +92,22 @@ test('account files: attached Excel is saved, AI edits it in place, owner sees v
   const other = await t.user();
   assert.equal((await t.call('/api/files/1', { cookie: other.cookie })).status, 404);
 });
+
+test('task mode: chat is stored as a task, todo_write + file tools are offered, the plan streams, slides are saved to the task folder', async () => {
+  let n = 0, firstBody;
+  const { t, m, u } = await setup(0, (fm, res, body) => {
+    n++; if (n === 1) firstBody = body; const tools = body.messages.filter(x => x.role === 'tool').length;
+    if (tools === 0) return toolSSE(res, 'todo_write', { todos: [{ content: 'ทำสไลด์', status: 'in_progress' }] });
+    if (tools === 1) return toolSSE(res, 'create_file', { filename: 'สรุป.pptx', content: '# ยอดขาย\n- โต 20%\n> พูดช้า ๆ' });
+    return fm.sse(res, 'เสร็จแล้ว');
+  });
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ทำสไลด์สรุปยอดขาย', model_id: m.id, task: true } }));
+  assert.ok(ev.some(e => e.todo?.[0]?.content === 'ทำสไลด์'), 'plan streamed');
+  assert.ok(firstBody.tools.some(x => x.function.name === 'todo_write') && firstBody.tools.some(x => x.function.name === 'edit_account_file'));
+  assert.match(firstBody.messages[0].content, /TASK MODE/);
+  const cid = ev.find(e => e.chat_id).chat_id;
+  assert.equal(t.DB.raw.prepare('SELECT task FROM chats WHERE id=?').get(cid).task, 1);
+  const folder = (await t.json('/api/files?chat_id=' + cid, { cookie: u.cookie })).data;
+  assert.equal(folder.length, 1); assert.equal(folder[0].name, 'สรุป.pptx');
+  assert.equal((await t.json('/api/chats', { cookie: u.cookie })).data.find(c => c.id === cid).task, 1);
+});

@@ -529,11 +529,11 @@ export async function chat(req, env, u, ctx) {
       if (last.role === 'assistant') await env.DB.prepare('DELETE FROM messages WHERE id=?').bind(last.id).run();
     }
     const hmax = pid ? HISTORY_CODE : HISTORY, write = !b.edit_id && !b.regenerate;
-    const rowQ = where => env.DB.prepare(`SELECT c.id,c.summary,c.summary_upto,c.instructions,f.instructions fins,f.files fdocs FROM chats c LEFT JOIN folders f ON f.id=c.folder_id WHERE ${where}`);
+    const rowQ = where => env.DB.prepare(`SELECT c.id,c.task,c.summary,c.summary_upto,c.instructions,f.instructions fins,f.files fdocs FROM chats c LEFT JOIN folders f ON f.id=c.folder_id WHERE ${where}`);
     if (!cid) { // แชตใหม่: สร้างแชต + บันทึกข้อความแรก + อ่านข้อมูลโฟลเดอร์ ใน batch เดียว · ประวัติ = ข้อความนี้ข้อความเดียว
       const newest = '(SELECT MAX(id) FROM chats WHERE user_id=?)'; // ล็อกตอบทีละข้อความ: แชตล่าสุดของผู้ใช้ = แชตที่เพิ่งสร้างในทรานแซกชันนี้
       const got = await env.DB.batch([
-        env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,(SELECT id FROM folders WHERE id=? AND (user_id=?6 OR (team_id IS NOT NULL AND team_id=(SELECT team_id FROM team_members WHERE user_id=?6)))))').bind(u.id, text.slice(0, 40), Date.now(), pid, +b.folder_id || null, u.id), // โฟลเดอร์ต้องเป็นของผู้ใช้เอง (ไม่งั้น AI จะอ่านคำสั่ง/ไฟล์ของคนอื่น)
+        env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id,task) VALUES (?,?,?,?,(SELECT id FROM folders WHERE id=? AND (user_id=?6 OR (team_id IS NOT NULL AND team_id=(SELECT team_id FROM team_members WHERE user_id=?6)))),?7)').bind(u.id, text.slice(0, 40), Date.now(), pid, +b.folder_id || null, u.id, b.task && !pid ? 1 : null), // โฟลเดอร์ต้องเป็นของผู้ใช้เอง (ไม่งั้น AI จะอ่านคำสั่ง/ไฟล์ของคนอื่น)
         env.DB.prepare(`INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (${newest},?,?,?,?)`).bind(u.id, 'user', saved, m.id, Date.now()),
         rowQ(`c.id=${newest}`).bind(u.id)]);
       chatRow = got[2].results?.[0] || null; cid = chatRow.id;
@@ -554,7 +554,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { cc: ccM, u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
+  const J = { cc: ccM, u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, task: !pid && !!(b.task || chatRow?.task), agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -612,9 +612,9 @@ export async function runChat(env, J, send, st) {
   const zipLoad = async () => zipCache ||= Object.assign({}, ...await Promise.all(zipIds.map(async id => { const o = await env.SLIPS.get(`zip/${u.id}/${id}.json`); return o ? await o.json().catch(() => ({})) : {}; })));
   const zipTools = zipIds.length ? ZIP_TOOLS : [];
   const ws = codeRows ? codeWorkspace(codeRows) : null;
-  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt, art: artPaid(J.plan) })] : []), ...(useTools && ws ? (J.perm === 'plan' ? CODE_TOOLS.filter(t => !WRITE_TOOLS.has(t.function.name)) : CODE_TOOLS) : [])];
+  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt, art: artPaid(J.plan) }), ...(J.task ? CODE_TOOLS.filter(t => t.function.name === 'todo_write') : [])] : []), ...(useTools && ws ? (J.perm === 'plan' ? CODE_TOOLS.filter(t => !WRITE_TOOLS.has(t.function.name)) : CODE_TOOLS) : [])];
   let imgUsed = false, pyStop = false; // รูป 1 รูปต่อคำตอบ · run_python = จบคำตอบให้หน้าเว็บรันแล้วส่งผลกลับ
-  const sysNow = () => (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + (pid && J.perm === 'plan' ? PLAN_NOTE : '') + localSys(J.local, !!pid);
+  const sysNow = () => (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + (pid && J.perm === 'plan' ? PLAN_NOTE : '') + localSys(J.local, !!pid) + (J.task ? TASK_SYS : '');
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำ
   if (down) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
@@ -626,14 +626,14 @@ export async function runChat(env, J, send, st) {
   let msgs = sources.length || linkCtx ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: withSources(x.content, sources) + (linkCtx ? '\n\n' + linkCtx : '') } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
-  const maxRounds = J.agent ? AGENT_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า
+  const maxRounds = J.agent ? AGENT_ROUNDS : J.task ? TASK_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า
   // ตรวจงานก่อนจบคำตอบ (โหมด Code): ไฟล์ที่แก้ในคำตอบนี้ + รายการงานล่าสุด · ตรวจได้ไม่เกิน 2 ครั้งต่อคำตอบ กันวนไม่จบ
   const touched = new Set(); let lastTodo = null, checks = 0;
   const reviewNote = async round => { // round = รอบปัจจุบัน (ใช้บอกหน้าเว็บว่ากำลังตรวจ)
     const open0 = (lastTodo || []).some(x => x.status !== 'completed');
     // ไม่ได้แก้ไฟล์เลยแต่รายการงานยังค้าง (เช่น อ่านไฟล์เสร็จแล้วพิมพ์ "จะทำต่อ" แล้วหยุด) ก็ให้ทำต่อ · ตรวจได้ไม่เกิน 3 ครั้งต่อคำตอบ
-    if (!ws || (!touched.size && !open0) || checks >= 3 || st.gone || J.perm === 'plan') return '';
-    const probs = touched.size ? verifyWork(ws, touched) : [];
+    if ((!ws && !J.task) || (!touched.size && !open0) || checks >= 3 || st.gone || J.perm === 'plan') return '';
+    const probs = touched.size && ws ? verifyWork(ws, touched) : [];
     if (!probs.length && touched.size && [...touched].some(f => /\.(?:html?|m?js|jsx|css)$/i.test(f)) && [...ws.files.keys()].some(f => /(^|\/)index\.html?$/i.test(f))) { // เปิดหน้าเว็บจริงบนเซิร์ฟเวอร์ ดู error ของ JavaScript (ถ้าตั้งค่า Browser Rendering ไว้)
       await send({ round: round + 2, of: maxRounds + 3, doing: 'เปิดหน้าเว็บตรวจ error' });
       const errs = await import('./agent.js').then(m => m.pageErrors(env, ws.files)).catch(() => null);
@@ -717,7 +717,7 @@ export async function runChat(env, J, send, st) {
       for (const tc of toolCalls) {
         const tname = tc.function?.name || '';
         if (WRITE_TOOLS.has(tname)) wrote = true; else if (tname !== 'todo_write') onlyWrites = false; // อัปเดตรายการงานไม่ใช่การอ่าน: รอบที่แก้ไฟล์ + อัปเดตรายการ ยังนับว่าจบงานได้
-        if ((ws && CODE_TOOL_NAMES.has(tname)) || WEB_TOOL_NAMES.has(tname) || (!pid && CHAT_TOOL_NAMES.has(tname))) {
+        if ((ws && CODE_TOOL_NAMES.has(tname)) || (J.task && tname === 'todo_write') || WEB_TOOL_NAMES.has(tname) || (!pid && CHAT_TOOL_NAMES.has(tname))) {
           let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* อาร์กิวเมนต์เสีย: ให้เครื่องมือตอบ error */ }
           let r;
           if (cumIn >= inMax && !WRITE_TOOLS.has(tname)) r = { result: 'Reading budget for this answer is used up. Stop reading and finish the task with what you have.', ok: false, label: tname };
@@ -810,6 +810,7 @@ export async function runChat(env, J, send, st) {
   if (usage && J.cc && isClaudeEco(model)) await useClaudeCredit(env, u.id, usage._cost || 0).catch(() => {}); // หักจากเครดิต Claude ที่แถม แทนลิมิต
   await unlimit(env, lock);
   const fin = await usageStatus(env, u, plan);
+  if (J.task && cid) await import('./push.js').then(p => p.sendPush(env, u.id, { title: (lastTodo || []).some(x => x.status !== 'completed') ? 'งานหยุดก่อนเสร็จ · แตะเพื่อดู' : 'งานเสร็จแล้ว', body: String(hist.at(-1)?.content || '').replace(/\[\[[^\]]*\]\]/g, '').slice(0, 120), url: '/chat?id=' + cid })).catch(() => {}); // โหมดงาน: แจ้งเตือนเมื่อจบ (ลูกค้าอาจปิดเว็บไปแล้ว)
   await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: lastCtx || ctxUsed, max: ctxMax(model), real: !!lastCtx }, ...fin });
   for (const lv of [100, 80]) if (J.pw0 < lv && fin.pctWeek >= lv) { // ข้ามเส้น 80% / 100% ของลิมิตสัปดาห์: อีเมลครั้งเดียวตอนข้าม
     await mail(env, u.email, `AstraCode: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', siteUrl(env) + '/plans')).catch(() => {});
@@ -955,6 +956,13 @@ export function zipTool(name, a, files) {
   if (cut) body = body.slice(0, ZIP_READ_MAX);
   return `${p} (lines ${from}-${to} of ${ls.length})\n${body}${cut ? `\n…(cut at ${ZIP_READ_MAX} characters; read the rest with from_line/to_line)` : ''}`;
 }
+// โหมดงาน (แบบ Cowork): AI วางแผนด้วย checklist แล้วทำเองจนจบ · ไฟล์ผลลัพธ์อยู่ในโฟลเดอร์งาน (ไฟล์ในบัญชีที่ผูกกับแชตนี้)
+export const TASK_ROUNDS = 40;
+export const TASK_SYS = `\n\nTASK MODE: the user handed you a whole piece of work and may have closed the page; they will come back for the result. Work on your own until it is done:
+1. First call todo_write with a short plan (3-8 steps).
+2. Do every step with your tools, updating the checklist as you go. Do not stop to ask unless something is truly impossible to decide; make sensible assumptions and say what you assumed at the end.
+3. Put every deliverable in a real file: create_file (.xlsx with live formulas, .docx, .pptx for slides, .pdf) or edit_account_file to change the user's files. Files the user attached are listed with their file_id. Use run_python for heavy calculations; files Python writes to /out/ are saved into this task's folder.
+4. Finish with a short summary: what you made (file names), key numbers, and anything the user should check.`;
 export const TOOL_ROUNDS = 25, READ_MAX = 100e3, ANSWER_IN_MAX = 1.2e6; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
 // หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
 // ข้อความเก่าของผู้ใช้ในโหมด Code: ตัดรายชื่อไฟล์ทั้งโปรเจกต์ (สูงสุด 15,000 ตัวอักษร) และเนื้อหาไฟล์ที่แนบไว้ออก เหลือเฉพาะในข้อความล่าสุด
@@ -1036,10 +1044,10 @@ export async function chatTool(env, u, cid, name, a, st) {
   }
   if (name === 'create_file') {
     const fname = String(a.filename || '').replace(/[\\/:*?"<>|[\]\n\r]+/g, '_').trim().slice(0, 100), content = String(a.content ?? '');
-    if (!FILE_EXT.test(fname)) return fail('use one of: .xlsx .csv .docx .pdf .md .txt .html .json', 'สร้างไฟล์');
+    if (!FILE_EXT.test(fname)) return fail('use one of: .xlsx .csv .docx .pptx .pdf .md .txt .html .json', 'สร้างไฟล์');
     if (!content.trim()) return fail('content is empty', 'สร้างไฟล์ ' + fname);
     if (content.length > 200e3) return fail('content is over 200,000 characters; split it into smaller files', 'สร้างไฟล์ ' + fname);
-    if (/\.(xlsx|docx)$/i.test(fname)) try { return await createAccountFile(env, u, cid, fname, content); } catch (x) { if (/ไม่เกิน|too large/.test(x.message)) return fail(x.message, 'สร้างไฟล์ ' + fname); } // เก็บไม่ได้: ให้ดาวน์โหลดแบบเดิม
+    if (/\.(xlsx|docx|pptx|pdf)$/i.test(fname)) try { return await createAccountFile(env, u, cid, fname, content); } catch (x) { if (/ไม่เกิน|too large/.test(x.message)) return fail(x.message, 'สร้างไฟล์ ' + fname); } // เก็บไม่ได้: ให้ดาวน์โหลดแบบเดิม
     return { result: `File ready: ${fname}. The user can download it from the button under your answer.`, emit: dlMarker(fname, content), ok: true, label: 'สร้างไฟล์ ' + fname };
   }
   if (name === 'list_account_files' || name === 'read_account_file' || name === 'edit_account_file') return fileTool(env, u, cid, name, a);

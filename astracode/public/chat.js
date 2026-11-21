@@ -128,7 +128,7 @@ async function chatView(id) {
           <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
-        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
+        <nav class="side-nav"><button type="button" id="tasknew">${ic('layers')}<span>งานใหม่ (AI ทำให้จนจบ)</span></button><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
@@ -220,7 +220,7 @@ async function chatView(id) {
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
+  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; $('#tasknew').onclick = () => { $('#sclose')?.click(); taskSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
   $('#search').oninput = () => {
@@ -491,7 +491,8 @@ async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api(
 // หัวแชต: ชื่อ + context ที่ใช้
 function head() {
   const ctl = $('#ctl'); if (!ctl) return;
-  ctl.textContent = chat.chats.find(c => c.id === chat.id)?.title || 'Chat';
+  ctl.textContent = chat.chats.find(c => c.id === chat.id)?.title || (isTask() ? 'งานใหม่' : 'Chat');
+  let tb = $('#taskfold'); if (isTask() && chat.id) { if (!tb) { tb = Object.assign(document.createElement('button'), { type: 'button', id: 'taskfold', className: 'btn out sm task-fold', innerHTML: ic('folder', 'sm') + ' โฟลเดอร์งาน' }); tb.onclick = () => taskFolder(chat.id); ctl.after(tb); } } else tb?.remove();
   // แถบ context: ใช้ไปเท่าไรจากขนาด context ของโมเดล (จากคำตอบล่าสุด) · เกิน 70% มีปุ่มย่อแชต
   const cx = chat.ctx?.id === chat.id ? chat.ctx : null, pct = cx ? Math.min(100, cx.used / cx.max * 100) : 0, pctT = pct < 10 ? pct.toFixed(1).replace(/\.0$/, '') : Math.round(pct); // context ใหญ่ (1M): ปัดเป็นจำนวนเต็มจะค้างที่ 0% นาน
   $('#ctok').innerHTML = cx ? `<button type="button" class="ctxm ${pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : ''}" id="ctxopen" title="แตะเพื่อดูว่าอะไรกิน context อยู่เท่าไร">context ${kTok(cx.used)} / ${kTok(cx.max)} (${pctT}%)</button>${pct >= 70 && chat.id ? ' <button type="button" class="linkb" id="cmpct">ย่อแชต</button>' : ''}` : '';
@@ -932,7 +933,7 @@ function msgHTML(m, i, isNew) {
   const { text: tTools, files: dlFiles, py: pyCodes, mems: memSaved, approves, arts } = parseTools(m.content);
   const { text: t00, mem } = parseMem(tTools, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
-  return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
+  return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${taskTodoHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
     ${ufCards(m.content)}${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · tap to open</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
@@ -1072,12 +1073,13 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
     if (shown < full.length) raf = requestAnimationFrame(tick);
   };
   try {
-    await stream({ img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, skill_ids: chat.skills, mcp_ids: chat.mcps, mcp_off: mcpOff(), local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
+    await stream({ task: isTask() || undefined, img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, skill_ids: chat.skills, mcp_ids: chat.mcps, mcp_off: mcpOff(), local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
       started = true;
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
       if (d.model) ai.model = d.model;
       noteOf(ai, d); if (d.fallback) ai.model = d.fallback;
+      if (d.todo) { ai.todos = d.todo; const el = $('#msgs')?.lastElementChild?.querySelector('.task-todo'); if (el) el.outerHTML = taskTodoHTML(ai); else { const b = $('#msgs')?.lastElementChild?.querySelector('.b'); b?.insertAdjacentHTML('beforebegin', taskTodoHTML(ai)); } }
       if (d.t || d.th) { onStreamEvent(ai, d); if (d.t?.includes("]]")) ufLive(ai.content); if (!raf) raf = requestAnimationFrame(tick); }
       if (d.error) streamErr = d.error;
       if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; }
@@ -1453,6 +1455,8 @@ async function makeFile(name, content) {
   const ext = name.split('.').pop().toLowerCase(), save = (blob, n) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = n; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
   if (ext === 'xlsx') try { let j = null; try { j = JSON.parse(content); } catch {} return await bookXlsx(Array.isArray(j?.sheets) ? j : { sheets: [{ name: 'Sheet1', rows: content.split(/\r?\n/).filter(Boolean).map(l => l.split(',')) }] }, name); } catch { /* โหลดตัวเขียนไม่ได้: ใช้แบบเดิม */ }
   if (ext === 'docx') try { return await mdDocx(content, name); } catch {}
+  if (ext === 'pptx') return mdPptx(content, name);
+  if (ext === 'pdf') try { return await mdPdf(content, name); } catch { /* ใช้หน้าพิมพ์แทน */ }
   if (ext === 'xlsx') {
     await lib('xlsx'); let wb = null;
     try { const j = JSON.parse(content); if (Array.isArray(j?.sheets)) { wb = XLSX.utils.book_new(); j.sheets.forEach((sh, k) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(Array.isArray(sh.rows) ? sh.rows : []), String(sh.name || 'Sheet' + (k + 1)).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31))); } } catch { /* ไม่ใช่ JSON: อ่านเป็น CSV */ }
@@ -1474,19 +1478,34 @@ document.addEventListener('click', async e => {
   try { await makeFile(f.name, unb64t(f.b)); } catch (x) { toast('สร้างไฟล์ไม่สำเร็จ: ' + x.message, 'bad'); }
 });
 // รัน Python ที่ AI ส่งมาในเบราว์เซอร์ (Pyodide ใน Web Worker · ไฟล์ที่แนบในแชตอยู่ที่ /data/) แล้วส่งผลกลับให้ AI ทำต่อ
+// ไฟล์ที่ Python เขียนลง /out/: Excel/CSV → ตาราง, Markdown/ข้อความ → เอกสาร · เก็บเข้าบัญชี (ผูกกับแชตนี้ = โฟลเดอร์งาน)
+async function pyOutSave(outs) {
+  const res = [];
+  for (const o of outs || []) {
+    try {
+      let kind = 'doc', data, name = o.name;
+      if (/\.(xlsx|xls|csv)$/i.test(name)) { await lib('xlsx'); const wb = /\.csv$/i.test(name) ? XLSX.read(new TextDecoder().decode(o.bytes), { type: 'string' }) : XLSX.read(o.bytes); kind = 'sheet'; data = wbBook(wb); name = name.replace(/\.(xls|csv)$/i, '.xlsx'); }
+      else if (/\.(md|txt|json|html?)$/i.test(name)) data = { md: new TextDecoder().decode(o.bytes).slice(0, 1e6) };
+      else continue; // รูปแสดงในผลลัพธ์อยู่แล้ว · ไฟล์ชนิดอื่นยังไม่รองรับ
+      const id = await ufUpload(name, kind, data); if (id) { res.push({ id, name }); openFile(id, 0, true); }
+    } catch { /* ไฟล์อ่านไม่ได้: ข้าม */ }
+  }
+  return res;
+}
 async function pyRun(ai) {
   chat.pyRound = (chat.pyRound || 0) + 1; if (chat.pyRound > PY_MAX) return showErr(`AI รัน Python ครบ ${PY_MAX} รอบแล้ว พิมพ์สั่งต่อได้เลย`);
   const code = parseTools(ai.content).py.at(-1); if (!code) return;
   const files = chat.msgs.filter(m => m.role === 'user').flatMap(m => [...m.content.matchAll(FILE_RE)].map(x => ({ path: '/data/' + x[1].replace(/[\\/]/g, '_'), content: x[2] })));
   ai.pyOut = { text: 'กำลังรัน Python…', imgs: [] }; renderAll(); setBusy(true);
   const res = await new Promise(ok => {
-    let out = ''; const imgs = [], w = new Worker('/pyworker.js');
-    const end = extra => { clearTimeout(t); w.terminate(); ok({ out: out + (extra || ''), imgs }); }, t = setTimeout(() => end('\n[หยุด: รันนานเกิน 90 วินาที]'), 90e3);
-    w.onmessage = e => { const d = e.data; if (d.out != null) out += d.out + '\n'; if (d.err) out += d.err + '\n'; if (d.img) imgs.push(d.img.startsWith('data:') ? d.img : 'data:image/png;base64,' + d.img); if (d.status) { ai.pyOut.text = d.status; renderAll(); } if (d.done) end(); };
+    let out = ''; const imgs = [], outs = [], w = new Worker('/pyworker.js');
+    const end = extra => { clearTimeout(t); w.terminate(); ok({ out: out + (extra || ''), imgs, outs }); }, t = setTimeout(() => end('\n[หยุด: รันนานเกิน 90 วินาที]'), 90e3);
+    w.onmessage = e => { const d = e.data; if (d.outFile) outs.push(d.outFile); if (d.out != null) out += d.out + '\n'; if (d.err) out += d.err + '\n'; if (d.img) imgs.push(d.img.startsWith('data:') ? d.img : 'data:image/png;base64,' + d.img); if (d.status) { ai.pyOut.text = d.status; renderAll(); } if (d.done) end(); };
     w.onerror = e => end('\nError: ' + (e.message || 'โหลด Python ไม่สำเร็จ'));
     w.postMessage({ files: [...files, { path: 'main.py', content: code }], main: 'main.py' });
   });
   setBusy(false);
+  const saved = await pyOutSave(res.outs); if (saved.length) res.out += '\n' + saved.map(s => `[saved to the task folder: ${s.name} file_id=${s.id}]`).join('\n');
   const text = res.out.trim() || '(ไม่มีผลลัพธ์ที่พิมพ์ออกมา)', cut = s => s.length > 8000 ? s.slice(0, 2500) + '\n…(ตัดกลาง)…\n' + s.slice(-5000) : s, vision = !!curModel()?.vision;
   ai.pyOut = { text, imgs: res.imgs }; renderAll();
   const t = $('#t'), keep = [t.value, chat.files, chat.images];
@@ -1578,8 +1597,11 @@ document.addEventListener('click', async e => {
 ICONS.sheet = '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/>';
 const UF_RE = /\[\[uf:(\d+)\|(\d+)\|([^\]\n]{0,120})\]\]/g;
 const ufKind = n => /\.(xlsx|xlsm|xls|ods|csv)$/i.test(n) ? 'sheet' : 'doc';
+const ufType = n => (/\.(\w+)$/.exec(n)?.[1] || '').toLowerCase(), ufLabel = n => ({ xlsx: 'Excel', xls: 'Excel', csv: 'Excel', pptx: 'PowerPoint', pdf: 'PDF' })[ufType(n)] || 'Word';
+const ufIcon = n => ufKind(n) === 'sheet' ? 'sheet' : ufType(n) === 'pptx' ? 'layers' : 'filetext';
+async function ufDownload(f) { const x = ufType(f.name); return f.kind === 'sheet' ? bookXlsx(f.data, f.name) : x === 'pptx' ? mdPptx(f.data.md || '', f.name) : x === 'pdf' ? mdPdf(f.data.md || '', f.name) : mdDocx(f.data.md || '', f.name); }
 const ufCards = content => { const seen = new Map(); for (const m of String(content || '').matchAll(UF_RE)) seen.set(m[1], { id: +m[1], v: +m[2], t: m[3] }); // ไฟล์เดียวแก้หลายรอบ: การ์ดเดียว (เวอร์ชันล่าสุด)
-  return [...seen.values()].map(f => `<button type="button" class="art-card uf-card" data-uf="${f.id}">${ic(ufKind(f.t) === 'sheet' ? 'sheet' : 'filetext', 'sm')}<span><b>${esc(f.t)}</b><small>${ufKind(f.t) === 'sheet' ? 'Excel' : 'Word'} · v${f.v} · เปิดดู / แก้ไข / ดาวน์โหลด</small></span></button>`).join(''); };
+  return [...seen.values()].map(f => `<button type="button" class="art-card uf-card" data-uf="${f.id}">${ic(ufIcon(f.t), 'sm')}<span><b>${esc(f.t)}</b><small>${ufLabel(f.t)} · v${f.v} · เปิดดู / แก้ไข / ดาวน์โหลด</small></span></button>`).join(''); };
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-uf]'); if (b) openFile(+b.dataset.uf); });
 // ตอน AI กำลังตอบ: เจอเวอร์ชันใหม่ของไฟล์ → เปิด/รีเฟรชแผงข้างแชตทันที
 function ufLive(content) {
@@ -1632,8 +1654,8 @@ async function openFile(id, v, live) {
 }
 function drawFile(box, live) {
   const f = chat.uf, old = f.shown !== f.ver;
-  const bar = `<div class="uf-bar">${old ? `<span class="muted">กำลังดู v${f.shown} (เก่า)</span><button type="button" class="btn blue sm" data-ufrest>${ic('undo', 'sm')} ย้อนกลับไปใช้เวอร์ชันนี้</button>` : `<span class="muted">${live ? '<b class="uf-live">AI เพิ่งแก้</b> · ' : ''}v${f.ver} · ${f.kind === 'sheet' ? 'ดับเบิลคลิกที่ช่องเพื่อแก้' : 'กดแก้ไขเพื่อเขียนเอง'}</span>`}<span class="sp"></span>${f.kind === 'doc' && !old ? `<button type="button" class="btn out sm" data-ufedit>${ic('pen', 'sm')} แก้ไข</button>` : ''}<button type="button" class="btn out sm" data-ufdl>${ic('download', 'sm')} ${f.kind === 'sheet' ? 'Excel' : 'Word'}</button></div>`;
-  if (f.kind === 'doc') { box.innerHTML = bar + `<div class="uf-doc b">${md(f.data.md || '')}</div>`; renderRich(box); return; }
+  const bar = `<div class="uf-bar">${old ? `<span class="muted">กำลังดู v${f.shown} (เก่า)</span><button type="button" class="btn blue sm" data-ufrest>${ic('undo', 'sm')} ย้อนกลับไปใช้เวอร์ชันนี้</button>` : `<span class="muted">${live ? '<b class="uf-live">AI เพิ่งแก้</b> · ' : ''}v${f.ver} · ${f.kind === 'sheet' ? 'ดับเบิลคลิกที่ช่องเพื่อแก้' : 'กดแก้ไขเพื่อเขียนเอง'}</span>`}<span class="sp"></span>${f.kind === 'doc' && !old ? `<button type="button" class="btn out sm" data-ufedit>${ic('pen', 'sm')} แก้ไข</button>` : ''}<button type="button" class="btn out sm" data-ufdl>${ic('download', 'sm')} ${ufLabel(f.name)}</button></div>`;
+  if (f.kind === 'doc') { box.innerHTML = bar + (ufType(f.name) === 'pptx' ? `<div class="uf-slides">${mdSlides(f.data.md || '').map((s, k) => `<div class="uf-slide"><small>${k + 1}</small><h3>${esc(s.title)}</h3>${md(s.body.join('\n'))}${s.notes.length ? `<p class="muted">โน้ต: ${esc(s.notes.join(' '))}</p>` : ''}</div>`).join('')}</div>` : `<div class="uf-doc b">${md(f.data.md || '')}</div>`); renderRich(box); return; }
   const sh = f.data.sheets[chat.ufSheet] || f.data.sheets[0], V = ufEval(sh.rows), w = Math.max(1, ...sh.rows.map(r => r.length)), fmt = sh.fmt || {};
   const tabs = f.data.sheets.length > 1 ? `<div class="uf-tabs">${f.data.sheets.map((s, k) => `<button type="button" data-ufsh="${k}" class="${k === chat.ufSheet ? 'on' : ''}">${esc(s.name)}</button>`).join('')}</div>` : '';
   const n = Math.min(sh.rows.length, 2000);
@@ -1659,7 +1681,7 @@ document.addEventListener('click', async e => {
   if (!e.target.closest?.('#cv-s')) return;
   const t = e.target.closest('[data-ufsh],[data-ufdl],[data-ufrest],[data-ufedit]'); if (!t) return; const f = chat.uf;
   if (t.dataset.ufsh != null) { chat.ufSheet = +t.dataset.ufsh; return drawFile($('#cv-s')); }
-  if (t.hasAttribute('data-ufdl')) { t.disabled = true; try { f.kind === 'sheet' ? await bookXlsx(f.data, f.name) : await mdDocx(f.data.md || '', f.name); } catch (x) { toast('สร้างไฟล์ไม่สำเร็จ: ' + x.message, 'bad'); } t.disabled = false; return; }
+  if (t.hasAttribute('data-ufdl')) { t.disabled = true; try { await ufDownload(f); } catch (x) { toast('สร้างไฟล์ไม่สำเร็จ: ' + x.message, 'bad'); } t.disabled = false; return; }
   if (t.hasAttribute('data-ufrest')) { try { await api('/files/' + f.id + '/restore', { method: 'POST', body: { ver: f.shown } }); toast('ย้อนกลับแล้ว (บันทึกเป็นเวอร์ชันใหม่)', 'ok'); openFile(f.id); } catch (x) { toast(x.message, 'bad'); } return; }
   if (t.hasAttribute('data-ufedit')) { const box = $('#cv-s'); box.innerHTML = `<div class="uf-bar"><span class="muted">แก้เป็น Markdown (# หัวข้อ, - รายการ, | ตาราง |)</span><span class="sp"></span><button type="button" class="btn out sm" id="ufx">ยกเลิก</button><button type="button" class="btn blue sm" id="ufok">บันทึก</button></div><textarea class="uf-ta" id="ufta"></textarea>`;
     box.querySelector('#ufta').value = f.data.md || ''; box.querySelector('#ufx').onclick = () => drawFile(box);
@@ -1714,10 +1736,96 @@ const ufNote = id => id ? `[ไฟล์นี้บันทึกในบั�
 // แถบข้าง: ไฟล์ของฉัน
 async function filesSheet() {
   const draw = async (d, q = '') => { const L = (await api('/files').catch(() => [])).filter(f => !q || f.name.toLowerCase().includes(q.toLowerCase()));
-    d.querySelector('#ufl').innerHTML = L.map(f => `<div class="mem tm row" style="align-items:center"><button type="button" class="linkish" data-ufo="${f.id}" style="flex:1;text-align:left;color:inherit">${ic(f.kind === 'sheet' ? 'sheet' : 'filetext', 'sm')} <b>${esc(f.name)}</b><br><small class="muted">v${f.ver} · ${when(f.updated_at)}</small></button>${f.chat_id ? `<a class="btn out sm" href="/chat?id=${f.chat_id}">แชต</a>` : ''}<button type="button" class="icon-btn sm ghost" data-ufdel="${f.id}" aria-label="ลบไฟล์">${ic('trash', 'sm')}</button></div>`).join('') || '<p class="muted">ยังไม่มีไฟล์ · สั่ง AI เช่น "ทำตารางรายรับรายจ่ายเป็น Excel" หรือแนบไฟล์ Excel/Word แล้วสั่งให้แก้</p>'; };
+    d.querySelector('#ufl').innerHTML = L.map(f => `<div class="mem tm row" style="align-items:center"><button type="button" class="linkish" data-ufo="${f.id}" style="flex:1;text-align:left;color:inherit">${ic(ufIcon(f.name), 'sm')} <b>${esc(f.name)}</b><br><small class="muted">v${f.ver} · ${when(f.updated_at)}</small></button>${f.chat_id ? `<a class="btn out sm" href="/chat?id=${f.chat_id}">แชต</a>` : ''}<button type="button" class="icon-btn sm ghost" data-ufdel="${f.id}" aria-label="ลบไฟล์">${ic('trash', 'sm')}</button></div>`).join('') || '<p class="muted">ยังไม่มีไฟล์ · สั่ง AI เช่น "ทำตารางรายรับรายจ่ายเป็น Excel" หรือแนบไฟล์ Excel/Word แล้วสั่งให้แก้</p>'; };
   sheet('ไฟล์ของฉัน', '<div class="sheet-form"><input id="ufq" type="search" placeholder="ค้นหาไฟล์" aria-label="ค้นหาไฟล์"><div id="ufl"><p class="muted">กำลังโหลด...</p></div></div>', (d, close) => {
     draw(d); d.querySelector('#ufq').oninput = e => draw(d, e.target.value);
     d.querySelector('#ufl').onclick = async e => { const o = e.target.closest('[data-ufo]'); if (o) { close(); return openFile(+o.dataset.ufo); }
       const x = e.target.closest('[data-ufdel]'); if (x && confirm('ลบไฟล์นี้และทุกเวอร์ชัน?')) { try { await api('/files/' + x.dataset.ufdel, { method: 'DELETE' }); toast('ลบแล้ว', 'ok'); draw(d); } catch (y) { toast(y.message, 'bad'); } } };
   });
+}
+
+// สไลด์จาก Markdown: "# หัวข้อ" ขึ้นสไลด์ใหม่ · "- ข้อ" = bullet · | ตาราง | · "> " = โน้ตผู้พูด
+function mdSlides(src) {
+  const out = []; let cur = null;
+  for (const l of String(src).replace(/\r/g, '').split('\n')) {
+    const h = /^#{1,2}\s+(.*)$/.exec(l);
+    if (h || /^---+\s*$/.test(l)) { if (h) { cur = { title: h[1].trim(), body: [], notes: [] }; out.push(cur); } else cur = null; continue; }
+    if (!cur) { if (!l.trim()) continue; cur = { title: '', body: [], notes: [] }; out.push(cur); }
+    if (/^>\s?/.test(l)) cur.notes.push(l.replace(/^>\s?/, '')); else cur.body.push(l);
+  }
+  return out.filter(s => s.title || s.body.some(x => x.trim()));
+}
+async function mdPptx(src, name) {
+  await lib('pptx'); const P = new window.PptxGenJS(); P.layout = 'LAYOUT_WIDE';
+  const clean = s => String(s).replace(/\*\*([^*]+)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1');
+  mdSlides(src).forEach((s, k) => {
+    const sl = P.addSlide(); sl.background = { color: 'FFFFFF' };
+    sl.addShape(P.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.12, fill: { color: 'D97757' } });
+    sl.addText(clean(s.title), { x: 0.6, y: 0.35, w: 12.1, h: 0.9, fontFace: 'Tahoma', fontSize: k === 0 && !s.body.some(x => x.trim()) ? 40 : 28, bold: true, color: '1F2937' });
+    const rows = s.body.filter(l => /^\s*\|.*\|\s*$/.test(l) && !/^\s*\|[\s:|-]+\|\s*$/.test(l)).map(l => l.trim().replace(/^\||\|$/g, '').split('|').map(x => clean(x.trim())));
+    const bul = s.body.filter(l => l.trim() && !/^\s*\|/.test(l)).map(l => { const m = /^(\s*)(?:[-*•]|\d+[.)])\s+(.*)$/.exec(l); return { text: clean(m ? m[2] : l.trim()), options: { bullet: !!m, indentLevel: m ? Math.min(3, m[1].length >> 1) : 0, breakLine: true } }; });
+    let y = 1.4;
+    if (bul.length) { const h = rows.length ? 2.2 : 5.6; sl.addText(bul, { x: 0.7, y, w: 11.9, h, fontFace: 'Tahoma', fontSize: bul.length > 7 ? 16 : 20, color: '374151', valign: 'top', paraSpaceAfter: 6 }); y += h + 0.2; }
+    if (rows.length) sl.addTable(rows.map((r, i) => r.map(c => ({ text: c, options: i === 0 ? { bold: true, fill: { color: 'E8EEF7' } } : {} }))), { x: 0.7, y, w: 11.9, fontFace: 'Tahoma', fontSize: 14, border: { type: 'solid', pt: 0.5, color: 'BBBBBB' }, autoPage: true });
+    if (s.notes.length) sl.addNotes(s.notes.join('\n'));
+    sl.addText(String(k + 1), { x: 12.4, y: 7.0, w: 0.6, h: 0.3, fontSize: 10, color: '9CA3AF', align: 'right' });
+  });
+  await P.writeFile({ fileName: name.replace(/\.(pptx|md)$/i, '') + '.pptx' });
+}
+async function mdPdf(src, name, raw = false) {
+  await lib('html2pdf');
+  const el = document.createElement('div'); el.className = 'pdf-src';
+  el.innerHTML = `<style>.pdf-src{font-family:Tahoma,'Sarabun',sans-serif;font-size:12pt;line-height:1.6;color:#111;padding:8px;background:#fff;width:720px}.pdf-src table{border-collapse:collapse;margin:8px 0;width:100%}.pdf-src td,.pdf-src th{border:1px solid #999;padding:4px 8px}.pdf-src th{background:#e8eef7}.pdf-src h1,.pdf-src h2,.pdf-src h3{color:#1f2937}.pdf-src pre{white-space:pre-wrap}</style>${md(src)}`;
+  el.querySelectorAll('.tbl-x,button').forEach(x => x.remove());
+  const job = window.html2pdf().set({ margin: 12, filename: name.replace(/\.(pdf|md)$/i, '') + '.pdf', html2canvas: { scale: 2, backgroundColor: '#ffffff' }, jsPDF: { unit: 'mm', format: 'a4' }, pagebreak: { mode: ['css', 'legacy'] } }).from(el);
+  return raw ? job.outputPdf('arraybuffer') : job.save();
+}
+
+// ---------- โหมดงาน (แบบ Cowork): สั่งงานใหญ่ครั้งเดียว AI วางแผน (checklist) แล้วทำเองจนจบบนเซิร์ฟเวอร์ แม้ปิดหน้าเว็บ · ผลงานอยู่ใน "โฟลเดอร์งาน" ----------
+const isTask = () => !!(chat.taskNew && !chat.id) || !!chat.chats?.find(c => c.id === chat.id)?.task || chat.taskId === chat.id && !!chat.id;
+const taskTodoHTML = m => m.todos?.length ? `<div class="task-todo"><b>${ic('check', 'sm')} แผนงาน · ${m.todos.filter(x => x.status === 'completed').length}/${m.todos.length}</b>${m.todos.map(x => `<div class="tt ${x.status}">${x.status === 'completed' ? '✓' : x.status === 'in_progress' ? '●' : '○'} ${esc(x.content)}</div>`).join('')}</div>` : '';
+const TASK_TPL = [
+  ['sheet', 'ปิดยอดรายเดือน', 'สรุปยอดขาย/รายจ่ายจากไฟล์ที่แนบ ทำ Excel สรุปรายเดือน (มีสูตรรวม กำไร % เติบโต) และรายงาน Word 1 หน้า สรุปตัวเลขสำคัญและข้อสังเกต'],
+  ['filetext', 'ใบเสนอราคา', 'ทำใบเสนอราคาเป็น Excel จากรายการสินค้าในไฟล์/ข้อความนี้ (ราคาต่อหน่วย จำนวน รวม ส่วนลด VAT 7% ยอดสุทธิ เป็นสูตร) และ PDF ส่งลูกค้า'],
+  ['msg', 'สรุปประชุม', 'สรุปบันทึกประชุมที่แนบเป็น Word: ประเด็นหลัก มติ งานที่ต้องทำ (ใคร ทำอะไร ภายในเมื่อไร) เป็นตาราง'],
+  ['layers', 'สไลด์นำเสนอ', 'ทำสไลด์ PowerPoint 8-10 หน้าจากเนื้อหา/ไฟล์ที่แนบ มีหน้าปก สรุปตัวเลขเป็นตาราง และหน้าสรุปข้อเสนอแนะ พร้อมโน้ตผู้พูด'],
+  ['pie', 'วิเคราะห์ข้อมูล', 'วิเคราะห์ข้อมูลในไฟล์ Excel/CSV ที่แนบ ด้วย Python: หาแนวโน้ม กลุ่มที่ขายดี/แย่ ค่าผิดปกติ ทำกราฟ แล้วสรุปเป็นรายงาน Word และ Excel ตารางสรุป'],
+  ['users', 'งาน HR', 'จากข้อมูลพนักงานที่แนบ ทำตารางเงินเดือน/วันลาเป็น Excel (มีสูตร) และร่างประกาศหรือจดหมายถึงพนักงานเป็น Word'],
+  ['mail', 'ตอบอีเมลลูกค้า', 'อ่านอีเมล/ข้อความลูกค้าที่แนบ จัดกลุ่มตามเรื่อง ร่างคำตอบแต่ละฉบับอย่างสุภาพ และทำตารางสรุปใน Excel'],
+];
+function taskSheet() {
+  sheet('งานใหม่ · AI ทำให้จนจบ', `<div class="sheet-form">
+    <p class="sheet-msg">สั่งงานครั้งเดียว AI จะวางแผน ทำทีละขั้น และส่งผลเป็นไฟล์ Excel / Word / PowerPoint / PDF ในโฟลเดอร์งาน · ปิดหน้าเว็บได้ เสร็จแล้วแจ้งเตือน</p>
+    <div class="task-tpl">${TASK_TPL.map(([i, n], k) => `<button type="button" data-tt="${k}">${ic(i, 'sm')}<span>${esc(n)}</span></button>`).join('')}</div>
+    <textarea id="taskt" rows="5" placeholder="อธิบายงานที่ต้องการ เช่น &quot;รวมยอดขาย 3 สาขาจากไฟล์ที่แนบ ทำ Excel สรุป + รายงาน Word&quot;"></textarea>
+    <small class="muted">แนบไฟล์ได้หลังกดเริ่ม (ปุ่ม + ในช่องพิมพ์) หรือแนบก่อนเปิดหน้านี้ · ใช้ลิมิตตามปกติ ทำได้สูงสุด 40 ขั้นต่อครั้ง</small>
+    <button type="button" class="btn blue" id="taskgo">${ic('play', 'sm')} เริ่มงาน</button></div>`, (d, close) => {
+    d.querySelector('.task-tpl').onclick = e => { const b = e.target.closest('[data-tt]'); if (b) { d.querySelector('#taskt').value = TASK_TPL[+b.dataset.tt][2]; d.querySelector('#taskt').focus(); } };
+    d.querySelector('#taskgo').onclick = () => { const v = d.querySelector('#taskt').value.trim(); if (!v) return toast('พิมพ์งานที่ต้องการก่อน', 'bad');
+      const keepF = chat.files, keepI = chat.images; close(); openChat(null); chat.files = keepF || []; chat.images = keepI || []; chat.taskNew = true; drawThumbs?.(); $('#t').value = v; send().then(() => { chat.taskId = chat.id; chat.taskNew = false; const c = chat.chats?.find(x => x.id === chat.id); if (c) c.task = 1; head(); }); };
+  });
+}
+async function taskFolder(cid) {
+  const L = await api('/files?chat_id=' + cid).catch(() => []);
+  sheet('โฟลเดอร์งาน', `<div class="sheet-form">${L.length ? L.map(f => `<div class="mem tm row" style="align-items:center"><button type="button" class="linkish" data-tfo="${f.id}" style="flex:1;text-align:left;color:inherit">${ic(ufIcon(f.name), 'sm')} <b>${esc(f.name)}</b><br><small class="muted">${ufLabel(f.name)} · v${f.ver} · ${when(f.updated_at)}</small></button></div>`).join('') + `<button type="button" class="btn blue" id="tfzip">${ic('download', 'sm')} ดาวน์โหลดทั้งหมด (.zip)</button>` : '<p class="muted">ยังไม่มีไฟล์ · ไฟล์ที่ AI สร้างหรือไฟล์ Excel/Word ที่แนบในงานนี้จะมาอยู่ที่นี่</p>'}</div>`, (d, close) => {
+    d.onclick = e => { const o = e.target.closest('[data-tfo]'); if (o) { close(); openFile(+o.dataset.tfo); } };
+    const z = d.querySelector('#tfzip'); if (z) z.onclick = async () => { z.disabled = true; z.textContent = 'กำลังรวมไฟล์...'; try { await taskZip(L); } catch (x) { toast('รวมไฟล์ไม่สำเร็จ: ' + x.message, 'bad'); } z.disabled = false; z.innerHTML = ic('download', 'sm') + ' ดาวน์โหลดทั้งหมด (.zip)'; };
+  });
+}
+// รวมทุกไฟล์ในงานเป็น zip: แปลงเป็นไฟล์จริงทีละไฟล์ (ดักการดาวน์โหลดแต่ละไฟล์ไว้ใส่ zip แทน)
+async function taskZip(list) {
+  await lib('jszip'); const zip = new JSZip(), origClick = HTMLAnchorElement.prototype.click, grabbed = [];
+  HTMLAnchorElement.prototype.click = function () { if (this.download && this.href.startsWith('blob:')) grabbed.push({ name: this.download, href: this.href }); else origClick.call(this); };
+  const xlsxWrite = window.XLSX?.writeFile;
+  try {
+    for (const f of list) {
+      const full = await api('/files/' + f.id);
+      if (full.kind === 'sheet') { await lib('xlsxStyle'); const W = window.XLSX.writeFile; window.XLSX.writeFile = (wb, n) => grabbed.push({ name: n, data: window.XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) }); try { await bookXlsx(full.data, full.name); } finally { window.XLSX.writeFile = W; } }
+      else if (ufType(full.name) === 'pptx') { await lib('pptx'); const P = window.PptxGenJS.prototype, W = P.writeFile; P.writeFile = async function (o) { grabbed.push({ name: o.fileName, data: await this.write({ outputType: 'arraybuffer' }) }); }; try { await mdPptx(full.data.md || '', full.name); } finally { P.writeFile = W; } }
+      else if (ufType(full.name) === 'pdf') grabbed.push({ name: full.name.replace(/(\.pdf)?$/i, '.pdf'), data: await mdPdf(full.data.md || '', full.name, true) });
+      else await ufDownload(full);
+    }
+    for (const g of grabbed) zip.file(g.name, g.data || await (await fetch(g.href)).arrayBuffer());
+  } finally { HTMLAnchorElement.prototype.click = origClick; if (xlsxWrite && window.XLSX) window.XLSX.writeFile = xlsxWrite; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await zip.generateAsync({ type: 'blob' })); a.download = 'งาน-' + new Date().toISOString().slice(0, 10) + '.zip'; origClick.call(a);
 }

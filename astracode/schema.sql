@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS chats (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   title TEXT NOT NULL,
+  task INTEGER,                             -- 1 = โหมดงาน (AI ทำเองจนจบ · โฟลเดอร์งาน)
   created_at INTEGER NOT NULL,
   project_id INTEGER                        -- แชตของโปรเจกต์ (โหมด Code)
   , folder_id INTEGER
@@ -353,6 +354,7 @@ CREATE TABLE IF NOT EXISTS chats (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   title TEXT NOT NULL,
+  task INTEGER,                             -- 1 = โหมดงาน (AI ทำเองจนจบ · โฟลเดอร์งาน)
   created_at INTEGER NOT NULL,
   project_id INTEGER                        -- แชตของโปรเจกต์ (โหมด Code)
   , folder_id INTEGER

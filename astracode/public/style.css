@@ -1938,3 +1938,16 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .uf-ta { flex: 1; margin: 10px 12px; min-height: 60vh; font: 14px/1.6 ui-monospace, Consolas, monospace; background: rgb(var(--bg1)); color: inherit; border: 1px solid rgba(var(--ov),.12); border-radius: 8px; padding: 12px; }
 .canvas.is-file .cv-h { background: rgb(var(--bg1)); color: var(--porcelain); border-bottom: 1px solid rgba(var(--ov),.12); }
 .canvas.is-file .cv-h select { color: inherit; background: transparent; }
+.uf-slides { padding: 14px; display: grid; gap: 14px; }
+.uf-slide { position: relative; aspect-ratio: 16/9; overflow: auto; background: #fff; color: #1f2937; border-radius: 10px; border-top: 6px solid #d97757; padding: 18px 26px; box-shadow: 0 1px 4px rgba(0,0,0,.15); font-size: 14px; }
+.uf-slide h3 { margin: 0 0 10px; font-size: 22px; }
+.uf-slide small { position: absolute; right: 12px; bottom: 8px; color: #9ca3af; }
+.uf-slide table { border-collapse: collapse; } .uf-slide td, .uf-slide th { border: 1px solid #ccc; padding: 3px 8px; }
+.task-todo { margin: 6px 0 10px; padding: 10px 14px; border: 1px solid rgba(var(--ov),.12); border-radius: 12px; font-size: 13.5px; display: grid; gap: 3px; }
+.task-todo b { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.task-todo .tt.completed { color: var(--ash); text-decoration: line-through; }
+.task-todo .tt.in_progress { font-weight: 600; color: var(--blue); }
+.task-tpl { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.task-tpl button { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid rgba(var(--ov),.14); border-radius: 10px; background: none; color: inherit; font: inherit; font-size: 13.5px; cursor: pointer; text-align: left; }
+.task-tpl button:hover { background: rgba(var(--ov),.06); }
+.task-fold { margin-left: 8px; }
