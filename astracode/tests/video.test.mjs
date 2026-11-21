@@ -37,3 +37,26 @@ test('video: wallet charge, upstream job polled to done, mp4 stored and served; 
     assert.equal((await t.json('/api/videos', { method: 'POST', cookie: other.cookie, body: { prompt: 'no money here please' } })).status, 402);
   } finally { globalThis.fetch = real; }
 });
+
+test('video in chat: the AI calls generate_video with the attached image, the clip is charged and shows as a marker; 30s max', async () => {
+  const { addModel, addPlan, fakeModel, readSSE } = await import('./helpers.mjs');
+  const SLIPS = r2(), real = globalThis.fetch, sent = [];
+  globalThis.fetch = async (url, init = {}) => { const u = String(url); if (!u.startsWith('https://api.maxplus-ai.cc')) return real(url, init); sent.push(JSON.parse(init.body || '{}')); return Response.json({ id: 'up9', status: 'queued' }); };
+  try {
+    let n = 0; const fm = await fakeModel((req, res, body) => { n++; const tools = body.messages.filter(x => x.role === 'tool').length;
+      if (!tools) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'v1', type: 'function', function: { name: 'generate_video', arguments: JSON.stringify({ prompt: 'product spinning on a table', duration: 45, aspect: '9:16', use_attached_images: true }) } }] } }] }) + '\n\ndata: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }) + '\n\ndata: [DONE]\n\n'); return res.end(); }
+      return fm.sse(res, 'กำลังสร้างวิดีโอให้ครับ'); });
+    const t = await makeEnv({ K: 'k', SLIPS, VIDEO_KEY: 'vk' }); await t.json('/api/version');
+    for (const [k, v] of [['video_enabled', '1'], ['video_price', '59']]) t.DB.raw.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').run(k, v);
+    const m = addModel(t.DB, { name: 'M', base_url: fm.url }); t.DB.raw.prepare("UPDATE models SET tools='on', vision=1 WHERE id=?").run(m.id);
+    const p = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 349 }), u = await t.user();
+    t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=?, balance=100 WHERE id=?').run(p.id, Date.now() + 864e5, u.id);
+    const img = 'data:image/png;base64,iVBORw0KGgo=';
+    const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ทำวิดีโอโฆษณาจากรูปนี้', model_id: m.id, images: [img] } }));
+    assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /\[\[vid:\d+\]\]/);
+    assert.equal(sent[0].duration, 30); assert.equal(sent[0].aspect_ratio, '9:16'); assert.deepEqual(sent[0].images, [img]);
+    assert.equal(t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance, 41);
+    assert.ok(t.DB.raw.prepare('SELECT chat_id FROM videos').get().chat_id > 0);
+    fm.close();
+  } finally { globalThis.fetch = real; }
+});

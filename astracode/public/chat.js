@@ -946,7 +946,7 @@ function msgHTML(m, i, isNew) {
   const { text: t00, mem } = parseMem(tTools, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${taskTodoHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
-    ${ufCards(m.content)}${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · tap to open</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
+    ${vidCards(m.content)}${ufCards(m.content)}${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · tap to open</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
@@ -1457,7 +1457,7 @@ const unb64t = b => { try { return new TextDecoder().decode(Uint8Array.from(atob
 function parseTools(content) {
   const files = [], py = [];
   const mems = [], approves = [], arts = [];
-  const text = String(content || '').replace(ART_RE, (_, id, v, t) => { arts.push({ id: +id, v: +v, t }); return ''; }).replace(UF_RE, '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; }).replace(APPROVE_RE, (_, id, label) => { approves.push({ id: +id, label }); return ''; });
+  const text = String(content || '').replace(ART_RE, (_, id, v, t) => { arts.push({ id: +id, v: +v, t }); return ''; }).replace(UF_RE, '').replace(VID_RE, '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; }).replace(APPROVE_RE, (_, id, label) => { approves.push({ id: +id, label }); return ''; });
   return { text, files, py, mems, approves, arts };
 }
 function toolCards(m, i, files, py, asks = []) {
@@ -1849,11 +1849,11 @@ async function taskZip(list) {
 
 // ---------- สร้างวิดีโอ (คลิปละ 5 วินาที 1080p · จ่ายจาก Wallet · ไม่สำเร็จคืนเงินอัตโนมัติ) ----------
 function videoSheet() {
-  let aspect = '16:9', timer = 0;
+  let aspect = '16:9', timer = 0, dur = 5, refs = [];
   sheet('สร้างวิดีโอ', `<div class="sheet-form" id="vsf"><p class="muted">กำลังโหลด...</p></div>`, (d, close) => {
     const box = d.querySelector('#vsf'), stop = () => clearTimeout(timer);
     const card = v => `<div class="vid-item">${v.url ? `<video src="${v.url}" controls playsinline preload="metadata" class="${v.aspect === '9:16' ? 'tall' : ''}"></video>` : `<div class="vid-wait ${v.status}">${v.status === 'failed' ? ic('x') + ' สร้างไม่สำเร็จ (คืนเงินแล้ว)' : '<span class="cw-spin"></span> กำลังสร้าง… ประมาณ 1–5 นาที ปิดหน้านี้ได้'}</div>`}
-      <small class="muted">${esc(v.prompt.slice(0, 140))} · ${v.aspect} · ฿${v.charged} · ${when(v.created_at)}</small>
+      <small class="muted">${esc(v.prompt.slice(0, 140))} · ${v.duration} วินาที · ${v.aspect} · ฿${v.charged} · ${when(v.created_at)}</small>
       <div class="row">${v.url ? `<a class="btn out sm" href="${v.url}" download="astracode-video-${v.id}.mp4">${ic('download', 'sm')} ดาวน์โหลด</a>` : ''}${v.status === 'done' || v.status === 'failed' ? `<button type="button" class="btn out sm" data-vdel="${v.id}">${ic('trash', 'sm')}</button>` : ''}</div></div>`;
     const draw = async () => {
       if (!box.isConnected) return stop();
@@ -1861,17 +1861,24 @@ function videoSheet() {
       if (r.error) { box.innerHTML = `<p class="muted">${esc(r.error)}</p>`; return; }
       if (!r.enabled) { box.innerHTML = '<p class="muted">ระบบสร้างวิดีโอยังไม่เปิดให้ใช้ ติดต่อแอดมิน</p>'; return; }
       const keep = box.querySelector('#vprompt')?.value ?? '';
-      box.innerHTML = `<p class="sheet-msg">${ic('play', 'sm')} คลิปละ ${r.duration} วินาที · 1080p · <b>฿${r.price}</b> จ่ายจาก Wallet (คงเหลือ ฿${(+me.balance || 0).toFixed(2)}) · สร้างไม่สำเร็จคืนเงินอัตโนมัติ</p>
+      box.innerHTML = `<p class="sheet-msg">${ic('play', 'sm')} 1080p · ยาวได้ถึง ${r.max_s} วินาที · <b>฿${r.price} ต่อคลิป</b> (ไม่ขึ้นกับความยาว) จ่ายจาก Wallet (คงเหลือ ฿${(+me.balance || 0).toFixed(2)}) · สร้างไม่สำเร็จคืนเงินอัตโนมัติ</p>
         <textarea id="vprompt" rows="4" maxlength="2000" placeholder="อธิบายฉาก เช่น มุมกล้อง แสง การเคลื่อนไหว อารมณ์ภาพ · เขียนเป็นภาษาอังกฤษจะได้ผลดีที่สุด"></textarea>
-        <div class="row"><div class="seg" role="group" aria-label="สัดส่วนภาพ"><button type="button" data-asp="16:9" class="${aspect === '16:9' ? 'on' : ''}">16:9 แนวนอน</button><button type="button" data-asp="9:16" class="${aspect === '9:16' ? 'on' : ''}">9:16 แนวตั้ง</button></div></div>
+        <div class="row"><div class="seg" role="group" aria-label="สัดส่วนภาพ"><button type="button" data-asp="16:9" class="${aspect === '16:9' ? 'on' : ''}">16:9 แนวนอน</button><button type="button" data-asp="9:16" class="${aspect === '9:16' ? 'on' : ''}">9:16 แนวตั้ง</button></div>
+          <label style="flex:1;min-width:120px">ความยาว<select id="vdur">${Array.from({ length: r.max_s - 3 }, (_, k) => k + 4).map(s => `<option value="${s}" ${s === dur ? 'selected' : ''}>${s} วินาที</option>`).join('')}</select></label></div>
+        <div class="row"><button type="button" class="btn out sm" id="vref">${ic('clip', 'sm')} แนบรูป/เสียงอ้างอิง</button><input type="file" id="vreff" accept="image/*,audio/*" multiple hidden><small class="muted" id="vrefn">${refs.length ? refs.length + ' ไฟล์' : `รูปได้ ${r.max_images} ใบ · เสียง ${r.max_audios} ไฟล์ (ไม่จำเป็น)`}</small></div>
         <button type="button" class="btn blue" id="vgo">${ic('play', 'sm')} สร้างวิดีโอ ฿${r.price}</button>
         ${me.balance < r.price ? '<a class="btn out" href="/plans?topup=1">เติมเงิน Wallet</a>' : ''}
         <div class="vid-list">${r.items.map(card).join('') || '<p class="muted">ยังไม่มีวิดีโอ</p>'}</div>`;
       box.querySelector('#vprompt').value = keep;
+      box.querySelector('#vdur').onchange = e => { dur = +e.target.value; };
+      box.querySelector('#vref').onclick = () => box.querySelector('#vreff').click();
+      box.querySelector('#vreff').onchange = async e => { for (const f of [...e.target.files]) { if (f.size > 8e6) { toast(f.name + ' ใหญ่เกิน 8MB', 'bad'); continue; } const kind = f.type.startsWith('audio/') ? 'audio' : 'image';
+          if (refs.filter(x => x.kind === kind).length >= (kind === 'audio' ? r.max_audios : r.max_images)) continue; refs.push({ kind, data: await new Promise(ok => { const rd = new FileReader(); rd.onload = () => ok(rd.result); rd.readAsDataURL(f); }) }); }
+        box.querySelector('#vrefn').textContent = `รูป ${refs.filter(x => x.kind === 'image').length} · เสียง ${refs.filter(x => x.kind === 'audio').length}`; e.target.value = ''; };
       box.querySelectorAll('[data-asp]').forEach(b => b.onclick = () => { aspect = b.dataset.asp; box.querySelectorAll('[data-asp]').forEach(x => x.classList.toggle('on', x === b)); });
       box.querySelector('#vgo').onclick = async e => { const p = box.querySelector('#vprompt').value.trim(); if (p.length < 5) return toast('อธิบายฉากที่ต้องการก่อน', 'bad');
         if (!confirm(`สร้างวิดีโอ 1 คลิป ฿${r.price} จาก Wallet?`)) return; e.target.disabled = true;
-        try { const x = await api('/videos', { method: 'POST', body: { prompt: p, aspect } }); me.balance = x.balance; box.querySelector('#vprompt').value = ''; toast('เริ่มสร้างแล้ว เสร็จแล้วดูได้ที่นี่', 'ok'); } catch (y) { toast(y.message, 'bad'); }
+        try { const x = await api('/videos', { method: 'POST', body: { prompt: p, aspect, duration: dur, images: refs.filter(f => f.kind === 'image').map(f => f.data), audios: refs.filter(f => f.kind === 'audio').map(f => f.data), chat_id: chat.id || null } }); refs = []; me.balance = x.balance; box.querySelector('#vprompt').value = ''; toast('เริ่มสร้างแล้ว เสร็จแล้วดูได้ที่นี่', 'ok'); } catch (y) { toast(y.message, 'bad'); }
         draw(); };
       box.querySelectorAll('[data-vdel]').forEach(b => b.onclick = async () => { if (!confirm('ลบวิดีโอนี้?')) return; await api('/videos/' + b.dataset.vdel, { method: 'DELETE' }).catch(x => toast(x.message, 'bad')); draw(); });
       stop(); if (r.items.some(v => ['queued', 'processing'].includes(v.status))) timer = setTimeout(draw, 10000);

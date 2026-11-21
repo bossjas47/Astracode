@@ -127,6 +127,7 @@ function cwPaint() {
     else if (e.type === 'think') h += `<details class="cw-think"><summary>${ic('bulb', 'sm')} Thinking</summary><p>${esc(e.text.slice(0, 3000))}</p></details>`;
     else if (e.type === 'tool' && e.name !== 'todo_write') { const r = res.get(e.id), st = r ? (r.ok === false ? 'bad' : 'ok') : CW.status === 'running' ? 'run' : 'bad';
       h += `<details class="cw-tool ${st}"><summary>${st === 'run' ? '<span class="cw-spin"></span>' : ic(st === 'ok' ? 'check' : 'x', 'sm')} ${esc(TOOL_TH[e.name] || e.name)} <small>${esc(cwArg(e))}</small></summary><div class="cw-req"><small class="muted">Request</small><pre>${esc(JSON.stringify(e.args || {}, null, 2).slice(0, 4000))}</pre>${r?.preview ? `<small class="muted">Result</small><pre>${esc(String(r.preview).slice(0, 3000))}</pre>` : ''}</div></details>`; }
+    else if (e.type === 'video') h += `<figure class="cw-shot"><video src="/api/cowork/${CW.id}/file?view=1&path=${encodeURIComponent(e.path)}" controls playsinline preload="metadata"></video><figcaption class="muted">${esc(e.path)}</figcaption></figure>`;
     else if (e.type === 'shot') h += `<figure class="cw-shot"><img src="/api/cowork/${CW.id}/file?view=1&path=${encodeURIComponent(e.path)}" alt="ภาพหน้าจอเบราว์เซอร์" loading="lazy"><figcaption class="muted">${esc(e.path)}</figcaption></figure>`;
     else if (e.type === 'info') h += `<p class="cw-info muted">${esc(e.text)}</p>`;
     else if (e.type === 'ask') { const done = CW.ev.some(x => x.type === 'answered' && x.id === e.id) || CW.status !== 'running';

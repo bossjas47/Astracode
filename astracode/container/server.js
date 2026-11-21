@@ -18,6 +18,7 @@ const asks = new Map(); // คำถามที่รอลูกค้าต�
 const COWORK_TOOLS = [
   fnT('ask_user', 'Ask the user ONE question when the task is unclear or a decision is theirs (which file, which option, missing info, permission to delete/overwrite). Give 2-4 short options when you can. Waits for the answer (up to 20 minutes).', { question: S('The question, in the user\'s language'), options: { type: 'array', items: { type: 'string' }, description: '2-4 short choices (optional)' } }, ['question']),
   fnT('generate_image', 'Create a picture (illustration, banner, product shot, slide image) with the image generator and save it as a PNG in the task folder.', { prompt: S('Detailed English description'), path: S('Where to save, e.g. images/cover.png') }, ['prompt']),
+  fnT('generate_video', 'Create a video clip (1080p, 4-30 s) and save it as an MP4 in the task folder. Costs a flat price per clip from the user\'s Wallet (refunded if it fails), so only when the user asked for a video. Takes 1-5 minutes.', { prompt: S('Detailed English scene description: subject, action, camera, lighting, mood'), duration: { type: 'integer', description: '4-30 seconds' }, aspect: { type: 'string', enum: ['16:9', '9:16'] }, images: { type: 'array', items: { type: 'string' }, description: 'Up to 9 reference image paths in the task folder' }, audios: { type: 'array', items: { type: 'string' }, description: 'Up to 3 reference audio paths' }, path: S('Where to save, e.g. videos/ad.mp4') }, ['prompt']),
   fnT('look_at_image', 'Look at an image or scanned document in the task folder (receipt, photo of a form, chart, screenshot) and get its text and description. Use it for OCR before working with the numbers.', { path: S('Image path (.png .jpg .jpeg .webp)'), question: S('What to extract, e.g. "all line items and totals as a table"') }, ['path']),
   fnT('save_to_drive', 'Upload a file from the task folder to the user\'s Google Drive (needs Google connected on the website). Office files can be converted to Google Docs/Sheets/Slides.', { path: S('File path'), convert: { type: 'boolean' } }, ['path']),
   fnT('email_files', 'Email files from the task folder as real attachments through the user\'s Gmail. Creates a DRAFT unless send=true; only send when the user clearly asked to send.', { to: S('Recipient emails, comma separated'), subject: S('Subject'), body: S('Plain text body'), paths: { type: 'array', items: { type: 'string' } }, send: { type: 'boolean' } }, ['to', 'subject', 'body']),
@@ -90,6 +91,24 @@ async function turn(o, before) {
       const it = d.data?.[0] || {}, buf = it.b64_json ? Buffer.from(it.b64_json, 'base64') : it.url ? Buffer.from(await (await fetch(it.url.startsWith('/') ? o.site + it.url : it.url)).arrayBuffer()) : null; if (!buf) return 'Error: no image returned';
       const rel = String(a.path || `images/image-${Date.now()}.png`).replace(/^\/+/, ''), f = ws.abs(rel); if (!ws.inside(f)) return 'Error: path must be inside the task folder';
       await fs.mkdir(path.dirname(f), { recursive: true }); await fs.writeFile(f, buf); events.push({ type: 'shot', path: rel, t: Date.now() }); return `Saved image ${rel}`;
+    }
+    if (o.cowork && n === 'generate_video') {
+      const asData = async (list, max) => { const out = []; for (const p of (Array.isArray(list) ? list : []).slice(0, max)) out.push(`data:${mimeOf(p)};base64,${await readB64(p)}`); return out; };
+      const r = await api('/v1/videos', { method: 'POST', body: JSON.stringify({ prompt: a.prompt, duration: a.duration, aspect_ratio: a.aspect, images: await asData(a.images, 9), audios: await asData(a.audios, 3) }) }), d = await r.json().catch(() => ({}));
+      if (!r.ok) return 'Error: ' + (d.error?.message || 'HTTP ' + r.status);
+      events.push({ type: 'info', text: `กำลังสร้างวิดีโอ #${d.id} (${d.duration} วินาที) · ฿${d.charged_thb}`, t: Date.now() });
+      for (let i = 0; i < 100; i++) {
+        await new Promise((ok, no) => { const tm = setTimeout(ok, 10000); ac.signal.addEventListener('abort', () => { clearTimeout(tm); no(new Error('หยุดแล้ว')); }, { once: true }); });
+        const s = await (await api('/v1/videos/' + d.id)).json().catch(() => ({}));
+        if (s.status === 'failed') return 'Error: video failed (refunded): ' + (s.error?.message || '');
+        if (s.status === 'completed') {
+          const f = await api('/v1/videos/' + d.id + '/content'); if (!f.ok) continue;
+          const rel = String(a.path || `videos/video-${d.id}.mp4`).replace(/^\/+/, ''), abs = ws.abs(rel); if (!ws.inside(abs)) return 'Error: path must be inside the task folder';
+          await fs.mkdir(path.dirname(abs), { recursive: true }); await fs.writeFile(abs, Buffer.from(await f.arrayBuffer()));
+          events.push({ type: 'video', path: rel, t: Date.now() }); return `Saved video ${rel}`;
+        }
+      }
+      return 'Error: the video is still processing after ~16 minutes; it will appear in the website\'s video list when done';
     }
     if (o.cowork && n === 'look_at_image') {
       const b64 = await readB64(a.path), type = mimeOf(a.path); if (!type.startsWith('image/')) return 'Error: use read_document for PDF/Office files';

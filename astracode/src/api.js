@@ -77,6 +77,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       return out({ ok: true });
     }
     // Connector (Remote MCP ที่ลูกค้าเชื่อมไว้บนเว็บ เช่น Gmail/Notion ผ่าน Zapier/Composio): Agent ในแอปเรียกผ่านเซิร์ฟเวอร์ token ไม่ออกจากเซิร์ฟเวอร์
+    if (path.startsWith('/v1/videos')) { const { videoV1 } = await import('./video.js'); const r = await videoV1(req, env, k, path); if (r) return r; } // สร้างวิดีโอผ่าน API (Cowork บนคลาวด์ / ลูกค้า API)
     if (path === '/v1/mcp/tools' || (path === '/v1/mcp/call' && req.method === 'POST')) {
       const ct = await connTools(env, k.id, { ids: (await env.DB.prepare('SELECT id FROM mcp_servers WHERE user_id=0 AND enabled=1').all().catch(() => ({ results: [] }))).results.map(x => x.id), prefix: 'rmcp_' });
       const tools = ct.tools.map(t => { const x = ct.map.get(t.function.name); return { name: t.function.name, description: t.function.description, parameters: t.function.parameters, sv: x.sv, tool: x.name }; }); // ไม่รวมเครื่องมือที่ผู้ใช้ตั้ง "ห้ามใช้" · แอปถามผู้ใช้เองก่อนใช้

@@ -206,6 +206,7 @@ const unb64u8 = s => { try { return new TextDecoder().decode(Uint8Array.from(ato
 export const stripMarkers = t => String(t || '')
   .replace(/!\[([^\]\n]{0,200})\]\(data:image\/[^)]+\)/g, (_, alt) => `[image created${alt ? ': ' + alt : ''}]`) // รูปที่เก็บเป็น data URL (หลายร้อย KB) ไม่ส่งให้โมเดลอ่านเป็นข้อความ
   .replace(/\[\[dl:([^|\]\n]{1,120})\|[A-Za-z0-9+/=]+\]\]/g, '[file created: $1]')
+  .replace(/\[\[vid:(\d+)\]\]/g, '[video #$1 created]')
   .replace(/\[\[uf:(\d+)\|(\d+)\|([^\]\n]{0,120})\]\]/g, '[account file file_id=$1 v$2: $3]')
   .replace(/\[\[art:(\d+)\|(\d+)\|([^\]\n]{0,120})\]\]/g, '[artifact id=$1 v$2: $3]')
   .replace(/\[\[mem:\d+\|([^\]\n]{1,300})\]\]/g, '[remembered: $1]')

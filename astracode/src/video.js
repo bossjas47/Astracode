@@ -6,7 +6,42 @@ import { getSettings } from './billing.js';
 
 export const VIDEO_BASE = 'https://api.maxplus-ai.cc', VIDEO_COST = 37.5;
 const TABLE = 'CREATE TABLE IF NOT EXISTS videos (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, prompt TEXT NOT NULL, aspect TEXT NOT NULL, status TEXT NOT NULL, upstream_id TEXT, error TEXT, charged REAL NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0, checked_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)';
-export const ensureVideos = env => env.DB.batch([env.DB.prepare(TABLE), env.DB.prepare('CREATE INDEX IF NOT EXISTS videos_user ON videos(user_id, id)')]);
+let vReady = null;
+export const ensureVideos = env => vReady ||= env.DB.batch([env.DB.prepare(TABLE), env.DB.prepare('CREATE INDEX IF NOT EXISTS videos_user ON videos(user_id, id)')])
+  .then(() => Promise.all(['chat_id INTEGER', 'duration INTEGER'].map(c => env.DB.prepare('ALTER TABLE videos ADD COLUMN ' + c).run().catch(() => {})))).catch(e => { vReady = null; throw e; });
+export const VIDEO_MAX_S = 30, VIDEO_IMGS = 9, VIDEO_AUDIOS = 3;
+// เครื่องมือของ AI (แชต / Code / Cowork): สร้างวิดีโอในเซสชันนั้นเลย · ราคาเหมาต่อคลิป (ไม่ขึ้นกับความยาว)
+export const videoToolDef = price => ({ type: 'function', function: { name: 'generate_video', description: `Create a video clip (1080p, 4-30 seconds, Seedance) when the user asks for a video/clip/animation. Costs ฿${price} per clip from the user's Wallet, refunded automatically if it fails, so only call it when the user clearly wants a video, and at most 2 clips per answer. It takes 1-5 minutes; the clip appears under your answer by itself. Write the prompt in English: subject, action, camera movement, lighting, mood, style.`, parameters: { type: 'object', properties: {
+  prompt: { type: 'string', description: 'Detailed English scene description' }, duration: { type: 'integer', description: 'Seconds, 4-30 (default 5)' }, aspect: { type: 'string', enum: ['16:9', '9:16'] },
+  use_attached_images: { type: 'boolean', description: 'Use the images the user attached in this message as references (up to 9)' } }, required: ['prompt'] } } });
+export const vidMarker = id => `\n\n[[vid:${id}]]\n`;
+// สร้างคลิป: หัก Wallet → ส่งงานให้ผู้ให้บริการ → ไม่สำเร็จคืนเงิน · images/audios = data URL หรือ URL
+export async function createVideo(env, u, { prompt, aspect, duration, images = [], audios = [], chat_id = null }) {
+  await ensureVideos(env); const c = await videoConf(env), DB = env.DB;
+  if (!c.enabled || !env.SLIPS) throw Object.assign(new Error('ยังไม่เปิดระบบสร้างวิดีโอ'), { status: 503 });
+  if (await limited(env, 'video:' + u.id, 10, 3600e3)) throw Object.assign(new Error('สร้างวิดีโอถี่เกินไป ลองใหม่ภายหลัง'), { status: 429 });
+  if ((await DB.prepare("SELECT COUNT(*) n FROM videos WHERE user_id=? AND status IN ('queued','processing')").bind(u.id).first()).n >= 2) throw Object.assign(new Error('กำลังสร้างอยู่ 2 คลิปแล้ว รอให้เสร็จก่อน'), { status: 429 });
+  prompt = String(prompt || '').trim().slice(0, 2000); if (prompt.length < 5) throw Object.assign(new Error('อธิบายฉากที่ต้องการก่อน (มุมกล้อง แสง การเคลื่อนไหว อารมณ์ภาพ)'), { status: 400 });
+  aspect = aspect === '9:16' ? '9:16' : '16:9'; duration = Math.min(VIDEO_MAX_S, Math.max(4, Math.round(+duration || 5)));
+  images = (Array.isArray(images) ? images : []).filter(x => typeof x === 'string' && /^(data:image\/|https:\/\/)/.test(x)).slice(0, VIDEO_IMGS);
+  audios = (Array.isArray(audios) ? audios : []).filter(x => typeof x === 'string' && /^(data:audio\/|https:\/\/)/.test(x)).slice(0, VIDEO_AUDIOS);
+  const now = Date.now(), took = await DB.prepare('UPDATE users SET balance=balance-?1 WHERE id=?2 AND balance>=?1 RETURNING balance').bind(c.price, u.id).first();
+  if (!took) throw Object.assign(new Error(`ยอดเงินใน Wallet ไม่พอ (คลิปละ ฿${c.price}) เติมเงินก่อน`), { status: 402 });
+  const v = await DB.prepare("INSERT INTO videos (user_id,prompt,aspect,status,charged,cost,created_at,updated_at,chat_id,duration) VALUES (?,?,?,'queued',?,?,?,?,?,?) RETURNING *").bind(u.id, prompt, aspect, c.price, VIDEO_COST, now, now, chat_id || null, duration).first();
+  await DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -c.price, took.balance, 'video', 'สร้างวิดีโอ #' + v.id, now).run();
+  try {
+    const r = await up(c, '/v1/videos', { method: 'POST', body: JSON.stringify({ channel_slug: 'unified-video', model: c.model, prompt, duration, aspect_ratio: aspect, resolution: '1080p', ...(images.length ? { images } : {}), ...(audios.length ? { audios } : {}) }) });
+    if (!r.ok) throw new Error(await upErr(r));
+    const d = await r.json(); if (!d.id) throw new Error('ไม่ได้รับรหัสงาน');
+    await DB.prepare("UPDATE videos SET upstream_id=?, status='processing', updated_at=? WHERE id=?").bind(String(d.id), Date.now(), v.id).run();
+  } catch (e) { await refund(env, v, 'เริ่มสร้างไม่สำเร็จ: ' + e.message); throw Object.assign(new Error('เริ่มสร้างวิดีโอไม่สำเร็จ (คืนเงินแล้ว): ' + e.message), { status: 502 }); }
+  return { id: v.id, price: c.price, balance: took.balance, duration };
+}
+// เรียกจากลูปเครื่องมือของแชต/Code
+export async function videoTool(env, u, cid, a, { images = [] } = {}) {
+  try { const r = await createVideo(env, u, { prompt: a.prompt, aspect: a.aspect, duration: a.duration, images: a.use_attached_images ? images : [], chat_id: cid }); return { result: `Video #${r.id} (${r.duration}s) is being created; ฿${r.price} was charged to the Wallet (refunded if it fails). It appears under your answer in 1-5 minutes. Do not paste a link.`, emit: vidMarker(r.id), ok: true, label: 'สร้างวิดีโอ' }; }
+  catch (e) { return { result: 'Error: ' + e.message, ok: false, label: 'สร้างวิดีโอ' }; }
+}
 export async function videoConf(env) {
   const s = await getSettings(env, ['video_enabled', 'video_price', 'video_key_name', 'video_model']);
   const keyName = s.video_key_name || 'VIDEO_KEY';
@@ -41,7 +76,7 @@ export async function checkVideo(env, v, c) {
   if (d.status && d.status !== v.status) await env.DB.prepare('UPDATE videos SET status=?, updated_at=? WHERE id=?').bind(d.status === 'queued' ? 'queued' : 'processing', Date.now(), v.id).run();
   return v;
 }
-const pub = v => ({ id: v.id, prompt: v.prompt, aspect: v.aspect, status: v.status, error: v.error, charged: v.charged, created_at: v.created_at, url: v.status === 'done' ? `/api/videos/${v.id}/file` : null });
+const pub = v => ({ id: v.id, prompt: v.prompt, aspect: v.aspect, duration: v.duration || 5, status: v.status, error: v.error, charged: v.charged, created_at: v.created_at, url: v.status === 'done' ? `/api/videos/${v.id}/file` : null });
 
 export async function videoApi(req, env, u, path, M) {
   if (!path.startsWith('/api/videos')) return null;
@@ -49,25 +84,11 @@ export async function videoApi(req, env, u, path, M) {
   if (path === '/api/videos' && M === 'GET') {
     const L = (await DB.prepare('SELECT * FROM videos WHERE user_id=? ORDER BY id DESC LIMIT 30').bind(u.id).all()).results;
     const out = []; for (const v of L) out.push(c.key && env.SLIPS ? await checkVideo(env, v, c) : v);
-    return json({ enabled: c.enabled, price: c.price, duration: 5, items: out.map(pub) });
+    return json({ enabled: c.enabled, price: c.price, max_s: VIDEO_MAX_S, max_images: VIDEO_IMGS, max_audios: VIDEO_AUDIOS, items: out.map(pub) });
   }
   if (path === '/api/videos' && M === 'POST') {
-    if (!c.enabled || !env.SLIPS) return err('ยังไม่เปิดระบบสร้างวิดีโอ', 503);
-    if (await limited(env, 'video:' + u.id, 10, 3600e3)) return err('สร้างวิดีโอถี่เกินไป ลองใหม่ภายหลัง', 429);
-    if ((await DB.prepare("SELECT COUNT(*) n FROM videos WHERE user_id=? AND status IN ('queued','processing')").bind(u.id).first()).n >= 2) return err('กำลังสร้างอยู่ 2 คลิปแล้ว รอให้เสร็จก่อน', 429);
-    const b = await req.json().catch(() => ({})), prompt = String(b.prompt || '').trim().slice(0, 2000), aspect = b.aspect === '9:16' ? '9:16' : '16:9';
-    if (prompt.length < 5) return err('อธิบายฉากที่ต้องการก่อน (มุมกล้อง แสง การเคลื่อนไหว อารมณ์ภาพ)');
-    const now = Date.now(), took = await DB.prepare('UPDATE users SET balance=balance-?1 WHERE id=?2 AND balance>=?1 RETURNING balance').bind(c.price, u.id).first();
-    if (!took) return err(`ยอดเงินใน Wallet ไม่พอ (คลิปละ ฿${c.price}) เติมเงินก่อน`, 402);
-    const v = await DB.prepare("INSERT INTO videos (user_id,prompt,aspect,status,charged,cost,created_at,updated_at) VALUES (?,?,?,'queued',?,?,?,?) RETURNING *").bind(u.id, prompt, aspect, c.price, VIDEO_COST, now, now).first();
-    await DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -c.price, took.balance, 'video', 'สร้างวิดีโอ #' + v.id, now).run();
-    try {
-      const r = await up(c, '/v1/videos', { method: 'POST', body: JSON.stringify({ channel_slug: 'unified-video', model: c.model, prompt, duration: 5, aspect_ratio: aspect, resolution: '1080p' }) });
-      if (!r.ok) throw new Error(await upErr(r));
-      const d = await r.json(); if (!d.id) throw new Error('ไม่ได้รับรหัสงาน');
-      await DB.prepare("UPDATE videos SET upstream_id=?, status='processing', updated_at=? WHERE id=?").bind(String(d.id), Date.now(), v.id).run();
-    } catch (e) { await refund(env, v, 'เริ่มสร้างไม่สำเร็จ: ' + e.message); return err('เริ่มสร้างวิดีโอไม่สำเร็จ (คืนเงินแล้ว): ' + e.message, 502); }
-    return json({ id: v.id, balance: took.balance });
+    const b = await req.json().catch(() => ({}));
+    try { return json(await createVideo(env, u, { prompt: b.prompt, aspect: b.aspect, duration: b.duration, images: b.images, audios: b.audios, chat_id: +b.chat_id || null })); } catch (x) { return err(x.message, x.status || 500); }
   }
   const m = path.match(/^\/api\/videos\/(\d+)(\/file)?$/); if (!m) return err('not found', 404);
   let v = await DB.prepare('SELECT * FROM videos WHERE id=? AND user_id=?').bind(+m[1], u.id).first(); if (!v) return err('ไม่พบวิดีโอ', 404);
@@ -83,4 +104,20 @@ export async function videoApi(req, env, u, path, M) {
 export async function cronVideos(env) {
   await ensureVideos(env); const c = await videoConf(env); if (!c.key || !env.SLIPS) return;
   for (const v of (await env.DB.prepare("SELECT * FROM videos WHERE status IN ('queued','processing') LIMIT 30").all()).results) await checkVideo(env, v, c).catch(() => {});
+}
+
+// /v1/videos สำหรับ API key (Cowork บนคลาวด์ และลูกค้า API): POST สร้าง · GET /v1/videos/:id สถานะ · GET /v1/videos/:id/content ไฟล์ mp4
+export async function videoV1(req, env, k, path) {
+  const u = { id: k.id };
+  if (path === '/v1/videos' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    try { const r = await createVideo(env, u, { prompt: b.prompt, aspect: b.aspect_ratio || b.aspect, duration: b.duration, images: b.images, audios: b.audios }); return json({ id: String(r.id), object: 'video', status: 'processing', duration: r.duration, charged_thb: r.price }); }
+    catch (x) { return json({ error: { message: x.message, type: 'video_error' } }, x.status || 500); }
+  }
+  const m = path.match(/^\/v1\/videos\/(\d+)(\/content)?$/); if (!m || req.method !== 'GET') return null;
+  await ensureVideos(env); const c = await videoConf(env);
+  let v = await env.DB.prepare('SELECT * FROM videos WHERE id=? AND user_id=?').bind(+m[1], k.id).first(); if (!v) return json({ error: { message: 'video not found' } }, 404);
+  if (c.key && env.SLIPS) v = await checkVideo(env, v, c);
+  if (m[2]) { const o = v.status === 'done' && await env.SLIPS.get(`video/${v.user_id}/${v.id}.mp4`); return o ? new Response(o.body, { headers: { 'content-type': 'video/mp4' } }) : json({ error: { message: 'not ready' } }, 409); }
+  return json({ id: String(v.id), object: 'video', status: v.status === 'done' ? 'completed' : v.status, error: v.error ? { message: v.error } : null, output: v.status === 'done' ? { url: `/v1/videos/${v.id}/content` } : null });
 }

@@ -13,7 +13,7 @@ export const ensureCowork = env => env.DB.batch([env.DB.prepare(TABLE), env.DB.p
 const r2key = (t, p) => `cowork/${t.user_id}/${t.id}/${p}`;
 const cleanPath = p => String(p || '').replace(/\\/g, '/').replace(/^\/+/, '').split('/').filter(x => x && x !== '..' && x !== '.').join('/').slice(0, 300);
 export const coworkModel = env => env.DB.prepare('SELECT * FROM models WHERE active=1 AND name=?').bind(COWORK_MODEL).first();
-const mimeOf = p => ({ xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', csv: 'text/csv; charset=utf-8', md: 'text/markdown; charset=utf-8', txt: 'text/plain; charset=utf-8', html: 'text/html; charset=utf-8', json: 'application/json' })[String(p).split('.').pop().toLowerCase()] || 'application/octet-stream';
+const mimeOf = p => ({ xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', pdf: 'application/pdf', png: 'image/png', mp4: 'video/mp4', mp3: 'audio/mpeg', wav: 'audio/wav', jpg: 'image/jpeg', jpeg: 'image/jpeg', csv: 'text/csv; charset=utf-8', md: 'text/markdown; charset=utf-8', txt: 'text/plain; charset=utf-8', html: 'text/html; charset=utf-8', json: 'application/json' })[String(p).split('.').pop().toLowerCase()] || 'application/octet-stream';
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const toB64 = buf => { const b = new Uint8Array(buf); let o = ''; for (let i = 0; i < b.length; i += 0x8000) o += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(o); };
 
@@ -120,7 +120,7 @@ export async function coworkApi(req, env, u, path, M, url) {
   if (r[2] === '/file' && M === 'GET') {
     const p = cleanPath(url.searchParams.get('path')); if (!JSON.parse(t.files || '[]').some(f => f.path === p)) return err('ไม่พบไฟล์', 404);
     const o = env.SLIPS && await env.SLIPS.get(r2key(t, p)); if (!o) return err('ไม่พบไฟล์', 404);
-    const inline = url.searchParams.get('view') === '1' && /^(image\/|application\/pdf|text\/plain|text\/csv|text\/markdown)/.test(mimeOf(p));
+    const inline = url.searchParams.get('view') === '1' && /^(image\/|video\/mp4|audio\/|application\/pdf|text\/plain|text\/csv|text\/markdown)/.test(mimeOf(p));
     return new Response(o.body, { headers: { 'content-type': mimeOf(p), 'content-disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(p.split('/').pop())}`, 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox", 'cache-control': 'private, max-age=0' } });
   }
   if (r[2] === '/file' && M === 'POST') { try { await putInputs(t, (await req.json().catch(() => ({}))).files); } catch (e) { return err(e.message, 413); } return json({ ok: true, files: JSON.parse(t.files) }); }

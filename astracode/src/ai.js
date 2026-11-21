@@ -4,6 +4,7 @@ import { FREE_CTX, FREE_DAY_CAP, isFreeModel, DAY, HISTORY, HISTORY_CODE, LOCK_M
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { createAccountFile, fileTool } from './files.js';
+import { videoConf, videoToolDef, videoTool } from './video.js';
 import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, PLAN_NOTE, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, todosOf, verifyWork, webTools } from './codetools.js';
 import { GOOGLE_TOOLS, GOOGLE_URL, googleCall } from './google.js';
 import { askApproval, connCall, connTools } from './connectors.js';
@@ -613,7 +614,9 @@ export async function runChat(env, J, send, st) {
   const zipLoad = async () => zipCache ||= Object.assign({}, ...await Promise.all(zipIds.map(async id => { const o = await env.SLIPS.get(`zip/${u.id}/${id}.json`); return o ? await o.json().catch(() => ({})) : {}; })));
   const zipTools = zipIds.length ? ZIP_TOOLS : [];
   const ws = codeRows ? codeWorkspace(codeRows) : null;
-  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt, art: artPaid(J.plan) }), ...(J.task ? CODE_TOOLS.filter(t => t.function.name === 'todo_write') : [])] : []), ...(useTools && ws ? (J.perm === 'plan' ? CODE_TOOLS.filter(t => !WRITE_TOOLS.has(t.function.name)) : CODE_TOOLS) : [])];
+  const vconf = useTools ? await videoConf(env).catch(() => null) : null, vidT = vconf?.enabled && env.SLIPS ? [videoToolDef(vconf.price)] : []; // สร้างวิดีโอได้ทั้งแชตและ Code
+  let vids = 0;
+  const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools ? vidT : []), ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt, art: artPaid(J.plan) }), ...(J.task ? CODE_TOOLS.filter(t => t.function.name === 'todo_write') : [])] : []), ...(useTools && ws ? (J.perm === 'plan' ? CODE_TOOLS.filter(t => !WRITE_TOOLS.has(t.function.name)) : CODE_TOOLS) : [])];
   let imgUsed = false, pyStop = false; // รูป 1 รูปต่อคำตอบ · run_python = จบคำตอบให้หน้าเว็บรันแล้วส่งผลกลับ
   const sysNow = () => (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + (pid && J.perm === 'plan' ? PLAN_NOTE : '') + localSys(J.local, !!pid) + (J.task ? TASK_SYS : '');
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำ
@@ -723,10 +726,11 @@ export async function runChat(env, J, send, st) {
       for (const tc of toolCalls) {
         const tname = tc.function?.name || '';
         if (WRITE_TOOLS.has(tname)) wrote = true; else if (tname !== 'todo_write') onlyWrites = false; // อัปเดตรายการงานไม่ใช่การอ่าน: รอบที่แก้ไฟล์ + อัปเดตรายการ ยังนับว่าจบงานได้
-        if ((ws && CODE_TOOL_NAMES.has(tname)) || (J.task && tname === 'todo_write') || WEB_TOOL_NAMES.has(tname) || (!pid && CHAT_TOOL_NAMES.has(tname))) {
+        if ((tname === 'generate_video' && vidT.length) || (ws && CODE_TOOL_NAMES.has(tname)) || (J.task && tname === 'todo_write') || WEB_TOOL_NAMES.has(tname) || (!pid && CHAT_TOOL_NAMES.has(tname))) {
           let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* อาร์กิวเมนต์เสีย: ให้เครื่องมือตอบ error */ }
           let r;
           if (cumIn >= inMax && !WRITE_TOOLS.has(tname)) r = { result: 'Reading budget for this answer is used up. Stop reading and finish the task with what you have.', ok: false, label: tname };
+          else if (tname === 'generate_video') r = ++vids > 2 ? { result: 'Error: at most 2 videos per answer', ok: false, label: 'สร้างวิดีโอ' } : await videoTool(env, u, cid, args, { images: J.images });
           else if (tname === 'todo_write') { const todo = todosOf(args); lastTodo = todo; await send({ todo }); r = { result: todo.length ? 'Checklist updated.' : 'Error: todos is empty.', ok: todo.length > 0, label: '' }; }
           else if (J.perm === 'plan' && WRITE_TOOLS.has(tname)) r = { result: 'Error: plan mode is on, files cannot be changed. Reply with the plan instead.', ok: false, label: 'ข้าม (โหมด Plan)' };
           else if (ws && CODE_TOOL_NAMES.has(tname)) { r = codeTool(ws, tname, args); if (r.ok && WRITE_TOOLS.has(tname) && args.path) touched.add(String(args.path).replace(/^\.?\//, '')); }

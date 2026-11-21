@@ -1254,3 +1254,20 @@ async function disablePush() {
   const r = await navigator.serviceWorker.getRegistration('/push/'), sub = await r?.pushManager.getSubscription();
   if (sub) { await api('/push/sub', { method: 'DELETE', body: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
 }
+
+// ---------- วิดีโอที่ AI สร้างในแชต / Code [[vid:id]]: การ์ดที่เช็กสถานะเองจนเสร็จ แล้วเล่นได้ทันที ----------
+const VID_RE = /\[\[vid:(\d+)\]\]/g;
+const vidStrip = t => String(t || '').replace(VID_RE, '');
+const vidCards = t => [...new Set([...String(t || '').matchAll(VID_RE)].map(m => m[1]))].map(id => `<div class="vid-card" data-vid="${id}"><div class="vid-wait"><span class="cw-spin"></span> กำลังสร้างวิดีโอ… ประมาณ 1–5 นาที</div></div>`).join('');
+const VID_DONE = new Map();
+async function vidPoll() {
+  for (const el of document.querySelectorAll('.vid-card:not([data-ok])')) {
+    const id = el.dataset.vid, known = VID_DONE.get(id);
+    const v = known || await api('/videos/' + id).catch(() => null); if (!v) continue;
+    if (v.status === 'done' || v.status === 'failed') VID_DONE.set(id, v);
+    if (v.status === 'done') { el.dataset.ok = '1'; el.innerHTML = `<video src="${v.url}" controls playsinline preload="metadata" class="${v.aspect === '9:16' ? 'tall' : ''}"></video><div class="row"><small class="muted">${v.duration || 5} วินาที · ${v.aspect} · ฿${v.charged}</small><a class="btn out sm" href="${v.url}" download="astracode-video-${v.id}.mp4">${ic('download', 'sm')} ดาวน์โหลด</a></div>`; }
+    else if (v.status === 'failed') { el.dataset.ok = '1'; el.innerHTML = `<div class="vid-wait failed">${ic('x')} สร้างวิดีโอไม่สำเร็จ (คืนเงินแล้ว)${v.error ? ': ' + esc(v.error.slice(0, 120)) : ''}</div>`; }
+  }
+}
+setInterval(() => { if (document.querySelector('.vid-card:not([data-ok])') && document.visibilityState === 'visible') vidPoll(); }, 10000);
+new MutationObserver(() => { const el = document.querySelector('.vid-card:not([data-ok]):not([data-seen])'); if (el) { document.querySelectorAll('.vid-card:not([data-seen])').forEach(x => x.dataset.seen = '1'); setTimeout(vidPoll, 300); } }).observe(document.documentElement, { childList: true, subtree: true });
