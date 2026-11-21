@@ -10,6 +10,7 @@ const toCur = thb => getCur() === 'USD' ? Number(thb || 0) / usdRate() : Number(
 const fmtPlanPrice = thb => getCur() === 'USD' ? '$' + toCur(thb).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '฿' + baht(thb);
 const curSegHTML = () => `<div class="seg" role="group" aria-label="สกุลเงิน" style="margin-left:6px"><button type="button" data-cur="THB" class="${getCur() === 'THB' ? 'on' : ''}">฿ THB</button><button type="button" data-cur="USD" class="${getCur() === 'USD' ? 'on' : ''}">$ USD</button></div>`;
 
+const FB_PAGE = 'https://www.facebook.com/share/1cxdtuiuEt/'; // เพจ Facebook สำหรับติดต่อแอดมิน
 const LOC = window.LANG === 'en' ? 'en-GB' : 'th-TH'; // รูปแบบตัวเลขและวันที่ตามภาษา
 const baht = n => ((Math.round(Number(n || 0) * 100) / 100) || 0).toLocaleString(LOC, { maximumFractionDigits: 2 }); // || 0 กัน "-0"
 // ป้าย "ใหม่" ข้างฟีเจอร์ที่เพิ่งเพิ่ม: หายเมื่อกดใช้ครั้งแรก หรือหลังสิ้นปี 2026
@@ -305,6 +306,7 @@ function acctMenu(btn, host) {
     <a role="menuitem" href="/plans">${ic('layers')}<span>Plans &amp; upgrade</span></a>
     <a role="menuitem" href="/plans?topup=1">${ic('wallet')}<span>Top up</span><small>฿${baht(me.balance)}</small></a>
     <hr>
+    <a role="menuitem" href="${FB_PAGE}" target="_blank" rel="noopener">${ic('msg')}<span>แชตกับแอดมิน (Facebook)</span></a>
     <a role="menuitem" href="/support">${ic('mail')}<span>Contact &amp; support</span></a>
     ${['admin', 'support', 'viewer'].includes(me.role) ? `<a role="menuitem" href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
     <button type="button" role="menuitem" data-ap="out" class="ap-out">${ic('logout')}<span>Log out</span></button>`;
@@ -349,6 +351,7 @@ function settingsSheet() {
     ${row('/developers', 'braces', 'Developer API', 'API keys and OpenAI-compatible usage')}
     ${window.astraDesktop ? '' : row('/#download', 'download', 'Desktop app', 'Windows · Linux: let the AI work with files on your computer')}
     <h4>Help</h4>
+    <a class="opt" href="${FB_PAGE}" target="_blank" rel="noopener"><span class="opt-t">${ic('msg')}แชตกับแอดมิน (Facebook)</span><span class="opt-d">ตอบเร็วที่สุด</span></a>
     ${row('/support', 'mail', 'Contact &amp; support')}
     ${row('/pricing', 'tag', 'Pricing', 'Model prices per 1M tokens')}
     ${row('/blog?c=1', 'sparkles', 'What’s new')}
