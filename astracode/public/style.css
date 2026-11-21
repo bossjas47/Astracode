@@ -1820,3 +1820,12 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .cv-h b#cv-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30vw; }
 .code-h .art-up { margin-right: 4px; color: var(--accent, #d97757); }
 @media (max-width: 520px) { .code-h .art-up { font-size: 0; } .code-h .art-up .ic { font-size: 14px; } }
+/* ความสมูธ: ปิดชีต/เมนูแบบเลื่อนลง, ข้อความใหม่ในแชตค่อย ๆ ขึ้น, ปุ่มยุบเล็กน้อยตอนกด */
+.sheet-bg.out { animation: fadeOut .18s ease-in both; }
+.sheet-bg.out .sheet { animation: sheetDown .18s ease-in both; }
+@keyframes fadeOut { to { opacity: 0; } }
+@keyframes sheetDown { to { transform: translateY(30px); opacity: 0; } }
+#msgs > .msg.enter { animation: fadeUp .22s ease-out backwards; }
+.btn, .icon-btn, .opt, .art-card { transition: transform .12s ease, background-color .15s ease, border-color .15s ease; }
+.btn:active, .icon-btn:active, .opt:active, .art-card:active { transform: scale(.97); }
+#msgs { overflow-anchor: auto; }

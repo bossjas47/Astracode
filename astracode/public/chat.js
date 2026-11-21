@@ -876,7 +876,7 @@ function renderAll() {
 }
 function appendMsg(m) {
   const box = $('#msgs'); if (!chat.msgs.length || chat.msgs.length === 1) box.innerHTML = '';
-  box.insertAdjacentHTML('beforeend', msgHTML(m, chat.msgs.length - 1, true));
+  box.insertAdjacentHTML('beforeend', msgHTML(m, chat.msgs.length - 1, true)); box.lastElementChild?.classList.add('enter');
   box.scrollTop = box.scrollHeight;
 }
 function updateLast() {
@@ -985,6 +985,17 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   setBusy(true); chat.ctrl = new AbortController();
   const t0 = Date.now();
   let started = false, streamErr = null, aborted = false, raf = 0;
+  // พิมพ์ตัวอักษรแบบไหลลื่น: ข้อความมาเป็นก้อน ๆ แต่แสดงทีละนิดทุกเฟรม (ค้างมากก็เร่งให้ทัน) · ผู้ใช้ที่ลดการเคลื่อนไหวเห็นทันที
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches; let shown = 0;
+  const tick = () => {
+    raf = 0; const full = ai.content || '';
+    if (calm || hasSegs(ai) || chat.msgs.at(-1) !== ai) { shown = full.length; return updateLast(); }
+    shown = Math.min(full.length, shown + Math.max(3, Math.ceil((full.length - shown) / 6)));
+    const box = $('#msgs'), stick = nearBottom(box);
+    paintStreaming(box.lastElementChild, shown < full.length ? { ...ai, content: full.slice(0, shown) } : ai);
+    if (stick) box.scrollTop = box.scrollHeight;
+    if (shown < full.length) raf = requestAnimationFrame(tick);
+  };
   try {
     await stream({ img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, skill_ids: chat.skills, mcp_ids: chat.mcps, mcp_off: mcpOff(), local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
@@ -992,7 +1003,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
       if (d.model) ai.model = d.model;
       noteOf(ai, d); if (d.fallback) ai.model = d.fallback;
-      if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateLast(); }); }
+      if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(tick); }
       if (d.error) streamErr = d.error;
       if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; }
       if (d.ctx) { chat.ctx = { ...d.ctx, id: chat.id }; }
@@ -1000,7 +1011,9 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
       if (d.trimmed) toast('context เต็ม: ตัดข้อความเก่าบางส่วนออกจากที่ส่งให้ AI ลองย่อแชตหรือเปิดแชตใหม่', 'bad');
       if (d.done) { ai.pct = Math.max(0, d.pctWeek - me.usage.pctWeek); setUsage(d); }
     });
+    cancelAnimationFrame(raf); raf = 0; // จบแล้ว: หยุดพิมพ์ทีละนิด ให้ขั้นถัดไปแสดงข้อความเต็ม
   } catch (x) {
+    cancelAnimationFrame(raf); raf = 0;
     if (x.name === 'AbortError') {
       aborted = true;
       setTimeout(() => api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {}), 1500);

@@ -738,7 +738,7 @@ function sheet(title, html, bind) {
   document.querySelector('.sheet-bg')?.remove();
   const d = document.createElement('div'); d.className = 'sheet-bg';
   d.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="sheet-h"><b>${esc(title)}</b><button class="x" aria-label="ปิด">${ic('x')}</button></div><div class="sheet-b">${html}</div></div>`;
-  const close = () => d.remove();
+  const close = () => { if (d.classList.contains('out')) return; d.classList.add('out'); setTimeout(() => d.remove(), matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180); }; // ปิดแบบเลื่อนลง/จางหาย
   d.onclick = e => { if (e.target === d || e.target.closest('.x')) close(); };
   d.onkeydown = e => { if (e.key === 'Escape') close(); };
   document.body.append(d); (d.querySelector('.opt.on') || d.querySelector('.sheet-b button, .sheet-b a'))?.focus();
@@ -1196,7 +1196,7 @@ Promise.all([loadMe(), loadSite(), domReady]).then(boot);
 if (!window.DEMO && HTMLScriptElement.supports?.('speculationrules')) {
   const where = { and: [{ href_matches: '/*' }, { not: { href_matches: ['/api/*', '/v1/*', '/share*'] } }, { not: { selector_matches: '[download], [target=_blank], [data-new], [data-chat]' } }] };
   const sr = document.createElement('script'); sr.type = 'speculationrules';
-  sr.textContent = JSON.stringify({ prerender: [{ where, eagerness: 'conservative' }], prefetch: [{ where, eagerness: 'moderate' }] });
+  sr.textContent = JSON.stringify({ prerender: [{ where, eagerness: 'moderate' }], prefetch: [{ where, eagerness: 'eager' }] }); // ชี้/ใกล้แตะ = เตรียมหน้าไว้ทั้งหน้า (รวม JS) เปลี่ยนหน้าแล้วขึ้นทันที
   document.head.append(sr);
 }
 // service worker retired: remove any copy a visitor still has (sw.js also clears its caches)
