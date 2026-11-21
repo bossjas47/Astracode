@@ -1858,3 +1858,7 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .src-fav { display: inline-flex; }
 .src-fav i { display: grid; place-items: center; width: 18px; height: 18px; margin-left: -5px; border-radius: 50%; background: var(--steel); color: var(--porcelain); font: 600 10px var(--font); font-style: normal; border: 1.5px solid var(--carbon); }
 .src-fav i:first-child { margin-left: 0; }
+.wtile, .ws-new, .ws-card, .art-card, .srcbox > summary { font-family: var(--font); }
+.wtile b, .wtile small, .ws-new b, .ws-new small, .ws-t b, .ws-t small, .ws-ic { font-family: var(--font); }
+/* ไทล์/ชีต Workspace + Artifacts: ใช้ Inter + Prompt (ภาษาไทยสวยกว่าฟอนต์ระบบ) */
+.wtile, .ws-new, .ws-card, .art-card, .srcbox > summary, .sheet-form.ws, .sheet-form.ws .sheet-msg, .ws-ic { font-family: 'Inter', 'Prompt', system-ui, sans-serif; }

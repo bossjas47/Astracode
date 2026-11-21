@@ -341,7 +341,7 @@ function settingsSheet() {
     <label class="opt set-toggle"><span class="opt-t">${ic('bulb')}Auto-save memory</span><span class="opt-d">AI remembers lasting facts you share (up to 3 a day). You can undo each one.</span><input type="checkbox" data-k="automem" ${me.auto_memory ? 'checked' : ''}></label>
     <h4>Chats</h4>
     ${onChat ? btn('bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days') : row('/chat?open=bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days')}
-    ${onChat ? btn('arts', 'code', 'Artifacts ของฉัน', 'หน้าเว็บที่ AI สร้างในแชต') : row('/chat?open=arts', 'code', 'Artifacts ของฉัน', 'หน้าเว็บที่ AI สร้างในแชต')}
+    ${onChat ? btn('arts', 'code', 'Artifacts', 'Pages the AI built in your chats') : row('/chat?open=arts', 'code', 'Artifacts', 'Pages the AI built in your chats')}
     ${onChat ? btn('saved', 'book', 'Saved messages', 'Answers you bookmarked before') : row('/chat?open=saved', 'book', 'Saved messages', 'Answers you bookmarked before')}
     <h4>Connectors &amp; tools</h4>
     ${btn('conn', 'layers', 'Connectors · Skills · Plugins', 'Connect Google, Notion, GitHub and more so the AI can use them in every chat')}

@@ -41,7 +41,7 @@ let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ค�
 // กดหยุด = สั่งเซิร์ฟเวอร์หยุดตอบจริง (แค่ปิดจอหรือหลุดเน็ต AI จะตอบต่อเบื้องหลัง)
 function stopRun() { if (chat.enhancing) return chat.enhancing.abort(); if (chat.id) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id }) }).catch(() => {}); chat.ctrl?.abort(); }
 // สลับแชตโดยไม่โหลดหน้าใหม่
-function openChat(id, space = null) { chat.spaceId = id ? null : space; chat.spaceName = chat.spaceId ? chat.folders?.find(f => f.id === space)?.name || 'Workspace นี้' : null; if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
+function openChat(id, space = null) { chat.spaceId = id ? null : space; chat.spaceName = chat.spaceId ? chat.folders?.find(f => f.id === space)?.name || 'this workspace' : null; if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
 PAGES.chat = () => chatView(qs().get('id'));
 PAGES.code = () => switchMode('code', here(), true);
 // ---------- Chat กับ Code อยู่ในหน้าเดียว: แถบข้างเดียวกัน ฝั่งขวาสลับระหว่างแชต (.main) กับโหมด Code (#cmain) ไม่โหลดหน้าใหม่ ----------
@@ -125,8 +125,8 @@ async function chatView(id) {
       </div>
       <div class="side-pane" id="paneChat" ${sideMode === 'chat' ? '' : 'hidden'}>
         <div class="work-tiles${me?.plan?.artifacts ? '' : ' one'}">
-          <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">งานแยกเป็นหมวด</small></button>
-          ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>หน้าเว็บที่ AI สร้าง</small></button>` : ''}
+          <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
+          ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
         <nav class="side-nav">${deskLink()}</nav>
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
@@ -344,13 +344,13 @@ function chatInsSheet(id, cur) {
 async function artsSheet() {
   const draw = async (d, q = '') => {
     const list = (await api('/artifacts').catch(() => [])).filter(a => !q || a.title.toLowerCase().includes(q.toLowerCase()));
-    d.querySelector('#arl').innerHTML = list.map(a => `<div class="mem tm row" style="align-items:center"><button type="button" class="linkish" data-arto="${a.id}" style="flex:1;text-align:left;color:inherit"><b>${esc(a.title)}</b><br><small class="muted">v${a.ver} · ${when(a.updated_at)}${a.share_token ? ' · แชร์อยู่' : ''}</small></button>${a.chat_id ? `<a class="btn out sm" href="/chat?id=${a.chat_id}">แชต</a>` : ''}<button type="button" class="icon-btn sm ghost" data-ardel="${a.id}" aria-label="ลบ">${ic('trash', 'sm')}</button></div>`).join('') || '<p class="muted">ยังไม่มี Artifact · ลองขอให้ AI ทำเครื่องคิดเลข เกม หรือแดชบอร์ด</p>';
+    d.querySelector('#arl').innerHTML = list.map(a => `<div class="mem tm row" style="align-items:center"><button type="button" class="linkish" data-arto="${a.id}" style="flex:1;text-align:left;color:inherit"><b>${esc(a.title)}</b><br><small class="muted">v${a.ver} · ${when(a.updated_at)}${a.share_token ? ' · shared' : ''}</small></button>${a.chat_id ? `<a class="btn out sm" href="/chat?id=${a.chat_id}">Chat</a>` : ''}<button type="button" class="icon-btn sm ghost" data-ardel="${a.id}" aria-label="Delete">${ic('trash', 'sm')}</button></div>`).join('') || '<p class="muted">No artifacts yet · ask the AI for a calculator, a game or a dashboard</p>';
   };
-  sheet('Artifacts ของฉัน', '<div class="sheet-form"><input id="arq" type="search" placeholder="ค้นหา" aria-label="ค้นหา Artifact"><div id="arl"><p class="muted">กำลังโหลด...</p></div></div>', (d, close) => {
+  sheet('Artifacts', '<div class="sheet-form"><input id="arq" type="search" placeholder="Search artifacts" aria-label="Search artifacts"><div id="arl"><p class="muted">Loading…</p></div></div>', (d, close) => {
     draw(d); d.querySelector('#arq').oninput = e => draw(d, e.target.value);
     d.querySelector('#arl').onclick = async e => {
       const o = e.target.closest('[data-arto]'); if (o) { close(); return openArtifact(+o.dataset.arto); }
-      const x = e.target.closest('[data-ardel]'); if (x && confirm('ลบ Artifact นี้? ลิงก์ที่แชร์จะใช้ไม่ได้ด้วย')) { try { await api('/artifacts/' + x.dataset.ardel, { method: 'DELETE' }); toast('ลบแล้ว', 'ok'); draw(d); } catch (y) { toast(y.message, 'bad'); } }
+      const x = e.target.closest('[data-ardel]'); if (x && confirm('Delete this artifact? Its share link stops working too.')) { try { await api('/artifacts/' + x.dataset.ardel, { method: 'DELETE' }); toast('ลบแล้ว', 'ok'); draw(d); } catch (y) { toast(y.message, 'bad'); } }
     };
   });
 }
@@ -524,14 +524,14 @@ async function setBookmark(id, on) {
 // Spaces (ระบบโฟลเดอร์เดิม): กลุ่มแชตที่มีคำสั่งและไฟล์อ้างอิงร่วมกัน · แชตใน Space แสดงเฉพาะที่นี่ ไม่ปนในรายการ Chats
 function spacesSheet() {
   const count = id => chat.chats.filter(c => c.folder_id === id).length;
-  const card = f => `<button type="button" class="ws-card" data-sp="${f.id}"><span class="ws-ic">${esc((f.name.trim()[0] || 'W').toUpperCase())}</span><span class="ws-t"><b>${esc(f.name)}</b><small>${count(f.id)} แชต${f.instructions ? ' · มีคำสั่ง' : ''}${f.files && f.files !== '[]' ? ' · มีไฟล์' : ''}</small></span>${ic('right', 'sm')}</button>`;
+  const card = f => `<button type="button" class="ws-card" data-sp="${f.id}"><span class="ws-ic">${esc((f.name.trim()[0] || 'W').toUpperCase())}</span><span class="ws-t"><b>${esc(f.name)}</b><small>${count(f.id)} chat${count(f.id) === 1 ? '' : 's'}${f.instructions ? ' · instructions' : ''}${f.files && f.files !== '[]' ? ' · files' : ''}</small></span>${ic('right', 'sm')}</button>`;
   sheet('Workspace', `<div class="sheet-form ws">
-    <p class="sheet-msg">แยกงานเป็นหมวด เช่น ลูกค้า โปรเจกต์ หรือวิชาเรียน ทุกแชตใน Workspace ใช้คำสั่งและไฟล์อ้างอิงชุดเดียวกัน</p>
-    <button type="button" class="ws-new" data-new>${ic('plus')}<span><b>สร้าง Workspace ใหม่</b><small>ตั้งชื่อ แล้วใส่คำสั่ง/ไฟล์ทีหลังได้</small></span></button>
-    ${chat.folders.length > 5 ? '<input type="search" id="wsq" placeholder="ค้นหา Workspace" aria-label="ค้นหา Workspace">' : ''}
-    <div class="ws-grid" id="wsl">${chat.folders.map(card).join('') || '<p class="muted">ยังไม่มี Workspace</p>'}</div></div>`, (d, close) => {
+    <p class="sheet-msg">Group related chats by client, project or subject. Every chat in a workspace shares the same instructions and reference files.</p>
+    <button type="button" class="ws-new" data-new>${ic('plus')}<span><b>New workspace</b><small>Name it now, add instructions and files later</small></span></button>
+    ${chat.folders.length > 5 ? '<input type="search" id="wsq" placeholder="Search workspaces" aria-label="Search workspaces">' : ''}
+    <div class="ws-grid" id="wsl">${chat.folders.map(card).join('') || '<p class="muted">No workspaces yet</p>'}</div></div>`, (d, close) => {
     d.querySelector('[data-new]').onclick = async () => {
-      close(); const name = await promptSheet('ตั้งชื่อ Workspace', '', { title: 'Workspace ใหม่', ok: 'สร้าง' }); if (!name?.trim()) return;
+      close(); const name = await promptSheet('Workspace name', '', { title: 'New workspace', ok: 'Create' }); if (!name?.trim()) return;
       const f = await api('/folders', { method: 'POST', body: { name } }).catch(x => { toast(x.message, 'bad'); return null; }); if (!f) return;
       await loadSide(); spaceSheet(f.id);
     };
@@ -543,21 +543,21 @@ function spaceSheet(id) {
   const f = chat.folders.find(x => x.id === id); if (!f) return;
   const cs = chat.chats.filter(c => c.folder_id === id);
   sheet(f.name, `<div class="sheet-form">
-    <div class="sheet-acts" style="flex-wrap:wrap"><button type="button" class="btn blue" data-chat-new>${ic('plus', 'sm')} แชตใหม่ใน Workspace นี้</button><button type="button" class="btn out" data-cust>${ic('settings', 'sm')} คำสั่งและไฟล์</button></div>
-    <h4 class="sp-h">แชตใน Workspace (${cs.length})</h4>
+    <div class="sheet-acts" style="flex-wrap:wrap"><button type="button" class="btn blue" data-chat-new>${ic('plus', 'sm')} New chat here</button><button type="button" class="btn out" data-cust>${ic('settings', 'sm')} Instructions &amp; files</button></div>
+    <h4 class="sp-h">Chats (${cs.length})</h4>
     <div class="spaces">${cs.map(c => `<button type="button" class="opt" data-open="${c.id}"><span class="opt-t">${ic(c.pinned ? 'star' : 'msg', c.pinned ? 'bm-on' : '')}${esc(c.title.replace(/^\p{Extended_Pictographic}️?\s*/u, ''))}</span></button>`).join('') || '<p class="muted">No chats in this space yet</p>'}</div>
-    <button type="button" class="btn out sm sp-del" data-del>${ic('trash', 'sm')} ลบ Workspace</button></div>`, (d, close) => {
+    <button type="button" class="btn out sm sp-del" data-del>${ic('trash', 'sm')} Delete workspace</button></div>`, (d, close) => {
     d.querySelector('[data-chat-new]').onclick = () => { close(); $('#sclose')?.click(); openChat(null, id); };
     d.querySelector('[data-cust]').onclick = () => { close(); folderSheet(id); };
     d.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { close(); $('#sclose')?.click(); openChat(+b.dataset.open); });
     d.querySelector('[data-del]').onclick = async () => {
-      close(); if (!await confirmSheet(`ลบ Workspace "${f.name}"? แชตข้างในจะย้ายกลับไปที่ Chats ไม่มีอะไรถูกลบ`, { title: 'ลบ Workspace', ok: 'ลบ', danger: true })) return;
+      close(); if (!await confirmSheet(`Delete the workspace "${f.name}"? Its chats move back to Chats; nothing is deleted.`, { title: 'Delete workspace', ok: 'Delete', danger: true })) return;
       await api('/folders/' + id, { method: 'DELETE' }); loadSide();
     };
   });
 }
 function drawSide() {
-  const wn = $('#spcN'); if (wn) wn.textContent = chat.folders?.length ? chat.folders.length + ' Workspace' : 'งานแยกเป็นหมวด';
+  const wn = $('#spcN'); if (wn) wn.textContent = chat.folders?.length ? chat.folders.length + (chat.folders.length > 1 ? ' workspaces' : ' workspace') : 'Organize your work';
   const q = ($('#search')?.value || '').toLowerCase(), list = $('#list'); if (!list) return;
   const item = c => `<div class="item ${c.id === chat.id ? 'on' : ''}" data-id="${c.id}">${c.pinned ? `<button class="bm-star" data-unbm="${c.id}" aria-label="Remove bookmark" title="Remove bookmark">${ic('star', 'sm bm-on')}</button>` : ''}<a href="/chat?id=${c.id}" data-chat="${c.id}">${c.pinned ? '' : ic( { '🤖': 'server', '⏰': 'bell', '📥': 'inbox', '🎨': 'palette' }[[...c.title][0]] || (c.has_code ? 'code' : 'msg'), 'sm ci')}<span>${esc(c.title.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''))}</span></a>
     <button data-cmenu="${c.id}" aria-label="Chat options">${ic('more')}</button></div>`;
@@ -580,7 +580,7 @@ function drawSide() {
         + optHTML('shr', ic('share') + 'Share link', c.share_token ? 'Copy or turn off the share link' : 'Create a read-only link for others')
         + optHTML('ren', ic('pen') + 'Rename', 'Change the name shown in the sidebar')
         + optHTML('ins', ic('settings') + 'Chat instructions', 'For example "answer in English" or "act as a math tutor", for this chat only')
-        + optHTML('mv', ic('folder') + 'ย้ายไป Workspace', c.folder_id ? 'เปลี่ยนหรือเอาออกจาก Workspace' : 'เก็บไว้ใน Workspace ที่ใช้คำสั่งและไฟล์ร่วมกัน')
+        + optHTML('mv', ic('folder') + 'Move to workspace', c.folder_id ? 'Change or remove its workspace' : 'Keep it with shared instructions and files')
         + optHTML('cst', ic('dash') + 'Chat cost', 'Tokens used and the estimated pay-as-you-go cost')
         + optHTML('arc', ic('inbox') + 'Archive', 'Hide it from the list · restore it in Settings › Archive & trash')
         + optHTML('del', ic('trash') + 'Delete', 'Moves to the trash · can be restored for 30 days'), (sd, close) => {
@@ -598,8 +598,8 @@ function drawSide() {
         sd.querySelector('[data-v=ren]').onclick = async () => { close(); const title = await promptSheet('ชื่อแชตใหม่', c.title, { title: 'เปลี่ยนชื่อแชต' }); if (title?.trim()) { await api('/chats/' + c.id, { method: 'PUT', body: { title } }); loadSide(); } };
         sd.querySelector('[data-v=mv]').onclick = () => {
           close();
-          if (!chat.folders.length) return toast('ยังไม่มี Workspace · สร้างได้จากปุ่ม Workspace ในแถบข้าง');
-          sheet('ย้ายไป Workspace', optHTML('', ic('x') + 'ไม่อยู่ใน Workspace', 'แสดงใน Chats', !c.folder_id)
+          if (!chat.folders.length) return toast('No workspaces yet · create one from Workspace in the sidebar');
+          sheet('Move to workspace', optHTML('', ic('x') + 'No workspace', 'Show it in Chats', !c.folder_id)
             + chat.folders.map(f => optHTML(f.id, ic('folder') + esc(f.name), '', c.folder_id === f.id)).join(''), (fd, fclose) => {
             fd.querySelectorAll('[data-v]').forEach(x => x.onclick = async () => { fclose(); await api('/chats/' + c.id, { method: 'PUT', body: { folder_id: +x.dataset.v || null } }); loadSide(); toast('Moved', 'ok'); });
           });
@@ -865,7 +865,7 @@ function msgHTML(m, i, isNew) {
   const { text: t00, mem } = parseMem(tTools, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
-    ${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · แตะเพื่อเปิด</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
+    ${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · tap to open</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
@@ -876,7 +876,7 @@ const sourcesHTML = m => m.sources?.length ? `<details class="srcbox"><summary>$
 function renderAll() {
   const box = $('#msgs'); if (!box) return;
   box.innerHTML = chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
-    : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>${chat.spaceId ? `แชตใหม่ใน Workspace <b>${esc(chat.spaceName)}</b> · <button type="button" class="linkish" data-nospace>ไม่ใช้ Workspace</button>` : 'Pick a model below and start typing'}</div>
+    : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>${chat.spaceId ? `New chat in <b>${esc(chat.spaceName)}</b> · <button type="button" class="linkish" data-nospace>no workspace</button>` : 'Pick a model below and start typing'}</div>
        <div class="mode-seg sm" role="group" aria-label="Mode"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a></div>
        <div class="chips">${SUGGEST.map(([icon, s], i) => `<button data-s="${i}">${ic(icon, 'sm')} ${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight; head(); renderRich(box);
@@ -1347,9 +1347,9 @@ async function folderSheet(id) {
   const f = await api('/folders/' + id).catch(x => { toast(x.message, 'bad'); return null; }); if (!f) return;
   let files = f.files.slice();
   const list = () => files.map((x, i) => `<div class="row" style="justify-content:space-between;flex-wrap:nowrap;font-size:13px">${ic('filetext', 'sm')}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(x.name)}</span><span class="muted">${((x.size ?? x.text.length) / 1000).toFixed(1)}k</span><button type="button" class="icon-btn xs ghost" data-rmf="${i}" aria-label="ลบไฟล์">${ic('x')}</button></div>`).join('') || '<p class="muted" style="font-size:13px;margin:0">ยังไม่มีเอกสาร</p>';
-  sheet('คำสั่งและไฟล์ของ Workspace', `<form id="fdf" class="sheet-form" style="display:grid;gap:8px">
+  sheet('Workspace instructions & files', `<form id="fdf" class="sheet-form" style="display:grid;gap:8px">
     <label>Name</label><input name="name" value="${esc(f.name)}" maxlength="40" required>
-    <label>คำสั่งสำหรับทุกแชตใน Workspace นี้</label><textarea name="ins" rows="4" maxlength="4000" placeholder="เช่น ตอบในฐานะผู้ช่วยร้านกาแฟ ใช้ราคาจากเอกสารที่แนบ ตอบสั้นและสุภาพ">${esc(f.instructions || '')}</textarea>
+    <label>Instructions for every chat in this workspace</label><textarea name="ins" rows="4" maxlength="4000" placeholder="เช่น ตอบในฐานะผู้ช่วยร้านกาแฟ ใช้ราคาจากเอกสารที่แนบ ตอบสั้นและสุภาพ">${esc(f.instructions || '')}</textarea>
     <label>Reference files (up to 10 files, 150,000 characters in total)</label><div id="fdl" style="display:grid;gap:4px">${list()}</div>
     <label class="btn out sm" style="justify-self:start">${ic('clip', 'sm')} Add files<input type="file" id="fdi" multiple hidden></label>
     <p class="muted" style="font-size:12px;margin:0">AI เห็นคำสั่งและเอกสารนี้ทุกครั้งที่คุยในแชตของโฟลเดอร์ ยิ่งเอกสารยาว แต่ละข้อความยิ่งใช้ลิมิตมากขึ้น</p>
