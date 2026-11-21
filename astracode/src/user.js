@@ -473,6 +473,32 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const row = await DB.prepare('UPDATE skills SET share_token=COALESCE(share_token,?) WHERE id=? AND user_id=? RETURNING share_token').bind(rand(10), +r[1], u.id).first();
     return row ? json({ token: row.share_token }) : err('ไม่พบ Skill', 404);
   }
+  if (path === '/api/skills/github' && M === 'POST') { // นำเข้า Skill จาก GitHub repo: หาไฟล์ SKILL.md (แบบ Claude Skills) แล้วสร้างเป็น Skill ของผู้ใช้ เรียกด้วย / ได้
+    if (await limited(env, 'skgh:' + u.id, 10, 3600e3)) return err('นำเข้าบ่อยเกินไป รอสักครู่', 429);
+    const m = String((await req.json()).url || '').trim().match(/^https:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/(?:tree|blob)\/([^/]+)(\/.*)?)?\/?$/i);
+    if (!m) return err('ใส่ลิงก์ GitHub repo เช่น https://github.com/owner/repo');
+    const [, owner, repo, br0, sub0] = m, sub = (sub0 || '').replace(/^\/|\/$/g, '').replace(/\/?SKILL\.md$/i, '');
+    const H = { accept: 'application/vnd.github+json', 'user-agent': 'AstraCode' }, g = p2 => fetch('https://api.github.com/repos/' + owner + '/' + repo + p2, { headers: H });
+    const info = br0 ? null : await g('').then(r => r.ok ? r.json() : null).catch(() => null);
+    const br = br0 || info?.default_branch; if (!br) return err('ไม่พบ repo (ต้องเป็น repo สาธารณะ)', 404);
+    const tree = await g('/git/trees/' + encodeURIComponent(br) + '?recursive=1').then(r => r.ok ? r.json() : null).catch(() => null);
+    if (!tree?.tree) return err('อ่านไฟล์ใน repo ไม่ได้ (GitHub จำกัดการเรียก ลองใหม่อีกครั้ง)', 502);
+    const paths = tree.tree.filter(x => x.type === 'blob' && /(^|\/)SKILL\.md$/i.test(x.path) && (!sub || x.path === sub + '/SKILL.md' || x.path.startsWith(sub + '/'))).map(x => x.path).slice(0, 20);
+    if (!paths.length) return err('ไม่พบไฟล์ SKILL.md ใน repo นี้ · repo นี้อาจไม่ใช่ Skill (ถ้าเป็น MCP ให้ใช้ในแอปคอม)', 404);
+    const have = (await DB.prepare('SELECT name FROM skills WHERE user_id=?').bind(u.id).all()).results.map(x => x.name), added = [];
+    for (const fp of paths) {
+      if (have.length >= 30) break;
+      const raw = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(br)}/${fp.split('/').map(encodeURIComponent).join('/')}`).then(r => r.ok ? r.text() : '').catch(() => '');
+      if (!raw.trim()) continue;
+      const fm = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/), meta = {};
+      for (const l of (fm?.[1] || '').split('\n')) { const kv = l.match(/^(\w[\w-]*)\s*:\s*(.*)$/); if (kv) meta[kv[1].toLowerCase()] = kv[2].replace(/^["']|["']$/g, '').trim(); }
+      const name = (meta.name || fp.split('/').slice(-2, -1)[0] || repo).slice(0, 60), body = (fm ? raw.slice(fm[0].length) : raw).trim().slice(0, 6000);
+      if (!body || have.includes(name)) continue;
+      await DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at) VALUES (?,?,?,?,1,?)').bind(u.id, name, (meta.description || '').slice(0, 200), body, Date.now()).run();
+      have.push(name); added.push(name);
+    }
+    return json({ added, found: paths.length });
+  }
   if (path === '/api/skills/import' && M === 'POST') { // นำเข้า Skill จากลิงก์: คัดลอกมาเป็นของตัวเอง (ต้นฉบับแก้ทีหลังไม่กระทบ)
     const s = await DB.prepare('SELECT name,description,content,model_id FROM skills WHERE share_token=? AND enabled=1').bind(String((await req.json()).token || '')).first();
     if (!s) return err('ลิงก์ Skill ไม่ถูกต้องหรือถูกยกเลิกแล้ว', 404);

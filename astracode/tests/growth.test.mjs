@@ -62,3 +62,24 @@ test('renew reminder: paid plan without auto-renew gets a one-use 10% code; topu
   await applyPayment(t.env, { ...p, id: 78, amount: 200 }); assert.equal(bal(), 1250, 'under ฿300: no bonus');
   await applyPayment(t.env, { ...p, id: 79, created_at: TOPUP_PROMO.end + 1 }); assert.equal(bal(), 1750, 'after the promo: no bonus');
 });
+
+test('skills from GitHub: finds SKILL.md files, reads name/description from frontmatter, skips duplicates', async () => {
+  const t = await makeEnv(), u = await t.user(), f0 = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const s = String(url);
+    if (s === 'https://api.github.com/repos/acme/skills') return Response.json({ default_branch: 'main' });
+    if (s.startsWith('https://api.github.com/repos/acme/skills/git/trees/main')) return Response.json({ tree: [{ type: 'blob', path: 'pdf/SKILL.md' }, { type: 'blob', path: 'seo/SKILL.md' }, { type: 'blob', path: 'README.md' }] });
+    if (s.endsWith('pdf/SKILL.md')) return new Response('---\nname: pdf-helper\ndescription: "Work with PDFs"\n---\n# PDF\nDo PDF things');
+    if (s.endsWith('seo/SKILL.md')) return new Response('Write SEO titles');
+    if (s.startsWith('https://t.test')) return f0(url, init);
+    return new Response('nope', { status: 404 });
+  };
+  try {
+    const r = await t.json('/api/skills/github', { method: 'POST', cookie: u.cookie, body: { url: 'https://github.com/acme/skills' } });
+    assert.equal(r.status, 200); assert.deepEqual(r.data.added, ['pdf-helper', 'seo']);
+    const sk = t.DB.raw.prepare('SELECT name,description,content FROM skills WHERE user_id=? ORDER BY id').all(u.id);
+    assert.equal(sk[0].description, 'Work with PDFs'); assert.match(sk[0].content, /^# PDF/); assert.doesNotMatch(sk[0].content, /---/);
+    assert.deepEqual((await t.json('/api/skills/github', { method: 'POST', cookie: u.cookie, body: { url: 'https://github.com/acme/skills' } })).data.added, [], 'no duplicates');
+    assert.equal((await t.json('/api/skills/github', { method: 'POST', cookie: u.cookie, body: { url: 'https://example.com/x' } })).status, 400);
+  } finally { globalThis.fetch = f0; }
+});

@@ -163,8 +163,11 @@
   function skillNew() {
     sheet('สร้าง Skill', `<form class="sheet-form" id="sknew"><input name="name" placeholder="ชื่อ เช่น thai-sales-writer" maxlength="60" required><input name="description" placeholder="ใช้ทำอะไร (สั้นๆ)" maxlength="200">
       <textarea name="content" rows="6" maxlength="6000" placeholder="คำสั่งหรือกติกาที่ให้ AI ทำตามเมื่อเปิด Skill นี้" required></textarea>
-      <div class="sheet-acts"><button type="button" class="btn out" data-c>ยกเลิก</button><button class="btn blue">บันทึก</button></div></form>`, (d, close) => {
+      <div class="sheet-acts"><button type="button" class="btn out" data-c>ยกเลิก</button><button class="btn blue">บันทึก</button></div></form>
+      <form class="sheet-form" id="skgh" style="margin-top:14px;border-top:1px solid var(--hair);padding-top:14px"><b>หรือนำเข้าจาก GitHub</b><small class="muted">ลิงก์ repo ที่มีไฟล์ SKILL.md (แบบ Claude Skills) · นำเข้าแล้วพิมพ์ / ในช่องแชตเพื่อเรียกใช้</small>
+      <input name="url" type="url" placeholder="https://github.com/owner/repo" required><button class="btn out">นำเข้า</button></form>`, (d, close) => {
       d.querySelector('[data-c]').onclick = () => { close(); draw(); };
+      d.querySelector('#skgh').onsubmit = async e => { e.preventDefault(); const b = e.target.querySelector('button'); b.disabled = true; b.textContent = 'กำลังนำเข้า...'; try { const r = await api('/skills/github', { method: 'POST', body: { url: new FormData(e.target).get('url') } }); S.skills = null; S.view = 'mine'; if (typeof loadSkills === 'function') loadSkills(true).catch(() => {}); close(); toast(r.added.length ? `นำเข้า ${r.added.length} Skill: ${r.added.slice(0, 3).join(', ')}${r.added.length > 3 ? '…' : ''} · พิมพ์ / เพื่อใช้` : 'มี Skill เหล่านี้อยู่แล้ว', 'ok'); draw(); } catch (x) { toast(x.message, 'bad'); b.disabled = false; b.textContent = 'นำเข้า'; } };
       d.querySelector('#sknew').onsubmit = async e => { e.preventDefault(); try { await api('/skills', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); S.skills = null; S.view = 'mine'; close(); toast('สร้าง Skill แล้ว', 'ok'); draw(); } catch (x) { toast(x.message, 'bad'); } };
     });
   }
