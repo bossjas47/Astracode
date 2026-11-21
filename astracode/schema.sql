@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS plans (
   use_4h INTEGER,                           -- 0 = ปิดรอบ 4 ชม. (ว่าง/1 = เปิด)
   limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
-  price_year REAL,                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
+  price_year REAL,
+  free_models TEXT,                         -- โมเดลฟรีไม่จำกัด (JSON [model_id]) ไม่หักลิมิต มีเพดานต่อวัน                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
   seats INTEGER NOT NULL DEFAULT 1,         -- 1 = เดี่ยว, 2+ = แพลนทีม
   shared_pool INTEGER NOT NULL DEFAULT 0,   -- 0 = แยกโควตาต่อคน, 1 = ใช้งบรวมทั้งทีม
   api_limit INTEGER NOT NULL DEFAULT 0,     -- 0 = API Key หักจาก Wallet, 1 = หักจากลิมิตแพลนได้
@@ -286,7 +287,8 @@ CREATE TABLE IF NOT EXISTS plans (
   use_4h INTEGER,                           -- 0 = ปิดรอบ 4 ชม. (ว่าง/1 = เปิด)
   limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
-  price_year REAL,                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
+  price_year REAL,
+  free_models TEXT,                         -- โมเดลฟรีไม่จำกัด (JSON [model_id]) ไม่หักลิมิต มีเพดานต่อวัน                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
   seats INTEGER NOT NULL DEFAULT 1,         -- 1 = เดี่ยว, 2+ = แพลนทีม
   shared_pool INTEGER NOT NULL DEFAULT 0,   -- 0 = แยกโควตาต่อคน, 1 = ใช้งบรวมทั้งทีม
   api_limit INTEGER NOT NULL DEFAULT 0,     -- 0 = API Key หักจาก Wallet, 1 = หักจากลิมิตแพลนได้
