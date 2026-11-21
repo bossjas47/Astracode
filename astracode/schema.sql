@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS plans (
   limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
   price_year REAL,
+  cowork INTEGER,                           -- 1 = ใช้โหมด Cowork ได้ (Pro ขึ้นไป)
   per_seat INTEGER,                         -- 1 = ราคาต่อที่นั่ง (แพลนทีม เลือกจำนวนคนเอง ขั้นต่ำ = seats)
   free_models TEXT,                         -- โมเดลฟรีไม่จำกัด (JSON [model_id]) ไม่หักลิมิต มีเพดานต่อวัน                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
   seats INTEGER NOT NULL DEFAULT 1,         -- 1 = เดี่ยว, 2+ = แพลนทีม
@@ -663,3 +664,6 @@ CREATE INDEX IF NOT EXISTS team_log_team ON team_log(team_id, id);
 CREATE TABLE IF NOT EXISTS user_files (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, chat_id INTEGER, name TEXT NOT NULL, kind TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS user_files_user ON user_files(user_id, updated_at);
 CREATE TABLE IF NOT EXISTS user_file_versions (file_id INTEGER NOT NULL, ver INTEGER NOT NULL, data TEXT NOT NULL, note TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (file_id, ver));
+
+CREATE TABLE IF NOT EXISTS cowork_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, events TEXT, final TEXT, files TEXT, history TEXT, key_id INTEGER, error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS cowork_user ON cowork_tasks(user_id, updated_at);

@@ -42,7 +42,7 @@ let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ค�
 function stopRun() { if (chat.enhancing) return chat.enhancing.abort(); fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id || null }) }).catch(() => {}); chat.ctrl?.abort(); }
 // สลับแชตโดยไม่โหลดหน้าใหม่
 function openChat(id, space = null) { chat.spaceId = id ? null : space; chat.spaceName = chat.spaceId ? chat.folders?.find(f => f.id === space)?.name || 'this workspace' : null; if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
-PAGES.chat = () => chatView(qs().get('id'));
+PAGES.chat = () => qs().get('mode') === 'cowork' ? switchMode('cowork', location.pathname + location.search, true) : chatView(qs().get('id'));
 PAGES.code = () => switchMode('code', here(), true);
 // ---------- Chat กับ Code อยู่ในหน้าเดียว: แถบข้างเดียวกัน ฝั่งขวาสลับระหว่างแชต (.main) กับโหมด Code (#cmain) ไม่โหลดหน้าใหม่ ----------
 // แชตที่กำลังตอบยังตอบต่อขณะอยู่โหมด Code (แค่ซ่อนไว้) · โค้ดโหมด Code (code.js) และตัวแก้โค้ด (cm.js) โหลดเมื่อใช้ครั้งแรก
@@ -50,23 +50,32 @@ const prefetch = href => { const l = document.createElement('link'); l.rel = 'pr
 const loadJs = src => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('โหลดไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองใหม่')); document.head.append(s); });
 let codeJs = null;
 const loadCode = () => typeof codeDispatch === 'function' ? Promise.resolve() : (codeJs ||= loadJs('/code.js').catch(x => { codeJs = null; throw x; }));
-const curMode = () => document.body.dataset.page === 'code' ? 'code' : 'chat';
+const curMode = () => ['code', 'cowork'].includes(document.body.dataset.page) ? document.body.dataset.page : 'chat';
+let cwJs = null; const loadCowork = () => typeof coworkView === 'function' ? Promise.resolve() : (cwJs ||= loadJs('/cowork.js').catch(x => { cwJs = null; throw x; }));
 function openSide() { const side = $('#side'); if (!side || side.classList.contains('open')) return; side.classList.add('open'); const s = document.createElement('div'); s.className = 'shade'; s.onclick = closeSide; side.parentElement.append(s); }
 function closeSide() { $('#side')?.classList.remove('open'); document.querySelector('.chat > .shade')?.remove(); }
 // path = ที่อยู่ที่จะเปิด (เช่น /code?p=3) · ไม่ใส่ = กลับไปหน้าที่เปิดค้างไว้ของโหมดนั้น · pop = มาจากปุ่มย้อนกลับ (ไม่เพิ่มประวัติ)
 async function switchMode(mode, path, pop) {
   if (!$('#cmain')) { document.body.dataset.page = mode; await chatView(mode === 'chat' ? qs().get('id') : null); }
+  if (!$('#cwmain')) { const cw = Object.assign(document.createElement('div'), { id: 'cwmain', className: 'cwmain', hidden: true }); app.querySelector('.chat').insertBefore(cw, $('#canvas')); }
   const host = $('#cmain'), was = curMode();
   if (was === 'code' && mode === 'chat') host.dataset.url = location.pathname + location.search;
   document.body.dataset.page = mode; closeSide();
   $('#side').querySelectorAll('[data-mode]').forEach(b => { b.classList.toggle('on', b.dataset.mode === mode); b.setAttribute('aria-pressed', b.dataset.mode === mode); });
-  $('#paneChat').hidden = mode !== 'chat'; $('#paneCode').hidden = mode !== 'code';
-  app.querySelector('.chat > .main').hidden = mode !== 'chat'; host.hidden = mode !== 'code';
-  if (mode === 'code') $('#canvas').hidden = true;
+  $('#paneChat').hidden = mode !== 'chat'; $('#paneCode').hidden = mode !== 'code'; $('#paneCowork').hidden = mode !== 'cowork';
+  app.querySelector('.chat > .main').hidden = mode !== 'chat'; host.hidden = mode !== 'code'; $('#cwmain').hidden = mode !== 'cowork';
+  if (mode !== 'chat') $('#canvas').hidden = true;
+  if (mode === 'cowork') { // โหมด Cowork: งานที่ AI ทำเองจนจบ (cowork.js โหลดเมื่อเปิดครั้งแรก)
+    const target = path || '/chat?mode=cowork'; if (!pop && target !== location.pathname + location.search) setUrl(target);
+    try { await loadCowork(); } catch (x) { $('#cwmain').innerHTML = `<div class="cs-load"><p class="muted">${esc(x.message)}</p></div>`; return; }
+    $('#paneCowork').innerHTML = coworkSide(); document.title = 'Cowork · ASTRACODE';
+    return coworkView(new URL(target, location.href).searchParams.get('task'));
+  }
   if (mode === 'chat') {
     document.title = (chat.id && $('#ctl')?.textContent) || 'Chat · ASTRACODE';
     const want = path ? new URL(path, location.href).searchParams.get('id') : null;
     if (path && (+want || null) !== chat.id) { if (!pop) setUrl(path); return chatView(want); }
+    if (!pop && was !== 'chat' && !path) return setUrl(chat.id ? '/chat?id=' + chat.id : '/chat');
     if (!pop) setUrl(chat.id ? '/chat?id=' + chat.id : '/chat');
     return;
   }
@@ -78,13 +87,14 @@ async function switchMode(mode, path, pop) {
   try { await loadCode(); } catch (x) { host.innerHTML = `<div class="cs-load"><p class="muted">${esc(x.message)}</p><button class="btn out" onclick="location.reload()">Try again</button></div>`; return; }
   return codeRoute();
 }
-addEventListener('popstate', () => { if (!$('#cmain')) return; const p = location.pathname; if (p.startsWith('/code')) switchMode('code', p + location.search, true); else if (p === '/chat') switchMode('chat', p + location.search, true); });
+addEventListener('popstate', () => { if (!$('#cmain')) return; const p = location.pathname; if (p.startsWith('/code')) switchMode('code', p + location.search, true); else if (p === '/chat' && qs().get('mode') === 'cowork') switchMode('cowork', p + location.search, true); else if (p === '/chat') switchMode('chat', p + location.search, true); });
 // ลิงก์ /code และ /chat ในหน้านี้ (แถบข้าง, ปุ่มในตัวแก้โค้ด) เปิดในหน้าเดิม
 document.addEventListener('click', e => {
   const a = e.target.closest?.('a[href]'); if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || a.target || a.hasAttribute('download') || !$('#cmain') || window.DEMO) return;
   const u = new URL(a.href, location.href); if (u.origin !== location.origin) return;
   if (u.pathname === '/code') { e.preventDefault(); switchMode('code', u.pathname + u.search); }
-  else if (u.pathname === '/chat' && curMode() === 'code') { e.preventDefault(); switchMode('chat', u.search ? u.pathname + u.search : null); }
+  else if (u.pathname === '/chat' && u.searchParams.get('mode') === 'cowork') { e.preventDefault(); switchMode('cowork', u.pathname + u.search); }
+  else if (u.pathname === '/chat' && curMode() !== 'chat') { e.preventDefault(); switchMode('chat', u.search ? u.pathname + u.search : null); }
 });
 function notice(u) {
   if (u.pct4h >= 100 || u.pctWeek >= 100)
@@ -122,16 +132,18 @@ async function chatView(id) {
       <div class="mode-seg" role="group" aria-label="Mode">
         <button type="button" data-mode="chat" class="${sideMode === 'chat' ? 'on' : ''}" aria-pressed="${sideMode === 'chat'}">${ic('msg', 'sm')}<span>Chat</span></button>
         <button type="button" data-mode="code" class="${sideMode === 'code' ? 'on' : ''}" aria-pressed="${sideMode === 'code'}">${ic('code', 'sm')}<span>Code</span></button>
+        <button type="button" data-mode="cowork" class="${sideMode === 'cowork' ? 'on' : ''}" aria-pressed="${sideMode === 'cowork'}">${ic('layers', 'sm')}<span>Cowork</span></button>
       </div>
       <div class="side-pane" id="paneChat" ${sideMode === 'chat' ? '' : 'hidden'}>
         <div class="work-tiles${me?.plan?.artifacts ? '' : ' one'}">
           <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
-        <nav class="side-nav"><button type="button" id="tasknew">${ic('layers')}<span>งานใหม่ (AI ทำให้จนจบ)</span></button><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
+        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
+      <div class="side-pane" id="paneCowork" ${sideMode === 'cowork' ? '' : 'hidden'}></div>
       <div class="side-pane" id="paneCode" ${sideMode === 'code' ? '' : 'hidden'}>
         <a class="side-new" href="/code">${ic('plus', 'sm')}<span>New project</span></a>
         <nav class="side-nav"><button type="button" id="allp">${ic('code')}<span>All projects</span></button></nav>
@@ -146,7 +158,7 @@ async function chatView(id) {
         </button>
       </div>
     </aside>
-    <div class="main" ${sideMode === 'code' ? 'hidden' : ''}><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
+    <div class="main" ${sideMode !== 'chat' ? 'hidden' : ''}><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
       <div class="ctitle"><b id="ctl">Chat</b><small id="ctok"></small></div>
       <button class="lim" id="lim" aria-label="ลิมิตการใช้งาน"></button>
       <a class="icon-btn sm" href="/chat" data-new aria-label="แชตใหม่">${ic('newchat')}</a>
@@ -220,7 +232,7 @@ async function chatView(id) {
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; $('#tasknew').onclick = () => { $('#sclose')?.click(); taskSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
+  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
   $('#search').oninput = () => {

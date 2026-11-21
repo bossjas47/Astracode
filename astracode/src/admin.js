@@ -28,7 +28,7 @@ const sumRev = m => [...m.values()].reduce((a, o) => ({ rev: a.rev + o.rev, earn
 // วันเริ่มของช่วง N วันล่าสุด (เที่ยงคืนเวลาไทย) · ใช้เหมือนกันทั้งหน้าภาพรวมและหน้ากำไร ตัวเลขจึงตรงกัน
 export const rangeFrom = (days, now = Date.now()) => (Math.floor((now + BKK) / DAY) - days + 1) * DAY - BKK;
 export const TABLES = {
-  plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'agent', 'description', 'sort', 'active'],
+  plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'agent', 'cowork', 'description', 'sort', 'active'],
   models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'ctx_k', 'long_k', 'long_in', 'long_out', 'req_cap', 'bill', 'req_cost', 'req_price', 'code_prompt', 'sys_prompt', 'public', 'note', 'cats', 'fallback_id', 'vision', 'tools', 'effort', 'effort_levels', 'sort', 'active', 'new_until'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published', 'changelog'],
 };

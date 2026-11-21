@@ -9,4 +9,4 @@ class_name = "AgentBox"
 class_name = "AgentBox"
 image = "./container/Dockerfile"
 max_instances = 5
-instance_type = "basic"
+instance_type = "standard-1" # Cowork: Chromium + Python ต้องใช้หน่วยความจำมากกว่า basic

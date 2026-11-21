@@ -6,6 +6,7 @@ import { err, json, planOf, projectFor, rand, sha } from './core.js';
 import { applyChanges } from './agent.js';
 import { slug } from './api.js';
 import { siteUrl } from './billing.js';
+import { coworkEvents, finishCowork } from './cowork.js';
 
 const MAX_MS = 30 * 60e3, MAX_RUNNING = 5;
 export const ensureCloud = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS cloud_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, key_id INTEGER, status TEXT NOT NULL, prompt TEXT, model TEXT, events TEXT, final TEXT, changed TEXT, error TEXT, created_at INTEGER, finished_at INTEGER)').run();
@@ -22,7 +23,7 @@ export class AgentBox {
   async fetch(req) {
     const u = new URL(req.url);
     if (u.pathname === '/start') {
-      const j = await req.json(); await this.s.storage.put('job', { id: j.id, t0: Date.now(), from: 0, err: 0 });
+      const j = await req.json(); await this.s.storage.put('job', { id: j.id, kind: j.kind || 'project', t0: Date.now(), from: 0, err: 0 }); // kind: project = Agent บนคลาวด์ · cowork = งาน Cowork (คุยต่อได้)
       const r = await this.box('/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(j.run) });
       if (!r.ok) throw new Error('เริ่มงานในเครื่องไม่สำเร็จ: ' + (await r.text()).slice(0, 200));
       await this.s.storage.setAlarm(Date.now() + 3000); return new Response('ok');
@@ -35,18 +36,19 @@ export class AgentBox {
     const job = await this.s.storage.get('job'); if (!job) return;
     try {
       const d = await (await this.box('/events?from=' + job.from)).json();
-      if (d.events?.length) { await appendEvents(this.env, job.id, d.events); job.from += d.events.length; }
+      const cw = job.kind === 'cowork', done = cw ? finishCowork : finishJob;
+      if (d.events?.length) { await (cw ? coworkEvents : appendEvents)(this.env, job.id, d.events); job.from += d.events.length; }
       const over = Date.now() - job.t0 > MAX_MS;
       if (d.status === 'done' || d.status === 'error' || over) {
         if (over) await this.box('/stop', { method: 'POST' }).catch(() => {});
         const res = await (await this.box('/result')).json();
-        await finishJob(this.env, job.id, over ? { ...res, status: 'error', error: 'เกินเวลา 30 นาที หยุดให้แล้ว (ไฟล์ที่ทำถึงตรงนั้นบันทึกแล้ว)' } : res);
-        await this.s.storage.delete('job'); try { this.s.container.destroy?.(); } catch { /* ปิดอยู่แล้ว */ } return;
+        await done(this.env, job.id, over ? { ...res, status: 'error', error: 'เกินเวลา 30 นาที หยุดให้แล้ว (ไฟล์ที่ทำถึงตรงนั้นบันทึกแล้ว)' } : res);
+        await this.s.storage.delete('job'); if (!cw) try { this.s.container.destroy?.(); } catch { /* ปิดอยู่แล้ว */ } return; // Cowork: เก็บเครื่องไว้คุยต่อ (ปิดเองเมื่อว่างนาน)
       }
       job.err = 0; await this.s.storage.put('job', job); await this.s.storage.setAlarm(Date.now() + 4000);
     } catch (e) {
       job.err = (job.err || 0) + 1;
-      if (job.err > 15) { await finishJob(this.env, job.id, { status: 'error', error: 'เครื่องเสมือนไม่ตอบ: ' + String(e.message).slice(0, 200), changed: [], deleted: [] }); await this.s.storage.delete('job'); return; }
+      if (job.err > 15) { await (job.kind === 'cowork' ? finishCowork : finishJob)(this.env, job.id, { status: 'error', error: 'เครื่องเสมือนไม่ตอบ: ' + String(e.message).slice(0, 200), changed: [], deleted: [] }); await this.s.storage.delete('job'); return; }
       await this.s.storage.put('job', job); await this.s.storage.setAlarm(Date.now() + 5000);
     }
   }

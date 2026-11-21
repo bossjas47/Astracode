@@ -88,16 +88,6 @@ const FLOWS = [
     const put = calls.find(c => c.m === 'PUT' && c.p === '/api/files/5'), after = await page.locator('#cv-s').innerText().catch(() => '');
     return [!errs.length || errs.join(' | '), !(await page.locator('#canvas').isHidden()) || 'panel not opened', /994\.00/.test(grid) || 'formula not computed: ' + grid.slice(0, 120), card === 1 || 'no file card', !!put || 'cell edit not saved', /990\.00/.test(after) || 'recalc after edit failed'];
   }],
-  ['task mode: start from a template, the request carries task, the plan shows live and the task folder lists files', async () => {
-    const { page, errs, calls } = await open('/chat', { '/api/files': [{ id: 9, name: 'สรุป.pptx', kind: 'doc', ver: 1, updated_at: Date.now() }], '/api/files/9': { id: 9, name: 'สรุป.pptx', kind: 'doc', ver: 1, shown: 1, versions: [{ ver: 1 }], data: { md: '# ยอดขาย\n- โต 20%\n> พูดช้า ๆ\n# สรุป\n- ดี' } },
-      chat: () => [{ chat_id: 7 }, { todo: [{ content: 'อ่านไฟล์', status: 'completed' }, { content: 'ทำสไลด์', status: 'in_progress' }] }, { t: 'ทำเสร็จแล้ว\n\n[[uf:9|1|สรุป.pptx]]\n' }, { done: true, msg_id: 1 }] });
-    await page.evaluate(() => document.querySelector('#tasknew').click()); await page.waitForTimeout(300);
-    await page.click('[data-tt="3"]'); await page.click('#taskgo'); await page.waitForTimeout(1000);
-    const sent = calls.find(c => c.p === '/api/chat'), text = await page.locator('#app').innerText();
-    const slides = await page.locator('.uf-slide').count();
-    await page.evaluate(() => document.querySelector('#taskfold')?.click()); await page.waitForTimeout(400); const sheetText = await page.locator('body').innerText();
-    return [!errs.length || errs.join(' | '), /"task":true/.test(sent?.body || '') || 'task flag not sent', /สไลด์ PowerPoint/.test(sent?.body || '') || 'template text not sent', /แผนงาน · 1\/2/.test(text) || 'plan not shown', slides === 2 || 'slides preview: ' + slides, /ดาวน์โหลดทั้งหมด/.test(sheetText) || 'task folder not listed'];
-  }],
   ['send a chat message and see the streamed answer', async () => {
     const { page, errs, calls } = await open('/chat');
     await page.fill('#t', 'สวัสดี'); await page.click('#go'); await page.waitForTimeout(800);

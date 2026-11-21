@@ -1,0 +1,13 @@
+{
+  "name": "astracode-agent-box",
+  "private": true,
+  "description": "Cloud sandbox for Cloud Agent and Cowork: office files and a browser",
+  "dependencies": {
+    "docx": "9.0.2",
+    "exceljs": "4.4.0",
+    "mammoth": "1.8.0",
+    "pdf-parse": "1.1.1",
+    "pptxgenjs": "3.12.0",
+    "playwright-core": "1.49.1"
+  }
+}
