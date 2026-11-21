@@ -117,6 +117,7 @@ export async function cron(env) {
   await step('digest', () => monthlyDigest(env, now));
   await step('schedules', () => cronSchedules(env, now));
   await step('claude-credit', () => remindClaudeCredits(env, now));
+  await step('videos', () => import('./video.js').then(m => m.cronVideos(env))); // วิดีโอที่ลูกค้าปิดหน้าไป: เก็บไฟล์/คืนเงินให้ครบ
   await step('trial-offers', () => trialOffers(env, now)); // คนทดลองใกล้หมด/หมดแล้ว: โค้ดอัปเกรดลด 20% // เตือนเครดิต Claude ที่แถมก่อนหมด 5 วัน // งานตามเวลาของลูกค้า
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
   if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream

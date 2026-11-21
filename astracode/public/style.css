@@ -2041,3 +2041,9 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .cw-box textarea { min-height: 44px; }
 .cw-ask.done { border-color: var(--hair); opacity: .8; }
 .cw-ask form { display: flex; gap: 6px; } .cw-ask form input { flex: 1; min-width: 0; }
+.vid-list { display: grid; gap: 14px; margin-top: 6px; }
+.vid-item { display: grid; gap: 6px; }
+.vid-item video { width: 100%; border-radius: 12px; background: #000; max-height: 60vh; }
+.vid-item video.tall { max-width: 320px; justify-self: center; }
+.vid-wait { display: flex; align-items: center; gap: 8px; justify-content: center; min-height: 120px; border: 1px dashed rgba(var(--ov), .2); border-radius: 12px; color: var(--ash); font-size: 13.5px; padding: 12px; text-align: center; }
+.vid-wait.failed { color: var(--red); }

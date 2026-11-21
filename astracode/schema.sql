@@ -667,3 +667,6 @@ CREATE TABLE IF NOT EXISTS user_file_versions (file_id INTEGER NOT NULL, ver INT
 
 CREATE TABLE IF NOT EXISTS cowork_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, events TEXT, final TEXT, files TEXT, history TEXT, key_id INTEGER, error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS cowork_user ON cowork_tasks(user_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS videos (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, prompt TEXT NOT NULL, aspect TEXT NOT NULL, status TEXT NOT NULL, upstream_id TEXT, error TEXT, charged REAL NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0, checked_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS videos_user ON videos(user_id, id);

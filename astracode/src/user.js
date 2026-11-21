@@ -280,6 +280,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path === '/api/google' && M === 'GET') return googleStatus(env, u);
   if (path === '/api/google' && M === 'DELETE') return googleDisconnect(env, u);
   if (path === '/api/google/connect' && M === 'GET') return googleConnectStart(env, origin(req, env), u, url.searchParams.get('popup') === '1');
+  if (path.startsWith('/api/videos')) { const { videoApi } = await import('./video.js'); const r = await videoApi(req, env, u, path, M); if (r) return r; }
   if (path.startsWith('/api/cowork')) { const { coworkApi } = await import('./cowork.js'); const r = await coworkApi(req, env, u, path, M, new URL(req.url)); if (r) return r; }
   if (path.startsWith('/api/cloud-agent')) { const r = await cloudApi(req, env, u, path, M); if (r) return r; }
   if (path === '/api/agent-pack') {

@@ -139,7 +139,7 @@ async function chatView(id) {
           <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
-        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
+        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button><button type="button" id="vidgen">${ic('play')}<span>สร้างวิดีโอ</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
@@ -232,7 +232,7 @@ async function chatView(id) {
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
+  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; $('#vidgen').onclick = () => { $('#sclose')?.click(); videoSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
   $('#search').oninput = () => {
@@ -1845,4 +1845,37 @@ async function taskZip(list) {
     for (const g of grabbed) zip.file(g.name, g.data || await (await fetch(g.href)).arrayBuffer());
   } finally { HTMLAnchorElement.prototype.click = origClick; if (xlsxWrite && window.XLSX) window.XLSX.writeFile = xlsxWrite; }
   const a = document.createElement('a'); a.href = URL.createObjectURL(await zip.generateAsync({ type: 'blob' })); a.download = 'งาน-' + new Date().toISOString().slice(0, 10) + '.zip'; origClick.call(a);
+}
+
+// ---------- สร้างวิดีโอ (คลิปละ 5 วินาที 1080p · จ่ายจาก Wallet · ไม่สำเร็จคืนเงินอัตโนมัติ) ----------
+function videoSheet() {
+  let aspect = '16:9', timer = 0;
+  sheet('สร้างวิดีโอ', `<div class="sheet-form" id="vsf"><p class="muted">กำลังโหลด...</p></div>`, (d, close) => {
+    const box = d.querySelector('#vsf'), stop = () => clearTimeout(timer);
+    const card = v => `<div class="vid-item">${v.url ? `<video src="${v.url}" controls playsinline preload="metadata" class="${v.aspect === '9:16' ? 'tall' : ''}"></video>` : `<div class="vid-wait ${v.status}">${v.status === 'failed' ? ic('x') + ' สร้างไม่สำเร็จ (คืนเงินแล้ว)' : '<span class="cw-spin"></span> กำลังสร้าง… ประมาณ 1–5 นาที ปิดหน้านี้ได้'}</div>`}
+      <small class="muted">${esc(v.prompt.slice(0, 140))} · ${v.aspect} · ฿${v.charged} · ${when(v.created_at)}</small>
+      <div class="row">${v.url ? `<a class="btn out sm" href="${v.url}" download="astracode-video-${v.id}.mp4">${ic('download', 'sm')} ดาวน์โหลด</a>` : ''}${v.status === 'done' || v.status === 'failed' ? `<button type="button" class="btn out sm" data-vdel="${v.id}">${ic('trash', 'sm')}</button>` : ''}</div></div>`;
+    const draw = async () => {
+      if (!box.isConnected) return stop();
+      const r = await api('/videos').catch(x => ({ error: x.message }));
+      if (r.error) { box.innerHTML = `<p class="muted">${esc(r.error)}</p>`; return; }
+      if (!r.enabled) { box.innerHTML = '<p class="muted">ระบบสร้างวิดีโอยังไม่เปิดให้ใช้ ติดต่อแอดมิน</p>'; return; }
+      const keep = box.querySelector('#vprompt')?.value ?? '';
+      box.innerHTML = `<p class="sheet-msg">${ic('play', 'sm')} คลิปละ ${r.duration} วินาที · 1080p · <b>฿${r.price}</b> จ่ายจาก Wallet (คงเหลือ ฿${(+me.balance || 0).toFixed(2)}) · สร้างไม่สำเร็จคืนเงินอัตโนมัติ</p>
+        <textarea id="vprompt" rows="4" maxlength="2000" placeholder="อธิบายฉาก เช่น มุมกล้อง แสง การเคลื่อนไหว อารมณ์ภาพ · เขียนเป็นภาษาอังกฤษจะได้ผลดีที่สุด"></textarea>
+        <div class="row"><div class="seg" role="group" aria-label="สัดส่วนภาพ"><button type="button" data-asp="16:9" class="${aspect === '16:9' ? 'on' : ''}">16:9 แนวนอน</button><button type="button" data-asp="9:16" class="${aspect === '9:16' ? 'on' : ''}">9:16 แนวตั้ง</button></div></div>
+        <button type="button" class="btn blue" id="vgo">${ic('play', 'sm')} สร้างวิดีโอ ฿${r.price}</button>
+        ${me.balance < r.price ? '<a class="btn out" href="/plans?topup=1">เติมเงิน Wallet</a>' : ''}
+        <div class="vid-list">${r.items.map(card).join('') || '<p class="muted">ยังไม่มีวิดีโอ</p>'}</div>`;
+      box.querySelector('#vprompt').value = keep;
+      box.querySelectorAll('[data-asp]').forEach(b => b.onclick = () => { aspect = b.dataset.asp; box.querySelectorAll('[data-asp]').forEach(x => x.classList.toggle('on', x === b)); });
+      box.querySelector('#vgo').onclick = async e => { const p = box.querySelector('#vprompt').value.trim(); if (p.length < 5) return toast('อธิบายฉากที่ต้องการก่อน', 'bad');
+        if (!confirm(`สร้างวิดีโอ 1 คลิป ฿${r.price} จาก Wallet?`)) return; e.target.disabled = true;
+        try { const x = await api('/videos', { method: 'POST', body: { prompt: p, aspect } }); me.balance = x.balance; box.querySelector('#vprompt').value = ''; toast('เริ่มสร้างแล้ว เสร็จแล้วดูได้ที่นี่', 'ok'); } catch (y) { toast(y.message, 'bad'); }
+        draw(); };
+      box.querySelectorAll('[data-vdel]').forEach(b => b.onclick = async () => { if (!confirm('ลบวิดีโอนี้?')) return; await api('/videos/' + b.dataset.vdel, { method: 'DELETE' }).catch(x => toast(x.message, 'bad')); draw(); });
+      stop(); if (r.items.some(v => ['queued', 'processing'].includes(v.status))) timer = setTimeout(draw, 10000);
+    };
+    draw();
+  });
 }
