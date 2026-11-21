@@ -109,6 +109,15 @@ const FLOWS = [
     const ans = calls.find(c => c.p === '/api/cowork/3/answer');
     return [!errs.length || errs.join(' | '), /วันนี้ให้ช่วยทำงานอะไร/.test(hello) || 'hello missing', /Running command/.test(body) || 'tool card missing', /รายงาน\.docx/.test(body) || 'artifact missing', /ทำรายงาน/.test(body) || 'plan missing', /"prompt":"ทำรายงาน"/.test(post?.body || '') || 'task not created', /"name":"a\.csv"/.test(post?.body || '') || 'file not sent', /mode=cowork&task=4/.test(url) || 'url ' + url, /"ask_id":"q1".*"text":"Excel"/.test(ans?.body || '') || 'answer not sent'];
   }],
+  ['developers: pick Codex + a plan model, create a one-line install command; Uncen model shows a wallet warning', async () => {
+    const { page, errs, calls } = await open('/developers', { '/api/setup-cmd': { key: 'sk-astra-x', url: 'http://t.test/setup/abcdefghijklmnopqrst', unix: 'curl -fsSL http://t.test/setup/abcdefghijklmnopqrst | node', windows: 'irm http://t.test/setup/abcdefghijklmnopqrst | node' }, '/api/keys': [], '/api/keys/stats': [] });
+    await page.evaluate(() => document.querySelector('[data-tab="connect"], [data-t="connect"], .devtabs button:nth-child(2)')?.click()); await page.waitForTimeout(300);
+    await page.evaluate(() => document.querySelector('[data-os="unix"]')?.click());
+    await page.evaluate(() => document.querySelector('#mkcmd')?.click()); await page.waitForTimeout(500);
+    const text = await page.locator('#csnip').innerText(), post = calls.find(c => c.p === '/api/setup-cmd');
+    if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT, fullPage: true });
+    return [!errs.length || errs.join(' | '), /"tool":"Codex"/.test(post?.body || '') || 'no setup request', /curl -fsSL .* \| node/.test(text) || 'command not shown: ' + text.slice(0, 120)];
+  }],
   ['send a chat message and see the streamed answer', async () => {
     const { page, errs, calls } = await open('/chat');
     await page.fill('#t', 'สวัสดี'); await page.click('#go'); await page.waitForTimeout(800);

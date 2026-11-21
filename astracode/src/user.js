@@ -206,6 +206,12 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const rows = (await DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, COALESCE(SUM(-amount),0) spent FROM wallet_tx WHERE user_id=? AND kind='api' AND created_at>=? GROUP BY d ORDER BY d").bind(u.id, from).all()).results;
     return json(rows);
   }
+  if (path === '/api/setup-cmd' && M === 'POST') { // คำสั่งติดตั้ง 1 บรรทัด: สร้าง key ใหม่ + ลิงก์สคริปต์ใช้ครั้งเดียว
+    if (!((await planOf(env, u))?.price > 0) && !(u.balance >= WALLET_MIN) && !(await import('./credits.js').then(C => C.modelCreditIds(env, u.id)).catch(() => new Set())).size) return err('เติม Wallet (ขั้นต่ำ ฿1) หรือใช้แพลนที่ชำระเงิน เพื่อเชื่อมต่อโปรแกรม', 403);
+    if ((await planOf(env, u))?._team?.api_off) return err('หัวหน้าทีมปิดสิทธิ์สร้าง API key ของคุณไว้', 403);
+    if (await limited(env, 'setupcmd:' + u.id, 10, 3600e3)) return err('สร้างคำสั่งบ่อยเกินไป ลองใหม่ภายหลัง', 429);
+    const { setupApi } = await import('./setup.js'); return setupApi(req, env, u, new URL(req.url).origin);
+  }
   if (path === '/api/keys') {
     if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,ip_allow,expires_at,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
     if (M === 'POST' && !((await planOf(env, u))?.price > 0) && !(u.balance >= WALLET_MIN) && !(await import('./credits.js').then(C => C.modelCreditIds(env, u.id)).catch(() => new Set())).size) return err('เติม Wallet (ขั้นต่ำ ฿1) หรือใช้แพลนที่ชำระเงิน เพื่อสร้าง API key', 403);

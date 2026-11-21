@@ -66,6 +66,7 @@ export default {
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
     if (path === '/node-runner' || path === '/node-runner.html') return sandboxed(await env.ASSETS.fetch(req), '/preview.html'); // เทอร์มินัล Node: origin แยกเหมือนหน้าแสดงผล
     if (path.startsWith('/v1/')) return v1(req, env, ctx, path); // API สำหรับนักพัฒนา (แบบ OpenAI)
+    if ((r = path.match(/^\/setup\/([A-Za-z0-9_-]{16,48})$/)) && M === 'GET') { const { setupScript } = await import('./setup.js'); return setupScript(env, r[1]); } // สคริปต์ติดตั้งคำสั่งเดียว (ลิงก์ใช้ครั้งเดียว)
     if ((r = path.match(/^\/a\/([A-Za-z0-9]{8,40})(\/raw)?$/)) && M === 'GET') { await ensureCols(env); return r[2] ? artPublic(env, r[1]) : artShell(env, r[1]); } // กรอบ + เนื้อหา (sandbox)
     if (path === '/api/gallery' && M === 'GET') { await ensureCols(env); return secure(await artGallery(env)); } // หน้า Artifact ที่แชร์ (sandbox · noindex)
     if ((r = path.match(/^\/api\/a\/([A-Za-z0-9]{8,40})\/report$/)) && M === 'POST') return secure(await artReport(env, r[1], ip(req, env)));

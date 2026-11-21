@@ -7,7 +7,10 @@ PAGES.developers = async () => {
   const [pr, keys, kstats] = await Promise.all([api('/pricing'), me ? api('/keys') : null, me ? api('/keys/stats').catch(() => []) : []]);
   const base = location.origin + '/v1', slug = n => n.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
   const first = pr.models[0] ? slug(pr.models[0].name) : 'model-name';
-  let tab = me ? 'keys' : 'connect', ctool = 'Cline / Roo', cmodel = first;
+  // โมเดลที่ใช้ได้จริงของผู้ใช้ (ล็อกอิน) · wallet = หักเงิน Wallet ไม่ใช้ลิมิตแพลน (โมเดลนอกแพลน / Uncen)
+  const cms = (me ? me.models.filter(m => !m.locked && !['image', 'embedding'].includes(m.provider)) : pr.models).map(m => ({ name: m.name, slug: slug(m.name), wallet: !!m.wallet || /uncen/i.test(m.name) }));
+  const planMs = cms.filter(m => !m.wallet), pick0 = (planMs.find(m => /sonnet 5\.5 eco/i.test(m.name)) || planMs[0] || cms[0])?.slug || first;
+  let tab = me ? 'keys' : 'connect', ctool = 'Codex', cmodel = pick0, cos = /Win/i.test(navigator.platform || navigator.userAgent) ? 'win' : 'unix', setupRes = null;
   const canUse = !!me && (me.plan.paid || me.balance >= 1);
   const fld = (label, val, id = '') => `<label>${label}</label><div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(val)}" ${id ? `id="${id}"` : ''} onclick="this.select()"><button type="button" class="btn out sm" data-cp="${esc(val)}">Copy</button></div>`;
   const TOOLS = { // วิธีใส่ค่าในแต่ละโปรแกรม: k = key (หรือ placeholder), m = model id
@@ -47,10 +50,13 @@ PAGES.developers = async () => {
       ${me && kstats.length ? `<div class="card">${h3k('ยอดใช้ API 14 วันล่าสุด')}<div class="ubars">${kstats.map(r => { const mx = Math.max(...kstats.map(x => x.n), 1); return `<div class="ubar" title="${r.d}: ${r.n} ครั้ง · ฿${baht(r.spent)}"><i style="height:${Math.max(4, Math.round(r.n / mx * 100))}%"></i><span>${r.d.slice(8)}</span></div>`; }).join('')}</div></div>` : ''}
         <details class="card"><summary>${h3k('แจ้งเตือนผ่าน Webhook (ไม่บังคับ)')}</summary><form id="whf" class="row stack-m" style="flex-wrap:nowrap;margin-top:10px"><input name="webhook_url" type="url" value="${esc(me.webhook_url || '')}" placeholder="https://... แจ้งเมื่อ key ใช้งบถึง 80% และ 100%"><button class="btn out sm">Save</button></form></details>`
         : `<div class="card" style="text-align:center"><p>เข้าสู่ระบบเพื่อสร้าง API key</p><a class="btn blue" href="/login?next=/developers">Log in</a></div>`}</div>
-      <div data-pane="connect" ${tab === 'connect' ? '' : 'hidden'}><div class="card">${h3k('ใส่ 3 ค่านี้ในโปรแกรม')}
-        ${fld('Base URL', base)}${fld('API Key', newKey || 'sk-astra-... (สร้างที่แท็บ API Key)')}
-        <label>โมเดล</label><select id="cm">${pr.models.map(m => `<option value="${esc(slug(m.name))}" ${slug(m.name) === cmodel ? 'selected' : ''}>${esc(m.name)} · ${esc(slug(m.name))}</option>`).join('')}</select>
-        <label style="margin-top:14px">โปรแกรมที่ใช้</label><div class="vchips" id="ctools">${Object.keys(TOOLS).map(t => `<button type="button" data-ct="${t}" class="${t === ctool ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <div data-pane="connect" ${tab === 'connect' ? '' : 'hidden'}><div class="card">${h3k('เชื่อมต่อโปรแกรมใน 3 ขั้น')}
+        <div class="cstep"><b>1</b><span>เลือกโปรแกรม</span></div>
+        <div class="vchips" id="ctools">${Object.keys(TOOLS).map(t => `<button type="button" data-ct="${t}" class="${t === ctool ? 'on' : ''}">${t}</button>`).join('')}</div>
+        <div class="cstep"><b>2</b><span>เลือกโมเดลหลัก</span></div>
+        <select id="cm">${planMs.length ? `<optgroup label="ใช้ลิมิตแพลน">${planMs.map(m => `<option value="${esc(m.slug)}" ${m.slug === cmodel ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</optgroup>` : ''}${cms.some(m => m.wallet) ? `<optgroup label="หักเงิน Wallet (นอกแพลน / Uncen)">${cms.filter(m => m.wallet).map(m => `<option value="${esc(m.slug)}" ${m.slug === cmodel ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</optgroup>` : ''}</select>
+        <div id="cmwarn"></div>
+        <div class="cstep"><b>3</b><span>ติดตั้ง</span></div>
         <div id="csnip"></div></div></div>
       <div data-pane="docs" ${tab === 'docs' ? '' : 'hidden'}>
       <div class="band"><h2>เริ่มใช้</h2>
@@ -120,13 +126,26 @@ PAGES.developers = async () => {
     app.querySelectorAll('[data-dt]').forEach(b => b.onclick = () => setTab(b.dataset.dt));
     app.querySelectorAll('[data-goto]').forEach(b => b.onclick = e => { e.preventDefault(); setTab(b.dataset.goto); scrollTo(0, 0); });
     app.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => copy(b.dataset.cp, b));
-    const auto = () => window.astraDesktop?.setupTool && me && ['Codex', 'Claude Code', 'OpenCode'].includes(ctool); // แอปคอม: เขียนไฟล์ตั้งค่าให้เลย
-    const snip = () => { const [t, code] = TOOLS[ctool](newKey || 'sk-astra-...', cmodel); const box = $('#csnip'); if (!box) return; box.innerHTML = `<div style="margin-top:12px">${auto() ? `<div class="card" style="margin-bottom:10px"><b>ตั้งค่าให้อัตโนมัติ</b><p class="muted" style="margin:4px 0 8px">สร้าง key ให้ ${esc(ctool)} แล้วแก้ไฟล์ตั้งค่าในเครื่องนี้ให้เลย ไม่ต้องคัดลอกเอง</p><button type="button" class="btn blue sm" id="autoset">ตั้งค่า ${esc(ctool)} ให้เลย</button></div>` : ''}${pre([t, code])}</div>`; bindCopy();
-      box.querySelector('#autoset')?.addEventListener('click', async e => {
-        e.target.disabled = true;
-        try { const k = newKey || (await api('/keys', { method: 'POST', body: { name: ctool } })).key; const f = await window.astraDesktop.setupTool(ctool, k, cmodel); if (f) toast(`ตั้งค่า ${ctool} แล้ว (${f}) · ปิดโปรแกรมแล้วเปิดใหม่`, 'ok'); }
-        catch (x) { toast(x.message, 'bad'); } e.target.disabled = false;
-      }); };
+    const ONE = ['Codex', 'Claude Code', 'OpenCode'], isWallet = s => cms.find(m => m.slug === s)?.wallet;
+    const warn = () => { const w = $('#cmwarn'); if (w) w.innerHTML = isWallet(cmodel) ? `<p class="cwarn">${ic('alert', 'sm')} โมเดลนี้<b>หักเงินจาก Wallet</b> ตามราคา ไม่ใช้ลิมิตแพลน · ถ้าจะใช้ลิมิตแพลน เลือกโมเดลในกลุ่ม "ใช้ลิมิตแพลน"</p>` : ''; };
+    const manual = k => { const [t, code] = TOOLS[ctool](k || 'sk-astra-...', cmodel); return pre([t, code]); };
+    const snip = () => { const box = $('#csnip'); if (!box) return; warn();
+      if (!me) { box.innerHTML = `<p class="muted">เข้าสู่ระบบเพื่อสร้างคำสั่งติดตั้งพร้อม key ของคุณ</p><a class="btn blue" href="/login?next=/developers">เข้าสู่ระบบ</a>${manual('')}`; bindCopy(); return; }
+      if (ONE.includes(ctool)) {
+        const cmd = setupRes && setupRes.tool === ctool && setupRes.model === cmodel ? (cos === 'win' ? setupRes.windows : setupRes.unix) : '';
+        box.innerHTML = `<div class="seg" style="margin:0 0 10px" role="group" aria-label="ระบบ"><button type="button" data-os="win" class="${cos === 'win' ? 'on' : ''}">Windows</button><button type="button" data-os="unix" class="${cos === 'unix' ? 'on' : ''}">Mac / Linux</button></div>
+          ${cmd ? `${pre([cos === 'win' ? 'PowerShell · วางแล้วกด Enter' : 'Terminal · วางแล้วกด Enter', cmd])}<p class="muted" style="font-size:13px;margin:6px 0 0">คำสั่งนี้มี key ของคุณ ใช้ได้ภายใน 15 นาที · ตั้งค่าโมเดลในแพลนให้ครบ${ctool === 'Codex' ? ' (สลับด้วย <code>codex --profile astra-ชื่อโมเดล</code>)' : ctool === 'OpenCode' ? ' (สลับด้วย /models)' : ''} · สำรองไฟล์เดิมเป็น .bak · เสร็จแล้วปิดโปรแกรมแล้วเปิดใหม่</p>`
+            : `<button type="button" class="btn blue" id="mkcmd">${ic('terminal', 'sm')} สร้างคำสั่งติดตั้ง ${esc(ctool)}</button><p class="muted" style="font-size:13px;margin:6px 0 0">ระบบสร้าง API key ใหม่และใส่ให้ในคำสั่ง ต้องติดตั้ง ${esc(ctool)} ไว้ก่อน (มี Node.js มาด้วยอยู่แล้ว)</p>`}
+          <details style="margin-top:12px"><summary class="muted">ตั้งค่าเองแบบเดิม (คัดลอกไฟล์ตั้งค่า)</summary>${manual(setupRes?.key || newKey)}</details>`;
+        box.querySelectorAll('[data-os]').forEach(b => b.onclick = () => { cos = b.dataset.os; snip(); });
+        box.querySelector('#mkcmd')?.addEventListener('click', async e => { e.target.disabled = true;
+          try { const r = await api('/setup-cmd', { method: 'POST', body: { tool: ctool, model: cmodel, models: planMs.map(m => m.slug).slice(0, 40) } }); setupRes = { ...r, tool: ctool, model: cmodel }; snip(); toast('สร้างคำสั่งแล้ว กด Copy แล้ววางใน ' + (cos === 'win' ? 'PowerShell' : 'Terminal'), 'ok'); }
+          catch (x) { toast(x.message, 'bad'); e.target.disabled = false; } });
+      } else {
+        box.innerHTML = `${newKey ? '' : `<button type="button" class="btn blue" id="mkkey">${ic('plus', 'sm')} สร้าง key และใส่ให้ในตัวอย่าง</button>`}${manual(newKey)}`;
+        box.querySelector('#mkkey')?.addEventListener('click', async e => { e.target.disabled = true; try { newKey = (await api('/keys', { method: 'POST', body: { name: ctool } })).key; snip(); toast('สร้าง key แล้ว คัดลอกเก็บไว้ ระบบจะไม่แสดงอีก', 'ok'); } catch (x) { toast(x.message, 'bad'); e.target.disabled = false; } });
+      }
+      bindCopy(); };
     $('#cm')?.addEventListener('change', e => { cmodel = e.target.value; snip(); });
     app.querySelectorAll('[data-ct]').forEach(b => b.onclick = () => { ctool = b.dataset.ct; app.querySelectorAll('[data-ct]').forEach(x => x.classList.toggle('on', x === b)); snip(); });
     snip();
