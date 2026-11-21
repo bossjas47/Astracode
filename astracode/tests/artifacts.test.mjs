@@ -43,10 +43,21 @@ test('artifact: paid plan creates v1, update makes v2, share link is sandboxed +
 
   const sh = await t.json('/api/artifacts/1/share', { method: 'POST', cookie: u.cookie, body: { on: true, ver: 1 } });
   assert.ok(sh.data.share_token);
-  const pub = await t.call('/a/' + sh.data.share_token);
+  const shell = await t.call('/a/' + sh.data.share_token), sh0 = await shell.text();
+  assert.match(sh0, /iframe src="\/a\/[A-Za-z0-9]+\/raw"/); assert.match(sh0, /รายงาน/); assert.match(sh0, /ทำแบบนี้ให้ฉัน/); assert.match(shell.headers.get('x-robots-tag'), /noindex/);
+  const pub = await t.call('/a/' + sh.data.share_token + '/raw');
   const body = await pub.text();
   assert.match(body, /v1/, 'locked to v1'); assert.match(body, /สร้างด้วย AstraCode/);
   assert.match(pub.headers.get('x-robots-tag'), /noindex/); assert.match(pub.headers.get('content-security-policy'), /sandbox/);
+  assert.equal((await t.json('/api/gallery')).data.length, 0, 'not in the gallery unless chosen');
+  await t.json('/api/artifacts/1/share', { method: 'POST', cookie: u.cookie, body: { on: true, gallery: true } });
+  assert.equal((await t.json('/api/gallery')).data[0].title, 'เครื่องคิดเลข');
+  for (let i = 0; i < 2; i++) await t.json('/api/a/' + sh.data.share_token + '/report', { method: 'POST' });
+  assert.equal((await t.json('/api/gallery')).data.length, 0, '2 reports hide it from the gallery');
+  const adm = await t.user({ role: 'admin' }), al = (await t.json('/api/admin/artifacts', { cookie: adm.cookie })).data;
+  assert.equal(al[0].reports, 2);
+  await t.json('/api/admin/artifacts/1', { method: 'PUT', cookie: adm.cookie, body: { unshare: true } });
+  assert.equal((await t.call('/a/' + sh.data.share_token)).status, 404, 'admin closed the link');
   await t.json('/api/artifacts/1/share', { method: 'POST', cookie: u.cookie, body: { on: false } });
   assert.equal((await t.call('/a/' + sh.data.share_token)).status, 404);
   assert.equal((await t.json('/api/artifacts', { cookie: u.cookie })).data.length, 1);

@@ -12,7 +12,7 @@ import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
 import { passkeyApi, passkeyPublic } from './passkey.js';
 import { schedApi } from './schedules.js';
-import { artPaid, artApi, artPublic, artReport } from './artifacts.js';
+import { artPaid, artApi, artAdmin, artGallery, artPublic, artReport, artShell } from './artifacts.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
 // ข้อมูลหน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
@@ -65,7 +65,8 @@ export default {
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
     if (path === '/node-runner' || path === '/node-runner.html') return sandboxed(await env.ASSETS.fetch(req), '/preview.html'); // เทอร์มินัล Node: origin แยกเหมือนหน้าแสดงผล
     if (path.startsWith('/v1/')) return v1(req, env, ctx, path); // API สำหรับนักพัฒนา (แบบ OpenAI)
-    if ((r = path.match(/^\/a\/([A-Za-z0-9]{8,40})$/)) && M === 'GET') { await ensureCols(env); return artPublic(env, r[1]); } // หน้า Artifact ที่แชร์ (sandbox · noindex)
+    if ((r = path.match(/^\/a\/([A-Za-z0-9]{8,40})(\/raw)?$/)) && M === 'GET') { await ensureCols(env); return r[2] ? artPublic(env, r[1]) : artShell(env, r[1]); } // กรอบ + เนื้อหา (sandbox)
+    if (path === '/api/gallery' && M === 'GET') { await ensureCols(env); return secure(await artGallery(env)); } // หน้า Artifact ที่แชร์ (sandbox · noindex)
     if ((r = path.match(/^\/api\/a\/([A-Za-z0-9]{8,40})\/report$/)) && M === 'POST') return secure(await artReport(env, r[1], ip(req, env)));
     if (path === '/robots.txt' || path === '/api/robots') return robots(req, env);
     if (path === '/sitemap.xml' || path === '/api/sitemap') return secure(await sitemap(req, env));
@@ -415,7 +416,9 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/admin-gate') return STAFF.includes(u.role) ? await adminGate(req, env, u) : err('forbidden', 403);
       if (path.startsWith('/api/admin/')) {
         if (!staffMay(u.role, M, path)) return err(STAFF.includes(u.role) ? 'สิทธิ์ของคุณทำรายการนี้ไม่ได้ (ติดต่อแอดมินหลัก)' : 'forbidden', 403);
-        return (await gateBlock(env, u)) || await admin(req, env, path, url, u); // ต้องผ่านรหัสผ่านชั้นที่สองก่อน
+        const gb = await gateBlock(env, u); if (gb) return gb;
+        if (path.startsWith('/api/admin/artifacts')) { const r2 = await artAdmin(req, env, path, M); if (r2) return r2; } // ดูแล Artifact ที่แชร์ (รายงาน/แกลเลอรี)
+        return await admin(req, env, path, url, u); // ต้องผ่านรหัสผ่านชั้นที่สองก่อน
       }
       return err('not found', 404);
     } catch (e) {

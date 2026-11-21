@@ -1544,11 +1544,12 @@ function artShare() {
   sheet('แชร์ Artifact', `<div class="sheet-form">
     <p class="sheet-msg">${a.share_token ? 'ทุกคนที่มีลิงก์นี้เปิดดูได้ (ไม่ต้องล็อกอิน)' : 'ตอนนี้เป็นส่วนตัว เห็นแค่คุณ'}</p>
     ${link ? `<div class="row"><input id="ashl" readonly value="${esc(link)}"><button type="button" class="btn out sm" id="ashc">คัดลอก</button></div>` : ''}
+    <label class="sw-row"><span class="sw"><input type="checkbox" id="ashg" ${a.gallery ? 'checked' : ''}><span></span></span> แสดงในแกลเลอรีสาธารณะ (/gallery)</label>
     <label>เวอร์ชันที่แชร์<select id="ashv"><option value="">ล่าสุดเสมอ</option>${a.versions.map(x => `<option value="${x.ver}" ${a.share_ver === x.ver ? 'selected' : ''}>ล็อกไว้ที่ v${x.ver}</option>`).join('')}</select></label>
     <button type="button" class="btn blue" id="asho">${a.share_token ? 'บันทึก' : 'เปิดลิงก์แชร์'}</button>
     ${a.share_token ? '<button type="button" class="btn out" id="ashx">ปิดการแชร์</button>' : ''}
     <small class="muted">หน้าที่แชร์รันแยกจากบัญชีของคุณ และไม่ขึ้นใน Google</small></div>`, (d, close) => {
-    const go = async on => { try { const r = await api(`/artifacts/${a.id}/share`, { method: 'POST', body: { on, ver: +d.querySelector('#ashv').value || null } }); a.share_token = r.share_token; a.share_ver = r.share_ver ?? null; $('#cv-sh').classList.toggle('on', !!a.share_token); close(); if (on) { copy(location.origin + '/a/' + r.share_token); toast('คัดลอกลิงก์แล้ว', 'ok'); } else toast('ปิดการแชร์แล้ว ลิงก์เดิมใช้ไม่ได้'); } catch (x) { toast(x.message, 'bad'); } };
+    const go = async on => { try { const r = await api(`/artifacts/${a.id}/share`, { method: 'POST', body: { on, ver: +d.querySelector('#ashv').value || null, gallery: d.querySelector('#ashg').checked } }); a.gallery = !!r.gallery; a.share_token = r.share_token; a.share_ver = r.share_ver ?? null; $('#cv-sh').classList.toggle('on', !!a.share_token); close(); if (on) { copy(location.origin + '/a/' + r.share_token); toast('คัดลอกลิงก์แล้ว', 'ok'); } else toast('ปิดการแชร์แล้ว ลิงก์เดิมใช้ไม่ได้'); } catch (x) { toast(x.message, 'bad'); } };
     d.querySelector('#asho').onclick = () => go(true);
     const x = d.querySelector('#ashx'); if (x) x.onclick = () => go(false);
     const c = d.querySelector('#ashc'); if (c) c.onclick = e => copy(link, e.target);

@@ -194,6 +194,12 @@ PAGES.support = async () => {
 };
 
 // ---------- บล็อก: /blog = รายการ, /blog/<slug> = บทความ ----------
+PAGES.gallery = async () => { // แกลเลอรีสาธารณะ: Artifact ที่เจ้าของเลือกโชว์
+  const list = await api('/gallery').catch(() => []);
+  page(nav() + `<div class="wrap"><section class="hero" style="padding:48px 0 16px"><h1>แกลเลอรีผลงาน AI</h1><p>หน้าเว็บ แอป และเกม ที่ผู้ใช้สร้างด้วยการพิมพ์บอก AI · แตะเพื่อเปิดลองใช้</p>
+    <a class="btn blue" href="${me ? '/chat' : '/login?next=/chat'}">${ic('sparkles', 'sm')} สร้างของคุณเอง</a></section>
+    ${list.length ? `<div class="gal">${list.map(a => `<a class="gal-card" href="/a/${encodeURIComponent(a.token)}" target="_blank" rel="noopener"><span class="gal-ic">${ic('code')}</span><b>${esc(a.title)}</b><small class="muted">${when(a.updated_at)}</small></a>`).join('')}</div>` : '<p class="muted" style="text-align:center">ยังไม่มีผลงานในแกลเลอรี · สร้าง Artifact ในแชตแล้วเลือก "แสดงในแกลเลอรี" ตอนแชร์</p>'}${footer()}</div>`);
+};
 PAGES.blog = async () => {
   const slugQ = decodeURIComponent(curl().pathname.split('/')[2] || '');
   if (slugQ) {

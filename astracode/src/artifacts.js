@@ -1,6 +1,6 @@
 // Artifact: หน้าเว็บ (HTML+JS) ที่ AI สร้างในแชต · เก็บทุกเวอร์ชัน · เป็นส่วนตัวจนกว่าเจ้าของกดแชร์
 // ความปลอดภัย: หน้าที่แชร์ส่งพร้อม CSP sandbox (origin ทึบ อ่าน cookie / เรียก API ในชื่อผู้ใช้ไม่ได้) และ noindex
-import { err, json, limited, planOf, rand } from './core.js';
+import { err, esc, json, limited, planOf, rand } from './core.js';
 
 export const ART_MAX = 2e6, ART_VERS = 30, ART_SHARES = 20, ART_REPORT_OFF = 5;
 export const artPaid = plan => plan?.price > 0 && !plan.once; // แพลนทดลอง (once) และฟรีใช้ไม่ได้
@@ -8,6 +8,7 @@ export const ART_TABLES = [
   'CREATE TABLE IF NOT EXISTS artifacts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, chat_id INTEGER, title TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1, share_token TEXT, share_ver INTEGER, reports INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)',
   'CREATE INDEX IF NOT EXISTS artifacts_user ON artifacts(user_id, updated_at)',
   'CREATE UNIQUE INDEX IF NOT EXISTS artifacts_share ON artifacts(share_token)',
+  'ALTER TABLE artifacts ADD COLUMN gallery INTEGER', // 1 = เจ้าของให้โชว์ในแกลเลอรีสาธารณะ
   'CREATE TABLE IF NOT EXISTS artifact_versions (artifact_id INTEGER NOT NULL, ver INTEGER NOT NULL, html TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (artifact_id, ver))',
 ];
 export const artMarker = (id, ver, title) => `\n\n[[art:${id}|${ver}|${String(title).replace(/[\]|\n]/g, ' ')}]]\n`;
@@ -45,7 +46,36 @@ export function artPage(html, { share = false } = {}) {
   } });
 }
 
-// หน้าแชร์สาธารณะ /a/:token (ไม่ต้องล็อกอิน)
+// หน้าแชร์สาธารณะ /a/:token: กรอบของเว็บเรา (ชื่อ · รายงาน · ทำแบบนี้ให้ฉัน) + iframe โหลดเนื้อหาจริงที่ /a/:token/raw (sandbox)
+export async function artShell(env, token) {
+  const a = await env.DB.prepare('SELECT title FROM artifacts WHERE share_token=?').bind(token).first();
+  if (!a) return new Response('ไม่พบหน้านี้ หรือเจ้าของปิดการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'x-robots-tag': 'noindex' } });
+  const t = esc(a.title);
+  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${t} · สร้างด้วย AstraCode</title>
+<meta property="og:title" content="${t}"><meta property="og:description" content="หน้าเว็บที่สร้างด้วย AI บน AstraCode"><meta property="og:image" content="/og.png">
+<style>html,body{margin:0;height:100%;background:#141210;font-family:system-ui,'Prompt',sans-serif;color:#f3eee7}.bar{display:flex;align-items:center;gap:10px;height:44px;padding:0 12px;border-bottom:1px solid #2c2824;font-size:14px}.bar b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar a,.bar button{color:#f3eee7;text-decoration:none;background:none;border:1px solid #3a352f;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}.bar a.cta{background:#d97757;border-color:#d97757;color:#fff}iframe{display:block;width:100%;height:calc(100% - 45px);border:0;background:#fff}@media(max-width:520px){.bar .hide{display:none}}</style></head>
+<body><div class="bar"><b>${t}</b><button type="button" id="rep" class="hide">รายงาน</button><a class="cta" href="/?ref=artifact">ทำแบบนี้ให้ฉัน</a></div>
+<iframe src="/a/${token}/raw" sandbox="allow-scripts allow-forms allow-modals" title="${t}"></iframe>
+<script>document.getElementById('rep').onclick=async e=>{if(!confirm('รายงานหน้านี้ว่าไม่เหมาะสม หรือหลอกลวง?'))return;e.target.disabled=true;try{const r=await fetch('/api/a/${token}/report',{method:'POST'});e.target.textContent=r.ok?'รายงานแล้ว ขอบคุณ':'ลองใหม่ภายหลัง'}catch{e.target.textContent='ลองใหม่ภายหลัง'}}</script></body></html>`;
+  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'x-robots-tag': 'noindex', 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=0',
+    'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; frame-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" } });
+}
+// แกลเลอรีสาธารณะ: เฉพาะที่เจ้าของเลือกโชว์ ยังแชร์อยู่ และถูกรายงานน้อยกว่า 2 ครั้ง
+export async function artGallery(env) {
+  return json((await env.DB.prepare('SELECT title, share_token token, updated_at FROM artifacts WHERE gallery=1 AND share_token IS NOT NULL AND reports<2 ORDER BY updated_at DESC LIMIT 60').all()).results);
+}
+// หลังบ้าน: รายการที่แชร์อยู่ (ถูกรายงานมากสุดก่อน) · ปิดลิงก์ / เอาออกจากแกลเลอรี
+export async function artAdmin(req, env, path, M) {
+  if (path === '/api/admin/artifacts' && M === 'GET') return json((await env.DB.prepare('SELECT a.id, a.title, a.share_token, a.gallery, a.reports, a.updated_at, u.email FROM artifacts a JOIN users u ON u.id=a.user_id WHERE a.share_token IS NOT NULL OR a.reports>0 ORDER BY a.reports DESC, a.updated_at DESC LIMIT 200').all()).results);
+  const m = path.match(/^\/api\/admin\/artifacts\/(\d+)$/);
+  if (m && M === 'PUT') {
+    const b = await req.json().catch(() => ({}));
+    if (b.unshare) await env.DB.prepare('UPDATE artifacts SET share_token=NULL, gallery=NULL WHERE id=?').bind(+m[1]).run();
+    if ('gallery' in b) await env.DB.prepare('UPDATE artifacts SET gallery=? WHERE id=?').bind(b.gallery ? 1 : null, +m[1]).run();
+    return json({ ok: true });
+  }
+  return null;
+}
 export async function artPublic(env, token) {
   const a = await env.DB.prepare('SELECT id, ver, share_ver FROM artifacts WHERE share_token=?').bind(token).first();
   if (!a) return new Response('ไม่พบหน้านี้ หรือเจ้าของปิดการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'x-robots-tag': 'noindex' } });
@@ -63,7 +93,7 @@ export async function artReport(env, token, who) {
 // API ของเจ้าของ (ล็อกอินแล้ว)
 export async function artApi(req, env, u, path, M, url) {
   if (!path.startsWith('/api/artifacts')) return null;
-  if (path === '/api/artifacts' && M === 'GET') return json((await env.DB.prepare('SELECT id, chat_id, title, ver, share_token, share_ver, updated_at FROM artifacts WHERE user_id=? ORDER BY updated_at DESC LIMIT 300').bind(u.id).all()).results);
+  if (path === '/api/artifacts' && M === 'GET') return json((await env.DB.prepare('SELECT id, chat_id, title, ver, share_token, share_ver, gallery, updated_at FROM artifacts WHERE user_id=? ORDER BY updated_at DESC LIMIT 300').bind(u.id).all()).results);
   const m = path.match(/^\/api\/artifacts\/(\d+)(\/share|\/raw)?$/); if (!m) return err('not found', 404);
   const a = await env.DB.prepare('SELECT * FROM artifacts WHERE id=? AND user_id=?').bind(+m[1], u.id).first();
   if (!a) return err('ไม่พบ Artifact', 404);
@@ -74,17 +104,17 @@ export async function artApi(req, env, u, path, M, url) {
   if (!m[2] && M === 'GET') {
     const vers = (await env.DB.prepare('SELECT ver, created_at FROM artifact_versions WHERE artifact_id=? ORDER BY ver DESC').bind(a.id).all()).results;
     const v = await env.DB.prepare('SELECT html FROM artifact_versions WHERE artifact_id=? AND ver=?').bind(a.id, +url.searchParams.get('v') || a.ver).first();
-    return json({ id: a.id, title: a.title, ver: a.ver, chat_id: a.chat_id, share_token: a.share_token, share_ver: a.share_ver, versions: vers, html: v?.html ?? '' });
+    return json({ id: a.id, title: a.title, ver: a.ver, chat_id: a.chat_id, share_token: a.share_token, share_ver: a.share_ver, gallery: !!a.gallery, versions: vers, html: v?.html ?? '' });
   }
   if (!m[2] && M === 'DELETE') { await env.DB.batch([env.DB.prepare('DELETE FROM artifact_versions WHERE artifact_id=?').bind(a.id), env.DB.prepare('DELETE FROM artifacts WHERE id=?').bind(a.id)]); return json({ ok: true }); }
   if (m[2] === '/share' && M === 'POST') {
     const b = await req.json().catch(() => ({}));
-    if (!b.on) { await env.DB.prepare('UPDATE artifacts SET share_token=NULL, share_ver=NULL WHERE id=?').bind(a.id).run(); return json({ ok: true, share_token: null }); }
+    if (!b.on) { await env.DB.prepare('UPDATE artifacts SET share_token=NULL, share_ver=NULL, gallery=NULL WHERE id=?').bind(a.id).run(); return json({ ok: true, share_token: null }); }
     if (!artPaid(await planOf(env, u))) return err('แชร์ Artifact ใช้ได้กับแพลนที่ชำระเงิน', 403);
     if (!a.share_token && (await env.DB.prepare('SELECT COUNT(*) n FROM artifacts WHERE user_id=? AND share_token IS NOT NULL').bind(u.id).first()).n >= ART_SHARES) return err(`เปิดแชร์ได้พร้อมกันไม่เกิน ${ART_SHARES} ลิงก์ ปิดแชร์ชิ้นเก่าก่อน`, 403);
     const ver = b.ver ? Math.min(+b.ver, a.ver) : null, tok = a.share_token || rand(16);
-    await env.DB.prepare('UPDATE artifacts SET share_token=?, share_ver=?, reports=0 WHERE id=?').bind(tok, ver, a.id).run();
-    return json({ ok: true, share_token: tok, share_ver: ver });
+    await env.DB.prepare('UPDATE artifacts SET share_token=?, share_ver=?, gallery=? WHERE id=?').bind(tok, ver, b.gallery ? 1 : null, a.id).run(); // ถูกรายงานแล้วไม่ล้างตัวนับ (กันปิด-เปิดหลบ)
+    return json({ ok: true, share_token: tok, share_ver: ver, gallery: !!b.gallery });
   }
   return err('not found', 404);
 }
