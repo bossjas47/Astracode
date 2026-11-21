@@ -17,10 +17,11 @@ test('cowork: plan gate, Sonnet Eco only, files to R2, start in the sandbox, fin
   assert.equal((await t.json('/api/cowork', { method: 'POST', cookie: u.cookie, body: { prompt: 'ทำรายงาน' } })).status, 402, 'Plus cannot use Cowork');
   t.DB.raw.prepare('UPDATE users SET plan_id=? WHERE id=?').run(pro.id, u.id);
   assert.equal((await t.json('/api/me', { cookie: u.cookie })).data.plan.cowork, true);
+  t.DB.raw.prepare('INSERT INTO skills (user_id,name,content,enabled,created_at) VALUES (?,?,?,1,?)').run(u.id, 'company-report', 'ใส่โลโก้บริษัททุกหน้า', Date.now());
   const r = await t.json('/api/cowork', { method: 'POST', cookie: u.cookie, body: { prompt: 'สรุปยอดขาย', files: [{ name: 'ยอดขาย.csv', text: 'a,1' }] } });
   assert.equal(r.status, 200, JSON.stringify(r.data)); const id = r.data.id;
   const st = starts.find(s => s.url.endsWith('/start')).body;
-  assert.equal(st.kind, 'cowork'); assert.equal(st.run.cowork, true); assert.equal(st.run.model, 'claude-sonnet-5.5-eco');
+  assert.match(st.run.skills, /company-report[\s\S]*ใส่โลโก้/); assert.equal(st.kind, 'cowork'); assert.equal(st.run.cowork, true); assert.equal(st.run.model, 'claude-sonnet-5.5-eco');
   assert.deepEqual(st.run.files.map(f => f.path), ['ยอดขาย.csv']);
   assert.ok(SLIPS.m.has(`cowork/${u.id}/${id}/ยอดขาย.csv`));
   assert.equal((await t.json('/api/cowork', { method: 'POST', cookie: u.cookie, body: { prompt: 'อีกงาน' } })).status, 429, 'one running task at a time');
@@ -34,4 +35,11 @@ test('cowork: plan gate, Sonnet Eco only, files to R2, start in the sandbox, fin
   const other2 = await t.user(); assert.equal((await t.json('/api/cowork/' + id, { cookie: other2.cookie })).status, 404);
   assert.equal((await t.json(`/api/cowork/${id}/say`, { method: 'POST', cookie: u.cookie, body: { prompt: 'แก้ชื่อไฟล์' } })).status, 200);
   assert.equal(starts.filter(s => s.url.endsWith('/start')).at(-1).body.run.follow, true);
+  // งาน Cowork ตามเวลา: เปิดงานใหม่ (ถ้างานเดิมยังทำอยู่ ต้องบอกเหตุผล ไม่เงียบ)
+  await finishCowork({ DB: t.DB, SLIPS }, id, { status: 'done', final: 'ok', files: [] });
+  const sc = await t.json('/api/schedules', { method: 'POST', cookie: u.cookie, body: { title: 'รายงานจันทร์', prompt: 'ทำรายงานยอดขาย', hour: 8, days: 'mon', cowork: 1 } });
+  assert.equal(sc.status, 200, JSON.stringify(sc.data)); assert.equal(sc.data.cowork, 1);
+  const run = await t.json(`/api/schedules/${sc.data.id}/run`, { method: 'POST', cookie: u.cookie });
+  assert.equal(run.data.status, 'ok'); assert.ok(run.data.task_id > id);
+  assert.match(starts.at(-1).body.run.prompt, /งาน Cowork ตามเวลา: รายงานจันทร์/);
 });
