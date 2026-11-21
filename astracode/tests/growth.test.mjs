@@ -175,3 +175,13 @@ test('Claude credit order: limit first by default, credit first when switched on
   const body = await r.text(); await Promise.all(t.ctx.pending);
   assert.equal(r.status, 200, body); assert.equal(r.headers.get('x-astracode-billing'), 'credit'); assert.ok(used() > before + 3.3, 'API took from the credit');
 });
+
+test('Claude credit reminder: 5 days before expiry, once, only when ≥ ฿5 is left', async () => {
+  const { remindClaudeCredits, claudeCreditLeft } = await import('../src/credits.js');
+  const t = await makeEnv(), u = await t.user(), u2 = await t.user();
+  await claudeCreditLeft(t.env, u.id); // สร้างตาราง
+  const ins = t.DB.raw.prepare('INSERT INTO claude_credits (user_id,payment_id,amount,used,expires_at,created_at) VALUES (?,?,?,?,?,?)');
+  ins.run(u.id, 1, 100, 20, Date.now() + 3 * 864e5, Date.now()); ins.run(u2.id, 2, 100, 98, Date.now() + 3 * 864e5, Date.now()); ins.run(u.id, 3, 100, 0, Date.now() + 20 * 864e5, Date.now());
+  assert.equal(await remindClaudeCredits(t.env), 1);
+  assert.equal(await remindClaudeCredits(t.env), 0, 'only once');
+});

@@ -5,6 +5,7 @@ import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl, wal
 import { admin } from './admin.js';
 import { sendPush } from './push.js';
 import { cronSchedules } from './schedules.js';
+import { remindClaudeCredits } from './credits.js';
 export const RENEW_PCT = 10;
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
 // KPI ของวันก่อนหน้า (ตามเวลาไทย) สำหรับแจ้งแอดมิน
@@ -112,7 +113,8 @@ export async function cron(env) {
   });
   // 4.3) สรุปการใช้รายเดือนทางอีเมล: วันที่ 1 ตั้งแต่ 10 โมง (เวลาไทย) ทีละ 40 คนต่อชั่วโมง จำคนล่าสุดไว้ไม่ส่งซ้ำ
   await step('digest', () => monthlyDigest(env, now));
-  await step('schedules', () => cronSchedules(env, now)); // งานตามเวลาของลูกค้า
+  await step('schedules', () => cronSchedules(env, now));
+  await step('claude-credit', () => remindClaudeCredits(env, now)); // เตือนเครดิต Claude ที่แถมก่อนหมด 5 วัน // งานตามเวลาของลูกค้า
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
   if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream
   if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)

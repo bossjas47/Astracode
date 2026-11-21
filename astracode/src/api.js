@@ -7,6 +7,7 @@ import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, price
 import { status } from './jobs.js';
 // ---------- API สำหรับนักพัฒนา: /v1/models, /v1/chat/completions (แบบ OpenAI) คิดเงินจาก wallet ----------
 export const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 7); // เดือนตามเวลาไทย เช่น 2026-11
+export const WALLET_SLOTS = 8;
 export const slug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
 export const V1_CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-api-key, anthropic-version, anthropic-beta', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-expose-headers': 'retry-after, x-request-id, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-astracode-billing' };
 export async function v1core(req, env, ctx, path, lg = {}) {
@@ -184,14 +185,14 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (billingMode === 'wallet') { // ตัดเงินหลังตอบ: จำกัดผลลัพธ์ไม่ให้เกินยอดที่เหลือ และให้ใช้ Wallet ทีละคำขอต่อผู้ใช้ กันยิงขนานจนยอดติดลบ
       const pr = await priceOf(env, m, false, markup), need = Math.ceil((JSON.stringify(hist).length + system.length) / 2) * pr.in / 1e6, room = k.balance - need;
       if (pr.req > 0 ? k.balance < pr.req : (!(room > 0) || (isImg && room < pr.out))) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
-      // ยิงพร้อมกันได้ 4 คำขอต่อบัญชี (เครื่องมือเขียนโค้ดยิงขนาน) · ช่องที่ k ได้งบ 1/2^(k+1) ของยอดที่เหลือ รวมทุกช่องไม่เกินยอดจริง Wallet จึงไม่ติดลบ
-      for (let slot = 0; slot < 4 && !walletKey; slot++) {
+      // ยิงพร้อมกันได้ WALLET_SLOTS คำขอต่อบัญชี (OpenCode/Claude Code มี sub-agent + หลาย session) · ช่องแรกได้งบครึ่งหนึ่ง ช่องที่เหลือแบ่งอีกครึ่งเท่ากัน รวมไม่เกินยอดที่เหลือ · (เครื่องมือเขียนโค้ดยิงขนาน) · ช่องที่ k ได้งบ 1/2^(k+1) ของยอดที่เหลือ รวมทุกช่องไม่เกินยอดจริง Wallet จึงไม่ติดลบ
+      for (let slot = 0; slot < WALLET_SLOTS && !walletKey; slot++) {
         const kk = 'walletlock:' + k.id + (slot ? ':' + slot : '');
         if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(kk, Date.now() + 180e3, Date.now()).first()) continue;
         walletKey = kk;
-        if (!(pr.req > 0)) maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room / 2 ** (slot + 1) * 1e6 / Math.max(pr.out, 1e-9)))); // คิดเหมาต่อ request ไม่ต้องจำกัดความยาวตามยอดที่เหลือ
+        if (!(pr.req > 0)) maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * (slot ? 1 / (2 * (WALLET_SLOTS - 1)) : 0.5) * 1e6 / Math.max(pr.out, 1e-9)))); // คิดเหมาต่อ request ไม่ต้องจำกัดความยาวตามยอดที่เหลือ
       }
-      if (!walletKey) return fail('Too many wallet-billed requests at once (max 4). Wait for one to finish.', 429, 'rate_limit_error', { 'retry-after': '5' });
+      if (!walletKey) return fail(`Too many wallet-billed requests at once (max ${WALLET_SLOTS}). Wait for one to finish.`, 429, 'rate_limit_error', { 'retry-after': '5' });
     }
     let activeModel = m; lg.model = slug(m);
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read }, ...(u.astra ? { astra: u.astra } : {}) });
