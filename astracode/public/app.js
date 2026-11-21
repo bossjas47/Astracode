@@ -304,6 +304,7 @@ function acctMenu(btn, host) {
   pop.innerHTML = `<div class="ap-head"><div class="ap-who"><span>${esc(me.email)}</span><em>${esc(me.plan?.name || '')}</em></div>${u.use4h === false ? '' : bar('4-hour window', u.pct4h)}${bar('This week', u.pctWeek)}</div>
     <button type="button" role="menuitem" data-ap="settings">${ic('settings')}<span>Settings</span></button>
     <a role="menuitem" href="/plans">${ic('layers')}<span>Plans &amp; upgrade</span></a>
+    <a role="menuitem" href="/pricing">${ic('tag')}<span>Pricing (ราคาต่อโมเดล)</span></a>
     <a role="menuitem" href="/plans?topup=1">${ic('wallet')}<span>Top up</span><small>฿${baht(me.balance)}</small></a>
     <hr>
     <a role="menuitem" href="${FB_PAGE}" target="_blank" rel="noopener">${ic('msg')}<span>แชตกับแอดมิน (Facebook)</span></a>
@@ -336,6 +337,7 @@ function settingsSheet() {
   sheet('Settings', `<div class="sheet-form set-sheet">
     <h4>Plan &amp; usage</h4>
     ${row('/plans', 'layers', 'Plan · ' + esc(me.plan?.name || ''), 'View or change your plan')}
+    ${row('/pricing', 'tag', 'Pricing', 'ราคาต่อ token ของทุกโมเดล + เครื่องคิดเลข')}
     ${row('/plans?topup=1', 'wallet', 'Top up · ฿' + baht(me.balance), 'PromptPay · for models outside your plan and when the limit is full')}
     ${btn('lim', 'clock', 'Usage limits', '4-hour and weekly windows')}
     <h4>Account</h4>
