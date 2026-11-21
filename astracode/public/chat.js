@@ -840,7 +840,7 @@ async function addFiles(list) {
   for (const f of list) {
     if (f.type.startsWith('image/') && !/\.svg$/i.test(f.name)) {
       if (!curModel()?.vision) { showErr('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลที่อ่านรูปได้ เช่น Claude'); continue; }
-      if (chat.images.length >= 4) { showErr('แนบรูปได้สูงสุด 4 รูป'); continue; }
+      if (chat.images.length >= IMG_MAX) { showErr(`แนบรูปได้สูงสุด ${IMG_MAX} รูป`); continue; }
       try { // ย่อเป็น JPEG ไม่เกิน 1280px ก่อนส่ง
         const bmp = await createImageBitmap(f), s = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
         const c = document.createElement('canvas'); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
@@ -1223,7 +1223,7 @@ async function pcAct(ai) {
   }
   if (imgs.length && !curModel()?.vision) out += '\n\n(เครื่องมือส่งรูปมา แต่โมเดลนี้อ่านรูปไม่ได้)';
   const t = $('#t'), keep = [t.value, chat.files, chat.images];
-  t.value = out; chat.files = []; chat.images = curModel()?.vision ? imgs.slice(0, 4) : []; chat.pcAuto = true;
+  t.value = out; chat.files = []; chat.images = curModel()?.vision ? imgs.slice(0, IMG_MAX) : []; chat.pcAuto = true;
   const p = send(); [t.value, chat.files, chat.images] = keep; drawThumbs(); return p; // ส่งผลกลับให้ AI ทำต่อ (ข้อความที่ผู้ใช้พิมพ์ค้างไว้ยังอยู่)
 }
 
@@ -1267,7 +1267,7 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   const cheap = [...chatModels].sort((a, b) => a.multiplier - b.multiplier).find(x => !/uncen/i.test(x.name)); // ผู้ช่วยค้น (subagent) ใช้โมเดลถูกสุด
   try { if (await PCD.agent.needKey()) await PCD.agent.setKey((await api('/keys', { method: 'POST', body: { name: 'Desktop Agent' } })).key); } // ครั้งแรก: สร้าง API key ของบัญชีนี้ให้แอป (คิดเงินผ่าน /v1 ตามจริง)
   catch (x) { return showErr('สร้าง API key ให้แอปไม่ได้: ' + x.message); }
-  const t = $('#t'), images = chat.images.slice(0, 4), history = chat.msgs.filter(x => typeof x.content === 'string' && x.content).map(x => ({ role: x.role, content: x.content }));
+  const t = $('#t'), images = chat.images.slice(0, IMG_MAX), history = chat.msgs.filter(x => typeof x.content === 'string' && x.content).map(x => ({ role: x.role, content: x.content }));
   if (t.value.trim() === text0) { t.value = ''; t.style.height = 'auto'; } chat.images = []; drawThumbs(); $('#e').textContent = '';
   const user = { role: 'user', content: text0, imgs: images.length ? images : null }; chat.msgs.push(user); appendMsg(user);
   try { const r = await api('/chats/append', { method: 'POST', body: { chat_id: chat.id, title: text0, messages: [{ role: 'user', content: text0 }] } }); if (!chat.id) { chat.id = r.chat_id; setUrl('/chat?id=' + r.chat_id, true); loadSide(); } }

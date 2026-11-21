@@ -98,7 +98,7 @@ export default {
       const o = req.headers.get('origin'); // กัน CSRF: รับคำขอแก้ข้อมูลจากเว็บตัวเองเท่านั้น
       const ok = [url.origin, viaProxy(req, env) && 'https://' + req.headers.get('x-forwarded-host')];
       if (o && !ok.includes(o)) return err('forbidden', 403);
-      if (+req.headers.get('content-length') > 12e6) return err('ไฟล์ใหญ่เกินไป', 413);
+      if (+req.headers.get('content-length') > 40e6) return err('ไฟล์ใหญ่เกินไป', 413); // รูปแนบได้ 20 รูปต่อข้อความ
     }
     return secure(await route(req, env, ctx, url, path, M));
   },

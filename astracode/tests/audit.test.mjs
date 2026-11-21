@@ -175,10 +175,10 @@ test('web push: subscribe validates the endpoint host and stores one row per end
 
 test('long PDF excerpts keep the page number in front of chunks cut from mid-page', async () => {
   const { excerptFiles } = await import('../src/ai.js');
-  const pages = []; for (let i = 1; i <= 40; i++) pages.push(`--- หน้า ${i} ---\n` + (i === 33 ? 'ยอดขายไตรมาสสาม ' : 'ข้อความทั่วไป ').repeat(90));
+  const pages = []; for (let i = 1; i <= 600; i++) pages.push(`--- หน้า ${i} ---\n` + (i === 33 ? 'ยอดขายไตรมาสสาม ' : 'ข้อความทั่วไป ').repeat(90));
   const out = excerptFiles('[[file:a.pdf]]\n' + pages.join('\n') + '\n[[/file]]', 'ยอดขายไตรมาสสาม');
   assert.match(out, /--- หน้า 3[23]( \(ต่อ\))? ---\n[^]*ยอดขายไตรมาสสาม/);
-  assert.ok(out.length < 34000);
+  assert.ok(out.length < 704000); // เกิน FILE_FULL (700K) เท่านั้นที่ถูกตัด
 });
 
 test('passkey: register with a software authenticator, log in with a signed assertion, replay is refused', async () => {

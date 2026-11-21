@@ -395,7 +395,8 @@ export async function smartSearch(env, u, hist) {
   return out.slice(0, 8);
 }
 // ไฟล์แนบที่ยาวมาก: ส่งเฉพาะท่อนที่เกี่ยวกับคำถาม (เทียบคำ/ชุดอักษร 3 ตัว) แทนการส่งทั้งไฟล์จนล้น context · ไฟล์สั้นส่งเต็ม
-export const FILE_FULL = 30000, FILE_CHUNK = 2000;
+// แนบในข้อความ: รูป 20 · ไฟล์ 20 · รวม 1.8MB (เพดานจริงคือแถวในฐานข้อมูล D1 ~2MB) · ไฟล์ยาวไม่เกิน FILE_FULL ส่งเต็มให้โมเดล (ทุกโมเดล context 1.05M)
+export const ATT_IMGS = 20, FILES_MAX = 20, ATT_BYTES = 1.8e6, FILE_FULL = 700000, FILE_CHUNK = 2000;
 const grams = s => { const out = new Set(), t = String(s).toLowerCase(); for (const w of t.match(/[a-z0-9_]{3,}/g) || []) out.add(w); const th = t.replace(/[\x00-\x7f]+/g, ' '); for (let i = 0; i + 3 <= th.length; i++) { const g = th.slice(i, i + 3); if (!g.includes(' ')) out.add(g); } return out; };
 export function excerptFiles(content, question) {
   return String(content || '').replace(/(\[\[file:[^\]\n]+\]\]\n)([\s\S]*?)(\n\[\[\/file\]\])/g, (all, open, body, close) => {
@@ -453,11 +454,11 @@ export async function chat(req, env, u, ctx) {
     if (b.stop) { await stub.fetch('https://run/stop', { method: 'POST' }); return json({ ok: true }); }
     return runStream(stub, 0);
   }
-  const images = Array.isArray(b.images) && !b.regenerate ? b.images.slice(0, 4) : [];
+  const images = Array.isArray(b.images) && !b.regenerate ? b.images.slice(0, ATT_IMGS) : [];
   if (images.some(d => typeof d !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(d) || d.length > 2e6)) return err('รูปต้องเป็น jpeg/png/webp ไม่เกิน 1.5MB');
   const files = Array.isArray(b.files) && !b.regenerate ? b.files : [];
-  if (files.length > 5 || files.some(f => typeof f?.name !== 'string' || typeof f?.text !== 'string' || f.name.length > 120)) return err('ไฟล์แนบไม่ถูกต้อง (สูงสุด 5 ไฟล์)');
-  if (files.reduce((a, f) => a + f.text.length, 0) > 400000) return err('ไฟล์รวมกันยาวเกินไป ลองแนบทีละน้อยลง');
+  if (files.length > FILES_MAX || files.some(f => typeof f?.name !== 'string' || typeof f?.text !== 'string' || f.name.length > 120)) return err('ไฟล์แนบไม่ถูกต้อง (สูงสุด 5 ไฟล์)');
+  if (new TextEncoder().encode(files.map(f => f.text).join('')).length > ATT_BYTES) return err('ไฟล์รวมกันใหญ่เกิน 1.8MB ต่อข้อความ ลองแบ่งส่ง หรืออัปโหลดเข้าโปรเจกต์ใน Code');
   let text = typeof b.text === 'string' ? b.text.trim() : '';
   if (text.length > 20000) return err('ข้อความยาวเกิน 20,000 ตัวอักษร');
   if (!b.regenerate && !text && !images.length && !files.length) return err('ข้อความว่าง');

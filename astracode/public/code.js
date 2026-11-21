@@ -1513,8 +1513,8 @@ async function addAtt(list) {
   IDE.att ||= { images: [], files: [] };
   for (const f of list) {
     try {
-      if (/^image\//.test(f.type)) { if (IDE.att.images.length >= 4) { setStatus('แนบรูปได้สูงสุด 4 รูป', true); continue; } IDE.att.images.push(await shrinkImg(f)); }
-      else if (ATT_TEXT.test(f.name)) { if (IDE.att.files.length >= 5) { setStatus('แนบไฟล์ได้สูงสุด 5 ไฟล์', true); continue; } if (f.size > 300e3) { setStatus(f.name + ' ใหญ่เกิน 300KB', true); continue; } IDE.att.files.push({ name: f.name.slice(0, 120), text: await f.text() }); }
+      if (/^image\//.test(f.type)) { if (IDE.att.images.length >= IMG_MAX) { setStatus(`แนบรูปได้สูงสุด ${IMG_MAX} รูป`, true); continue; } IDE.att.images.push(await shrinkImg(f)); }
+      else if (ATT_TEXT.test(f.name)) { if (IDE.att.files.length >= FILES_MAX) { setStatus(`แนบไฟล์ได้สูงสุด ${FILES_MAX} ไฟล์`, true); continue; } if (f.size + IDE.att.files.reduce((s, x) => s + new Blob([x.text]).size, 0) > 1.8e6) { setStatus('ไฟล์แนบรวมเกิน 1.8MB ต่อข้อความ อัปโหลดเข้าโปรเจกต์แทนได้ (AI อ่านได้ไม่จำกัด)', true); continue; } IDE.att.files.push({ name: f.name.slice(0, 120), text: await f.text() }); }
       else setStatus('แนบได้เฉพาะรูป หรือไฟล์ข้อความ (.md .txt .csv .json ...)', true);
     } catch (x) { setStatus(x.message, true); }
   }
