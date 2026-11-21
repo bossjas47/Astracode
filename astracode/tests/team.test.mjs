@@ -161,3 +161,30 @@ test('background agent and team lead/reviewer use the effort picked on the page;
   assert.equal(t.DB.raw.prepare('SELECT effort FROM agent_jobs ORDER BY id DESC').get().effort, null, 'unknown effort ignored');
   fm.close();
 });
+
+test('team workspace: owner shares a workspace, members use it read-only in chats, leaving unshares; team log and domain auto-join', async () => {
+  const t = await makeEnv(), plan = addPlan(t.DB, { price: 1790, seats: 5 }), owner = await t.user({ email: 'boss@acme.co.th' }), mem = await t.user({ email: 'a@acme.co.th' }), out = await t.user();
+  const tid = t.DB.raw.prepare("INSERT INTO teams (name,owner_id,plan_id,expires,invite_code,max_seats,shared_pool,created_at) VALUES ('ACME',?,?,?,'ACME1',5,1,?) RETURNING id").get(owner.id, plan.id, Date.now() + 864e5, Date.now()).id;
+  t.DB.raw.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'owner',?)").run(tid, owner.id, Date.now());
+  const f = (await t.json('/api/folders', { method: 'POST', cookie: owner.cookie, body: { name: 'ฝ่ายขาย', instructions: 'ตอบแบบฝ่ายขาย' } })).data;
+  // domain auto-join
+  assert.equal((await t.json('/api/team', { method: 'PUT', cookie: owner.cookie, body: { domain: 'gmail.com' } })).status, 400);
+  assert.equal((await t.json('/api/team', { method: 'PUT', cookie: owner.cookie, body: { domain: 'acme.co.th' } })).status, 200);
+  await t.json('/api/me', { cookie: mem.cookie });
+  assert.ok(t.DB.raw.prepare('SELECT 1 FROM team_members WHERE team_id=? AND user_id=?').get(tid, mem.id), 'joined by domain');
+  // share
+  assert.equal((await t.json('/api/folders', { cookie: mem.cookie })).data.length, 0, 'not shared yet');
+  assert.equal((await t.json(`/api/folders/${f.id}/share`, { method: 'POST', cookie: owner.cookie, body: { on: true } })).status, 200);
+  const list = (await t.json('/api/folders', { cookie: mem.cookie })).data;
+  assert.equal(list[0].id, f.id); assert.equal(list[0].mine, 0); assert.equal(list[0].shared, 1);
+  assert.equal((await t.json(`/api/folders/${f.id}`, { cookie: mem.cookie })).data.instructions, 'ตอบแบบฝ่ายขาย');
+  assert.equal((await t.json(`/api/folders/${f.id}`, { method: 'PUT', cookie: mem.cookie, body: { name: 'x' } })).status, 403, 'members cannot edit');
+  assert.equal((await t.json(`/api/folders/${f.id}`, { cookie: out.cookie })).status, 404, 'outsiders cannot see');
+  const own2 = (await t.json('/api/folders', { method: 'POST', cookie: mem.cookie, body: { name: 'ของฉัน' } })).data;
+  await t.json(`/api/folders/${own2.id}/share`, { method: 'POST', cookie: mem.cookie, body: { on: true } });
+  await t.json('/api/team/members/' + mem.id, { method: 'DELETE', cookie: owner.cookie });
+  assert.equal(t.DB.raw.prepare('SELECT team_id FROM folders WHERE id=?').get(own2.id).team_id, null, 'removed member: their shared workspace is unshared');
+  const log = (await t.json('/api/team/log', { cookie: owner.cookie })).data.map(x => x.action);
+  for (const a of ['set domain', 'auto join', 'share workspace', 'remove member']) assert.ok(log.includes(a), a);
+  assert.equal((await t.json('/api/team/log', { cookie: mem.cookie })).status, 403);
+});

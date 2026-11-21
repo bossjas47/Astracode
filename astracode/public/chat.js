@@ -570,10 +570,16 @@ const WS_TPL = [
   { e: '📣', n: 'นักการตลาด', d: 'Ads, content plans, ideas', i: 'คุณคือนักการตลาดออนไลน์ที่เข้าใจตลาดไทย\n- เขียนโฆษณา Facebook/TikTok/LINE หลายเวอร์ชันให้เลือก พร้อมเหตุผลสั้น ๆ\n- วางแผนคอนเทนต์รายสัปดาห์เป็นตาราง (วัน แพลตฟอร์ม หัวข้อ รูปแบบ)\n- คิดชื่อแคมเปญ สโลแกน และไอเดียโปรโมชัน\n- ถามกลุ่มเป้าหมายและงบก่อนถ้ายังไม่รู้' },
   { e: '💻', n: 'นักพัฒนา', d: 'Code, debug, review', i: 'You are a senior software engineer. Answer in the user\'s language.\n- Give complete, runnable code and say where it goes.\n- When debugging, find the root cause first, then the fix.\n- Point out security and performance problems you notice.\n- Prefer simple solutions; ask when requirements are unclear.' },
   { e: '📊', n: 'งานออฟฟิศ', d: 'Email, Excel, reports', i: 'คุณคือผู้ช่วยงานออฟฟิศ\n- เขียนอีเมลและหนังสือราชการ/ธุรกิจภาษาไทยและอังกฤษให้สุภาพถูกรูปแบบ\n- ช่วยสูตร Excel/Google Sheets อธิบายทีละขั้น\n- สรุปเอกสารยาวเป็นข้อ ๆ และทำรายงานการประชุม\n- ทำตาราง/ไฟล์ให้ดาวน์โหลดเมื่อเหมาะสม' },
+  { e: '📝', n: 'สรุปประชุม', d: 'Minutes, action items', i: 'คุณคือเลขาการประชุมมืออาชีพ\n- สรุปจากบันทึก/ถอดเสียง/แชตที่ผู้ใช้ส่งมา เป็น: หัวข้อ · ข้อสรุป · สิ่งที่ต้องทำ (ใคร / อะไร / ภายในเมื่อไร) เป็นตาราง · เรื่องที่ยังค้าง\n- ภาษากระชับ เป็นทางการ ห้ามแต่งข้อมูลที่ไม่มีในต้นฉบับ\n- ทำไฟล์ Word ให้ดาวน์โหลดเมื่อผู้ใช้ขอ' },
+  { e: '✉️', n: 'อีเมลลูกค้า', d: 'Replies, follow-ups', i: 'คุณคือผู้ช่วยเขียนอีเมลธุรกิจไทย-อังกฤษ\n- เขียนอีเมลตอบลูกค้า ติดตามงาน ขอโทษ เสนอราคา ทวงถาม ให้สุภาพ ชัดเจน มีหัวเรื่อง\n- ให้ 2 เวอร์ชัน: ทางการ และเป็นกันเอง\n- ถ้าขาดข้อมูลสำคัญ (ชื่อ ราคา วันที่) ให้เว้นเป็น [วงเล็บ] แทนการแต่งเอง' },
+  { e: '📈', n: 'รายงานจาก Excel', d: 'Analyze sheets, charts', i: 'คุณคือนักวิเคราะห์ข้อมูลในบริษัท\n- อ่านไฟล์ Excel/CSV ที่แนบ สรุปตัวเลขสำคัญ แนวโน้ม และสิ่งผิดปกติ\n- คำนวณด้วย Python เมื่อต้องการความแม่นยำ ทำกราฟเมื่อช่วยให้เข้าใจง่าย\n- ทำรายงานสั้นสำหรับหัวหน้า: 3 ประเด็นหลัก + ตัวเลขยืนยัน + ข้อเสนอแนะ' },
+  { e: '🖋️', n: 'ร่างสัญญา / TOR', d: 'Contracts, TOR, policies', i: 'คุณคือผู้ช่วยร่างเอกสารธุรกิจภาษาไทย (ไม่ใช่ทนายความ)\n- ร่างสัญญาจ้าง ข้อตกลงรักษาความลับ TOR นโยบายบริษัท จากข้อมูลที่ผู้ใช้ให้ จัดเป็นข้อ ๆ ครบถ้วน\n- ชี้จุดเสี่ยงและข้อที่ควรให้นักกฎหมายตรวจก่อนใช้จริงเสมอ\n- ทำไฟล์ Word ให้ดาวน์โหลดเมื่อผู้ใช้ขอ' },
+  { e: '🌐', n: 'แปลเอกสาร', d: 'Thai ⇄ English, formal', i: 'คุณคือนักแปลไทย-อังกฤษสำหรับงานธุรกิจ\n- แปลให้เป็นธรรมชาติ รักษาความหมาย ตัวเลข ชื่อเฉพาะ และรูปแบบตาราง/หัวข้อเดิม\n- ใช้ระดับภาษาทางการเว้นแต่ผู้ใช้ขอ\n- คำศัพท์เฉพาะทางที่ไม่แน่ใจ ให้วงเล็บคำเดิมไว้' },
+  { e: '🧑‍💼', n: 'HR / สรรหาคน', d: 'JD, interview, policy', i: 'คุณคือผู้ช่วยฝ่ายบุคคล\n- เขียนประกาศรับสมัครงาน (JD) คำถามสัมภาษณ์พร้อมเกณฑ์ให้คะแนน แบบประเมินผลงาน และประกาศภายใน\n- ภาษาสุภาพ ไม่เลือกปฏิบัติ ถูกต้องตามแนวปฏิบัติทั่วไป\n- ถามตำแหน่ง ระดับ และวัฒนธรรมองค์กรก่อนถ้ายังไม่รู้' },
 ];
 function spacesSheet() {
   const count = id => chat.chats.filter(c => c.folder_id === id).length;
-  const card = f => `<button type="button" class="ws-card" data-sp="${f.id}"><span class="ws-ic">${esc((f.name.trim()[0] || 'W').toUpperCase())}</span><span class="ws-t"><b>${esc(f.name)}</b><small>${count(f.id)} chat${count(f.id) === 1 ? '' : 's'}${f.has_ins ? ' · instructions' : ''}${f.has_files ? ' · files' : ''}</small></span>${ic('right', 'sm')}</button>`;
+  const card = f => `<button type="button" class="ws-card" data-sp="${f.id}"><span class="ws-ic">${esc((f.name.trim()[0] || 'W').toUpperCase())}</span><span class="ws-t"><b>${esc(f.name)}${f.shared ? ' <span class="ws-team">ทีม</span>' : ''}</b><small>${f.mine === 0 ? 'แชร์โดย ' + esc((f.owner || '').split('@')[0]) + ' · ' : ''}${count(f.id)} chat${count(f.id) === 1 ? '' : 's'}${f.has_ins ? ' · instructions' : ''}${f.has_files ? ' · files' : ''}</small></span>${ic('right', 'sm')}</button>`;
   sheet('Workspace', `<div class="sheet-form ws">
     <p class="sheet-msg">Group related chats by client, project or subject. Every chat in a workspace shares the same instructions and reference files.</p>
     <button type="button" class="ws-new" data-new>${ic('plus')}<span><b>New workspace</b><small>Name it now, add instructions and files later</small></span></button>
@@ -599,15 +605,18 @@ function spacesSheet() {
 function spaceSheet(id) {
   const f = chat.folders.find(x => x.id === id); if (!f) return;
   const cs = chat.chats.filter(c => c.folder_id === id);
+  const mine = f.mine !== 0;
   sheet(f.name, `<div class="sheet-form">
-    <div class="sheet-acts" style="flex-wrap:wrap"><button type="button" class="btn blue" data-chat-new>${ic('plus', 'sm')} New chat here</button><button type="button" class="btn out" data-cust>${ic('settings', 'sm')} Instructions &amp; files</button></div>
+    ${mine ? '' : `<p class="sheet-msg">${ic('users', 'sm')} Workspace ของทีม แชร์โดย ${esc(f.owner || '')} · ใช้คำสั่งและเอกสารอ้างอิงของทีมได้ แก้ไขได้เฉพาะเจ้าของ</p>`}
+    <div class="sheet-acts" style="flex-wrap:wrap"><button type="button" class="btn blue" data-chat-new>${ic('plus', 'sm')} New chat here</button>${mine ? `<button type="button" class="btn out" data-cust>${ic('settings', 'sm')} Instructions &amp; files</button><button type="button" class="btn out" data-share hidden>${ic('users', 'sm')} <span>${f.shared ? 'เลิกแชร์กับทีม' : 'แชร์ให้ทีม'}</span></button>` : ''}</div>
     <h4 class="sp-h">Chats (${cs.length})</h4>
     <div class="spaces">${cs.map(c => `<button type="button" class="opt" data-open="${c.id}"><span class="opt-t">${ic(c.pinned ? 'star' : 'msg', c.pinned ? 'bm-on' : '')}${esc(c.title.replace(/^\p{Extended_Pictographic}️?\s*/u, ''))}</span></button>`).join('') || '<p class="muted">No chats in this space yet</p>'}</div>
-    <button type="button" class="btn out sm sp-del" data-del>${ic('trash', 'sm')} Delete workspace</button></div>`, (d, close) => {
+    ${mine ? `<button type="button" class="btn out sm sp-del" data-del>${ic('trash', 'sm')} Delete workspace</button>` : ''}</div>`, (d, close) => {
     d.querySelector('[data-chat-new]').onclick = () => { close(); $('#sclose')?.click(); openChat(null, id); };
-    d.querySelector('[data-cust]').onclick = () => { close(); folderSheet(id); };
+    const cu = d.querySelector('[data-cust]'); if (cu) cu.onclick = () => { close(); folderSheet(id); };
+    const sh = d.querySelector('[data-share]'); if (sh) { api('/team').then(r => { if (r.team) sh.hidden = false; }).catch(() => {}); sh.onclick = async () => { try { const r = await api('/folders/' + id + '/share', { method: 'POST', body: { on: !f.shared } }); f.shared = r.shared ? 1 : 0; sh.querySelector('span').textContent = f.shared ? 'เลิกแชร์กับทีม' : 'แชร์ให้ทีม'; toast(f.shared ? 'แชร์ให้ทีมแล้ว · สมาชิกใช้คำสั่งและเอกสารนี้ได้' : 'เลิกแชร์แล้ว', 'ok'); loadSide(); } catch (x) { toast(x.message, 'bad'); } }; }
     d.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { close(); $('#sclose')?.click(); openChat(+b.dataset.open); });
-    d.querySelector('[data-del]').onclick = async () => {
+    const dl = d.querySelector('[data-del]'); if (dl) dl.onclick = async () => {
       close(); if (!await confirmSheet(`Delete the workspace "${f.name}"? Its chats move back to Chats; nothing is deleted.`, { title: 'Delete workspace', ok: 'Delete', danger: true })) return;
       await api('/folders/' + id, { method: 'DELETE' }); loadSide();
     };
@@ -1407,13 +1416,13 @@ async function folderSheet(id) {
   sheet('Workspace instructions & files', `<form id="fdf" class="sheet-form" style="display:grid;gap:8px">
     <label>Name</label><input name="name" value="${esc(f.name)}" maxlength="40" required>
     <label>Instructions for every chat in this workspace</label><textarea name="ins" rows="4" maxlength="4000" placeholder="เช่น ตอบในฐานะผู้ช่วยร้านกาแฟ ใช้ราคาจากเอกสารที่แนบ ตอบสั้นและสุภาพ">${esc(f.instructions || '')}</textarea>
-    <label>Reference files (up to 10 files, 150,000 characters in total)</label><div id="fdl" style="display:grid;gap:4px">${list()}</div>
+    <label>Reference files · คลังความรู้ (up to 20 files, 600,000 characters · แชร์ Workspace ให้ทีมได้)</label><div id="fdl" style="display:grid;gap:4px">${list()}</div>
     <label class="btn out sm" style="justify-self:start">${ic('clip', 'sm')} Add files<input type="file" id="fdi" multiple hidden></label>
     <p class="muted" style="font-size:12px;margin:0">AI เห็นคำสั่งและเอกสารนี้ทุกครั้งที่คุยในแชตของโฟลเดอร์ ยิ่งเอกสารยาว แต่ละข้อความยิ่งใช้ลิมิตมากขึ้น</p>
     <button class="btn blue">Save</button></form>`, (d, close) => {
     const redraw = () => { d.querySelector('#fdl').innerHTML = list(); d.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => { files.splice(+b.dataset.rmf, 1); redraw(); }); };
     redraw();
-    d.querySelector('#fdi').onchange = async e => { for (const x of e.target.files) { if (files.length >= 10) break; try { files.push({ name: x.name.replace(/[\[\]\r\n]/g, '').slice(0, 120), text: await readFile(x) }); } catch (er) { toast(`${x.name}: ${er.message}`, 'bad'); } } e.target.value = ''; redraw(); };
+    d.querySelector('#fdi').onchange = async e => { for (const x of e.target.files) { if (files.length >= 20) break; try { files.push({ name: x.name.replace(/[\[\]\r\n]/g, '').slice(0, 120), text: await readFile(x) }); } catch (er) { toast(`${x.name}: ${er.message}`, 'bad'); } } e.target.value = ''; redraw(); };
     d.querySelector('#fdf').onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(e.target);
       try { await api('/folders/' + id, { method: 'PUT', body: { name: fd.get('name'), instructions: fd.get('ins'), files: files.map(x => x.text != null ? x : { name: x.name }) } }); toast('Saved', 'ok'); close(); loadSide(); } catch (x) { toast(x.message, 'bad'); }

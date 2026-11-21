@@ -399,12 +399,12 @@ export async function smartSearch(env, u, hist) {
 // แนบในข้อความ: รูป 20 · ไฟล์ 20 · รวม 1.8MB (เพดานจริงคือแถวในฐานข้อมูล D1 ~2MB) · ไฟล์ยาวไม่เกิน FILE_FULL ส่งเต็มให้โมเดล (ทุกโมเดล context 1.05M)
 export const ATT_IMGS = 20, FILES_MAX = 20, ATT_BYTES = 1.8e6, FILE_FULL = 700000, FILE_CHUNK = 2000;
 const grams = s => { const out = new Set(), t = String(s).toLowerCase(); for (const w of t.match(/[a-z0-9_]{3,}/g) || []) out.add(w); const th = t.replace(/[\x00-\x7f]+/g, ' '); for (let i = 0; i + 3 <= th.length; i++) { const g = th.slice(i, i + 3); if (!g.includes(' ')) out.add(g); } return out; };
-export function excerptFiles(content, question) {
+export function excerptFiles(content, question, full = FILE_FULL) {
   return String(content || '').replace(/(\[\[file:[^\]\n]+\]\]\n)([\s\S]*?)(\n\[\[\/file\]\])/g, (all, open, body, close) => {
-    if (body.length <= FILE_FULL) return all;
+    if (body.length <= full) return all;
     const q = grams(question), chunks = []; for (let i = 0; i < body.length; i += FILE_CHUNK) chunks.push({ i, text: body.slice(i, i + FILE_CHUNK) });
     chunks.forEach((c, k) => { let s = 0; for (const g of grams(c.text)) if (q.has(g)) s++; c.score = s + (k === 0 ? 1e6 : 0); }); // ท่อนแรกเก็บเสมอ (หัวไฟล์/สารบัญ)
-    const keep = new Set([...chunks].sort((a, b) => b.score - a.score).slice(0, Math.floor(FILE_FULL / FILE_CHUNK)).map(c => c.i));
+    const keep = new Set([...chunks].sort((a, b) => b.score - a.score).slice(0, Math.max(1, Math.floor(full / FILE_CHUNK))).map(c => c.i));
     // ท่อนที่ตัดมากลางหน้า: ใส่เลขหน้า/ชีตล่าสุดก่อนท่อนนั้นไว้ ให้ AI อ้างอิงหน้าได้ถูก
     const markAt = i => { const m = [...body.slice(Math.max(0, i - 200000), i).matchAll(/--- (หน้า \d+|ชีต [^\n]+) ---/g)].at(-1); return m ? `--- ${m[1]} (ต่อ) ---\n` : ''; };
     let outB = '', gap = false; for (const c of chunks) { if (keep.has(c.i)) { outB += (gap ? '\n[...ข้ามบางส่วน...]\n' + (/^\s*--- (หน้า|ชีต) /.test(c.text) ? '' : markAt(c.i)) : '') + c.text; gap = false; } else gap = true; }
@@ -532,7 +532,7 @@ export async function chat(req, env, u, ctx) {
     if (!cid) { // แชตใหม่: สร้างแชต + บันทึกข้อความแรก + อ่านข้อมูลโฟลเดอร์ ใน batch เดียว · ประวัติ = ข้อความนี้ข้อความเดียว
       const newest = '(SELECT MAX(id) FROM chats WHERE user_id=?)'; // ล็อกตอบทีละข้อความ: แชตล่าสุดของผู้ใช้ = แชตที่เพิ่งสร้างในทรานแซกชันนี้
       const got = await env.DB.batch([
-        env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,(SELECT id FROM folders WHERE id=? AND user_id=?))').bind(u.id, text.slice(0, 40), Date.now(), pid, +b.folder_id || null, u.id), // โฟลเดอร์ต้องเป็นของผู้ใช้เอง (ไม่งั้น AI จะอ่านคำสั่ง/ไฟล์ของคนอื่น)
+        env.DB.prepare('INSERT INTO chats (user_id,title,created_at,project_id,folder_id) VALUES (?,?,?,?,(SELECT id FROM folders WHERE id=? AND (user_id=?6 OR (team_id IS NOT NULL AND team_id=(SELECT team_id FROM team_members WHERE user_id=?6)))))').bind(u.id, text.slice(0, 40), Date.now(), pid, +b.folder_id || null, u.id), // โฟลเดอร์ต้องเป็นของผู้ใช้เอง (ไม่งั้น AI จะอ่านคำสั่ง/ไฟล์ของคนอื่น)
         env.DB.prepare(`INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (${newest},?,?,?,?)`).bind(u.id, 'user', saved, m.id, Date.now()),
         rowQ(`c.id=${newest}`).bind(u.id)]);
       chatRow = got[2].results?.[0] || null; cid = chatRow.id;
@@ -603,7 +603,7 @@ export async function runChat(env, J, send, st) {
   const projFile = projRows[0]?.content?.trim() || ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์ GitHub ได้)
   const projIns = pid ? [projRows[1]?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : ''].filter(Boolean).join('\n\n') : '';
   // systemFor ต่อท้ายคำสั่งผู้ใช้/ความจำ/Skills หลังข้อความหลัก จึงคำนวณส่วนท้ายครั้งเดียวแล้ววางต่อจากข้อความหลักของโหมดนั้น
-  const system = (pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM + (m.sys_prompt?.trim() ? '\n\n' + m.sys_prompt.trim() : '')) + systemBase + (J.summary ?  `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.folder_ins ? `\n\nInstructions for every chat in this folder (follow them):\n${J.folder_ins}` : '') + folderDocs(J.folder_docs) + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + imgPrompt; // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
+  const system = (pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM + (m.sys_prompt?.trim() ? '\n\n' + m.sys_prompt.trim() : '')) + systemBase + (J.summary ?  `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.folder_ins ? `\n\nInstructions for every chat in this folder (follow them):\n${J.folder_ins}` : '') + folderDocs(J.folder_docs, String(hist.at(-1)?.content || '').slice(0, 4000)) + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + imgPrompt; // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
   const mcpTools = mcpSrvs.tools, mcpMap = mcpSrvs.map; let askStop = false;
   // zip ที่แนบไว้ในแชต ([[zipref:id]] ในข้อความผู้ใช้): ให้ AI เปิดเฉพาะไฟล์ที่ต้องใช้ด้วย read_file / grep_files
   const zipIds = !pid && env.SLIPS ? [...new Set(hist.filter(x => x.role === 'user').flatMap(x => [...String(x.content).matchAll(/\[\[zipref:([0-9a-f]{16})\]\]/g)].map(y => y[1])))] : [];
@@ -991,9 +991,12 @@ export async function runTools(env, pid, reqs) {
 }
 
 // เอกสารอ้างอิงของโฟลเดอร์: ใส่ใน system (คงที่ทุกแชตในโฟลเดอร์ จึงได้ prompt cache)
-export function folderDocs(raw) {
+export function folderDocs(raw, q = '') {
   let fs = []; try { fs = JSON.parse(raw || '[]'); } catch {} if (!fs.length) return '';
-  return '\n\nReference documents shared by every chat in this folder (use them when relevant; cite the file name):\n' + fs.map(f => `[[file:${f.name}]]\n${f.text}\n[[/file]]`).join('\n');
+  const all = fs.map(f => `[[file:${f.name}]]\n${f.text}\n[[/file]]`).join('\n'), total = fs.reduce((n, f) => n + f.text.length, 0);
+  // คลังความรู้ใหญ่ (เกิน 120K ตัวอักษร): ส่งเฉพาะส่วนที่เกี่ยวกับคำถามล่าสุด ไฟล์ละไม่เกิน 120K/จำนวนไฟล์
+  const docs = total > 120000 ? excerptFiles(all, q, Math.max(8000, Math.floor(120000 / fs.length))) : all;
+  return '\n\nReference documents shared by every chat in this folder (use them when relevant; cite the file name):\n' + docs;
 }
 
 // tools ของแชต (ดู chatTools ใน codetools.js) · คืน { result, emit, ok, label }

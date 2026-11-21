@@ -217,7 +217,7 @@ export async function status(env) {
 export function robots(req, env) { return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nDisallow: /account\n\nSitemap: ${origin(req, env)}/sitemap.xml\n`, { headers: { 'content-type': 'text/plain' } }); }
 export async function sitemap(req, env) {
   const base = origin(req, env), posts = (await env.DB.prepare('SELECT slug,created_at FROM posts WHERE published=1').all()).results;
-  const urls = ['/', '/pricing', '/plans', '/developers', '/gallery', '/blog', '/status', '/terms'].map(p => `<url><loc>${base}${p}</loc></url>`)
+  const urls = ['/', '/pricing', '/plans', '/developers', '/gallery', '/security', '/blog', '/status', '/terms'].map(p => `<url><loc>${base}${p}</loc></url>`)
     .concat(posts.map(p => `<url><loc>${base}/blog/${encodeURIComponent(p.slug)}</loc><lastmod>${new Date(p.created_at).toISOString().slice(0, 10)}</lastmod></url>`));
   return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`, { headers: { 'content-type': 'application/xml' } });
 }

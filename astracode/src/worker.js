@@ -7,7 +7,7 @@ import { gh, github, projects, seal, unseal } from './projects.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
 import { agentApi } from './agent.js';
 import { contextApi } from './context.js';
-import { oauth, totpOk, userRoutes } from './user.js';
+import { autoJoinTeam, oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
 import { passkeyApi, passkeyPublic } from './passkey.js';
@@ -264,6 +264,7 @@ export async function route(req, env, ctx, url, path, M) {
         return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
       }
       if (path === '/api/me') {
+        await autoJoinTeam(env, u).catch(() => null); // อีเมลโดเมนบริษัท: เข้าทีมเอง
         const plan = await planOf(env, u);
         const [usage, credits, models, pay] = await Promise.all([usageStatus(env, u, plan), creditList(env, u.id), cachedModels(env, plan.id), getSettings(env, ['promptpay_id', 'bank_name', 'bank_account', 'bank_holder'])]); // ยิงพร้อมกัน ไม่ต่อคิวทีละอัน
         return json({
@@ -391,7 +392,7 @@ export async function route(req, env, ctx, url, path, M) {
           if ('archived' in b) await env.DB.prepare('UPDATE chats SET archived=? WHERE id=?').bind(b.archived ? 1 : 0, r[1]).run();
           if ('instructions' in b) await env.DB.prepare('UPDATE chats SET instructions=? WHERE id=?').bind(String(b.instructions || '').trim().slice(0, 2000) || null, r[1]).run(); // คำสั่งเฉพาะแชตนี้
           if ('folder_id' in b) {
-            if (b.folder_id && !await env.DB.prepare('SELECT 1 FROM folders WHERE id=? AND user_id=?').bind(b.folder_id, u.id).first()) return err('ไม่พบโฟลเดอร์', 404);
+            if (b.folder_id && !await env.DB.prepare('SELECT 1 FROM folders WHERE id=? AND (user_id=?2 OR (team_id IS NOT NULL AND team_id=(SELECT team_id FROM team_members WHERE user_id=?2)))').bind(b.folder_id, u.id).first()) return err('ไม่พบโฟลเดอร์', 404);
             await env.DB.prepare('UPDATE chats SET folder_id=? WHERE id=?').bind(b.folder_id || null, r[1]).run();
           }
           return json({ ok: true });

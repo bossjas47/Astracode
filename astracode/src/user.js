@@ -10,6 +10,18 @@ import { cloudApi } from './cloud.js';
 import { googleConnectFinish, googleConnectStart, googleDisconnect, googleStatus } from './google.js';
 export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
+// ประวัติการจัดการทีม (หัวหน้าทีมดูได้)
+const PUBLIC_MAIL = /^(gmail|googlemail|hotmail|outlook|live|msn|yahoo|ymail|icloud|me|mac|proton|protonmail|aol|gmx|mail|yandex|zoho)\.[a-z.]+$/;
+// ล็อกอินด้วยอีเมล @โดเมนบริษัท: เข้าทีมที่ตั้งโดเมนนี้เองถ้ายังไม่อยู่ทีมไหนและที่นั่งยังว่าง (เรียกจาก /api/me)
+export async function autoJoinTeam(env, u) {
+  const dm = String(u.email || '').split('@')[1]; if (!dm || PUBLIC_MAIL.test(dm)) return null;
+  const t = await env.DB.prepare('SELECT id, max_seats FROM teams WHERE domain=? AND expires>?').bind(dm, Date.now()).first(); if (!t) return null;
+  if (await env.DB.prepare('SELECT 1 FROM team_members WHERE user_id=?').bind(u.id).first()) return null;
+  const r = await env.DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) SELECT ?1,?2,'member',?3 WHERE (SELECT COUNT(*) FROM team_members WHERE team_id=?1) < ?4").bind(t.id, u.id, Date.now(), t.max_seats).run();
+  if (r.meta?.changes) { await teamLog(env, t.id, u.id, 'auto join', '@' + dm); return t.id; }
+  return null;
+}
+export const teamLog = (env, teamId, uid, action, detail = '') => env.DB.prepare('INSERT INTO team_log (team_id,user_id,action,detail,created_at) VALUES (?,?,?,?,?)').bind(teamId, uid || null, action, String(detail || '').slice(0, 300), Date.now()).run().catch(() => {});
 export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path.startsWith('/api/connectors')) { const cr = await connectorRoutes(req, env, url, path, M, u); if (cr) return cr; }
   if (path.startsWith('/api/plugins')) { const pr = await pluginRoutes(req, env, path, M, u); if (pr) return pr; }
@@ -86,22 +98,33 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   }
   if ((r = path.match(/^\/api\/memories\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('DELETE FROM memories WHERE id=? AND user_id=?').bind(r[1], u.id).run(); return json({ ok: true }); }
   if (path === '/api/folders') {
-    if (M === 'GET') return json((await DB.prepare("SELECT id,name,(COALESCE(instructions,'')<>'') has_ins,(COALESCE(files,'[]')<>'[]') has_files FROM folders WHERE user_id=? ORDER BY name").bind(u.id).all()).results);
+    if (M === 'GET') return json((await DB.prepare("SELECT f.id,f.name,(COALESCE(f.instructions,'')<>'') has_ins,(COALESCE(f.files,'[]')<>'[]') has_files,(f.team_id IS NOT NULL) shared,(f.user_id=?1) mine,ow.email owner FROM folders f JOIN users ow ON ow.id=f.user_id WHERE f.user_id=?1 OR (f.team_id IS NOT NULL AND f.team_id=(SELECT team_id FROM team_members WHERE user_id=?1)) ORDER BY f.name").bind(u.id).all()).results); // ของตัวเอง + Workspace ที่ทีมแชร์
     const b = await req.json(), name = String(b.name || '').trim().slice(0, 40); if (!name) return err('ชื่อว่าง');
     const ins = String(b.instructions || '').trim().slice(0, 4000) || null; // เทมเพลต Workspace: สร้างพร้อมคำสั่งตั้งต้น
     return json(await DB.prepare('INSERT INTO folders (user_id,name,created_at,instructions) VALUES (?,?,?,?) RETURNING id,name').bind(u.id, name, Date.now(), ins).first());
   }
+  if ((r = path.match(/^\/api\/folders\/(\d+)\/share$/)) && M === 'POST') { // แชร์ Workspace ให้ทีม (คำสั่ง + เอกสาร = คลังความรู้ทีม) · เฉพาะเจ้าของ
+    const f = await DB.prepare('SELECT id,name FROM folders WHERE id=? AND user_id=?').bind(r[1], u.id).first(); if (!f) return err('ไม่พบ Workspace', 404);
+    const tm = await DB.prepare('SELECT team_id FROM team_members WHERE user_id=?').bind(u.id).first(); if (!tm) return err('ต้องอยู่ในทีมก่อนจึงแชร์ได้', 403);
+    const on = !!(await req.json().catch(() => ({}))).on;
+    await DB.prepare('UPDATE folders SET team_id=? WHERE id=?').bind(on ? tm.team_id : null, f.id).run();
+    await teamLog(env, tm.team_id, u.id, on ? 'share workspace' : 'unshare workspace', f.name);
+    return json({ ok: true, shared: on });
+  }
   if ((r = path.match(/^\/api\/folders\/(\d+)$/))) {
-    if (!await DB.prepare('SELECT 1 FROM folders WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบโฟลเดอร์', 404);
+    const fo = await DB.prepare('SELECT user_id, team_id FROM folders WHERE id=?').bind(r[1]).first();
+    const myTeam = fo && fo.user_id !== u.id && fo.team_id ? (await DB.prepare('SELECT team_id FROM team_members WHERE user_id=?').bind(u.id).first())?.team_id : null;
+    if (!fo || (fo.user_id !== u.id && !(fo.team_id && fo.team_id === myTeam))) return err('ไม่พบโฟลเดอร์', 404);
+    if (fo.user_id !== u.id && M !== 'GET') return err('เฉพาะเจ้าของ Workspace แก้ไขได้ · สมาชิกทีมใช้งานได้อย่างเดียว', 403);
     if (M === 'DELETE') { await DB.batch([DB.prepare('UPDATE chats SET folder_id=NULL WHERE folder_id=?').bind(r[1]), DB.prepare('DELETE FROM folders WHERE id=?').bind(r[1])]); return json({ ok: true }); }
-    if (M === 'GET') { const f = await DB.prepare('SELECT id,name,instructions,files FROM folders WHERE id=?').bind(r[1]).first(); let files = []; try { files = JSON.parse(f.files || '[]'); } catch {} return json({ ...f, files: files.map(x => ({ name: x.name, size: x.text.length })) }); }
+    if (M === 'GET') { const f = await DB.prepare('SELECT id,name,instructions,files,team_id FROM folders WHERE id=?').bind(r[1]).first(); let files = []; try { files = JSON.parse(f.files || '[]'); } catch {} return json({ ...f, shared: !!f.team_id, team_id: undefined, mine: fo.user_id === u.id, files: files.map(x => ({ name: x.name, size: x.text.length })) }); }
     const b = await req.json();
     if ('name' in b) { const name = String(b.name || '').trim().slice(0, 40); if (!name) return err('ชื่อว่าง'); await DB.prepare('UPDATE folders SET name=? WHERE id=?').bind(name, r[1]).run(); }
     if ('instructions' in b) await DB.prepare('UPDATE folders SET instructions=? WHERE id=?').bind(String(b.instructions || '').trim().slice(0, 4000) || null, r[1]).run();
     if (Array.isArray(b.files)) { // เอกสารอ้างอิงของโฟลเดอร์ (ข้อความที่อ่านจากไฟล์แล้ว) · ส่งชื่อเดิมโดยไม่มี text = เก็บของเดิมไว้
       let old = []; try { old = JSON.parse((await DB.prepare('SELECT files FROM folders WHERE id=?').bind(r[1]).first())?.files || '[]'); } catch {}
-      const files = b.files.slice(0, 10).map(x => typeof x?.text === 'string' ? { name: String(x.name || 'file').slice(0, 120), text: x.text } : old.find(o => o.name === x?.name)).filter(Boolean);
-      if (files.reduce((n, x) => n + x.text.length, 0) > 150000) return err('เอกสารรวมยาวเกิน 150,000 ตัวอักษร ลบบางไฟล์ออก');
+      const files = b.files.slice(0, 20).map(x => typeof x?.text === 'string' ? { name: String(x.name || 'file').slice(0, 120), text: x.text } : old.find(o => o.name === x?.name)).filter(Boolean);
+      if (files.reduce((n, x) => n + x.text.length, 0) > 600000) return err('เอกสารรวมยาวเกิน 600,000 ตัวอักษร ลบบางไฟล์ออก'); // คลังความรู้: ยาวเกิน 120K ระบบส่งเฉพาะส่วนที่เกี่ยวกับคำถาม
       await DB.prepare('UPDATE folders SET files=? WHERE id=?').bind(files.length ? JSON.stringify(files) : null, r[1]).run();
     }
     return json({ ok: true });
@@ -384,16 +407,35 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       if (!tm) return json({ team: null });
       const own = tm.role === 'owner', members = (await DB.prepare('SELECT u.id, u.email, tm.role, tm.joined_at, tm.cap_pct, tm.api_off, (SELECT COALESCE(SUM(g.units),0) FROM usage g WHERE g.user_id=u.id AND g.created_at>=?2) wk FROM team_members tm JOIN users u ON u.id=tm.user_id WHERE tm.team_id=?1 ORDER BY tm.role DESC, tm.joined_at').bind(tm.id, Date.now() - 7 * DAY).all()).results;
       // หัวหน้าทีมเห็นการใช้ 7 วันล่าสุดของทุกคน (% ของงบสัปดาห์ของแพลน) · สมาชิกเห็นแค่รายชื่อ
+      if (own) { // แดชบอร์ดหัวหน้า: ข้อความ 30 วัน + โมเดลที่ใช้บ่อยสุดของแต่ละคน
+        const st = (await DB.prepare(`SELECT g.user_id, COUNT(*) n, (SELECT md.name FROM usage x JOIN models md ON md.id=x.model_id WHERE x.user_id=g.user_id AND x.created_at>=?1 GROUP BY x.model_id ORDER BY COUNT(*) DESC LIMIT 1) top FROM usage g WHERE g.created_at>=?1 AND g.user_id IN (SELECT user_id FROM team_members WHERE team_id=?2) GROUP BY g.user_id`).bind(Date.now() - 30 * DAY, tm.id).all()).results;
+        const sm = new Map(st.map(x => [x.user_id, x])); members.forEach(m => { m.msgs30 = sm.get(m.id)?.n || 0; m.top = sm.get(m.id)?.top || null; });
+      }
       members.forEach(m => { if (own) m.wk_pct = tm.limit_week > 0 ? Math.round(m.wk / tm.limit_week * 1000) / 10 : 0; else { delete m.cap_pct; delete m.api_off; } delete m.wk; });
-      return json({ team: { id: tm.id, name: tm.name, plan_name: tm.plan_name, plan_id: tm.pid, expires: tm.expires, max_seats: tm.max_seats, shared_pool: !!tm.shared_pool, role: tm.role, invite_code: own ? tm.invite_code : null }, members });
+      return json({ team: { domain: own ? tm.domain || null : undefined, id: tm.id, name: tm.name, plan_name: tm.plan_name, plan_id: tm.pid, expires: tm.expires, max_seats: tm.max_seats, shared_pool: !!tm.shared_pool, role: tm.role, invite_code: own ? tm.invite_code : null }, members });
     }
     if (M === 'PUT') {
       if (!tm || tm.role !== 'owner') return err('เฉพาะหัวหน้าทีมเท่านั้น', 403);
       const b = await req.json();
       if (typeof b.name === 'string' && b.name.trim()) await DB.prepare('UPDATE teams SET name=? WHERE id=?').bind(b.name.trim().slice(0, 60), tm.id).run();
       if (b.regen_code) await DB.prepare('UPDATE teams SET invite_code=? WHERE id=?').bind(rand(4).toUpperCase(), tm.id).run();
+      if ('domain' in b) { // อีเมล @โดเมนบริษัท เข้าทีมเองตอนล็อกอิน · ต้องเป็นโดเมนเดียวกับอีเมลหัวหน้า และไม่ใช่อีเมลฟรี
+        const dm = String(b.domain || '').trim().toLowerCase().replace(/^@/, '');
+        if (dm) {
+          if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(dm)) return err('โดเมนไม่ถูกต้อง');
+          if (PUBLIC_MAIL.test(dm)) return err('ใช้อีเมลฟรี (Gmail, Hotmail ฯลฯ) ไม่ได้ ต้องเป็นโดเมนของบริษัท');
+          if (u.email.split('@')[1] !== dm) return err('ต้องเป็นโดเมนเดียวกับอีเมลของหัวหน้าทีม (@' + u.email.split('@')[1] + ')');
+          if (await DB.prepare('SELECT 1 FROM teams WHERE domain=? AND id<>?').bind(dm, tm.id).first()) return err('โดเมนนี้ถูกใช้กับทีมอื่นแล้ว');
+        }
+        await DB.prepare('UPDATE teams SET domain=? WHERE id=?').bind(dm || null, tm.id).run();
+        await teamLog(env, tm.id, u.id, 'set domain', dm || '(ปิด)');
+      }
       return json({ ok: true });
     }
+  }
+  if (path === '/api/team/log' && M === 'GET') { // หัวหน้าทีม: ใครทำอะไรกับทีมเมื่อไร (100 รายการล่าสุด)
+    const own = await DB.prepare("SELECT team_id FROM team_members WHERE user_id=? AND role='owner'").bind(u.id).first(); if (!own) return err('เฉพาะหัวหน้าทีมเท่านั้น', 403);
+    return json((await DB.prepare('SELECT l.action, l.detail, l.created_at, us.email FROM team_log l LEFT JOIN users us ON us.id=l.user_id WHERE l.team_id=? ORDER BY l.id DESC LIMIT 100').bind(own.team_id).all()).results);
   }
   if (path === '/api/team/join' && M === 'POST') {
     if (await limited(env, 'tj:' + u.id, 10, 3600e3)) return err('ลองหลายครั้งเกินไป รอสักครู่', 429); // กันเดารหัสเชิญทีม
@@ -404,6 +446,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const cnt = (await DB.prepare('SELECT COUNT(*) n FROM team_members WHERE team_id=?').bind(t.id).first()).n;
     if (cnt >= t.max_seats) return err('ทีมนี้สมาชิกเต็มแล้ว');
     if (!(await DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) SELECT ?1,?2,'member',?3 WHERE (SELECT COUNT(*) FROM team_members WHERE team_id=?1) < ?4").bind(t.id, u.id, Date.now(), t.max_seats).run()).meta.changes) return err('ทีมนี้สมาชิกเต็มแล้ว'); // นับที่นั่งกับเพิ่มสมาชิกใน statement เดียว กันคนเข้าพร้อมกันจนเกินที่นั่ง
+    await teamLog(env, t.id, u.id, 'join', 'เข้าทีมด้วยรหัสเชิญ');
     return json({ ok: true, team_id: t.id });
   }
   if (path === '/api/team/add' && M === 'POST') {
@@ -416,6 +459,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const cnt = (await DB.prepare('SELECT COUNT(*) n FROM team_members WHERE team_id=?').bind(tm.id).first()).n;
     if (cnt >= tm.max_seats) return err(`ทีมเต็มแล้ว (สูงสุด ${tm.max_seats} คน)`);
     await DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'member',?)").bind(tm.id, target.id, Date.now()).run();
+    await teamLog(env, tm.id, u.id, 'add member', email);
     return json({ ok: true });
   }
   if ((r = path.match(/^\/api\/team\/members\/(\d+)$/)) && M === 'PUT') { // ตั้งเพดานต่อคน (% ของงบสัปดาห์ทีม · เฉพาะงบรวม) และเปิด/ปิดสิทธิ์ใช้ API ของสมาชิก
@@ -430,6 +474,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if ('api_off' in b) { sets.push('api_off=?'); vals.push(b.api_off ? 1 : 0); }
     if (!sets.length) return err('ไม่มีอะไรให้แก้');
     const ch = await DB.prepare(`UPDATE team_members SET ${sets.join(',')} WHERE team_id=? AND user_id=? AND role!='owner'`).bind(...vals, tm.id, +r[1]).run();
+    if (ch.meta.changes) await teamLog(env, tm.id, u.id, 'member settings', JSON.stringify({ member: +r[1], ...b }));
     return ch.meta.changes ? json({ ok: true }) : err('ไม่พบสมาชิกคนนี้', 404);
   }
   if ((r = path.match(/^\/api\/team\/members\/(\d+)\/keys(?:\/(\d+))?$/)) && (M === 'GET' || M === 'DELETE')) { // หัวหน้าทีมดู/เพิกถอน API key ของสมาชิก
@@ -438,7 +483,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), +r[1]).all()).results);
     const ch = r[2] ? await DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=? AND revoked=0').bind(+r[2], +r[1]).run()
       : await DB.prepare('UPDATE api_keys SET revoked=1 WHERE user_id=? AND revoked=0').bind(+r[1]).run(); // ไม่ระบุ key = เพิกถอนทุก key ของสมาชิก
-    if (ch.meta.changes) await audit(env, u, 'revoke member api key', { key: r[2] ? +r[2] : 'all', member: +r[1], n: ch.meta.changes });
+    if (ch.meta.changes) { await audit(env, u, 'revoke member api key', { key: r[2] ? +r[2] : 'all', member: +r[1], n: ch.meta.changes }); await teamLog(env, own.team_id, u.id, 'revoke api key', JSON.stringify({ member: +r[1], key: r[2] ? +r[2] : 'all' })); }
     return ch.meta.changes ? json({ ok: true }) : err('ไม่พบ key', 404);
   }
   if (path === '/api/team/invite' && M === 'POST') { // ส่งคำเชิญทางอีเมล: ลิงก์พาไปล็อกอินแล้วเข้าทีมด้วยโค้ด
@@ -449,6 +494,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if ((await DB.prepare('SELECT COUNT(*) n FROM team_members WHERE team_id=?').bind(tm.id).first()).n >= tm.max_seats) return err(`ทีมเต็มแล้ว (สูงสุด ${tm.max_seats} คน)`);
     if (await limited(env, 'tinv:' + u.id, 20, DAY)) return err('ส่งคำเชิญวันนี้ครบแล้ว ลองใหม่พรุ่งนี้', 429);
     const link = origin(req, env) + '/login?next=' + encodeURIComponent('/account?join=' + tm.invite_code);
+    await teamLog(env, tm.id, u.id, 'invite', email);
     const sent = await mail(env, email, 'AstraCode: คุณได้รับเชิญเข้าทีม ' + tm.name.slice(0, 60), mailBox('คุณได้รับเชิญเข้าทีม', `${esc(u.email)} เชิญคุณเข้าทีม “${esc(tm.name.slice(0, 60))}” ล็อกอินหรือสมัครแล้วระบบจะพาเข้าทีมให้ทันที`, 'เข้าร่วมทีม', link));
     return json({ ok: true, sent });
   }
@@ -458,7 +504,8 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (!tm) return err('ไม่พบทีม', 404);
     if (targetId === tm.owner_id) return err('หัวหน้าทีมไม่สามารถออกจากทีมได้');
     if (tm.role !== 'owner' && targetId !== u.id) return err('ไม่มีสิทธิ์ลบสมาชิกคนอื่น', 403);
-    await DB.prepare('DELETE FROM team_members WHERE team_id=? AND user_id=?').bind(tm.id, targetId).run();
+    await DB.batch([DB.prepare('DELETE FROM team_members WHERE team_id=? AND user_id=?').bind(tm.id, targetId), DB.prepare('UPDATE folders SET team_id=NULL WHERE user_id=? AND team_id=?').bind(targetId, tm.id)]); // ออกทีม: Workspace ที่เคยแชร์เลิกแชร์
+    await teamLog(env, tm.id, u.id, targetId === u.id ? 'leave' : 'remove member', String(targetId));
     return json({ ok: true });
   }
   if (path === '/api/skills') {

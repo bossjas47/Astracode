@@ -690,7 +690,7 @@ function terms() {
 }
 const footer = () => `<footer class="foot"><div><b>AstraCode</b><span class="muted">AI ทุกตัวในมือถือเครื่องเดียว</span></div>
   <div><a href="/#download">ดาวน์โหลดแอปคอม (Windows / Linux)</a><a href="/pricing">ราคาต่อ token</a><a href="/developers">API สำหรับนักพัฒนา</a><a href="/blog">บล็อก</a></div>
-  <div><a href="/status">สถานะระบบ</a><a href="/support">Contact us</a><a href="/terms">เงื่อนไขและความเป็นส่วนตัว</a></div>
+  <div><a href="/status">สถานะระบบ</a><a href="/support">Contact us</a><a href="/security">ความปลอดภัยของข้อมูล</a><a href="/terms">เงื่อนไขและความเป็นส่วนตัว</a></div>
   <p class="muted">© ${new Date().getFullYear()} AstraCode</p></footer>`;
 
 

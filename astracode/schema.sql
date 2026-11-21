@@ -234,7 +234,7 @@ CREATE TABLE IF NOT EXISTS coupons (code TEXT PRIMARY KEY, kind TEXT NOT NULL, v
 CREATE TABLE IF NOT EXISTS coupon_uses (code TEXT NOT NULL, user_id INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (code, user_id));
 CREATE TABLE IF NOT EXISTS tokens (hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, kind TEXT NOT NULL, expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, created_at INTEGER NOT NULL, instructions TEXT, files TEXT); -- instructions/files = คำสั่งและเอกสารอ้างอิง (JSON [{name,text}]) ที่ทุกแชตในโฟลเดอร์ใช้ร่วมกัน
+CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, created_at INTEGER NOT NULL, instructions TEXT, files TEXT, team_id INTEGER); -- instructions/files = คำสั่งและเอกสารอ้างอิง (JSON [{name,text}]) ที่ทุกแชตในโฟลเดอร์ใช้ร่วมกัน
 CREATE TABLE IF NOT EXISTS file_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS file_versions_path ON file_versions(project_id, path, id);
 CREATE TABLE IF NOT EXISTS tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
@@ -479,7 +479,7 @@ CREATE TABLE IF NOT EXISTS coupons (code TEXT PRIMARY KEY, kind TEXT NOT NULL, v
 CREATE TABLE IF NOT EXISTS coupon_uses (code TEXT NOT NULL, user_id INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (code, user_id));
 CREATE TABLE IF NOT EXISTS tokens (hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, kind TEXT NOT NULL, expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, created_at INTEGER NOT NULL, instructions TEXT, files TEXT); -- instructions/files = คำสั่งและเอกสารอ้างอิง (JSON [{name,text}]) ที่ทุกแชตในโฟลเดอร์ใช้ร่วมกัน
+CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, created_at INTEGER NOT NULL, instructions TEXT, files TEXT, team_id INTEGER); -- instructions/files = คำสั่งและเอกสารอ้างอิง (JSON [{name,text}]) ที่ทุกแชตในโฟลเดอร์ใช้ร่วมกัน
 CREATE TABLE IF NOT EXISTS file_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS file_versions_path ON file_versions(project_id, path, id);
 CREATE TABLE IF NOT EXISTS tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
@@ -506,6 +506,7 @@ CREATE TABLE IF NOT EXISTS teams (
   invite_code TEXT UNIQUE NOT NULL,
   max_seats INTEGER NOT NULL DEFAULT 5,
   shared_pool INTEGER NOT NULL DEFAULT 0,
+  domain TEXT,                              -- อีเมล @โดเมนนี้เข้าทีมอัตโนมัติ (หัวหน้าตั้ง)
   sess_start INTEGER,
   week_start INTEGER,
   created_at INTEGER NOT NULL
@@ -581,6 +582,7 @@ CREATE TABLE IF NOT EXISTS teams (
   invite_code TEXT UNIQUE NOT NULL,
   max_seats INTEGER NOT NULL DEFAULT 5,
   shared_pool INTEGER NOT NULL DEFAULT 0,
+  domain TEXT,                              -- อีเมล @โดเมนนี้เข้าทีมอัตโนมัติ (หัวหน้าตั้ง)
   sess_start INTEGER,
   week_start INTEGER,
   created_at INTEGER NOT NULL
@@ -647,3 +649,6 @@ CREATE TABLE IF NOT EXISTS artifacts (id INTEGER PRIMARY KEY AUTOINCREMENT, user
 CREATE TABLE IF NOT EXISTS artifact_versions (artifact_id INTEGER NOT NULL, ver INTEGER NOT NULL, html TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (artifact_id, ver));
 CREATE INDEX IF NOT EXISTS artifacts_user ON artifacts(user_id, updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS artifacts_share ON artifacts(share_token);
+
+CREATE TABLE IF NOT EXISTS team_log (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS team_log_team ON team_log(team_id, id);

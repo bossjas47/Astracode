@@ -1905,3 +1905,7 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .lintbar button { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 0; border-radius: 6px; background: none; color: #f08c86; font: 12.5px ui-monospace, Menlo, monospace; text-align: left; cursor: pointer; }
 .lintbar button:hover { background: rgba(229,83,75,.12); }
 .lintbar button b { color: #ffb3ae; font-weight: 600; white-space: nowrap; }
+
+.sec-b { margin: 0 0 22px; padding: 18px 20px; border: 1px solid var(--hair); border-radius: 16px; }
+.sec-b h2 { margin: 0 0 8px; font-size: 18px; } .sec-b ul { margin: 0; padding-left: 20px; line-height: 1.7; }
+.ws-team { display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: rgba(47,158,91,.15); color: #2f9e5b; font-size: 11px; font-weight: 600; vertical-align: 2px; }
