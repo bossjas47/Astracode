@@ -1912,3 +1912,5 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .seat-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
 .seat-row b { min-width: 2ch; font-size: 20px; }
 .seat-row small { flex-basis: 100%; }
+.ws-tpl > span.ws-tpl-ic { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: rgba(217,119,87,.12); margin-bottom: 6px; }
+.ws-tpl-ic .ic { width: 18px; height: 18px; color: var(--blue); }
