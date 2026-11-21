@@ -93,3 +93,25 @@ test('7-day plan bought fresh starts its weekly limit window at purchase (one wi
   const r = t.DB.raw.prepare('SELECT week_start, usage_reset_at, plan_id FROM users WHERE id=?').get(u.id);
   assert.equal(r.plan_id, p.id); assert.equal(r.week_start, null); assert.ok(r.usage_reset_at > Date.now() - 5000);
 });
+
+test('plan free models: no limit units, still usable when the limit is full, other models blocked, daily cap', async () => {
+  let fm; fm = await fakeModel((req, res) => fm.sse(res, 'ok'));
+  const t = await makeEnv({ K: 'k' }), free = addModel(t.DB, { name: 'Haiku', base_url: fm.url }), paid = addModel(t.DB, { name: 'Opus', base_url: fm.url });
+  await t.json('/api/version');
+  const { u, p } = await paidUser(t, 749, [free.id, paid.id]);
+  t.DB.raw.prepare('UPDATE plans SET free_models=?, limit_week=1, limit_4h=1 WHERE id=?').run(JSON.stringify([free.id]), p.id);
+  const send = async mid => { t.DB.raw.exec('DELETE FROM rate'); const r = await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'hi', model_id: mid } }); const body = await r.text(); return { status: r.status, body }; };
+  assert.equal((await send(free.id)).status, 200);
+  const units = t.DB.raw.prepare('SELECT units FROM usage WHERE user_id=? AND model_id=?').get(u.id, free.id).units;
+  assert.equal(units, 0, 'free model does not use the plan limit');
+  t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,0,0,0,5,5,?)').run(u.id, paid.id, Date.now());
+  t.DB.raw.prepare('UPDATE users SET week_start=?, sess_start=? WHERE id=?').run(Date.now() - 1000, Date.now() - 1000, u.id);
+  assert.equal((await send(paid.id)).status, 429, 'limit full blocks normal models');
+  assert.equal((await send(free.id)).status, 200, 'free model still works with a full limit');
+  const me = (await t.json('/api/me', { cookie: u.cookie })).data; assert.deepEqual(me.plan.free_models, [free.id]);
+  const plans = (await t.json('/api/plans')).data, pp = plans.find(x => x.id === p.id);
+  assert.equal(pp.models[0].free, true); assert.equal(pp.models[0].name, 'Haiku');
+  const ins = t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,0,0,0,0,0,?)');
+  for (let i = 0; i < 500; i++) ins.run(u.id, free.id, Date.now());
+  const capped = await send(free.id); assert.equal(capped.status, 429); assert.match(capped.body, /500/);
+});

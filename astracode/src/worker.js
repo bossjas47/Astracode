@@ -1,4 +1,4 @@
-import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy, WALLET_MIN } from './core.js';
+import { FREE_DAY_CAP, freeIds, DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy, WALLET_MIN } from './core.js';
 import { callModel, chat, compact, ensureFb, logUsage } from './ai.js';
 import { topupPromo, event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal, unseal } from './projects.js';
@@ -42,12 +42,13 @@ async function pricingBody(env) {
     };
 }
 async function plansBody(env) {
-  const plans = (await env.DB.prepare('SELECT id,name,price,price_year,days,once,description,limit_week,seats,shared_pool,api_limit FROM plans WHERE active=1 ORDER BY sort').all()).results;
+  const plans = (await env.DB.prepare('SELECT id,name,price,price_year,days,once,description,limit_week,seats,shared_pool,api_limit,free_models FROM plans WHERE active=1 ORDER BY sort').all()).results;
   const [featured, lists] = await Promise.all([getSetting(env, 'featured_plan'), Promise.all(plans.map(p => allowedModels(env, p.id)))]);
   const free = plans.find(p => !(p.price > 0))?.limit_week || 0;
   plans.forEach((p, i) => { // ประมาณจำนวนข้อความ/สัปดาห์ ตามต้นทุนจริงของ 1 ข้อความทั่วไป
     p.x_free = free > 0 && p.price > 0 ? Math.round(p.limit_week / free * 10) / 10 : null; // ใช้ได้มากกว่าแพลนฟรีกี่เท่า (คิดจากงบลิมิตสัปดาห์)
-    p.models = lists[i].map(m => ({ name: m.name, week: Math.floor(p.limit_week / Math.max(msgCost(m), 1e-6)) }));
+    const fr = freeIds(p); delete p.free_models;
+    p.models = lists[i].map(m => ({ name: m.name, week: Math.floor(p.limit_week / Math.max(msgCost(m), 1e-6)), free: fr.includes(m.id) || undefined })).sort((a, b) => !!b.free - !!a.free); // โมเดลฟรีไม่จำกัดขึ้นก่อน
     p.featured = p.id === +featured;
     delete p.limit_week;
   });
@@ -263,7 +264,7 @@ export async function route(req, env, ctx, url, path, M) {
         const plan = await planOf(env, u);
         const [usage, credits, models, pay] = await Promise.all([usageStatus(env, u, plan), creditList(env, u.id), cachedModels(env, plan.id), getSettings(env, ['promptpay_id', 'bank_name', 'bank_account', 'bank_holder'])]); // ยิงพร้อมกัน ไม่ต่อคิวทีละอัน
         return json({
-          email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, paid: plan.price > 0, artifacts: artPaid(plan), agent: !!plan.agent, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
+          email: u.email, role: u.role, plan: { id: plan.id, name: plan.name, free_models: freeIds(plan), free_cap: FREE_DAY_CAP, paid: plan.price > 0, artifacts: artPaid(plan), agent: !!plan.agent, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
           upsell_year: plan.price > 0 && !plan._team && u.plan_period !== 'year' && plan.price_year > 0 && plan.price * 12 > plan.price_year && (await env.DB.prepare("SELECT COUNT(*) n FROM payments WHERE user_id=? AND plan_id=? AND status='approved' AND kind='plan'").bind(u.id, plan.id).first()).n >= 2 ? { save: Math.round(plan.price * 12 - plan.price_year), price_year: plan.price_year, plan_id: plan.id } : null, // ต่อรายเดือนมาแล้ว 2 ครั้ง: ชวนเปลี่ยนเป็นรายปี
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, webhook_url: u.webhook_url || '', auto_compact: u.auto_compact !== 0, auto_memory: u.auto_memory ? 1 : 0, digest: !u.digest_off, wallet_overflow: !!u.wallet_overflow, wallet_day_cap: u.wallet_day_cap || null, auto_renew: !!u.auto_renew,

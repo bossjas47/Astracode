@@ -1,5 +1,5 @@
 import { artPaid, artifactTool } from './artifacts.js';
-import { DAY, HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
+import { FREE_DAY_CAP, isFreeModel, DAY, HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, PLAN_NOTE, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, todosOf, verifyWork, webTools } from './codetools.js';
@@ -491,9 +491,11 @@ export async function chat(req, env, u, ctx) {
   if (reqCapped) return bail(json({ error: `${m.name} ใช้ครบ ${m.req_cap} ครั้งใน 4 ชั่วโมงแล้ว ลองโมเดลอื่นหรือรอสักครู่`, cap: true }, 429));
   if (blocked) return bail(err('ข้อความนี้มีเนื้อหาที่ระบบไม่รับ'));
   const pw0 = st.pctWeek;
+  const freeM = !offPlan && !ephemeral && isFreeModel(plan, m.id); // โมเดลฟรีไม่จำกัดของแพลน: ลิมิตเต็มก็ยังใช้ได้ ไม่หักลิมิต
+  if (freeM && (await env.DB.prepare('SELECT COUNT(*) n FROM usage WHERE user_id=? AND model_id=? AND created_at>?').bind(u.id, m.id, Date.now() - DAY).first()).n >= FREE_DAY_CAP) return bail(json({ error: `${m.name} ใช้ฟรีครบ ${FREE_DAY_CAP} ข้อความใน 24 ชม. แล้ว (การใช้งานปกติ) ลองโมเดลอื่นได้เลย`, cap: true }, 429));
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
-  const overflow = offPlan ? 'wallet' : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance >= WALLET_MIN && !ephemeral ? 'overflow' : null) : null;
-  if (!offPlan && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return bail(json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429));
+  const overflow = offPlan ? 'wallet' : freeM ? null : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance >= WALLET_MIN && !ephemeral ? 'overflow' : null) : null;
+  if (!offPlan && !freeM && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return bail(json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429));
   if (overflow && dayCapped) return bail(err('ใช้ Wallet ครบเพดานต่อวันที่ตั้งไว้แล้ว ปรับได้ที่หน้าบัญชี', 429));
   if (tooFast) return bail(err('ส่งเร็วเกินไป รอสักครู่', 429));
   if (ephemeral) for (const k of [0, 1, 2].map(i => 'chatlock:' + u.id + ':e' + i)) if ((lock = await takeLock(k))) break; // โหมดเทียบขนานได้สูงสุด 3 ช่อง
@@ -797,7 +799,7 @@ export async function runChat(env, J, send, st) {
   let mid = null;
   if ((out || think) && cid) mid = (await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout,tcr,tcw,tctx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id')
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null, usage && !usage.flag ? usage.read : null, usage && !usage.flag ? usage.write : null, lastCtx || null).first())?.id ?? null;
-  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet', ms: Date.now() - tStart, ttft, src: 'chat', prep: prepMs }) : 0;
+  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet' && !isFreeModel(plan, model.id), ms: Date.now() - tStart, ttft, src: 'chat', prep: prepMs }) : 0;
   await unlimit(env, lock);
   const fin = await usageStatus(env, u, plan);
   await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: lastCtx || ctxUsed, max: ctxMax(model), real: !!lastCtx }, ...fin });

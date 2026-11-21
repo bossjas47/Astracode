@@ -377,7 +377,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') document.que
 const page = html => { const again = !!app.querySelector('.view'), y = scrollY; app.innerHTML = `<div class="view${again ? ' still' : ''}${html.startsWith('<nav class="nav"') ? ' with-side' : ''}">${html}</div>`; navRecents(); if (again) scrollTo(0, y); let seen = 0; try { seen = +localStorage.getItem('clSeen') || 0; } catch { /* ไม่มีที่เก็บ */ } if (site?.cl_latest > seen) app.querySelector('#clnav')?.classList.add('dot'); if (me) notifLoad(); };
 
 // การ์ดแพลน: บอกแค่ใช้ได้กี่เท่าของ Free + ชื่อโมเดล (ตามลำดับที่ตั้งในหลังบ้าน ที่เหลือพับไว้) · ไม่โชว์จำนวนข้อความ
-const PLAN_TOP = 8, pmChip = (m, hide) => `<span class="pm-chip"${hide ? ' hidden' : ''}>${esc(m.name)}</span>`;
+const PLAN_TOP = 8, pmChip = (m, hide) => `<span class="pm-chip${m.free ? ' free' : ''}"${hide ? ' hidden' : ''}>${m.free ? '<b>ฟรีไม่จำกัด</b> ' : ''}${esc(m.name)}</span>`;
 document.addEventListener('click', e => { const b = e.target.closest?.('.pm-more'); if (!b) return; e.stopPropagation(); b.parentElement.querySelectorAll('.pm-chip[hidden]').forEach(c => c.hidden = false); b.remove(); }, true); // ก่อนตัวเลือกแพลนของการ์ด
 function planTiles(plans, sel, period) {
   return `<div class="grid" tabindex="0" aria-label="แพลน (เลื่อนดูได้)">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
@@ -864,7 +864,7 @@ function modelSheet(which) {
   const catChips = cats.length ? `<div class="vchips" role="group" aria-label="ใช้ทำอะไร"><button type="button" class="on" data-cf="">ทุกงาน</button>${cats.map(([k, l]) => `<button type="button" data-cf="${k}">${l}</button>`).join('')}</div>` : '';
   const vendors = [...new Map(me.models.map(m => [vendorOf(m.name).toLowerCase(), vendorOf(m.name)])).values()];
   const chips = site.picker_filter !== '0' && vendors.length > 1 ? `<div class="vchips" role="group" aria-label="ค่าย"><button type="button" class="on" data-vf="">ทั้งหมด</button>${vendors.map(v => `<button type="button" data-vf="${esc(v.toLowerCase())}">${vendorLogo(v, 'xs')}${esc(v)}</button>`).join('')}</div>` : '';
-  const mult = m => site.picker_mult === '0' ? '' : `<span class="vmult">×${m.multiplier}</span>`;
+  const mult = m => me.plan?.free_models?.includes(m.id) ? '<span class="vfree">ฟรีไม่จำกัด</span>' : site.picker_mult === '0' ? '' : `<span class="vmult">×${m.multiplier}</span>`; // โมเดลฟรีของแพลน: ไม่หักลิมิต
   sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', catChips + chips
     + (auto ? vOpt('auto', `<span class="vlogo auto">${ic('sparkles')}</span>`, 'อัตโนมัติ', 'ระบบเลือกโมเดลให้: ถามทั่วไปใช้โมเดลประหยัด โจทย์ยากหรือโค้ดใช้โมเดลเก่ง', '', cur === 'auto', 'auto') : '')
     + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : ''), (m.note ? `<span class="vnote">${esc(m.note)}</span>` : '') + ([m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป'), mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase(), catsOf(m).join(' '))).join('')
