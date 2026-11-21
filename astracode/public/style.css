@@ -1468,7 +1468,7 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
   .side .side-x { display: inline-flex; }
   .side .item a, .side-nav a, .side-nav button { min-height: 44px; }
 }
-.mode-seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 9999px; background: rgba(var(--ov), .07); border: 1px solid var(--hair); }
+.mode-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 9999px; background: rgba(var(--ov), .07); border: 1px solid var(--hair); }
 .mode-seg button, .mode-seg a, .mode-seg span { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 0; border-radius: 9999px; background: none; color: var(--ash); font: 500 14px var(--font); cursor: pointer; text-decoration: none; transition: background-color .15s, color .15s; }
 @media (hover: hover) { .mode-seg button:not(.on):hover, .mode-seg a:not(.on):hover { color: var(--porcelain); } } /* มือถือ: hover ค้างหลังแตะ ไม่ทับสีปุ่มที่เลือก */
 .mode-seg .on { background: var(--porcelain); color: var(--on-porcelain); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
@@ -2038,3 +2038,4 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .cw-list a { padding: 8px 12px; border-radius: 10px; color: inherit; text-decoration: none; font-size: 14px; }
 .cw-list a:hover { background: rgba(var(--ov), .05); }
 .cw-msgs .msg.user .b { max-width: 100%; }
+.cw-box textarea { min-height: 44px; }

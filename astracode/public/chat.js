@@ -958,7 +958,7 @@ function renderAll() {
   const box = $('#msgs'); if (!box) return;
   box.innerHTML = chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
     : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>${chat.spaceId ? `New chat in <b>${esc(chat.spaceName)}</b> · <button type="button" class="linkish" data-nospace>no workspace</button>` : 'Pick a model below and start typing'}</div>
-       <div class="mode-seg sm" role="group" aria-label="Mode"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a></div>
+       <div class="mode-seg sm" role="group" aria-label="Mode"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a><a href="/chat?mode=cowork">${ic('layers', 'sm')}Cowork</a></div>
        <div class="chips">${SUGGEST.map(([icon, s], i) => `<button data-s="${i}">${ic(icon, 'sm')} ${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight; head(); renderRich(box);
 }

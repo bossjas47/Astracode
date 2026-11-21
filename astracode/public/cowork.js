@@ -41,7 +41,7 @@ async function coworkView(id) {
       <div class="cw-msgs" id="cwmsgs"></div>
       <form class="cw-box" id="cwform">
         <div class="cw-chips" id="cwchips"></div>
-        <textarea id="cwt" rows="1" placeholder="${CW.id ? 'Reply…' : 'อธิบายงานที่ต้องการ เช่น &quot;รวมยอดขาย 3 สาขาจากไฟล์ที่แนบ ทำ Excel สรุป + รายงาน Word&quot;'}"></textarea>
+        <textarea id="cwt" rows="1" placeholder="${CW.id ? 'Reply…' : 'อธิบายงานที่ต้องการ…'}"></textarea>
         <div class="cw-acts"><button type="button" class="icon-btn" id="cwatt" aria-label="แนบไฟล์" ${CW.local ? 'hidden' : ''}>${ic('plus')}</button><input type="file" id="cwfile" multiple hidden>
           ${CW.local ? `<button type="button" class="btn out sm" id="cwfold">${ic('folder', 'sm')} <span id="cwfoldn">เลือกโฟลเดอร์</span></button>` : ''}
           <span class="sp"></span><button class="send" id="cwgo" aria-label="ส่ง">${ic('up')}</button></div>

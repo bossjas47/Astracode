@@ -37,6 +37,7 @@ for (const [url, admin, loggedIn] of PAGES.filter(([u]) => !ONLY || ONLY.test(u)
     return hit ? r.fulfill({ path: hit }) : r.fulfill({ status: 404, body: '' });
   });
   await page.goto('http://t.test' + url); await page.waitForTimeout(900);
+  if (process.env.SHOTP && process.env.SHOTP === url + (loggedIn ? '' : '#guest')) await page.screenshot({ path: process.env.SHOT }); // ภาพหน้าจอหน้าเดียว (ตรวจหน้าตา)
   const text = (await page.locator('#app').innerText().catch(() => '')).trim();
   const broke = /Cannot read properties|is not defined|is not a function|โหลดนานผิดปกติ/.test(text); // หน้าที่จับ error แล้วโชว์ข้อความแทนเนื้อหา ก็นับว่าพัง
   const ok = !errs.length && text.length > 20 && !broke; if (!ok) failed++;
