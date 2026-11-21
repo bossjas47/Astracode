@@ -495,7 +495,8 @@ export async function chat(req, env, u, ctx) {
   const freeM = !offPlan && !ephemeral && isFreeModel(plan, m.id); // โมเดลฟรีไม่จำกัดของแพลน: ลิมิตเต็มก็ยังใช้ได้ ไม่หักลิมิต
   if (freeM && (await env.DB.prepare('SELECT COUNT(*) n FROM usage WHERE user_id=? AND model_id=? AND created_at>?').bind(u.id, m.id, Date.now() - DAY).first()).n >= FREE_DAY_CAP) return bail(json({ error: `${m.name} ใช้ฟรีครบ ${FREE_DAY_CAP} ข้อความใน 24 ชม. แล้ว (การใช้งานปกติ) ลองโมเดลอื่นได้เลย`, cap: true }, 429));
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
-  const ccM = !offPlan && !freeM && !ephemeral && isClaudeEco(m) && (await claudeCreditLeft(env, u.id)).left > 0; // แถมเครดิต Claude Eco: ใช้เครดิตก่อน ลิมิตเต็มก็ยังใช้ได้
+  const full = st.pct4h >= 100 || st.pctWeek >= 100;
+  const ccM = !offPlan && !freeM && !ephemeral && isClaudeEco(m) && (u.cc_first === 1 || full) && (await claudeCreditLeft(env, u.id)).left > 0; // แถมเครดิต Claude Eco: ค่าเริ่มต้นใช้ลิมิตก่อน (เครดิตเมื่อลิมิตเต็ม) · ตั้งให้ใช้เครดิตก่อนได้
   const overflow = offPlan ? 'wallet' : freeM || ccM ? null : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance >= WALLET_MIN && !ephemeral ? 'overflow' : null) : null;
   if (!offPlan && !freeM && !ccM && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return bail(json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429));
   if (overflow && dayCapped) return bail(err('ใช้ Wallet ครบเพดานต่อวันที่ตั้งไว้แล้ว ปรับได้ที่หน้าบัญชี', 429));

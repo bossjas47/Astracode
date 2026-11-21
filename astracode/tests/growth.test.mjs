@@ -155,3 +155,23 @@ test('Claude credit: new Pro X2+ buyers get ฿100 for Claude Eco (25 days), use
   assert.equal(t.DB.raw.prepare('SELECT units FROM usage WHERE user_id=? AND model_id=?').get(u.id, eco.id).units, 0);
   const me = (await t.json('/api/me', { cookie: u.cookie })).data; assert.ok(me.claude_credit.left > 198 && me.claude_credit.usd > 290);
 });
+
+test('Claude credit order: limit first by default, credit first when switched on; API uses the credit too', async () => {
+  const { applyPayment } = await import('../src/billing.js'), { sha } = await import('./helpers.mjs');
+  let fm; fm = await fakeModel((req, res) => fm.sse(res, 'ok', { prompt_tokens: 1000000, completion_tokens: 0 }));
+  const t = await makeEnv({ K: 'k' }), eco = addModel(t.DB, { name: 'Claude Opus 5.5 Eco', base_url: fm.url, cost_in: 3.33 });
+  await t.json('/api/version');
+  const px2 = addPlan(t.DB, { price: 1490, models: [eco.id], limit_4h: 1e6, limit_week: 1e6 }), u = await t.user();
+  t.DB.raw.prepare('UPDATE plans SET api_limit=1 WHERE id=?').run(px2.id);
+  await applyPayment(t.env, { id: 9, user_id: u.id, kind: 'plan', plan_id: px2.id, amount: 1490, slip_key: 'slip/a', period: 'month', created_at: Date.now() });
+  const used = () => t.DB.raw.prepare('SELECT SUM(used) s FROM claude_credits WHERE user_id=?').get(u.id).s;
+  const chat = async () => { t.DB.raw.exec('DELETE FROM rate'); const r = await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'hi', model_id: eco.id } }); await r.text(); return r.status; };
+  assert.equal(await chat(), 200); assert.equal(used(), 0, 'default: limit first, credit untouched');
+  assert.equal((await t.json('/api/me', { method: 'PUT', cookie: u.cookie, body: { cc_first: true } })).status, 200);
+  assert.equal(await chat(), 200); assert.ok(used() > 3.3, 'credit first after switching: ' + used());
+  const before = used(), key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const r = await t.call('/v1/chat/completions', { method: 'POST', body: { model: 'claude-opus-5.5-eco', messages: [{ role: 'user', content: 'hi' }] }, headers: { authorization: 'Bearer ' + key } });
+  const body = await r.text(); await Promise.all(t.ctx.pending);
+  assert.equal(r.status, 200, body); assert.equal(r.headers.get('x-astracode-billing'), 'credit'); assert.ok(used() > before + 3.3, 'API took from the credit');
+});

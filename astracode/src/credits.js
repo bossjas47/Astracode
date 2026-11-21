@@ -3,8 +3,8 @@
 export const CC = { amount: 100, days: 25, minPrice: 1490, start: Date.UTC(2026, 10, 21, 6), usdPerBaht: 1.5 }; // usdPerBaht: ต้นทุน ฿1 ของ Claude Eco ≈ $1.5 ตามราคา API ทางการ (Opus Eco, ค่าที่ต่ำสุด)
 export const isClaudeEco = m => /^claude\b.*\beco$/i.test(String(m?.name || '').trim());
 const TABLE = 'CREATE TABLE IF NOT EXISTS claude_credits (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, payment_id INTEGER UNIQUE, amount REAL NOT NULL, used REAL NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL)';
-let ready = null;
-const ensure = env => ready ||= env.DB.prepare(TABLE).run().then(() => env.DB.prepare('CREATE INDEX IF NOT EXISTS claude_credits_user ON claude_credits(user_id, expires_at)').run()).catch(e => { ready = null; throw e; });
+const ready = new WeakMap(); // ต่อฐานข้อมูล (เทสต์ใช้หลายฐานในโมดูลเดียว)
+const ensure = env => { let p = ready.get(env.DB); if (!p) { p = env.DB.prepare(TABLE).run().then(() => env.DB.prepare('CREATE INDEX IF NOT EXISTS claude_credits_user ON claude_credits(user_id, expires_at)').run()).catch(e => { ready.delete(env.DB); throw e; }); ready.set(env.DB, p); } return p; };
 
 export const ccEligiblePlan = pl => !!pl && pl.price >= CC.minPrice && !pl.once && !(pl.days > 0 && pl.days <= 7);
 // เรียกจาก applyPayment หลังเปิดแพลน · คืนจำนวนที่แถม (0 = ไม่เข้าเงื่อนไข)

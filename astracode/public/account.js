@@ -49,7 +49,7 @@ PAGES.account = async function account() {
 
     <div class="acc-ov">
       <div class="acc-big"><span class="muted">Wallet</span><b>฿${baht(w.balance)}</b><a class="btn blue sm" href="/plans?topup=1">Top up</a></div>
-      <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span>${me.claude_credit ? `<span class="cc-pill">🎁 แถม Claude Eco เหลือ ≈ $${me.claude_credit.usd} · ใช้ได้ถึง ${when(me.claude_credit.exp)}</span>` : ''}</div>
+      <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span>${me.claude_credit ? `<span class="cc-pill">🎁 แถม Claude Eco เหลือ ≈ $${me.claude_credit.usd} · ใช้ได้ถึง ${when(me.claude_credit.exp)}<label class="cc-sw"><input type="checkbox" id="ccfirst" ${me.claude_credit.first ? 'checked' : ''}> ใช้เครดิตแถมก่อนลิมิต <small>(ปิด = ใช้ลิมิตก่อน เครดิตไว้ใช้ตอนลิมิตเต็ม · ใช้กับ API ด้วย)</small></label></span>` : ''}</div>
     </div>
     ${me.upsell_year ? `<div class="card acc-c" style="border-color:var(--blue)"><b>เปลี่ยนเป็นรายปี ประหยัด ฿${me.upsell_year.save.toLocaleString()}</b><p class="muted" style="margin:4px 0 10px">คุณต่อ ${esc(me.plan.name)} รายเดือนมาแล้วหลายเดือน จ่ายรายปี ฿${me.upsell_year.price_year.toLocaleString()} ถูกกว่าจ่ายรายเดือน 12 ครั้ง</p><a class="btn blue sm" href="/plans?plan=${me.upsell_year.plan_id}&period=year">ดูแพลนรายปี</a></div>` : ''}
     <div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
@@ -129,6 +129,7 @@ PAGES.account = async function account() {
 
   const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
   $('#outTop').onclick = doOut;
+  const ccf = $('#ccfirst'); if (ccf) ccf.onchange = async () => { try { await api('/me', { method: 'PUT', body: { cc_first: ccf.checked } }); me.claude_credit.first = ccf.checked; toast(ccf.checked ? 'ใช้เครดิตแถมก่อนลิมิต' : 'ใช้ลิมิตก่อน เครดิตไว้ใช้ตอนลิมิตเต็ม', 'ok'); } catch (x) { ccf.checked = !ccf.checked; toast(x.message, 'bad'); } };
   const pickSeg = (sel, attr, key) => document.querySelectorAll(sel + ' button').forEach(b => b.onclick = () => { localStorage.setItem(key, b.dataset[attr]); window.applyTheme?.(); document.querySelectorAll(sel + ' button').forEach(x => x.classList.toggle('on', x === b)); });
   api('/badges').then(b => { const el = $('#badges'); if (!el) return; el.innerHTML = `<div style="font-weight:600;margin-bottom:6px">ตราสะสม · ${b.badges.filter(x => x.got).length}/${b.badges.length}${b.streak ? ` <span class="pill" style="display:inline-flex;align-items:center;gap:4px">${ic('flame', 'sm')} ต่อเนื่อง ${b.streak} วัน</span>` : ''}</div><div class="row" style="flex-wrap:wrap;gap:8px">${b.badges.map(x => `<span class="pill" title="${esc(x.name)}" style="display:inline-flex;align-items:center;gap:4px;${x.got ? '' : 'opacity:.35'}">${ic({ streak7: 'flame', streak30: 'flame', msg100: 'msg', msg1000: 'msg', proj: 'code', agent: 'server', ref: 'users', supporter: 'star' }[x.id] || 'star', 'sm')} ${esc(x.name)}</span>`).join('')}</div>`; }).catch(() => {});
   $('#impf').onchange = async e => {

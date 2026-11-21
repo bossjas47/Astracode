@@ -1,3 +1,4 @@
+import { claudeCreditLeft, isClaudeEco, useClaudeCredit } from './credits.js';
 import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
 import { SSE, callModel, chat, logUsage, webSearch } from './ai.js';
 import { connCall, connTools } from './connectors.js';
@@ -122,9 +123,11 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     Object.assign(m, fresh || {}); // ราคา/ตั้งค่าล่าสุดเสมอ (รายการโมเดลอาจค้างจาก memo ได้ 30 วิ)
     if (reqCapped) return fail(`${m.name} reached its request cap (${m.req_cap} per 4 hours).`, 429, 'rate_limit_error');
     let billingMode = 'wallet';
+    const ccOk = onPlan && isClaudeEco(m) && (await claudeCreditLeft(env, k.id)).left > 0; // เครดิต Claude ที่แถม (Pro X2 ขึ้นไป)
     if (onPlan) {
-      if (capped) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');
-      if (st.pct4h < 100 && st.pctWeek < 100) billingMode = 'plan';
+      if (capped && !ccOk) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');
+      if (ccOk && (k.cc_first === 1 || capped || st.pct4h >= 100 || st.pctWeek >= 100)) billingMode = 'credit';
+      else if (st.pct4h < 100 && st.pctWeek < 100) billingMode = 'plan';
       else if (k.wallet_overflow && k.balance >= WALLET_MIN) billingMode = 'wallet';
       else return fail('ลิมิตแพลนเต็มแล้ว (4 ชม. / สัปดาห์)', 429, 'insufficient_quota');
     } else if (packLeft > 0) billingMode = 'pack';
@@ -195,7 +198,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2), flag: 'est' });
     const finish = async (u, outChars, flag = null) => { // flag: gone = ลูกค้าตัดกลางทาง · part = ผู้ให้บริการพังกลางคำตอบ (โชว์ในหลังบ้าน)
       const f0 = u || (outChars > 0 ? estUsage(outChars) : null), finalU = f0 && flag ? { ...f0, flag: f0.flag ? flag + '+est' : flag } : f0;
-      const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' ? { units: true, wallet: null, plan, src: 'api' } : billingMode === 'pack' ? { units: false, wallet: null, plan, src: 'agent', pack: true } : { units: false, wallet: 'api', plan, src: 'api' }) : 0;
+      const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' || billingMode === 'credit' ? { units: billingMode === 'plan', wallet: null, plan, src: 'api' } : billingMode === 'pack' ? { units: false, wallet: null, plan, src: 'agent', pack: true } : { units: false, wallet: 'api', plan, src: 'api' }) : 0;
+      if (finalU && billingMode === 'credit') await useClaudeCredit(env, k.id, finalU._cost || 0).catch(() => {}); // หักจากเครดิตที่แถมแทนลิมิต
       if (finalU) finalU.astra = { charge_thb: charge, week_pct: plan?.limit_week > 0 && finalU._units ? +(finalU._units / plan.limit_week * 100).toFixed(4) : 0, ...(finalU._pack ? { pack_pct: +(finalU._pack / (k.agent_pack_units || 1) * 100).toFixed(4) } : {}) }; // ค่าใช้จ่ายคำขอนี้: บาทจาก Wallet / % ลิมิตสัปดาห์ (แอป Desktop ใช้คุมเพดานต่องาน)
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
       if (walletKey) await unlimit(env, walletKey);
