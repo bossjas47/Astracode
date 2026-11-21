@@ -174,7 +174,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     }
     if (!hist.length || !['user', 'tool'].includes(hist.at(-1).role)) return fail('messages ต้องลงท้ายด้วยข้อความของ user หรือ tool', 400);
     if (hist.some(x => hasImg(x.content)) && !m.vision) return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
-    if (JSON.stringify(hist).length > 800000) return fail('ข้อความยาวเกินไป', 413);
+    if (JSON.stringify(hist).length > 4e6) return fail('ข้อความยาวเกินไป', 413); // ~1M token: ทุกโมเดล context 1.05M (เดิม 800K ตัวอักษร = เครื่องมือแบบ Claude Code / OpenCode ชนเร็ว)
     const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.reasoning_effort) ? b.reasoning_effort : null, id = 'chatcmpl-' + rand(12), created = Math.floor(Date.now() / 1000);
     const tools = Array.isArray(b.tools) && b.tools.length ? b.tools : undefined, toolChoice = b.tool_choice;
     let maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined;

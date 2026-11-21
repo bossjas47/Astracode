@@ -947,7 +947,7 @@ export function zipTool(name, a, files) {
   if (cut) body = body.slice(0, ZIP_READ_MAX);
   return `${p} (lines ${from}-${to} of ${ls.length})\n${body}${cut ? `\n…(cut at ${ZIP_READ_MAX} characters; read the rest with from_line/to_line)` : ''}`;
 }
-export const TOOL_ROUNDS = 6, READ_MAX = 100e3, ANSWER_IN_MAX = 400e3; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
+export const TOOL_ROUNDS = 25, READ_MAX = 100e3, ANSWER_IN_MAX = 1.2e6; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
 // หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
 // ข้อความเก่าของผู้ใช้ในโหมด Code: ตัดรายชื่อไฟล์ทั้งโปรเจกต์ (สูงสุด 15,000 ตัวอักษร) และเนื้อหาไฟล์ที่แนบไว้ออก เหลือเฉพาะในข้อความล่าสุด
 // เดิมรายชื่อไฟล์ถูกส่งซ้ำทุกข้อความในประวัติ = context โตเร็วและเสีย token ทุกครั้งที่ส่ง
