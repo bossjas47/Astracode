@@ -1,6 +1,6 @@
 import { DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy, WALLET_MIN } from './core.js';
 import { callModel, chat, compact, ensureFb, logUsage } from './ai.js';
-import { event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
+import { topupPromo, event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal, unseal } from './projects.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
 import { agentApi } from './agent.js';
@@ -9,6 +9,7 @@ import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
 import { passkeyApi, passkeyPublic } from './passkey.js';
+import { schedApi } from './schedules.js';
 import { artPaid, artApi, artPublic, artReport } from './artifacts.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
@@ -158,7 +159,7 @@ export async function route(req, env, ctx, url, path, M) {
     try {
       if (path === '/api/settings/public') { // ประกาศ, โหมดปิดปรับปรุง, ปุ่มล็อกอินที่เปิดใช้
         const s = await getSettings(env, ['announcement', 'announcement_level', 'maintenance', 'referral_bonus', 'search_enabled', 'image_enabled', 'topup_min', 'model_icons', 'picker_filter', 'picker_mult', 'picker_logos']);
-        return json({ ...s, turnstile: env.TURNSTILE_SECRET ? await getSetting(env, 'turnstile_site') : '', google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', promo: await limitBoost(env), image: s.image_enabled === '1', mail: !!env.RESEND_KEY, cl_latest: (await env.DB.prepare('SELECT MAX(created_at) t FROM posts WHERE published=1 AND changelog=1').first().catch(() => null))?.t || 0 });
+        return json({ ...s, turnstile: env.TURNSTILE_SECRET ? await getSetting(env, 'turnstile_site') : '', google: !!(env.GOOGLE_CLIENT_ID || await getSetting(env, 'google_client_id')), line: !!env.LINE_CHANNEL_ID, search: !!env.TAVILY_KEY && s.search_enabled !== '0', promo: await limitBoost(env), topup_promo: topupPromo(), image: s.image_enabled === '1', mail: !!env.RESEND_KEY, cl_latest: (await env.DB.prepare('SELECT MAX(created_at) t FROM posts WHERE published=1 AND changelog=1').first().catch(() => null))?.t || 0 });
       }
       if (path === '/api/roadmap') { // Roadmap สาธารณะ: เรียงตามโหวต · ล็อกอินอยู่ = บอกว่าโหวตข้อไหนแล้ว
         await ensureRoadmap(env); const me0 = await getUser(req, env).catch(() => null);
@@ -219,6 +220,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (u.role !== 'admin' && !['/api/me', '/api/logout'].includes(path) && maint === '1') return json({ error: 'ระบบปิดปรับปรุงชั่วคราว', maintenance: true }, 503);
       const extra = await userRoutes(req, env, ctx, url, path, M, u); if (extra) return extra;
       const art = await artApi(req, env, u, path, M, url); if (art) return art;
+      const sch = await schedApi(req, env, u, path, M); if (sch) return sch;
 
       if (path === '/api/feedback' && M === 'POST') { // 👍 = 1, 👎 = -1, 0 = ยกเลิก
         const b = await req.json(), vote = +b.vote;

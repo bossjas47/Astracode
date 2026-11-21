@@ -85,9 +85,10 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   }
   if ((r = path.match(/^\/api\/memories\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('DELETE FROM memories WHERE id=? AND user_id=?').bind(r[1], u.id).run(); return json({ ok: true }); }
   if (path === '/api/folders') {
-    if (M === 'GET') return json((await DB.prepare('SELECT id,name FROM folders WHERE user_id=? ORDER BY name').bind(u.id).all()).results);
-    const name = String((await req.json()).name || '').trim().slice(0, 40); if (!name) return err('ชื่อว่าง');
-    return json(await DB.prepare('INSERT INTO folders (user_id,name,created_at) VALUES (?,?,?) RETURNING id,name').bind(u.id, name, Date.now()).first());
+    if (M === 'GET') return json((await DB.prepare("SELECT id,name,(COALESCE(instructions,'')<>'') has_ins,(COALESCE(files,'[]')<>'[]') has_files FROM folders WHERE user_id=? ORDER BY name").bind(u.id).all()).results);
+    const b = await req.json(), name = String(b.name || '').trim().slice(0, 40); if (!name) return err('ชื่อว่าง');
+    const ins = String(b.instructions || '').trim().slice(0, 4000) || null; // เทมเพลต Workspace: สร้างพร้อมคำสั่งตั้งต้น
+    return json(await DB.prepare('INSERT INTO folders (user_id,name,created_at,instructions) VALUES (?,?,?,?) RETURNING id,name').bind(u.id, name, Date.now(), ins).first());
   }
   if ((r = path.match(/^\/api\/folders\/(\d+)$/))) {
     if (!await DB.prepare('SELECT 1 FROM folders WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบโฟลเดอร์', 404);

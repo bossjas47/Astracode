@@ -8,10 +8,19 @@ const cmpTable = ps => ps.length < 2 ? '' : `<details class="faq" style="max-wid
   ${[['ราคา/เดือน', p => p.price ? '฿' + baht(p.price) : 'ฟรี'], ['รายปี', p => p.price_year ? '฿' + baht(p.price_year) : '-'], ['จำนวนโมเดล', p => p.models?.length || 0],
     ['ใช้ได้มากกว่า Free', p => p.x_free > 1 ? p.x_free.toLocaleString(LOC) + ' เท่า' : '-'], ['API key', p => p.price > 0 ? ic('check', 'sm ok') : '-'], ['API หักจากลิมิตแพลน', p => p.api_limit ? ic('check', 'sm ok') : '-'],
     ['ที่นั่ง', p => p.seats || 1], ['งบรวมทั้งทีม', p => p.shared_pool ? ic('check', 'sm ok') : '-']].map(([l, f]) => `<tr><th scope="row">${l}</th>${ps.map(p => `<td>${f(p)}</td>`).join('')}</tr>`).join('')}</table></div></details>`;
+// เทียบความคุ้ม: จ่ายแยกหลายเจ้า vs แพลนเดียวที่นี่ (ราคาต่างประเทศโดยประมาณ $20/เดือน × 35 บาท)
+function valueCard(plans) {
+  const cheap = plans.filter(x => x.price > 0 && !x.once && (x.seats || 1) <= 1).sort((a, b) => a.price - b.price)[0]; if (!cheap) return '';
+  const sep = [['ChatGPT Plus', 700], ['Claude Pro', 700], ['Gemini Advanced', 700]], sum = sep.reduce((s, x) => s + x[1], 0), save = sum - cheap.price;
+  if (save <= 0) return '';
+  return `<div class="card value-card"><div class="vc-cols"><div><small class="muted">สมัครแยกทีละเจ้า</small>${sep.map(([n, v]) => `<div class="vc-r"><span>${n}</span><s>฿${v.toLocaleString()}</s></div>`).join('')}<div class="vc-r vc-t"><span>รวม / เดือน</span><s>฿${sum.toLocaleString()}</s></div></div>
+    <div class="vc-us"><small class="muted">AstraCode ${esc(cheap.name)}</small><b>฿${cheap.price.toLocaleString()}</b><span>ได้ทุกเจ้าในที่เดียว</span><em>ประหยัด ฿${save.toLocaleString()} / เดือน</em></div></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">ราคาต่างประเทศโดยประมาณ $20 ต่อเดือน คิดที่ 35 บาท/ดอลลาร์ · ลิมิตการใช้งานขึ้นกับแพลน</p></div>`;
+}
 async function plansPage() {
   const plans = await api('/plans');
   const hasYear = plans.some(p => p.price_year > 0);
-  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans.filter(x => x.seats <= 1))}${plans.some(x => x.seats > 1) ? `<h2 style="text-align:center;margin:36px 0 4px">Team</h2><p class="muted" style="text-align:center;margin:0 0 16px">หนึ่งแพ็กเกจ ใช้ร่วมกันหลายคน</p>${planTiles(plans.filter(x => x.seats > 1))}` : ''}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}<p style="text-align:center;margin:8px 0 0"><button type="button" class="btn out" id="quote">ขอใบเสนอราคาสำหรับองค์กร</button></p></div>${footer()}</div>`); $('#quote')?.addEventListener('click', () => quoteSheet(plans)); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
+  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${valueCard(plans)}${planTiles(plans.filter(x => x.seats <= 1))}${plans.some(x => x.seats > 1) ? `<h2 style="text-align:center;margin:36px 0 4px">Team</h2><p class="muted" style="text-align:center;margin:0 0 16px">หนึ่งแพ็กเกจ ใช้ร่วมกันหลายคน</p>${planTiles(plans.filter(x => x.seats > 1))}` : ''}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}<p style="text-align:center;margin:8px 0 0"><button type="button" class="btn out" id="quote">ขอใบเสนอราคาสำหรับองค์กร</button></p></div>${footer()}</div>`); $('#quote')?.addEventListener('click', () => quoteSheet(plans)); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
   const pays = await api('/pay');
   const hasTeam = plans.some(x => x.seats > 1), wantPlan = +qs().get('plan') || null;
   let aud = hasTeam && (qs().get('team') || me.plan.team) ? 'team' : 'solo', sel = plans.find(x => x.id === wantPlan && x.price > 0)?.id || null, period = 'month', coupon = null, tab = qs().get('topup') ? 'topup' : 'plan';
@@ -35,6 +44,7 @@ async function plansPage() {
         ${hasYear ? `<div style="text-align:center;margin-bottom:16px"><div class="seg"><button data-per="month" class="${period === 'month' ? 'on' : ''}">Monthly</button><button data-per="year" class="${period === 'year' ? 'on' : ''}">Yearly</button></div></div>` : ''}
         ${hasTeam ? `<div style="text-align:center;margin-bottom:16px"><div class="seg"><button data-aud="solo" class="${aud === 'solo' ? 'on' : ''}">Personal</button><button data-aud="team" class="${aud === 'team' ? 'on' : ''}">Team</button></div></div>` : ''}
         ${aud === 'team' ? '<p class="muted" style="text-align:center;margin:-4px 0 16px">แพ็กเกจเดียว ใช้ร่วมกันหลายคน ซื้อแล้วคุณเป็นหัวหน้าทีม เชิญสมาชิกได้ที่หน้าบัญชี</p>' : ''}
+        ${aud === 'solo' ? valueCard(plans) : ''}
         ${planTiles(plans.filter(x => x.price > 0 && (aud === 'team' ? x.seats > 1 : x.seats <= 1) && (period === 'month' || x.price_year > 0)), sel, period)}
         ${cmpTable(plans.filter(x => aud === 'team' ? x.seats > 1 : x.seats <= 1))}
         ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : (p.days || 30) + ' วัน'}</div>
@@ -45,7 +55,7 @@ async function plansPage() {
           ${total > 0 ? qr(total) + slipForm('ส่งสลิป') : '<button class="btn blue" id="free" style="margin-top:12px">Activate free plan with coupon</button>'}</div>`
         : '<p class="muted" style="text-align:center">แตะแพลนเพื่อชำระเงิน</p>'}
         <div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}<p style="text-align:center;margin:8px 0 0"><button type="button" class="btn out" id="quote">ขอใบเสนอราคาสำหรับองค์กร</button></p></div>`
-      : `<div class="card pay" style="text-align:center;max-width:520px;margin:0 auto"><p class="muted">เงินใน Wallet ใช้กับ API สำหรับนักพัฒนา ใช้ต่อเมื่อลิมิตแพลนเต็ม (เปิดได้ในหน้าบัญชี) และจ่ายค่าแพลน</p>
+      : `<div class="card pay" style="text-align:center;max-width:520px;margin:0 auto">${site.topup_promo ? `<div class="tp-box">${ic('sparkles', 'sm')} <b>${esc(site.topup_promo.label)}</b><br>เติมตั้งแต่ ฿${site.topup_promo.min} แถมเพิ่ม ${site.topup_promo.pct}% เข้า Wallet อัตโนมัติ</div>` : ''}<p class="muted">เงินใน Wallet ใช้กับ API สำหรับนักพัฒนา ใช้ต่อเมื่อลิมิตแพลนเต็ม (เปิดได้ในหน้าบัญชี) และจ่ายค่าแพลน</p>
           <label>จำนวนเงิน (บาท)</label><input id="amt" type="number" inputmode="decimal" min="${+site.topup_min || 10}" max="50000" step="1" value="${Math.max(+site.topup_min || 0, 100)}" style="text-align:center;font-size:24px">
           <div class="row" style="justify-content:center;margin-top:8px">${[100, 300, 500, 1000].map(v => `<button class="btn out sm" data-amt="${v}">฿${v}</button>`).join('')}</div>
           <div id="tq">${qr(Math.max(+site.topup_min || 0, 100))}</div>${slipForm('ส่งสลิปเติมเงิน')}</div>`}
@@ -86,6 +96,8 @@ async function plansPage() {
     });
   };
   draw();
+  const cq = qs().get('coupon'); // ลิงก์จากอีเมล/แจ้งเตือนต่ออายุ: ใส่โค้ดให้เลย
+  if (cq && sel && tab === 'plan') try { coupon = await api('/coupon/check', { method: 'POST', body: { code: cq, plan_id: sel, period } }); draw(); $('#pay')?.scrollIntoView({ block: 'center' }); } catch (x) { toast(x.message, 'bad'); }
 }
 
 

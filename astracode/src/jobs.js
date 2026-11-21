@@ -3,6 +3,9 @@ import { SSE, callModel, ensureImgTable, runChat } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
 import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl, walletAdd } from './billing.js';
 import { admin } from './admin.js';
+import { sendPush } from './push.js';
+import { cronSchedules } from './schedules.js';
+export const RENEW_PCT = 10;
 // ---------- งานอัตโนมัติ (Cron ทุกชั่วโมง) ----------
 // KPI ของวันก่อนหน้า (ตามเวลาไทย) สำหรับแจ้งแอดมิน
 export async function kpiYesterday(env, now = Date.now()) {
@@ -62,8 +65,14 @@ export async function cron(env) {
     }
   });
   // 2) เตือนแพลนใกล้หมด (3 วัน) ครั้งเดียวต่อรอบ
-  await step('remind', async () => { for (const u of (await DB.prepare('SELECT u.id,u.email,u.plan_expires,p.name pname FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.banned=0 AND u.plan_expires BETWEEN ? AND ? AND (u.reminded_at IS NULL OR u.reminded_at<>u.plan_expires)').bind(now, now + 3 * DAY).all()).results) {
-    await mail(env, u.email, 'AstraCode: แพลนใกล้หมดอายุ', mailBox('แพลนใกล้หมดอายุ', `${u.pname} จะหมดอายุ ${new Date(u.plan_expires + BKK).toISOString().slice(0, 16).replace('T', ' ')} (เวลาไทย) ต่ออายุได้ที่หน้าแพลน หรือเปิด "ต่ออายุอัตโนมัติจาก Wallet" ในหน้าบัญชี`));
+  await step('remind', async () => { for (const u of (await DB.prepare('SELECT u.id,u.email,u.plan_expires,u.plan_id,u.auto_renew,u.balance,p.name pname,p.price,COALESCE(p.once,0) once FROM users u JOIN plans p ON p.id=u.plan_id WHERE u.banned=0 AND u.plan_expires BETWEEN ? AND ? AND (u.reminded_at IS NULL OR u.reminded_at<>u.plan_expires)').bind(now, now + 3 * DAY).all()).results) {
+    const when = new Date(u.plan_expires + BKK).toISOString().slice(0, 16).replace('T', ' ');
+    // ส่วนลดต่ออายุ 10%: เฉพาะแพลนจ่ายเงินที่จะไม่ต่ออัตโนมัติ (ปิดไว้ หรือ Wallet ไม่พอ) · โค้ดส่วนตัว ใช้ได้ 1 ครั้ง หมดอายุหลังแพลนหมด 3 วัน
+    const offer = u.price > 0 && !u.once && !(u.auto_renew && u.balance >= u.price);
+    const code = offer ? 'RENEW' + u.id + Math.random().toString(36).slice(2, 6).toUpperCase() : null;
+    if (code) await DB.prepare("INSERT INTO coupons (code,kind,value,max_uses,expires,note,active,created_at) VALUES (?,'percent',?,1,?,?,1,?)").bind(code, RENEW_PCT, u.plan_expires + 3 * DAY, 'ต่ออายุ ' + u.email, now).run();
+    await mail(env, u.email, code ? `AstraCode: ต่ออายุวันนี้ ลด ${RENEW_PCT}%` : 'AstraCode: แพลนใกล้หมดอายุ', mailBox('แพลนใกล้หมดอายุ', `${u.pname} จะหมดอายุ ${when} (เวลาไทย)${code ? `<br><br>ต่ออายุตอนนี้ใช้โค้ด <b>${code}</b> ลด ${RENEW_PCT}% (ใช้ได้ถึง 3 วันหลังแพลนหมด) ที่ <a href="${siteUrl(env)}/plans?plan=${u.plan_id}&coupon=${code}">หน้าแพลน</a>` : ' ต่ออายุได้ที่หน้าแพลน หรือเปิด "ต่ออายุอัตโนมัติจาก Wallet" ในหน้าบัญชี'}`));
+    if (code) await sendPush(env, u.id, { title: `ต่ออายุ ${u.pname} ลด ${RENEW_PCT}%`, body: `แพลนหมด ${when} · ใช้โค้ด ${code}`, url: `/plans?plan=${u.plan_id}&coupon=${code}` });
     await DB.prepare('UPDATE users SET reminded_at=plan_expires WHERE id=?').bind(u.id).run();
   } });
   // 3) แจ้งเตือนต้นทุนวันนี้เกินกำหนด (วันละครั้ง)
@@ -103,6 +112,7 @@ export async function cron(env) {
   });
   // 4.3) สรุปการใช้รายเดือนทางอีเมล: วันที่ 1 ตั้งแต่ 10 โมง (เวลาไทย) ทีละ 40 คนต่อชั่วโมง จำคนล่าสุดไว้ไม่ส่งซ้ำ
   await step('digest', () => monthlyDigest(env, now));
+  await step('schedules', () => cronSchedules(env, now)); // งานตามเวลาของลูกค้า
   // 4.5) เช็กสุขภาพโมเดลที่ไม่มีใครใช้ในชั่วโมงที่ผ่านมา (ยิงข้อความสั้นมาก) · แอดมินปิดได้ที่ health_check
   if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream
   if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)

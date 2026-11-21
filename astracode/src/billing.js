@@ -222,11 +222,16 @@ export function carryMs(oldPlan, oldPeriod, remainingMs, newPlan, newPeriod) {
   const o = rate(oldPlan, oldPeriod), n = rate(newPlan, newPeriod);
   return n > 0 && o > 0 ? Math.min(remainingMs, remainingMs * o / n) : 0;
 }
+// โปรฉลองยอดเติมทะลุ ฿10,000: เติม Wallet ตั้งแต่ ฿300 แถม 10% (21–28 พ.ย. 2026 เวลาไทย) · เฉพาะโอนจริง ครั้งละรายการ
+export const TOPUP_PROMO = { pct: 10, min: 300, start: Date.UTC(2026, 10, 20, 17), end: Date.UTC(2026, 10, 28, 17), label: 'ฉลองยอดเติมทะลุ ฿10,000' };
+export const topupPromo = (now = Date.now()) => now >= TOPUP_PROMO.start && now < TOPUP_PROMO.end ? TOPUP_PROMO : null;
 export async function applyPayment(env, p) {
   const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(p.user_id).first();
   const real = !['wallet', 'coupon'].includes(p.slip_key); // จ่ายเงินจริง (สลิป) ไม่ใช่ตัดจาก Wallet/คูปอง
   if (p.kind === 'topup') {
     await walletAdd(env, u.id, p.amount, 'topup', 'payment#' + p.id);
+    const promo = real && p.amount >= TOPUP_PROMO.min && topupPromo(p.created_at || Date.now()); // นับตามเวลาส่งสลิป: ส่งช่วงโปร แอดมินอนุมัติทีหลังก็ได้
+    if (promo && !await env.DB.prepare("SELECT 1 FROM wallet_tx WHERE user_id=? AND kind='promo_bonus' AND ref=?").bind(u.id, 'payment#' + p.id).first()) await walletAdd(env, u.id, Math.round(p.amount * promo.pct) / 100, 'promo_bonus', 'payment#' + p.id);
     // โบนัสเติมเงินครั้งแรก: % ของยอด (มีเพดาน) ครั้งเดียวต่อบัญชี · first_topup_pct ว่าง/0 = ปิด (แอดมินเปิดในหลังบ้าน)
     const s = await getSettings(env, ['first_topup_pct', 'first_topup_max']), pct = +s.first_topup_pct || 0, cap = s.first_topup_max === '' ? 100 : +s.first_topup_max;
     if (real && pct > 0 && !await env.DB.prepare("SELECT 1 FROM wallet_tx WHERE user_id=? AND kind='first_bonus'").bind(u.id).first()) {

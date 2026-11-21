@@ -128,7 +128,7 @@ async function chatView(id) {
           <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
-        <nav class="side-nav">${deskLink()}</nav>
+        <nav class="side-nav">${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
@@ -220,7 +220,7 @@ async function chatView(id) {
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
+  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
   $('#search').oninput = () => {
@@ -522,12 +522,64 @@ async function setBookmark(id, on) {
   await api('/chats/' + id, { method: 'PUT', body: { pinned: c.pinned } }).catch(e => { c.pinned = on ? 0 : 1; drawSide(); toast(e.message, 'bad'); });
 }
 // Spaces (ระบบโฟลเดอร์เดิม): กลุ่มแชตที่มีคำสั่งและไฟล์อ้างอิงร่วมกัน · แชตใน Space แสดงเฉพาะที่นี่ ไม่ปนในรายการ Chats
+// ---------- งานตามเวลา: AI ทำงานซ้ำทุกวัน/วันทำงาน/สัปดาห์ละครั้ง ผลเก็บเป็นแชต ----------
+const SCH_DAYS = { daily: 'Every day', weekdays: 'Weekdays', mon: 'Mondays', tue: 'Tuesdays', wed: 'Wednesdays', thu: 'Thursdays', fri: 'Fridays', sat: 'Saturdays', sun: 'Sundays' };
+const SCH_IDEAS = [['สรุปข่าวเช้า', 'สรุปข่าวสำคัญของไทยและโลกวันนี้ 5 ข้อ สั้น ๆ พร้อมแหล่งที่มา', 8], ['โพสต์ขายของ', 'เขียนแคปชันขายของสำหรับโพสต์วันนี้ 1 โพสต์ พร้อม hashtag', 10], ['ศัพท์อังกฤษวันละ 5 คำ', 'สอนศัพท์ภาษาอังกฤษระดับกลาง 5 คำ พร้อมคำแปล ตัวอย่างประโยค และคำที่ใช้แทนกันได้', 7]];
+async function schedSheet() {
+  let r; try { r = await api('/schedules'); } catch (x) { return toast(x.message, 'bad'); }
+  const hh = h => String(h).padStart(2, '0') + ':00', mname = id => me.models.find(m => m.id === id)?.name || 'model';
+  const row = s => `<div class="sch-card ${s.active ? '' : 'off'}"><div class="sch-t"><b>${esc(s.title)}</b><small>${SCH_DAYS[s.days]} · ${hh(s.hour)} · ${esc(mname(s.model_id))}${s.email ? ' · email' : ''}</small>${s.last_run ? `<small class="${s.last_status === 'ok' ? 'muted' : 'bad'}">Last run ${when(s.last_run)}${s.last_status === 'ok' ? '' : ' · ' + esc(s.last_status || '')}</small>` : ''}</div>
+    <label class="sw" title="On/off"><input type="checkbox" data-tog="${s.id}" ${s.active ? 'checked' : ''}><span></span></label>
+    <div class="sch-acts">${s.chat_id ? `<a class="btn out sm" href="/chat?id=${s.chat_id}">Results</a>` : ''}<button type="button" class="btn out sm" data-run="${s.id}">Run now</button><button type="button" class="btn out sm" data-edit="${s.id}">Edit</button><button type="button" class="icon-btn sm ghost" data-del="${s.id}" aria-label="Delete">${ic('trash', 'sm')}</button></div></div>`;
+  sheet('Scheduled tasks', `<div class="sheet-form ws">
+    <p class="sheet-msg">The AI runs your prompt on a schedule (Thai time) and saves each result as a chat. You get a notification, and an email if you turn it on. Up to ${r.max} tasks · uses your plan limits like normal chats.</p>
+    ${r.items.map(row).join('') || '<p class="muted">No scheduled tasks yet</p>'}
+    ${r.items.length < r.max ? `<button type="button" class="ws-new" data-new>${ic('plus')}<span><b>New scheduled task</b><small>Daily news digest, a sales post every morning, 5 English words a day…</small></span></button>` : `<p class="muted">You have ${r.max} of ${r.max} tasks</p>`}</div>`, (d, close) => {
+    const nw = d.querySelector('[data-new]'); if (nw) nw.onclick = () => { close(); schedForm(); };
+    d.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { close(); schedForm(r.items.find(s => s.id === +b.dataset.edit)); });
+    d.querySelectorAll('[data-tog]').forEach(c => c.onchange = async () => { try { await api('/schedules/' + c.dataset.tog, { method: 'PUT', body: { active: c.checked } }); c.closest('.sch-card').classList.toggle('off', !c.checked); } catch (x) { c.checked = !c.checked; toast(x.message, 'bad'); } });
+    d.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm('Delete this scheduled task? Its past results stay in your chats.')) return; try { await api('/schedules/' + b.dataset.del, { method: 'DELETE' }); close(); schedSheet(); } catch (x) { toast(x.message, 'bad'); } });
+    d.querySelectorAll('[data-run]').forEach(b => b.onclick = async () => { b.disabled = true; b.textContent = 'Running…'; try { const x = await api('/schedules/' + b.dataset.run + '/run', { method: 'POST' }); if (x.status === 'ok') { toast('Done · result saved as a chat', 'ok'); close(); loadSide(); if (x.chat_id) openChat(x.chat_id); } else { toast(x.status, 'bad'); b.disabled = false; b.textContent = 'Run now'; } } catch (y) { toast(y.message, 'bad'); b.disabled = false; b.textContent = 'Run now'; } });
+  });
+}
+function schedForm(s = null, idea = null) {
+  const v = s || { title: idea?.[0] || '', prompt: idea?.[1] || '', hour: idea?.[2] ?? 8, days: 'daily', model_id: curModel()?.id || me.models[0]?.id, email: 0, search: 1 };
+  const models = me.models.filter(m => !m.locked && m.provider !== 'image');
+  sheet(s ? 'Edit scheduled task' : 'New scheduled task', `<form class="sheet-form ws" id="schf">
+    ${s ? '' : `<div class="chips">${SCH_IDEAS.map((x, i) => `<button type="button" class="btn out sm" data-idea="${i}">${esc(x[0])}</button>`).join('')}</div>`}
+    <label>Name</label><input name="title" maxlength="60" required value="${esc(v.title)}" placeholder="Morning news digest">
+    <label>What should the AI do?</label><textarea name="prompt" rows="4" maxlength="4000" required placeholder="Summarize today's top 5 news stories with sources">${esc(v.prompt)}</textarea>
+    <div class="row" style="flex-wrap:nowrap"><div style="flex:1"><label>Repeat</label><select name="days">${Object.entries(SCH_DAYS).map(([k, l]) => `<option value="${k}" ${v.days === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div style="flex:1"><label>Time (Thai)</label><select name="hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${+v.hour === h ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select></div></div>
+    <label>Model</label><select name="model_id">${models.map(m => `<option value="${m.id}" ${m.id === v.model_id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
+    <label class="sw-row"><span class="sw"><input type="checkbox" name="search" ${v.search ? 'checked' : ''}><span></span></span> Search the web for fresh info</label>
+    <label class="sw-row"><span class="sw"><input type="checkbox" name="email" ${v.email ? 'checked' : ''}><span></span></span> Also email me the result</label>
+    <div class="err" id="sche"></div><button class="btn blue">${s ? 'Save' : 'Create task'}</button></form>`, (d, close) => {
+    d.querySelectorAll('[data-idea]').forEach(b => b.onclick = () => { close(); schedForm(null, SCH_IDEAS[+b.dataset.idea]); });
+    d.querySelector('#schf').onsubmit = async e => {
+      e.preventDefault(); const f = new FormData(e.target), body = { title: f.get('title'), prompt: f.get('prompt'), days: f.get('days'), hour: +f.get('hour'), model_id: +f.get('model_id'), search: f.get('search') === 'on', email: f.get('email') === 'on' };
+      try { await api('/schedules' + (s ? '/' + s.id : ''), { method: s ? 'PUT' : 'POST', body }); toast(s ? 'Saved' : 'Scheduled · the first run is at ' + String(body.hour).padStart(2, '0') + ':00', 'ok'); close(); schedSheet(); } catch (x) { d.querySelector('#sche').textContent = x.message; }
+    };
+  });
+}
+// เทมเพลต Workspace: กดครั้งเดียวได้คำสั่งตั้งต้นที่เขียนไว้ดีแล้ว (ลูกค้าไม่ต้องเขียน prompt เอง)
+const WS_TPL = [
+  { e: '🛍️', n: 'แอดมินเพจขายของ', d: 'Replies, captions, promos', i: 'คุณคือแอดมินเพจขายของออนไลน์ภาษาไทย ตอบลูกค้าสุภาพ เป็นกันเอง กระชับ ใช้คำลงท้าย ค่ะ/ครับ ตามที่ผู้ใช้กำหนด\n- เขียนแคปชันขายของที่ดึงดูด มีจุดเด่นสินค้า ราคา วิธีสั่ง และ hashtag 3-5 อัน\n- ตอบข้อความลูกค้า (ถามราคา ค่าส่ง ของหมด ขอคืน) แบบพร้อมคัดลอกไปวาง\n- คิดโปรโมชันและข้อความ broadcast\n- ถ้าข้อมูลสินค้าไม่พอ ให้ถามก่อน 1-2 ข้อ ห้ามแต่งราคาเอง' },
+  { e: '👩‍🏫', n: 'ครู / ติวเตอร์', d: 'Lessons, quizzes, explain', i: 'คุณคือผู้ช่วยครูภาษาไทย อธิบายให้เข้าใจง่ายตามระดับชั้นที่ผู้ใช้บอก\n- ทำแผนการสอน ใบงาน และข้อสอบปรนัย/อัตนัย พร้อมเฉลยและเกณฑ์ให้คะแนน\n- อธิบายทีละขั้น ยกตัวอย่างใกล้ตัว\n- ถ้าไม่ได้บอกระดับชั้นหรือวิชา ให้ถามก่อน' },
+  { e: '🎓', n: 'นักศึกษาทำรายงาน', d: 'Outline, summarize, cite', i: 'คุณคือผู้ช่วยทำรายงานและการบ้านระดับมหาวิทยาลัย\n- ช่วยวางโครงร่าง สรุปเนื้อหา เรียบเรียงภาษาวิชาการ และอ้างอิงแบบ APA\n- อธิบายแนวคิดให้เข้าใจ ไม่ใช่แค่ให้คำตอบ\n- ห้ามแต่งแหล่งอ้างอิงที่ไม่มีจริง ถ้าไม่แน่ใจให้บอกว่าควรไปค้นที่ไหน' },
+  { e: '📣', n: 'นักการตลาด', d: 'Ads, content plans, ideas', i: 'คุณคือนักการตลาดออนไลน์ที่เข้าใจตลาดไทย\n- เขียนโฆษณา Facebook/TikTok/LINE หลายเวอร์ชันให้เลือก พร้อมเหตุผลสั้น ๆ\n- วางแผนคอนเทนต์รายสัปดาห์เป็นตาราง (วัน แพลตฟอร์ม หัวข้อ รูปแบบ)\n- คิดชื่อแคมเปญ สโลแกน และไอเดียโปรโมชัน\n- ถามกลุ่มเป้าหมายและงบก่อนถ้ายังไม่รู้' },
+  { e: '💻', n: 'นักพัฒนา', d: 'Code, debug, review', i: 'You are a senior software engineer. Answer in the user\'s language.\n- Give complete, runnable code and say where it goes.\n- When debugging, find the root cause first, then the fix.\n- Point out security and performance problems you notice.\n- Prefer simple solutions; ask when requirements are unclear.' },
+  { e: '📊', n: 'งานออฟฟิศ', d: 'Email, Excel, reports', i: 'คุณคือผู้ช่วยงานออฟฟิศ\n- เขียนอีเมลและหนังสือราชการ/ธุรกิจภาษาไทยและอังกฤษให้สุภาพถูกรูปแบบ\n- ช่วยสูตร Excel/Google Sheets อธิบายทีละขั้น\n- สรุปเอกสารยาวเป็นข้อ ๆ และทำรายงานการประชุม\n- ทำตาราง/ไฟล์ให้ดาวน์โหลดเมื่อเหมาะสม' },
+];
 function spacesSheet() {
   const count = id => chat.chats.filter(c => c.folder_id === id).length;
-  const card = f => `<button type="button" class="ws-card" data-sp="${f.id}"><span class="ws-ic">${esc((f.name.trim()[0] || 'W').toUpperCase())}</span><span class="ws-t"><b>${esc(f.name)}</b><small>${count(f.id)} chat${count(f.id) === 1 ? '' : 's'}${f.instructions ? ' · instructions' : ''}${f.files && f.files !== '[]' ? ' · files' : ''}</small></span>${ic('right', 'sm')}</button>`;
+  const card = f => `<button type="button" class="ws-card" data-sp="${f.id}"><span class="ws-ic">${esc((f.name.trim()[0] || 'W').toUpperCase())}</span><span class="ws-t"><b>${esc(f.name)}</b><small>${count(f.id)} chat${count(f.id) === 1 ? '' : 's'}${f.has_ins ? ' · instructions' : ''}${f.has_files ? ' · files' : ''}</small></span>${ic('right', 'sm')}</button>`;
   sheet('Workspace', `<div class="sheet-form ws">
     <p class="sheet-msg">Group related chats by client, project or subject. Every chat in a workspace shares the same instructions and reference files.</p>
     <button type="button" class="ws-new" data-new>${ic('plus')}<span><b>New workspace</b><small>Name it now, add instructions and files later</small></span></button>
+    <h4 class="sp-h">Start from a template</h4>
+    <div class="ws-tpls">${WS_TPL.map((x, i) => `<button type="button" class="ws-tpl" data-tpl="${i}"><span>${x.e}</span><b>${x.n}</b><small>${x.d}</small></button>`).join('')}</div>
+    ${chat.folders.length ? '<h4 class="sp-h">Your workspaces</h4>' : ''}
     ${chat.folders.length > 5 ? '<input type="search" id="wsq" placeholder="Search workspaces" aria-label="Search workspaces">' : ''}
     <div class="ws-grid" id="wsl">${chat.folders.map(card).join('') || '<p class="muted">No workspaces yet</p>'}</div></div>`, (d, close) => {
     d.querySelector('[data-new]').onclick = async () => {
@@ -535,6 +587,11 @@ function spacesSheet() {
       const f = await api('/folders', { method: 'POST', body: { name } }).catch(x => { toast(x.message, 'bad'); return null; }); if (!f) return;
       await loadSide(); spaceSheet(f.id);
     };
+    d.querySelectorAll('[data-tpl]').forEach(b => b.onclick = async () => {
+      const x = WS_TPL[+b.dataset.tpl]; b.disabled = true;
+      const f = await api('/folders', { method: 'POST', body: { name: x.n, instructions: x.i } }).catch(y => { toast(y.message, 'bad'); return null; }); if (!f) { b.disabled = false; return; }
+      close(); await loadSide(); toast(`สร้าง ${x.n} แล้ว · แก้คำสั่งได้ที่ Instructions & files`, 'ok'); openChat(null, f.id); $('#sclose')?.click();
+    });
     const q = d.querySelector('#wsq'); if (q) q.oninput = () => { d.querySelector('#wsl').innerHTML = chat.folders.filter(f => f.name.toLowerCase().includes(q.value.toLowerCase())).map(card).join(''); };
     d.querySelector('#wsl').onclick = e => { const b = e.target.closest('[data-sp]'); if (b) { close(); spaceSheet(+b.dataset.sp); } };
   });

@@ -286,7 +286,7 @@ test('first top-up bonus once (capped), affiliate commission to the referrer, KP
   const t = await makeEnv(), ref = await t.user(), u = await t.user(), adm = await t.user({ role: 'admin' });
   t.DB.raw.prepare('UPDATE users SET referred_by=? WHERE id=?').run(ref.id, u.id);
   for (const [k, v] of [['aff_pct', '10'], ['first_topup_pct', '20'], ['referral_bonus', '0']]) t.DB.raw.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(k, v);
-  const pay = (amount, slip = 'slip/a') => ({ id: Math.floor(Math.random() * 1e6), user_id: u.id, kind: 'topup', amount, slip_key: slip });
+  const pay = (amount, slip = 'slip/a') => ({ id: Math.floor(Math.random() * 1e6), user_id: u.id, kind: 'topup', amount, slip_key: slip, created_at: 1 }); // นอกช่วงโปรเติมแถม
   const bal = id => t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(id).balance;
   await applyPayment(t.env, pay(1000)); assert.equal(bal(u.id), 1100, '20% capped at 100');
   await applyPayment(t.env, pay(50)); assert.equal(bal(u.id), 1150, 'bonus only once');
