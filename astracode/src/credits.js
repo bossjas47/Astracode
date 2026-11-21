@@ -48,3 +48,42 @@ export async function useClaudeCredit(env, uid, cost, now = Date.now()) {
   for (const r of rows) { if (rest <= 0) break; const take = Math.min(r.rem, rest); await env.DB.prepare('UPDATE claude_credits SET used=used+? WHERE id=?').bind(take, r.id).run(); rest -= take; }
   return true;
 }
+
+// ---------- เครดิตเฉพาะโมเดล (แอดมินเพิ่มให้ผู้ใช้): ใช้ได้เฉพาะโมเดลที่เลือก · แยกจาก Wallet · ใช้ก่อนลิมิต และเปิดใช้โมเดลนอกแพลนได้ ----------
+// หน่วย = บาทต้นทุนจริง (แบบเดียวกับเครดิต Claude) · models = รายการ id คั่นด้วย , · หมดอายุตาม expires_at
+const MC_TABLE = 'CREATE TABLE IF NOT EXISTS model_credits (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, models TEXT NOT NULL, amount REAL NOT NULL, used REAL NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL, note TEXT, by_user INTEGER, created_at INTEGER NOT NULL)';
+const mcReady = new WeakMap();
+const mcEnsure = env => { let p = mcReady.get(env.DB); if (!p) { p = env.DB.prepare(MC_TABLE).run().then(() => env.DB.prepare('CREATE INDEX IF NOT EXISTS model_credits_user ON model_credits(user_id, expires_at)').run()).catch(e => { mcReady.delete(env.DB); throw e; }); mcReady.set(env.DB, p); } return p; };
+const covers = "(','||models||',') LIKE '%,'||?||',%'";
+export async function modelCreditLeft(env, uid, mid, now = Date.now()) {
+  await mcEnsure(env);
+  const r = await env.DB.prepare(`SELECT COALESCE(SUM(amount-used),0) rem FROM model_credits WHERE user_id=? AND expires_at>? AND used<amount AND ${covers}`).bind(uid, now, String(mid)).first();
+  return Math.max(0, r?.rem || 0);
+}
+export async function modelCreditIds(env, uid, now = Date.now()) {
+  await mcEnsure(env);
+  const rows = (await env.DB.prepare('SELECT models FROM model_credits WHERE user_id=? AND expires_at>? AND used<amount').bind(uid, now).all()).results;
+  return new Set(rows.flatMap(r => r.models.split(',').map(Number).filter(Boolean)));
+}
+export async function useModelCredit(env, uid, mid, cost, now = Date.now()) {
+  await mcEnsure(env);
+  const rows = (await env.DB.prepare(`SELECT id, amount-used rem FROM model_credits WHERE user_id=? AND expires_at>? AND used<amount AND ${covers} ORDER BY expires_at`).bind(uid, now, String(mid)).all()).results;
+  let rest = cost;
+  for (const r of rows) { if (rest <= 0) break; const take = Math.min(r.rem, rest); await env.DB.prepare('UPDATE model_credits SET used=used+? WHERE id=?').bind(take, r.id).run(); rest -= take; }
+  return rows.length > 0;
+}
+export async function modelCredits(env, uid, now = Date.now()) {
+  await mcEnsure(env);
+  const rows = (await env.DB.prepare('SELECT c.*, (SELECT GROUP_CONCAT(name, \', \') FROM models WHERE (\',\'||c.models||\',\') LIKE \'%,\'||id||\',%\') names FROM model_credits c WHERE c.user_id=? ORDER BY c.id DESC LIMIT 50').bind(uid).all()).results;
+  return rows.map(r => ({ id: r.id, models: r.models.split(',').map(Number), names: r.names || '', amount: r.amount, used: Math.round(r.used * 100) / 100, left: Math.max(0, Math.round((r.amount - r.used) * 100) / 100), expires_at: r.expires_at, active: r.expires_at > now && r.used < r.amount, note: r.note, created_at: r.created_at }));
+}
+export async function grantModelCredit(env, uid, { models, amount, days, note }, by) {
+  await mcEnsure(env);
+  const ids = [...new Set((Array.isArray(models) ? models : []).map(Number).filter(x => x > 0))].slice(0, 50);
+  if (!ids.length) throw new Error('เลือกโมเดลอย่างน้อย 1 ตัว');
+  const amt = +amount; if (!(amt > 0 && amt <= 100000)) throw new Error('จำนวนเครดิตไม่ถูกต้อง');
+  const d = Math.min(3650, Math.max(1, Math.floor(+days || 30))), now = Date.now();
+  const r = await env.DB.prepare('INSERT INTO model_credits (user_id,models,amount,expires_at,note,by_user,created_at) VALUES (?,?,?,?,?,?,?) RETURNING id').bind(uid, ids.join(','), amt, now + d * 864e5, String(note || '').slice(0, 200) || null, by || null, now).first();
+  return r.id;
+}
+export async function revokeModelCredit(env, uid, id) { await mcEnsure(env); await env.DB.prepare('UPDATE model_credits SET expires_at=? WHERE id=? AND user_id=?').bind(Date.now() - 1, id, uid).run(); }

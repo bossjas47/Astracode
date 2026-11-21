@@ -186,6 +186,12 @@ export async function admin(req, env, path, url, me) {
       (SELECT COALESCE(SUM(tokens_in+tokens_out+tokens_cache),0) FROM usage WHERE user_id=u.id AND created_at>?2) tok30
       FROM users u LEFT JOIN plans p ON p.id=u.plan_id WHERE u.email LIKE ?1 ORDER BY u.id DESC LIMIT 100`).bind(q, Date.now() - 30 * DAY).all()).results);
   }
+  if ((r = path.match(/^\/api\/admin\/users\/(\d+)\/model-credits(?:\/(\d+))?$/))) { // เครดิตเฉพาะโมเดล (แยกจาก Wallet)
+    const C = await import('./credits.js'), uid = +r[1];
+    if (M === 'GET') return json(await C.modelCredits(env, uid));
+    if (M === 'POST' && !r[2]) { try { const b = await req.json(); const cid = await C.grantModelCredit(env, uid, b, me?.id); await audit(env, me, 'grant model credit', { user: uid, credit: cid, amount: +b.amount, models: b.models }); return json({ ok: true, id: cid }); } catch (e) { return err(e.message); } }
+    if (M === 'DELETE' && r[2]) { await C.revokeModelCredit(env, uid, +r[2]); await audit(env, me, 'revoke model credit', { user: uid, credit: +r[2] }); return json({ ok: true }); }
+  }
   if ((r = path.match(/^\/api\/admin\/users\/(\d+)$/)) && M === 'PUT') {
     const b = await req.json();
     await ctxAudit('update user', { id: +r[1], ...b });

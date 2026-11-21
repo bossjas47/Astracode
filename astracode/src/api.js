@@ -1,4 +1,4 @@
-import { claudeCreditLeft, isClaudeEco, useClaudeCredit } from './credits.js';
+import { claudeCreditLeft, isClaudeEco, modelCreditIds, useClaudeCredit, useModelCredit } from './credits.js';
 import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
 import { SSE, callModel, chat, logUsage, webSearch } from './ai.js';
 import { connCall, connTools } from './connectors.js';
@@ -51,11 +51,11 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       isCall && k.balance >= WALLET_MIN ? dayCapHit(env, k.id) : false]);
     // แอป Desktop / Agent บนคลาวด์ ใช้ key ชื่อ "Desktop Agent" / "Cloud Agent": แพลนที่รวม Agent (Pro ขึ้นไป) ใช้ลิมิตแพลน · แพลนอื่นใช้แพ็ก Agent ก่อน แล้วค่อย Wallet
     const packLeft = packUsed == null ? 0 : (k.agent_pack_units || 0) - packUsed;
-    if (!(plan?.price > 0) && !(k.balance >= WALLET_MIN) && !(packLeft > 0)) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿1)', 402, 'insufficient_quota'); // ไม่มีแพลนเสียเงิน: ใช้ได้ทุกโมเดลจาก Wallet ตามราคาขาย
+    if (!(plan?.price > 0) && !(k.balance >= WALLET_MIN) && !(packLeft > 0) && !(await modelCreditIds(env, k.id).catch(() => new Set())).size) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿1)', 402, 'insufficient_quota'); // ไม่มีแพลนเสียเงิน: ใช้ได้ทุกโมเดลจาก Wallet ตามราคาขาย
     const canPlan = !!plan?.api_limit && k.use_plan !== 0 && !plan._team?.api_off; // หัวหน้าทีมปิด API ของสมาชิก = ใช้งบทีมไม่ได้ (ยังใช้ Wallet ของตัวเองได้)
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
-    const [allPublic, planIds] = await Promise.all([modelsCached(env), canPlan ? planModelsCached(env, plan.id) : null]); // จำไว้ 30 วิ ต่อ isolate: ไม่ต้องถาม D1 ทุกคำขอ (ลดเวลาก่อนเริ่มตอบ)
-    const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id)));
+    const [allPublic, planIds, mcIds] = await Promise.all([modelsCached(env), canPlan ? planModelsCached(env, plan.id) : null, modelCreditIds(env, k.id).catch(() => new Set())]); // mcIds = โมเดลที่มีเครดิตเฉพาะโมเดล // จำไว้ 30 วิ ต่อ isolate: ไม่ต้องถาม D1 ทุกคำขอ (ลดเวลาก่อนเริ่มตอบ)
+    const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id) || mcIds.has(m.id)));
     if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
     if (path.startsWith('/v1/models/')) { const m = models.find(x => slug(x) === decodeURIComponent(path.slice(11))); return m ? out({ id: slug(m), object: 'model', created: 0, owned_by: m.provider }) : fail(`ไม่พบโมเดล "${decodeURIComponent(path.slice(11)).slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404); }
     // สั่ง Agent จากมือถือ: แอป Desktop ส่งความคืบหน้า/คำถามขออนุญาตของแชตนี้ขึ้นมา แล้วรับคำตอบ/ข้อความที่พิมพ์จากมือถือกลับไป
@@ -125,8 +125,10 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     Object.assign(m, fresh || {}); // ราคา/ตั้งค่าล่าสุดเสมอ (รายการโมเดลอาจค้างจาก memo ได้ 30 วิ)
     if (reqCapped) return fail(`${m.name} reached its request cap (${m.req_cap} per 4 hours).`, 429, 'rate_limit_error');
     let billingMode = 'wallet';
+    if (mcIds.has(m.id) && isCall) billingMode = 'mcredit'; // เครดิตเฉพาะโมเดล: ใช้ก่อนแพลน/Wallet
     const ccOk = onPlan && isClaudeEco(m) && (await claudeCreditLeft(env, k.id)).left > 0; // เครดิต Claude ที่แถม (Pro X2 ขึ้นไป)
-    if (onPlan) {
+    if (billingMode === 'mcredit') { /* ไม่ตรวจลิมิตแพลน/Wallet */ }
+    else if (onPlan) {
       if (capped && !ccOk) return fail(`${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว`, 429, 'insufficient_quota');
       if (ccOk && (k.cc_first === 1 || capped || st.pct4h >= 100 || st.pctWeek >= 100)) billingMode = 'credit';
       else if (st.pct4h < 100 && st.pctWeek < 100) billingMode = 'plan';
@@ -200,7 +202,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2), flag: 'est' });
     const finish = async (u, outChars, flag = null) => { // flag: gone = ลูกค้าตัดกลางทาง · part = ผู้ให้บริการพังกลางคำตอบ (โชว์ในหลังบ้าน)
       const f0 = u || (outChars > 0 ? estUsage(outChars) : null), finalU = f0 && flag ? { ...f0, flag: f0.flag ? flag + '+est' : flag } : f0;
-      const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' || billingMode === 'credit' ? { units: billingMode === 'plan', wallet: null, plan, src: 'api' } : billingMode === 'pack' ? { units: false, wallet: null, plan, src: 'agent', pack: true } : { units: false, wallet: 'api', plan, src: 'api' }) : 0;
+      const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' || billingMode === 'credit' || billingMode === 'mcredit' ? { units: billingMode === 'plan', wallet: null, plan, src: 'api' } : billingMode === 'pack' ? { units: false, wallet: null, plan, src: 'agent', pack: true } : { units: false, wallet: 'api', plan, src: 'api' }) : 0;
+      if (finalU && billingMode === 'mcredit') await useModelCredit(env, k.id, activeModel.id, finalU._cost || 0).catch(() => {});
       if (finalU && billingMode === 'credit') await useClaudeCredit(env, k.id, finalU._cost || 0).catch(() => {}); // หักจากเครดิตที่แถมแทนลิมิต
       if (finalU) finalU.astra = { charge_thb: charge, week_pct: plan?.limit_week > 0 && finalU._units ? +(finalU._units / plan.limit_week * 100).toFixed(4) : 0, ...(finalU._pack ? { pack_pct: +(finalU._pack / (k.agent_pack_units || 1) * 100).toFixed(4) } : {}) }; // ค่าใช้จ่ายคำขอนี้: บาทจาก Wallet / % ลิมิตสัปดาห์ (แอป Desktop ใช้คุมเพดานต่องาน)
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
