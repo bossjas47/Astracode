@@ -16,6 +16,7 @@ async function scanFolder(root) {
     items.sort((a, b) => a.name.localeCompare(b.name));
     for (const it of items) {
       const p = rel ? rel + '/' + it.name : it.name;
+      if (/\.asar(\.unpacked)?$/i.test(it.name)) { skipped.push(p); continue; } // ไฟล์แพ็กของแอป Electron: fs ของ Electron มองเป็นโฟลเดอร์ปลอม อ่านแล้วพัง (ENOENT ... app.asar)
       if (it.isDirectory()) { if (!SKIP_DIR.test(it.name) && !it.name.startsWith('.')) await walk(p); continue; }
       if (!it.isFile() || it.name === '.DS_Store' || it.name === '.env') continue; // .env ไม่ขึ้นเว็บ (ตัวแปรลับอยู่แยก)
       if (p.length > 200 || BAD.test(p)) { skipped.push(p); continue; }
@@ -23,12 +24,14 @@ async function scanFolder(root) {
       const abs = path.join(root, p), st = await fs.stat(abs).catch(() => null); if (!st) continue;
       const ext = p.split('.').pop().toLowerCase();
       let content;
+      try {
       if (IMG[ext]) { if (st.size > 300e3) { skipped.push(p); continue; } content = `data:image/${IMG[ext]};base64,` + (await fs.readFile(abs)).toString('base64'); }
       else {
         if (st.size > FILE_LIMIT) { skipped.push(p); continue; }
         const buf = await fs.readFile(abs); if (buf.includes(0)) { skipped.push(p); continue; } // ไฟล์ไบนารี
         content = buf.toString('utf8');
       }
+      } catch { skipped.push(p); continue; } // อ่านไฟล์นี้ไม่ได้ (สิทธิ์/ถูกล็อก/หายระหว่างสแกน): ข้ามไฟล์เดียว ไม่ให้ทั้งโฟลเดอร์ล้ม
       if (content.length > FILE_LIMIT || total + content.length > PROJECT_LIMIT) { skipped.push(p); continue; }
       total += content.length; out.push({ path: p, content });
     }

@@ -79,3 +79,12 @@ test('safePath: a symlink inside the folder that points outside is refused; norm
   assert.equal(safePath(root, 'inner/a.js'), path.join(path.resolve(root), 'inner/a.js'), 'a link that stays inside is fine');
   assert.equal(safePath(root, 'deep/new/file.txt'), path.join(path.resolve(root), 'deep/new/file.txt'));
 });
+
+test('scanFolder skips Electron .asar bundles and unreadable files instead of failing the whole folder', async () => {
+  const os = require('os'), fsp = require('fs/promises'), path = require('path');
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asar-'));
+  await fsp.mkdir(path.join(root, 'resources/app.asar'), { recursive: true }); await fsp.writeFile(path.join(root, 'resources/app.asar/x.js'), 'x');
+  await fsp.writeFile(path.join(root, 'index.html'), '<p>hi</p>');
+  const r = await require('../localfs').scanFolder(root);
+  assert.deepEqual(r.files.map(f => f.path), ['index.html']); assert.ok(r.skipped.includes('resources/app.asar'));
+});
