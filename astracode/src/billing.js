@@ -253,10 +253,10 @@ export async function applyPayment(env, p) {
       if (ex && ex.plan_id !== p.plan_id && ex.expires > now) base = now + carryMs(await env.DB.prepare('SELECT price,price_year FROM plans WHERE id=?').bind(ex.plan_id).first(), u.plan_period, ex.expires - now, pl, p.period); // อัปเกรดทีม: ทบเวลาที่เหลือ
       const exp = base + days * DAY;
       if (ex) {
-        await env.DB.prepare('UPDATE teams SET plan_id=?, expires=?, max_seats=?, shared_pool=? WHERE id=?').bind(pl.id, exp, pl.seats, pl.shared_pool ? 1 : 0, ex.id).run();
+        await env.DB.prepare('UPDATE teams SET plan_id=?, expires=?, max_seats=?, shared_pool=? WHERE id=?').bind(pl.id, exp, p.seats || pl.seats, pl.shared_pool ? 1 : 0, ex.id).run();
       } else {
         const t = await env.DB.prepare('INSERT INTO teams (name,owner_id,plan_id,expires,invite_code,max_seats,shared_pool,created_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id')
-          .bind('ทีมของ ' + u.email.split('@')[0], u.id, pl.id, exp, rand(4).toUpperCase(), pl.seats, pl.shared_pool ? 1 : 0, now).first();
+          .bind('ทีมของ ' + u.email.split('@')[0], u.id, pl.id, exp, rand(4).toUpperCase(), p.seats || pl.seats, pl.shared_pool ? 1 : 0, now).first();
         await env.DB.prepare("INSERT OR IGNORE INTO team_members (team_id,user_id,role,joined_at) VALUES (?,?,'owner',?)").bind(t.id, u.id, now).run();
       }
     } else {
@@ -281,15 +281,18 @@ export async function applyPayment(env, p) {
   }
   await mail(env, u.email, 'AstraCode: ชำระเงินสำเร็จ', mailBox('ชำระเงินสำเร็จ', p.kind === 'topup' ? `เติมเงิน ฿${p.amount} เข้า Wallet แล้ว` : 'เปิดแพลนให้แล้ว ใช้งานได้ทันที'));
 }
+export const SEATS_MAX = 100;
+const setSeats = async (env, p, seats) => { if (p && seats) { await env.DB.prepare('UPDATE payments SET seats=? WHERE id=?').bind(seats, p.id).run(); p.seats = seats; } return p; };
 export async function pay(req, env, u) {
   const fd = await req.formData(), kind = fd.get('kind') === 'topup' ? 'topup' : 'plan';
-  let plan = null, period = 'month', amount, coupon = null, discount = 0;
+  let plan = null, period = 'month', amount, coupon = null, discount = 0, seats = null;
   if (kind === 'plan') {
     plan = await env.DB.prepare('SELECT * FROM plans WHERE id=? AND active=1 AND price>0').bind(fd.get('plan_id')).first();
     if (!plan) return err('ไม่พบแพลน');
     if (plan.once && await env.DB.prepare("SELECT 1 FROM payments WHERE user_id=? AND plan_id=? AND status IN ('approved','pending','refunded')").bind(u.id, plan.id).first()) return err('แพลนนี้ซื้อได้ครั้งเดียวต่อบัญชี');
     period = fd.get('period') === 'year' && plan.price_year ? 'year' : 'month';
     amount = period === 'year' ? plan.price_year : plan.price;
+    if (plan.per_seat) { seats = Math.min(SEATS_MAX, Math.max(plan.seats || 3, Math.floor(+fd.get('seats') || 0))); amount = Math.round(amount * seats * 100) / 100; } // แพลนทีมคิดต่อที่นั่ง
     coupon = await couponFor(env, u, fd.get('coupon'), 'plan');
     discount = discountOf(coupon, amount); amount = Math.round((amount - discount) * 100) / 100;
   } else {
@@ -307,6 +310,7 @@ export async function pay(req, env, u) {
       await env.DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, left.balance, 'plan', plan.name, Date.now()).run();
       p = await env.DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,coupon,discount,created_at,approved_at) VALUES (?,?,?,'wallet','approved','plan',?,?,?,?,?) RETURNING *")
         .bind(u.id, plan.id, amount, period, coupon?.code || null, discount, Date.now(), Date.now()).first();
+      await setSeats(env, p, seats);
       await applyPayment(env, p);
     } catch (e) { // shortcut: ถ้า applyPayment ทำแพลนเสร็จแล้วค่อยล้มตอนท้าย (คูปอง/โบนัสแนะนำ) ผู้ใช้จะได้แพลนและเงินคืนด้วย ยอมรับได้เพราะเกิดยากและเข้าข้างลูกค้า
       await walletAdd(env, u.id, amount, 'refund', plan.name).catch(() => {});
@@ -322,6 +326,7 @@ export async function pay(req, env, u) {
     if (!await claimCoupon(env, coupon?.code, u.id)) return err('คูปองใช้ไม่ได้หรือหมดอายุ');
     const p = await env.DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,coupon,discount,created_at,approved_at) VALUES (?,?,0,'coupon','approved',?,?,?,?,?,?) RETURNING *")
       .bind(u.id, plan.id, kind, period, coupon?.code || null, discount, Date.now(), Date.now()).first();
+    await setSeats(env, p, seats);
     await applyPayment(env, p);
     return json({ ok: true, approved: true, id: p.id });
   }
@@ -353,6 +358,7 @@ export async function pay(req, env, u) {
   // ดัชนี unique (slip_key, slip_ref) กันสลิปเดียวส่งพร้อมกันสองครั้งแล้วอนุมัติซ้ำ: ตัวที่สองชนดัชนีและถูกปฏิเสธก่อนถึง applyPayment
   const p = await env.DB.prepare('INSERT INTO payments (user_id,plan_id,amount,slip_key,slip_check,slip_amount,slip_ref,status,approved_at,created_at,kind,period,coupon,discount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *')
     .bind(u.id, plan?.id || 0, amount, key, c.result, c.amount, c.ref || null, fail ? 'rejected' : pass ? 'approved' : 'pending', pass ? now : null, now, kind, period, fail ? null : coupon?.code || null, discount).first().catch(async e => { if (/UNIQUE/i.test(e.message)) return null; await releaseCoupon(env, coupon?.code, u.id); throw e; });
+  await setSeats(env, p, seats);
   if (!p || fail) await releaseCoupon(env, coupon?.code, u.id);
   if (!p) return err('สลิปนี้ถูกใช้แล้ว');
   if (fail) { await notify(env, `⛔ สลิปไม่ผ่าน ฿${amount} จาก ${u.email} (${what}): ${fail}`); return json({ error: fail + ' ถ้าคิดว่าผิดพลาด กด "ให้แอดมินตรวจ" ได้เลย', pay_id: p.id }, 400); }

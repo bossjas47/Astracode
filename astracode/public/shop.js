@@ -24,7 +24,8 @@ async function plansPage() {
   const pays = await api('/pay');
   const hasTeam = plans.some(x => x.seats > 1), wantPlan = +qs().get('plan') || null;
   let aud = hasTeam && (qs().get('team') || me.plan.team) ? 'team' : 'solo', sel = plans.find(x => x.id === wantPlan && x.price > 0)?.id || null, period = 'month', coupon = null, tab = qs().get('topup') ? 'topup' : 'plan';
-  const priceOf = p => period === 'year' && p.price_year ? p.price_year : p.price;
+  let seats = 0; const seatsOf = p => p?.per_seat ? Math.min(100, Math.max(p.seats || 3, seats || p.seats || 3)) : 1;
+  const priceOf = p => (period === 'year' && p.price_year ? p.price_year : p.price) * seatsOf(p);
   const payInfo = () => { // ข้อมูลบัญชีรับเงิน + QR Thai QR รูปนิ่ง (สแกนได้จากแอปธนาคารไหนก็ได้ ใส่ยอดเอง)
     const i = me.pay_info || {}, row = (l, v, cp) => v ? `<div class="pi-r"><span class="muted">${l}</span><b>${esc(v)}</b>${cp ? `<button type="button" class="btn out sm" data-cp="${esc(cp)}">Copy</button>` : ''}</div>` : '';
     if (!me.promptpay_id && !i.bank_account) return '';
@@ -47,7 +48,7 @@ async function plansPage() {
         ${aud === 'solo' ? valueCard(plans) : ''}
         ${planTiles(plans.filter(x => x.price > 0 && (aud === 'team' ? x.seats > 1 : x.seats <= 1) && (period === 'month' || x.price_year > 0)), sel, period)}
         ${cmpTable(plans.filter(x => aud === 'team' ? x.seats > 1 : x.seats <= 1))}
-        ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : (p.days || 30) + ' วัน'}</div>
+        ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : (p.days || 30) + ' วัน'}</div>${p.per_seat ? `<div class="seat-row"><span>จำนวนที่นั่ง</span><button type="button" class="btn out sm" data-seat="-1">−</button><b id="seatn">${seatsOf(p)}</b><button type="button" class="btn out sm" data-seat="1">+</button><small class="muted">฿${baht(period === 'year' && p.price_year ? p.price_year : p.price)} / คน · ขั้นต่ำ ${p.seats || 3} คน</small></div>` : ''}
           <div class="price" style="margin:8px 0">${coupon?.discount ? `<s class="muted" style="font-size:20px">${fmtPlanPrice(priceOf(p))}</s> ` : ''}${fmtPlanPrice(total)}${getCur() === 'USD' && total > 0 ? `<div class="muted" style="font-size:13px;margin-top:4px">ยอดโอน PromptPay: ฿${baht(total)}</div>` : ''}</div>
           <form id="cf" class="row" style="max-width:400px;margin:0 auto;flex-wrap:nowrap"><input name="code" placeholder="โค้ดคูปอง" value="${esc(coupon?.code || qs().get('coupon') || '')}" autocapitalize="characters"><button class="btn out sm">Apply</button></form>
           <div class="err" id="ce"></div>
@@ -70,14 +71,15 @@ async function plansPage() {
     $('#cf')?.addEventListener('submit', async e => {
       e.preventDefault(); const code = new FormData(e.target).get('code').trim();
       if (!code) { coupon = null; return draw(); }
-      try { coupon = await api('/coupon/check', { method: 'POST', body: { code, plan_id: sel, period } }); draw(); } catch (x) { $('#ce').textContent = x.message; }
+      try { coupon = await api('/coupon/check', { method: 'POST', body: { code, plan_id: sel, period, seats } }); draw(); } catch (x) { $('#ce').textContent = x.message; }
     });
     const submit = async (fd, btn, errBox) => {
       btn.disabled = true;
       try { const r = await api('/pay', { method: 'POST', body: fd }); await loadMe(); if (r.approved) go(`/receipt?id=${r.id}`); else { toast('ส่งสลิปแล้ว รอแอดมินตรวจ', 'ok'); boot(); } }
       catch (x) { errBox.textContent = x.message; btn.disabled = false; if (x.data?.pay_id) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn out sm'; b.style.marginTop = '8px'; b.textContent = 'ให้แอดมินตรวจสลิปนี้'; b.onclick = () => askReview(x.data.pay_id, b); errBox.append(document.createElement('br'), b); } }
     };
-    const planFd = () => { const fd = new FormData(); fd.append('plan_id', sel); fd.append('period', period); if (coupon) fd.append('coupon', coupon.code); return fd; };
+    document.querySelectorAll('[data-seat]').forEach(b => b.onclick = () => { const p = plans.find(x => x.id === sel); seats = Math.min(100, Math.max(p.seats || 3, seatsOf(p) + +b.dataset.seat)); coupon = null; draw(); });
+    const planFd = () => { const fd = new FormData(); fd.append('plan_id', sel); fd.append('period', period); if (seats) fd.append('seats', seats); if (coupon) fd.append('coupon', coupon.code); return fd; };
     $('#wpay')?.addEventListener('click', async e => { if (!await confirmSheet(`ตัดเงิน ฿${baht(total)} จาก Wallet เพื่อเปิดแพลนนี้?`, { title: 'ยืนยันการชำระเงิน', ok: 'Pay now' })) return; const fd = planFd(); fd.append('wallet', '1'); submit(fd, e.target, $('#ce')); });
     $('#free')?.addEventListener('click', e => submit(planFd(), e.target, $('#ce')));
     const amt = $('#amt');

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS plans (
   limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
   price_year REAL,
+  per_seat INTEGER,                         -- 1 = ราคาต่อที่นั่ง (แพลนทีม เลือกจำนวนคนเอง ขั้นต่ำ = seats)
   free_models TEXT,                         -- โมเดลฟรีไม่จำกัด (JSON [model_id]) ไม่หักลิมิต มีเพดานต่อวัน                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
   seats INTEGER NOT NULL DEFAULT 1,         -- 1 = เดี่ยว, 2+ = แพลนทีม
   shared_pool INTEGER NOT NULL DEFAULT 0,   -- 0 = แยกโควตาต่อคน, 1 = ใช้งบรวมทั้งทีม
@@ -162,6 +163,7 @@ CREATE TABLE IF NOT EXISTS payments (
   kind TEXT NOT NULL DEFAULT 'plan',        -- plan | topup
   period TEXT NOT NULL DEFAULT 'month', coupon TEXT, discount REAL NOT NULL DEFAULT 0, approved_at INTEGER, slip_ref TEXT,
   review INTEGER,                           -- 1 = ลูกค้าขอให้แอดมินตรวจสลิปที่ถูกปฏิเสธ
+  seats INTEGER,                            -- แพลนทีมต่อที่นั่ง: จำนวนที่นั่งที่ซื้อ
   created_at INTEGER NOT NULL
 );
 
@@ -292,6 +294,7 @@ CREATE TABLE IF NOT EXISTS plans (
   limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
   price_year REAL,
+  per_seat INTEGER,                         -- 1 = ราคาต่อที่นั่ง (แพลนทีม เลือกจำนวนคนเอง ขั้นต่ำ = seats)
   free_models TEXT,                         -- โมเดลฟรีไม่จำกัด (JSON [model_id]) ไม่หักลิมิต มีเพดานต่อวัน                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)
   seats INTEGER NOT NULL DEFAULT 1,         -- 1 = เดี่ยว, 2+ = แพลนทีม
   shared_pool INTEGER NOT NULL DEFAULT 0,   -- 0 = แยกโควตาต่อคน, 1 = ใช้งบรวมทั้งทีม
@@ -408,6 +411,7 @@ CREATE TABLE IF NOT EXISTS payments (
   kind TEXT NOT NULL DEFAULT 'plan',        -- plan | topup
   period TEXT NOT NULL DEFAULT 'month', coupon TEXT, discount REAL NOT NULL DEFAULT 0, approved_at INTEGER, slip_ref TEXT,
   review INTEGER,                           -- 1 = ลูกค้าขอให้แอดมินตรวจสลิปที่ถูกปฏิเสธ
+  seats INTEGER,                            -- แพลนทีมต่อที่นั่ง: จำนวนที่นั่งที่ซื้อ
   created_at INTEGER NOT NULL
 );
 

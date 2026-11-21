@@ -192,7 +192,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path === '/api/coupon/check' && M === 'POST') {
     const b = await req.json(), plan = await DB.prepare('SELECT * FROM plans WHERE id=?').bind(b.plan_id).first();
     const c = await couponFor(env, u, b.code, 'plan'); if (!c) return err('ใส่โค้ดคูปอง');
-    const amount = plan ? (b.period === 'year' && plan.price_year ? plan.price_year : plan.price) : 0;
+    const base = plan ? (b.period === 'year' && plan.price_year ? plan.price_year : plan.price) : 0, amount = plan?.per_seat ? base * Math.max(plan.seats || 3, Math.min(100, Math.floor(+b.seats || 0))) : base;
     return json({ code: c.code, kind: c.kind, value: c.value, discount: discountOf(c, amount), total: Math.max(0, amount - discountOf(c, amount)) });
   }
   if (path === '/api/coupon/redeem' && M === 'POST') {

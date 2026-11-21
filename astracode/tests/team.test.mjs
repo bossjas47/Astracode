@@ -188,3 +188,15 @@ test('team workspace: owner shares a workspace, members use it read-only in chat
   for (const a of ['set domain', 'auto join', 'share workspace', 'remove member']) assert.ok(log.includes(a), a);
   assert.equal((await t.json('/api/team/log', { cookie: mem.cookie })).status, 403);
 });
+
+test('per-seat team plan: price × seats (minimum enforced), the team gets the bought seats; coupon check uses seats', async () => {
+  const t = await makeEnv(), u = await t.user({ balance: 5000 }), plan = addPlan(t.DB, { price: 390, seats: 3 });
+  t.DB.raw.prepare('UPDATE plans SET per_seat=1 WHERE id=?').run(plan.id);
+  const r = await t.worker.default.fetch(new Request('https://t.test/api/pay', { method: 'POST', headers: { cookie: u.cookie }, body: (() => { const fd = new FormData(); fd.append('plan_id', plan.id); fd.append('period', 'month'); fd.append('seats', '7'); fd.append('wallet', '1'); return fd; })() }), t.env, t.ctx);
+  assert.equal(r.status, 200, await r.clone().text());
+  const p = t.DB.raw.prepare('SELECT amount, seats FROM payments WHERE user_id=?').get(u.id);
+  assert.equal(p.amount, 2730); assert.equal(p.seats, 7);
+  assert.equal(t.DB.raw.prepare('SELECT max_seats FROM teams WHERE owner_id=?').get(u.id).max_seats, 7);
+  t.DB.raw.exec("INSERT INTO coupons (code,kind,value,max_uses,active,created_at) VALUES ('T10','percent',10,0,1,0)");
+  assert.equal((await t.json('/api/coupon/check', { method: 'POST', cookie: u.cookie, body: { code: 'T10', plan_id: plan.id, period: 'month', seats: 1 } })).data.discount, 117, 'minimum 3 seats applies');
+});
