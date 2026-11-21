@@ -66,6 +66,7 @@ export async function checkVideo(env, v, c) {
   const r = await up(c, '/v1/videos/' + encodeURIComponent(v.upstream_id)).catch(() => null); if (!r?.ok) return v;
   const d = await r.json().catch(() => ({}));
   if (d.status === 'failed') { await refund(env, v, d.error?.message || 'ผู้ให้บริการสร้างไม่สำเร็จ'); return { ...v, status: 'failed' }; }
+  if (['completed', 'succeeded'].includes(d.status) && !d.output?.url) return v; // เสร็จแต่ยังไม่มีลิงก์: รอรอบหน้า
   if (d.status === 'completed' || d.status === 'succeeded' || (d.output?.url && !['queued', 'processing'].includes(d.status))) {
     const f = await fetch(d.output.url.startsWith('/') ? VIDEO_BASE + d.output.url : d.output.url, { headers: { authorization: 'Bearer ' + c.key } }).catch(() => null);
     if (!f?.ok) return v; // ลองใหม่รอบหน้า

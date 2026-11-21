@@ -14,7 +14,7 @@ export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 const PUBLIC_MAIL = /^(gmail|googlemail|hotmail|outlook|live|msn|yahoo|ymail|icloud|me|mac|proton|protonmail|aol|gmx|mail|yandex|zoho)\.[a-z.]+$/;
 // ล็อกอินด้วยอีเมล @โดเมนบริษัท: เข้าทีมที่ตั้งโดเมนนี้เองถ้ายังไม่อยู่ทีมไหนและที่นั่งยังว่าง (เรียกจาก /api/me)
 export async function autoJoinTeam(env, u) {
-  const dm = String(u.email || '').split('@')[1]; if (!dm || PUBLIC_MAIL.test(dm)) return null;
+  const dm = String(u.email || '').split('@')[1]; if (!dm || PUBLIC_MAIL.test(dm) || !u.email_verified) return null; // ต้องยืนยันอีเมลแล้ว: กันสมัครด้วยอีเมลบริษัทคนอื่นเพื่อแอบเข้าทีม
   const t = await env.DB.prepare('SELECT id, max_seats FROM teams WHERE domain=? AND expires>?').bind(dm, Date.now()).first(); if (!t) return null;
   if (await env.DB.prepare('SELECT 1 FROM team_members WHERE user_id=?').bind(u.id).first()) return null;
   const r = await env.DB.prepare("INSERT INTO team_members (team_id,user_id,role,joined_at) SELECT ?1,?2,'member',?3 WHERE (SELECT COUNT(*) FROM team_members WHERE team_id=?1) < ?4").bind(t.id, u.id, Date.now(), t.max_seats).run();
@@ -426,6 +426,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
         if (dm) {
           if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(dm)) return err('โดเมนไม่ถูกต้อง');
           if (PUBLIC_MAIL.test(dm)) return err('ใช้อีเมลฟรี (Gmail, Hotmail ฯลฯ) ไม่ได้ ต้องเป็นโดเมนของบริษัท');
+          if (!u.email_verified) return err('ยืนยันอีเมลของคุณก่อน จึงตั้งโดเมนบริษัทได้', 403);
           if (u.email.split('@')[1] !== dm) return err('ต้องเป็นโดเมนเดียวกับอีเมลของหัวหน้าทีม (@' + u.email.split('@')[1] + ')');
           if (await DB.prepare('SELECT 1 FROM teams WHERE domain=? AND id<>?').bind(dm, tm.id).first()) return err('โดเมนนี้ถูกใช้กับทีมอื่นแล้ว');
         }

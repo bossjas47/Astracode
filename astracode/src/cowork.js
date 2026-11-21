@@ -39,7 +39,7 @@ export async function finishCowork(env, id, res) {
       keep.set(p, { path: p, size: body.length, mtime: f.mtime, at: Date.now(), by: old?.by || 'ai' });
     }
     const now = new Set(res.files.map(f => cleanPath(f.path)));
-    for (const [p, f] of keep) if (!now.has(p) && f.by === 'ai') { keep.delete(p); await env.SLIPS.delete(r2key(t, p)).catch(() => {}); } // AI ลบไฟล์ที่มันสร้างเอง
+    if (res.files.length < CW_FILES) for (const [p, f] of keep) if (!now.has(p) && f.by === 'ai') { keep.delete(p); await env.SLIPS.delete(r2key(t, p)).catch(() => {}); } // AI ลบไฟล์ที่มันสร้างเอง (รายการเต็ม 300 ไฟล์ = อาจตกหล่น: ไม่ลบ)
     files = [...keep.values()];
   }
   const hist = JSON.parse(t.history || '[]'); if (res.final) hist.push({ role: 'assistant', content: String(res.final).slice(0, 8000) });
@@ -60,7 +60,8 @@ async function startTurn(env, u, t, prompt, m, follow) {
   await appendEvents(env, t.id, [{ type: 'user', text: prompt.slice(0, 20000), t: now }]);
   // ไฟล์ทั้งหมดของงาน (เผื่อเครื่องถูกปิดไปแล้ว ต้องวางไฟล์ใหม่) · DO ตัดสินเองว่าต้องส่งไหม
   const files = [];
-  if (env.SLIPS) for (const f of JSON.parse(t.files || '[]').slice(0, CW_FILES)) { const o = await env.SLIPS.get(r2key(t, f.path)); if (!o) continue; const buf = await o.arrayBuffer(); files.push({ path: f.path, content: /^(text|application\/json)/.test(mimeOf(f.path)) ? new TextDecoder().decode(buf) : 'data:application/octet-stream;base64,' + toB64(buf) }); }
+  let total = 0; // ส่งไฟล์ไปวางใหม่ได้ไม่เกิน ~25MB ต่อรอบ (เกินนี้ใช้ไฟล์ที่ยังอยู่ในเครื่อง)
+  if (env.SLIPS) for (const f of JSON.parse(t.files || '[]').slice(0, CW_FILES)) { if ((total += f.size || 0) > CW_IN_MAX) break; const o = await env.SLIPS.get(r2key(t, f.path)); if (!o) continue; const buf = await o.arrayBuffer(); files.push({ path: f.path, content: /^(text|application\/json)/.test(mimeOf(f.path)) ? new TextDecoder().decode(buf) : 'data:application/octet-stream;base64,' + toB64(buf) }); }
   const skills = (await env.DB.prepare('SELECT name, content FROM skills WHERE user_id=? AND enabled=1 ORDER BY id LIMIT 20').bind(u.id).all().catch(() => ({ results: [] }))).results.map(s => `## ${s.name}\n${s.content}`).join('\n\n').slice(0, 30000); // Skills ของลูกค้าใช้ใน Cowork ด้วย
   const stub = env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id));
   const r = await stub.fetch('https://box/start', { method: 'POST', body: JSON.stringify({ id: t.id, kind: 'cowork', run: { cowork: true, follow, site: siteUrl(env), key, model: slug(m), prompt, files, skills, history: hist.slice(-30), maxRounds: 120, effort: null } }) });
@@ -99,7 +100,7 @@ export async function coworkApi(req, env, u, path, M, url) {
     const m = await gate(); if (m instanceof Response) return m;
     const now = Date.now(), t = await DB.prepare("INSERT INTO cowork_tasks (user_id,title,status,events,files,history,created_at,updated_at) VALUES (?,?,'idle','[]','[]','[]',?,?) RETURNING *").bind(u.id, prompt.replace(/\s+/g, ' ').slice(0, 80), now, now).first();
     try { await putInputs(t, b.files); await startTurn(env, u, t, prompt, m, false); }
-    catch (e) { await finishCowork(env, t.id, { status: 'error', error: 'เริ่มงานไม่สำเร็จ: ' + e.message }); return err('เริ่มงานไม่สำเร็จ: ' + e.message, 502); }
+    catch (e) { await finishCowork(env, t.id, { status: 'error', error: 'เริ่มงานไม่สำเร็จ: ' + e.message }); await DB.prepare("UPDATE cowork_tasks SET status='error', error=? WHERE id=? AND status='idle'").bind('เริ่มงานไม่สำเร็จ: ' + String(e.message).slice(0, 300), t.id).run(); return err('เริ่มงานไม่สำเร็จ: ' + e.message, e.message.includes('ใหญ่เกิน') ? 413 : 502); }
     return json({ id: t.id });
   }
   const r = path.match(/^\/api\/cowork\/(\d+)(\/say|\/stop|\/file|\/answer)?$/); if (!r) return err('not found', 404);
@@ -128,7 +129,7 @@ export async function coworkApi(req, env, u, path, M, url) {
     const b = await req.json().catch(() => ({})), prompt = String(b.prompt || '').trim().slice(0, 20000); if (!prompt) return err('พิมพ์ข้อความก่อน');
     const m = await gate(); if (m instanceof Response) return m;
     try { await putInputs(t, b.files); await startTurn(env, u, t, prompt, m, true); }
-    catch (e) { await finishCowork(env, t.id, { status: 'error', error: 'ส่งข้อความไม่สำเร็จ: ' + e.message }); return err('ส่งข้อความไม่สำเร็จ: ' + e.message, 502); }
+    catch (e) { await finishCowork(env, t.id, { status: 'error', error: 'ส่งข้อความไม่สำเร็จ: ' + e.message }); return err('ส่งข้อความไม่สำเร็จ: ' + e.message, e.message.includes('ใหญ่เกิน') ? 413 : 502); }
     return json({ ok: true });
   }
   return err('not found', 404);
