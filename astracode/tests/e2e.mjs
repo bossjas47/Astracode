@@ -89,6 +89,26 @@ const FLOWS = [
     const put = calls.find(c => c.m === 'PUT' && c.p === '/api/files/5'), after = await page.locator('#cv-s').innerText().catch(() => '');
     return [!errs.length || errs.join(' | '), !(await page.locator('#canvas').isHidden()) || 'panel not opened', /994\.00/.test(grid) || 'formula not computed: ' + grid.slice(0, 120), card === 1 || 'no file card', !!put || 'cell edit not saved', /990\.00/.test(after) || 'recalc after edit failed'];
   }],
+  ['cowork: switch to the Cowork mode, open a task with plan, tool cards, artifacts; start a new task with a file; answer an AI question with a button', async () => {
+    const me = ME(0); me.plan = { ...me.plan, cowork: true }; me.models = [...me.models, { id: 36, name: 'Claude Sonnet 5.5 Eco', provider: 'anthropic', multiplier: 2.8, vision: 1, effort: 'none' }];
+    const task = { id: 3, title: 'สรุปยอดขาย', status: 'done', files: [{ path: 'ยอดขาย.xlsx', size: 2048, by: 'user' }, { path: 'สรุป.xlsx', size: 9000, by: 'ai' }, { path: 'รายงาน.docx', size: 12000, by: 'ai' }], total: 6, model: 'Claude Sonnet 5.5 Eco',
+      events: [{ type: 'user', text: 'สรุปยอดขายจากไฟล์' }, { type: 'todos', todos: [{ content: 'อ่านไฟล์', status: 'completed' }, { content: 'ทำ Excel', status: 'completed' }, { content: 'ทำรายงาน', status: 'in_progress' }] }, { type: 'tool', id: 't1', name: 'bash', args: { command: 'python3 sum.py' } }, { type: 'tool_result', id: 't1', ok: true, preview: 'total 120000' }, { type: 'text', text: 'ทำเสร็จแล้ว ได้ไฟล์ **สรุป.xlsx**' }, { type: 'end', status: 'done' }] };
+    const { page, errs, calls } = await open('/chat', { '/api/me': me, '/api/cowork': q => q.method() === 'POST' ? { id: 4 } : [{ id: 3, title: 'สรุปยอดขาย', status: 'done', updated_at: Date.now() }], '/api/cowork/3': () => task, '/api/cowork/3/answer': { ok: true }, '/api/cowork/4': { ...task, id: 4, status: 'done', events: [{ type: 'user', text: 'ใหม่' }] } });
+    await page.evaluate(() => document.querySelector('[data-mode="cowork"]').click()); await page.waitForTimeout(800);
+    const hello = await page.locator('#cwmain').innerText();
+    await page.evaluate(() => document.querySelector('[data-cwt="3"]').click()); await page.waitForTimeout(700);
+    const body = await page.locator('#cwmain').innerText();
+    if (process.env.SHOT) { await page.setViewportSize({ width: 1280, height: 760 }); await page.waitForTimeout(300); await page.screenshot({ path: process.env.SHOT }); await page.setViewportSize({ width: 400, height: 800 }); }
+    await page.evaluate(() => document.querySelector('#cwnew').click()); await page.waitForTimeout(400);
+    await page.setInputFiles('#cwfile', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('x,1') }); await page.waitForTimeout(200);
+    await page.fill('#cwt', 'ทำรายงาน'); await page.evaluate(() => document.querySelector('#cwform').requestSubmit()); await page.waitForTimeout(800);
+    const post = calls.find(c => c.m === 'POST' && c.p === '/api/cowork'), url = page.url();
+    task.status = 'running'; task.events = [...task.events.slice(0, 5), { type: 'ask', id: 'q1', question: 'Excel หรือ Word?', options: ['Excel', 'Word'] }];
+    await page.evaluate(() => document.querySelector('[data-cwt="3"]')?.click()); await page.waitForTimeout(700);
+    await page.evaluate(() => [...document.querySelectorAll('[data-cwans]')].find(b => b.textContent === 'Excel')?.click()); await page.waitForTimeout(500);
+    const ans = calls.find(c => c.p === '/api/cowork/3/answer');
+    return [!errs.length || errs.join(' | '), /วันนี้ให้ช่วยทำงานอะไร/.test(hello) || 'hello missing', /Running command/.test(body) || 'tool card missing', /รายงาน\.docx/.test(body) || 'artifact missing', /ทำรายงาน/.test(body) || 'plan missing', /"prompt":"ทำรายงาน"/.test(post?.body || '') || 'task not created', /"name":"a\.csv"/.test(post?.body || '') || 'file not sent', /mode=cowork&task=4/.test(url) || 'url ' + url, /"ask_id":"q1".*"text":"Excel"/.test(ans?.body || '') || 'answer not sent'];
+  }],
   ['send a chat message and see the streamed answer', async () => {
     const { page, errs, calls } = await open('/chat');
     await page.fill('#t', 'สวัสดี'); await page.click('#go'); await page.waitForTimeout(800);

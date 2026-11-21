@@ -102,7 +102,7 @@ export async function coworkApi(req, env, u, path, M, url) {
     catch (e) { await finishCowork(env, t.id, { status: 'error', error: 'เริ่มงานไม่สำเร็จ: ' + e.message }); return err('เริ่มงานไม่สำเร็จ: ' + e.message, 502); }
     return json({ id: t.id });
   }
-  const r = path.match(/^\/api\/cowork\/(\d+)(\/say|\/stop|\/file)?$/); if (!r) return err('not found', 404);
+  const r = path.match(/^\/api\/cowork\/(\d+)(\/say|\/stop|\/file|\/answer)?$/); if (!r) return err('not found', 404);
   const t = await DB.prepare('SELECT * FROM cowork_tasks WHERE id=? AND user_id=?').bind(+r[1], u.id).first(); if (!t) return err('ไม่พบงาน', 404);
   if (!r[2] && M === 'GET') { const from = +url.searchParams.get('from') || 0, ev = JSON.parse(t.events || '[]'); return json({ id: t.id, title: t.title, status: t.status, error: t.error, files: JSON.parse(t.files || '[]'), events: ev.slice(from), total: ev.length, model: COWORK_MODEL }); }
   if (!r[2] && M === 'PUT') { const b = await req.json().catch(() => ({})); if (b.title) await DB.prepare('UPDATE cowork_tasks SET title=? WHERE id=?').bind(String(b.title).slice(0, 80), t.id).run(); return json({ ok: true }); }
@@ -110,6 +110,11 @@ export async function coworkApi(req, env, u, path, M, url) {
     if (t.status === 'running' && env.AGENTBOX) await env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id)).fetch('https://box/stop', { method: 'POST' }).catch(() => {});
     if (env.SLIPS) for (const f of JSON.parse(t.files || '[]')) await env.SLIPS.delete(r2key(t, f.path)).catch(() => {});
     await DB.batch([DB.prepare('DELETE FROM cowork_tasks WHERE id=?').bind(t.id), DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=?').bind(t.key_id || 0)]); return json({ ok: true });
+  }
+  if (r[2] === '/answer' && M === 'POST') { // ตอบคำถามที่ AI ถาม (ask_user) ระหว่างทำงาน
+    const b = await req.json().catch(() => ({})); if (t.status !== 'running' || !env.AGENTBOX) return err('งานนี้ไม่ได้รอคำตอบแล้ว', 409);
+    const x = await env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id)).fetch('https://box/answer', { method: 'POST', body: JSON.stringify({ id: String(b.ask_id || ''), text: String(b.text || '').slice(0, 4000) }) });
+    return x.ok ? json({ ok: true }) : err('คำถามนี้หมดเวลาหรือถูกตอบไปแล้ว', 409);
   }
   if (r[2] === '/stop' && M === 'POST') { if (t.status === 'running' && env.AGENTBOX) await env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id)).fetch('https://box/stop', { method: 'POST' }).catch(() => {}); return json({ ok: true }); }
   if (r[2] === '/file' && M === 'GET') {

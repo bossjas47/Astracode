@@ -129,7 +129,9 @@ function cwPaint() {
       h += `<details class="cw-tool ${st}"><summary>${st === 'run' ? '<span class="cw-spin"></span>' : ic(st === 'ok' ? 'check' : 'x', 'sm')} ${esc(TOOL_TH[e.name] || e.name)} <small>${esc(cwArg(e))}</small></summary><div class="cw-req"><small class="muted">Request</small><pre>${esc(JSON.stringify(e.args || {}, null, 2).slice(0, 4000))}</pre>${r?.preview ? `<small class="muted">Result</small><pre>${esc(String(r.preview).slice(0, 3000))}</pre>` : ''}</div></details>`; }
     else if (e.type === 'shot') h += `<figure class="cw-shot"><img src="/api/cowork/${CW.id}/file?view=1&path=${encodeURIComponent(e.path)}" alt="ภาพหน้าจอเบราว์เซอร์" loading="lazy"><figcaption class="muted">${esc(e.path)}</figcaption></figure>`;
     else if (e.type === 'info') h += `<p class="cw-info muted">${esc(e.text)}</p>`;
-    else if (e.type === 'ask') h += `<div class="cw-ask"><b>${esc(e.question)}</b><div>${(e.options || []).map(o => `<button type="button" class="btn out sm" data-cwans="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>`;
+    else if (e.type === 'ask') { const done = CW.ev.some(x => x.type === 'answered' && x.id === e.id) || CW.status !== 'running';
+      h += `<div class="cw-ask ${done ? 'done' : ''}" data-askid="${esc(e.id || '')}"><b>${ic('msg', 'sm')} ${esc(e.question)}</b>${done ? '' : `<div>${(e.options || []).map(o => `<button type="button" class="btn out sm" data-cwans="${esc(o)}">${esc(o)}</button>`).join('')}</div><form class="row" data-cwansf><input placeholder="หรือพิมพ์คำตอบ…" maxlength="2000"><button class="btn blue sm">ตอบ</button></form>`}</div>`; }
+    else if (e.type === 'answered') h += `<div class="msg user"><div class="b">${esc(e.text)}</div></div>`;
     else if (e.type === 'end' && e.status !== 'done') h += `<p class="cw-info bad">${esc(e.error || 'หยุดแล้ว')}</p>`;
   }
   if (CW.status === 'running') h += `<p class="cw-working"><span class="cw-spin"></span> กำลังทำงาน… ${CW.local ? '' : 'ปิดหน้านี้ได้ เสร็จแล้วแจ้งเตือน'}</p>`;
@@ -147,19 +149,21 @@ function cwPanels() {
   $('#cwart').innerHTML = mine.length ? mine.map(row).join('') : '<p class="muted">ไฟล์ที่ AI สร้างจะอยู่ที่นี่</p>';
   const conn = CW.ev.filter(e => e.type === 'info' && /^Connectors: /.test(e.text)).at(-1)?.text.slice(12).split(', ') || [];
   $('#cwctx').innerHTML = `<small class="muted">${CW.local ? 'Selected folder' : 'Workspace'}</small><div class="cw-file static">${ic(CW.local ? 'folder' : 'server', 'sm')}<span>${esc(CW.local ? CW.folder || 'ยังไม่ได้เลือก' : 'เครื่องเสมือนบนคลาวด์')}</span></div>
+    ${CW.local && window.astraDesktop?.screen ? `<button type="button" class="cw-file" id="cwscreen">${ic('smartphone', 'sm')}<span>ควบคุมหน้าจอ: ${CW.screen ? 'เปิด' : 'ปิด'}</span><small>Windows</small></button>` : ''}
     <small class="muted">Connectors</small><div class="cw-file static">${ic('globe', 'sm')}<span>Web search</span></div>${CW.local ? '' : `<div class="cw-file static">${ic('web', 'sm')}<span>Browser</span></div><div class="cw-file static">${ic('image', 'sm')}<span>Image &amp; OCR</span></div>`}${conn.map(c => `<div class="cw-file static">${ic('server', 'sm')}<span>${esc(c)}</span></div>`).join('')}${CW.local ? '' : `<button type="button" class="cw-file" data-cwconn>${ic('plus', 'sm')}<span>เชื่อม Gmail / Drive / อื่น ๆ</span></button>`}
     ${inputs.length ? `<small class="muted">Working files</small>${inputs.map(row).join('')}` : ''}`;
 }
 document.addEventListener('click', e => {
   const o = e.target.closest?.('[data-cwopen]'); if (o && window.astraDesktop?.agent) window.astraDesktop.agent.open('chat', o.dataset.cwopen).catch(x => toast(String(x.message), 'bad'));
-  const a = e.target.closest?.('[data-cwans]'); if (a && CW.local && CW.askId) { window.astraDesktop.agent.answer('cw' + CW.id, CW.askId, a.dataset.cwans); CW.askId = null; }
+  const a = e.target.closest?.('[data-cwans]'); if (a) cwAnswer(a.closest('[data-askid]')?.dataset.askid, a.dataset.cwans);
   if (e.target.closest?.('[data-cwconn]')) openConnectors?.();
+  if (e.target.closest?.('#cwscreen')) cwScreen();
   const n = e.target.closest?.('#cwnew'); if (n) { closeSide?.(); CW.pending = []; setUrl('/chat?mode=cowork'); coworkView(null); }
   const t = e.target.closest?.('[data-cwt]'); if (t) { e.preventDefault(); closeSide?.(); setUrl('/chat?mode=cowork&task=' + t.dataset.cwt); coworkView(t.dataset.cwt); }
 });
 
 // ---------- แอป Desktop: รันในเครื่อง ในโฟลเดอร์ที่เลือก (ช่อง "chat") ----------
-async function cwFolderName() { try { const i = await window.astraDesktop.fs.linked('chat'); CW.folder = i?.name || null; } catch { CW.folder = null; } const n = $('#cwfoldn'); if (n) n.textContent = CW.folder || 'เลือกโฟลเดอร์'; cwPanels(); }
+async function cwFolderName() { try { CW.screen = !!await window.astraDesktop.screen?.state(); } catch { CW.screen = false; } try { const i = await window.astraDesktop.fs.linked('chat'); CW.folder = i?.name || null; } catch { CW.folder = null; } const n = $('#cwfoldn'); if (n) n.textContent = CW.folder || 'เลือกโฟลเดอร์'; cwPanels(); }
 async function cwPickFolder() { try { const i = await window.astraDesktop.fs.link('chat'); if (i) { CW.folder = i.name; toast('ใช้โฟลเดอร์ ' + i.name, 'ok'); } } catch (x) { toast(x.message, 'bad'); } cwFolderName(); }
 let cwSub = null;
 async function cwLocalSend(text) {
@@ -181,7 +185,8 @@ async function cwLocalSend(text) {
     if (d.type === 'tool_result') L.events.push({ type: 'tool_result', id: d.id, ok: d.ok, preview: d.preview });
     if (d.type === 'todos') L.events.push({ type: 'todos', todos: d.todos });
     if (d.type === 'info') L.events.push({ type: 'info', text: d.text });
-    if (d.type === 'ask') { CW.askId = d.id; L.events.push({ type: 'ask', question: d.question, options: d.options }); }
+    if (d.type === 'ask') { CW.askId = d.id; L.events.push({ type: 'ask', id: d.id, question: d.question, options: d.options }); }
+    if (d.type === 'answered') L.events.push({ type: 'answered', id: CW.askId || '', text: d.text });
     if (d.type === 'done' || d.type === 'error') { L.files = [...new Set([...(d.outputs || []), ...(d.changed || [])])].map(p => ({ path: p, by: 'ai' })); CW.files = L.files; if (d.type === 'error') L.events.push({ type: 'end', status: 'error', error: d.text }); }
     paint();
   });
@@ -206,4 +211,20 @@ function cwSchedule() {
     d.querySelector('#cwsf').onsubmit = async e => { e.preventDefault(); const f = new FormData(e.target);
       try { await api('/schedules', { method: 'POST', body: { title: f.get('title'), prompt: f.get('prompt'), hour: +f.get('hour'), days: f.get('days'), cowork: 1, search: true } }); close(); toast('ตั้งเวลาแล้ว · ดู/แก้ได้ที่เมนู Scheduled tasks', 'ok'); } catch (x) { toast(x.message, 'bad'); } };
   });
+}
+
+// ตอบคำถามที่ AI ถามระหว่างทำงาน (ปุ่มตัวเลือก หรือพิมพ์เอง)
+async function cwAnswer(askId, text) {
+  if (!text) return;
+  if (CW.local) { if (CW.askId) { window.astraDesktop.agent.answer('cw' + CW.id, CW.askId, text); CW.askId = null; } return; }
+  try { await api(`/cowork/${CW.id}/answer`, { method: 'POST', body: { ask_id: askId, text } }); CW.ev.push({ type: 'answered', id: askId, text }); cwPaint(); } catch (x) { toast(x.message, 'bad'); }
+}
+document.addEventListener('submit', e => { const f = e.target.closest?.('[data-cwansf]'); if (!f) return; e.preventDefault(); cwAnswer(f.closest('[data-askid]')?.dataset.askid, f.querySelector('input').value.trim()); });
+
+// แอป Desktop (Windows): ให้ AI ควบคุมเมาส์/คีย์บอร์ด/ดูหน้าจอได้ในงาน Cowork (แอปถามยืนยันทุกครั้งที่เปิด)
+async function cwScreen() {
+  const S = window.astraDesktop?.screen; if (!S) return;
+  try { if (CW.screen) await S.off(); else await S.on(); CW.screen = !!await S.state(); toast(CW.screen ? 'เปิดให้ AI ควบคุมหน้าจอแล้ว (ใช้ได้เฉพาะ Windows)' : 'ปิดการควบคุมหน้าจอแล้ว', 'ok'); }
+  catch (x) { toast(String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'bad'); }
+  cwPanels();
 }

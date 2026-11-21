@@ -5,16 +5,18 @@ const fs = require('fs/promises');
 const path = require('path');
 const lib = process.env.AGENT_LIB || path.join(__dirname, 'app');
 const { runAgent } = require(path.join(lib, 'agent'));
-const { AGENT_TOOLS, Workspace, agentSystem, projectRules } = require(path.join(lib, 'agenttools'));
+const { AGENT_TOOLS, SUB_TOOLS, Workspace, agentSystem, projectRules } = require(path.join(lib, 'agenttools'));
 const { scanFolder } = require(path.join(lib, 'localfs'));
-const COWORK_SYS = `\n\nCOWORK MODE: you are working for a non-programmer on an office task. First call todo_write with a short plan, then do the work yourself until it is done. Make deliverables as real files with make_document (.docx/.xlsx with live formulas/.pptx/.pdf) or with python (pandas, matplotlib → PNG). Use web_search / web_fetch / browser for information from the web. Use the user's connectors (tools named rmcp_..., e.g. Gmail, Google Drive/Sheets/Calendar) when the task involves their email, files or calendar; save_to_drive / email_files send finished files; look_at_image reads photos and scans; generate_image makes pictures for slides or posts. Explain progress in plain Thai when the user writes Thai; do not show code unless asked. Before deleting or overwriting the user's own uploaded files, ask (ask in your reply and stop). Finish with a short summary listing the files you made.`;
+const COWORK_SYS = `\n\nCOWORK MODE: you are working for a non-programmer on an office task. First call todo_write with a short plan, then do the work yourself until it is done. Make deliverables as real files with make_document (.docx/.xlsx with live formulas/.pptx/.pdf) or with python (pandas, matplotlib → PNG). Use web_search / web_fetch / browser for information from the web. Use the user's connectors (tools named rmcp_..., e.g. Gmail, Google Drive/Sheets/Calendar) when the task involves their email, files or calendar; save_to_drive / email_files send finished files; look_at_image reads photos and scans; generate_image makes pictures for slides or posts. Explain progress in plain Thai when the user writes Thai; do not show code unless asked. Before deleting or overwriting the user's own uploaded files, ask with ask_user. For big research (many files or many web pages) hand parts to helpers with the task tool; several task calls in one reply run in parallel. Finish with a short summary listing the files you made.`;
 const ROOT = process.env.WORK || '/work';
 let OFFICE = null, BROWSER = null; // Cowork: ไฟล์ออฟฟิศ + เบราว์เซอร์ (โหลดเมื่อใช้ · ถ้าไม่มีแพ็กเกจก็ทำงานต่อได้แบบไม่มีเครื่องมือนั้น)
 try { OFFICE = require(path.join(lib, 'office')); } catch {}
 try { BROWSER = require('./browser'); } catch {}
 const S = d => ({ type: 'string', description: d }), fnT = (name, description, properties, required = []) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } });
 // เครื่องมือเพิ่มของ Cowork: สร้างรูป · อ่านรูป/สแกน (OCR) · ส่งไฟล์ขึ้น Drive · ส่งอีเมลแนบไฟล์ (2 อย่างหลังใช้ Google ที่ลูกค้าเชื่อมไว้บนเว็บ)
+const asks = new Map(); // คำถามที่รอลูกค้าตอบ (ปุ่ม/พิมพ์ในหน้าเว็บ) id → resolve
 const COWORK_TOOLS = [
+  fnT('ask_user', 'Ask the user ONE question when the task is unclear or a decision is theirs (which file, which option, missing info, permission to delete/overwrite). Give 2-4 short options when you can. Waits for the answer (up to 20 minutes).', { question: S('The question, in the user\'s language'), options: { type: 'array', items: { type: 'string' }, description: '2-4 short choices (optional)' } }, ['question']),
   fnT('generate_image', 'Create a picture (illustration, banner, product shot, slide image) with the image generator and save it as a PNG in the task folder.', { prompt: S('Detailed English description'), path: S('Where to save, e.g. images/cover.png') }, ['prompt']),
   fnT('look_at_image', 'Look at an image or scanned document in the task folder (receipt, photo of a form, chart, screenshot) and get its text and description. Use it for OCR before working with the numbers.', { path: S('Image path (.png .jpg .jpeg .webp)'), question: S('What to extract, e.g. "all line items and totals as a table"') }, ['path']),
   fnT('save_to_drive', 'Upload a file from the task folder to the user\'s Google Drive (needs Google connected on the website). Office files can be converted to Google Docs/Sheets/Slides.', { path: S('File path'), convert: { type: 'boolean' } }, ['path']),
@@ -48,7 +50,15 @@ async function turn(o, before) {
   let text = ''; // รวมตัวหนังสือที่สตรีมมาเป็นก้อนเดียว ไม่ให้เหตุการณ์บวม
   let th = ''; const flushTh = () => { if (th) { events.push({ type: 'think', text: th.slice(0, 6000), t: Date.now() }); th = ''; } };
   const onEvent = e => { if (e.type === 'think') { th += e.text; return; } flushTh(); if (e.type === 'delta') { text += e.text; return; } if (e.type === 'text_end' && text) { events.push({ type: 'text', text: text.slice(0, 4000), t: Date.now() }); job.final = text; text = ''; return; } if (['tool', 'tool_result', 'todos', 'usage', 'info'].includes(e.type)) events.push({ ...e, preview: e.preview?.slice(0, 1500), t: Date.now() }); };
-  const ws = session?.ws && o.follow ? session.ws : new Workspace(ROOT, { ask: async () => true, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
+  // ผู้ช่วย (sub-agent): งานค้น/อ่านแยกบทสนทนา อ่านอย่างเดียว ทำพร้อมกันได้หลายตัว (เรียก task หลายครั้งในคำตอบเดียว)
+  const subagent = o.cowork ? async (title, prompt) => {
+    events.push({ type: 'info', text: 'ผู้ช่วย: ' + title, t: Date.now() });
+    const sub = [{ role: 'system', content: agentSystem({ root: ROOT, os: 'Linux cloud sandbox', rules: '' }) + '\n\nYou are a helper agent doing ONE research sub-task for the main agent. You can only read and search. Finish with a concise report of what you found (facts, numbers, file paths, links).' }, { role: 'user', content: prompt.slice(0, 20000) }];
+    const sws = new Workspace(ROOT, { ask: async () => true, search: async q => { const r = await fetch(o.site + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key }, body: JSON.stringify({ query: q }) }); return (await r.json()).results || []; } });
+    await runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages: sub, tools: AGENT_TOOLS.filter(x => SUB_TOOLS.has(x.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? sws.call(n, x) : 'Error: read-only helper', signal: ac.signal, maxRounds: 25 }).catch(e => sub.push({ role: 'assistant', content: 'ผู้ช่วยหยุด: ' + e.message }));
+    return sub.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '(ผู้ช่วยไม่ได้รายงานอะไร)';
+  } : null;
+  const ws = session?.ws && o.follow ? session.ws : new Workspace(ROOT, { subagent, ask: async () => true, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
     search: async q => { const r = await fetch(o.site + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key }, body: JSON.stringify({ query: q }) }); return (await r.json()).results || []; } });
   ws.signal = ac.signal;
   const sys = o.cowork ? agentSystem({ root: ROOT, os: 'Linux cloud sandbox (node, npm, python3 + pip, git, Chromium). This is the user\'s Cowork task folder: put every deliverable (reports, spreadsheets, slides, PDFs, charts) as real files in this folder; the user sees and downloads them from the Artifacts panel', rules: '' }) + COWORK_SYS + (o.skills ? '\n\nThe user\'s Skills (follow them whenever they apply):\n' + String(o.skills).slice(0, 30000) : '')
@@ -67,6 +77,13 @@ async function turn(o, before) {
   const call = async (n, a) => {
     if (o.cowork && OFFICE && (n === 'make_document' || n === 'read_document')) { const f = ws.abs(a.path); if (!ws.inside(f)) return 'Error: path must be inside the task folder'; return n === 'read_document' ? OFFICE.readDocument(f) : OFFICE.makeDocument(f, a, { pdf: BROWSER?.htmlToPdf }); }
     if (o.cowork && n.startsWith('rmcp_')) return mcpCall(n, a);
+    if (o.cowork && n === 'ask_user') {
+      const id = 'q' + Date.now(), question = String(a.question || '').slice(0, 1000), options = (Array.isArray(a.options) ? a.options : []).map(String).slice(0, 6);
+      events.push({ type: 'ask', id, question, options, t: Date.now() });
+      const ans = await new Promise(ok => { const tm = setTimeout(() => { asks.delete(id); ok(null); }, 20 * 60e3); asks.set(id, x => { clearTimeout(tm); ok(x); }); ac.signal.addEventListener('abort', () => { clearTimeout(tm); ok(null); }, { once: true }); });
+      events.push({ type: 'answered', id, text: ans ?? '(ไม่มีคำตอบ)', t: Date.now() });
+      return ans == null ? 'The user did not answer in time. Make a sensible choice, say what you assumed, and continue.' : 'The user answered: ' + ans;
+    }
     if (o.cowork && n === 'generate_image') {
       const r = await api('/v1/images/generations', { method: 'POST', body: JSON.stringify({ prompt: String(a.prompt || '').slice(0, 2000), n: 1, size: '1536x1024' }) }), d = await r.json().catch(() => ({}));
       if (!r.ok) return 'Error: ' + (d.error?.message_th || d.error?.message || 'HTTP ' + r.status);
@@ -88,7 +105,7 @@ async function turn(o, before) {
     if (o.cowork && BROWSER && n === 'browser') return BROWSER.browserTool(a, ROOT, rel => events.push({ type: 'shot', path: rel, t: Date.now() }));
     return ws.call(n, a);
   };
-  runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages, tools: [...AGENT_TOOLS.filter(t => !['screenshot_url', 'task'].includes(t.function.name)), ...extra], callTool: call, onEvent, signal: ac.signal, maxRounds: Math.min(150, +o.maxRounds || 80), onStep: () => ++ws.step, effort: o.effort || null })
+  runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages, tools: [...AGENT_TOOLS.filter(t => !['screenshot_url', ...(o.cowork ? [] : ['task'])].includes(t.function.name)), ...extra], callTool: call, onEvent, signal: ac.signal, maxRounds: Math.min(150, +o.maxRounds || 80), onStep: () => ++ws.step, effort: o.effort || null })
     .then(() => { if (text) { events.push({ type: 'text', text: text.slice(0, 4000), t: Date.now() }); job.final = text; } job.status = 'done'; })
     .catch(e => { job.error = ac.signal.aborted ? 'หยุดแล้ว' : String(e.message).slice(0, 500); job.status = 'error'; })
     .finally(() => { if (!o.cowork) ws.stopAll(); });
@@ -116,6 +133,7 @@ async function result() {
 http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/answer' && req.method === 'POST') { const b = await body(req), f = asks.get(String(b.id)); if (f) { asks.delete(String(b.id)); f(String(b.text || '').slice(0, 4000)); } return json(res, f ? 200 : 404, { ok: !!f }); }
     if (u.pathname === '/reset' && req.method === 'POST') { session = null; await BROWSER?.closeBrowser(); return json(res, 200, { ok: true }); }
     if (u.pathname === '/run' && req.method === 'POST') { if (job?.status === 'running') return json(res, 409, { error: 'มีงานทำอยู่' }); await start(await body(req)); return json(res, 200, { ok: true }); }
     if (u.pathname === '/events') { const from = +u.searchParams.get('from') || 0; return json(res, 200, { status: job?.status || 'idle', events: job ? job.events.slice(from) : [] }); }

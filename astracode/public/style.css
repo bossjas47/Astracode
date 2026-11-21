@@ -2039,3 +2039,5 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .cw-list a:hover { background: rgba(var(--ov), .05); }
 .cw-msgs .msg.user .b { max-width: 100%; }
 .cw-box textarea { min-height: 44px; }
+.cw-ask.done { border-color: var(--hair); opacity: .8; }
+.cw-ask form { display: flex; gap: 6px; } .cw-ask form input { flex: 1; min-width: 0; }

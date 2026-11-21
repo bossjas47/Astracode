@@ -29,6 +29,7 @@ export class AgentBox {
       await this.s.storage.setAlarm(Date.now() + 3000); return new Response('ok');
     }
     if (u.pathname === '/stop') { await this.box('/stop', { method: 'POST' }).catch(() => {}); return new Response('ok'); }
+    if (u.pathname === '/answer') { const r = await this.box('/answer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await req.text() }).catch(() => null); return new Response(r?.ok ? 'ok' : 'gone', { status: r?.ok ? 200 : 404 }); } // Cowork: ลูกค้าตอบคำถามของ AI
     return new Response('not found', { status: 404 });
   }
   // ทุก 4 วินาที: ดึงความคืบหน้าเข้า D1 (หน้าเว็บ/มือถือดูสด) · จบ/เกิน 30 นาที → เอาผลเขียนเข้าโปรเจกต์ แล้วปิดเครื่อง
