@@ -501,7 +501,9 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       if (!name) return err('ตั้งชื่อ MCP Server ก่อน');
       if (!url_) return err('URL ต้องเป็น https:// สาธารณะเท่านั้น');
       if ((await DB.prepare('SELECT COUNT(*) n FROM mcp_servers WHERE user_id=?').bind(u.id).first()).n >= 15) return err('เชื่อมต่อ MCP ส่วนตัวได้สูงสุด 15 ตัว');
-      const tools = await mcpSync(url_, token || null);
+      // ลิงก์ repo (GitHub/GitLab/npm) คือซอร์สโค้ดของ MCP ไม่ใช่ที่อยู่เซิร์ฟเวอร์ที่ออนไลน์อยู่ · บอกให้ชัดแทน error 500
+      if (/^https:\/\/(www\.)?(github\.com|gitlab\.com|npmjs\.com|pypi\.org)\//i.test(url_)) return err('ลิงก์นี้เป็นหน้าโค้ดของ MCP (repo) ไม่ใช่ที่อยู่เซิร์ฟเวอร์ · Remote MCP ต้องเป็น URL ของเซิร์ฟเวอร์ที่ออนไลน์อยู่ เช่น https://example.com/mcp · ถ้าเป็น MCP ที่ต้องติดตั้งในเครื่อง ให้ใช้แอป AstraCode บนคอม (Plugins / Local MCP) หรือดูใน README ว่ามี URL แบบ hosted ไหม', 400);
+      let tools; try { tools = await mcpSync(url_, token || null); } catch (e) { return err('เชื่อมต่อ MCP ไม่ได้: ' + String(e.message || e).slice(0, 160) + ' · ตรวจว่า URL เป็น MCP endpoint (Streamable HTTP) และ token ถูกต้อง', 400); }
       const tokEnc = token ? await seal(env, token) : null;
       const row = await DB.prepare('INSERT INTO mcp_servers (user_id,name,url,token_enc,tools_json,enabled,created_at) VALUES (?,?,?,?,?,1,?) RETURNING id,user_id,name,url,enabled')
         .bind(u.id, name, url_, tokEnc, JSON.stringify(tools), Date.now()).first();
