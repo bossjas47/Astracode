@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS plans (
   limit_week REAL NOT NULL,                 -- งบต้นทุนจริงต่อสัปดาห์ (บาท)
   description TEXT NOT NULL DEFAULT '',
   price_year REAL,
+  compare TEXT,                             -- ข้อความเทียบคู่แข่งบนการ์ดแพลน (แก้ในหลังบ้าน)
   cowork INTEGER,                           -- 1 = ใช้โหมด Cowork ได้ (Pro ขึ้นไป)
   per_seat INTEGER,                         -- 1 = ราคาต่อที่นั่ง (แพลนทีม เลือกจำนวนคนเอง ขั้นต่ำ = seats)
   free_models TEXT,                         -- โมเดลฟรีไม่จำกัด (JSON [model_id]) ไม่หักลิมิต มีเพดานต่อวัน                          -- ราคารายปี (ว่าง = ไม่มีแบบรายปี)

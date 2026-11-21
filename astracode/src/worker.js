@@ -28,7 +28,7 @@ const cachedModels = async (env, planId) => {
 async function pricingBody(env) {
     const [ms, ps, pm] = await Promise.all([
       env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort,id').all(),
-      env.DB.prepare('SELECT id,name,price,limit_week FROM plans WHERE active=1 ORDER BY sort').all(),
+      env.DB.prepare('SELECT id,name,price,limit_week,compare,seats,once FROM plans WHERE active=1 ORDER BY sort').all(),
       env.DB.prepare('SELECT * FROM plan_models').all(),
     ]);
     let official = {}; try { official = JSON.parse(await getSetting(env, 'official_prices') || '{}') || {}; } catch { /* ค่าเสีย ไม่แสดงเทียบ */ }
@@ -45,7 +45,7 @@ async function pricingBody(env) {
     };
 }
 async function plansBody(env) {
-  const plans = (await env.DB.prepare('SELECT id,name,price,price_year,days,once,description,limit_week,seats,shared_pool,api_limit,free_models,per_seat FROM plans WHERE active=1 ORDER BY sort').all()).results;
+  const plans = (await env.DB.prepare('SELECT id,name,price,price_year,days,once,description,limit_week,seats,shared_pool,api_limit,free_models,per_seat,compare FROM plans WHERE active=1 ORDER BY sort').all()).results;
   const [featured, lists] = await Promise.all([getSetting(env, 'featured_plan'), Promise.all(plans.map(p => allowedModels(env, p.id)))]);
   const free = plans.find(p => !(p.price > 0))?.limit_week || 0;
   plans.forEach((p, i) => { // ประมาณจำนวนข้อความ/สัปดาห์ ตามต้นทุนจริงของ 1 ข้อความทั่วไป
