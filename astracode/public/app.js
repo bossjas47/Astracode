@@ -1147,7 +1147,13 @@ function promoStrip() { // โปรเติม Wallet แถม %: แถบ�
   b.querySelector('button').onclick = () => { try { localStorage.setItem('tpromo', String(tp.end)); } catch { /* ไม่มีที่เก็บ */ } b.remove(); };
   app.prepend(b);
 }
-function banner() { promoStrip(); // ประกาศจากแอดมิน: ปิดได้ จำไว้ว่าปิดข้อความไหน · โปรเพิ่มลิมิตที่ยังไม่หมดเขต แสดงก่อน (หายเองเมื่อหมดโปร)
+function trialStrip() { // คนทดลองใกล้หมด/หมดแล้ว: โค้ดอัปเกรด (จาก /api/me)
+  const o = me?.trial_offer; if (!o || pageName() === 'plans') return;
+  const left = Math.ceil((o.trial_end - Date.now()) / 864e5), b = document.createElement('div'); b.className = 'ann promo';
+  b.innerHTML = `<span>${ic('sparkles', 'sm')} ${left > 0 ? `แพลนทดลองเหลือ ${left} วัน` : 'แพลนทดลองหมดแล้ว'} · อัปเกรดลด ${o.pct}% ด้วยโค้ด <b>${esc(o.code)}</b> · <a href="/plans?coupon=${encodeURIComponent(o.code)}">เลือกแพลน</a></span>`;
+  app.prepend(b);
+}
+function banner() { trialStrip(); promoStrip(); // ประกาศจากแอดมิน: ปิดได้ จำไว้ว่าปิดข้อความไหน · โปรเพิ่มลิมิตที่ยังไม่หมดเขต แสดงก่อน (หายเองเมื่อหมดโปร)
   const t = promoOn() ? (site.promo.label || `โปรเดือนนี้: ทุกแพลนใช้งานได้ x${site.promo.x4h} ในรอบ 4 ชม. (ลิมิตสัปดาห์ x${site.promo.xweek})`) + ` ถึง ${promoEnd()}` : site.announcement; if (!t || localStorage.getItem('ann') === t || ['admin', 'code', 'receipt'].includes(pageName())) return;
   const b = document.createElement('div'); b.className = 'ann ' + (site.announcement_level || 'info');
   b.innerHTML = `<span>${promoOn() ? ic('sparkles', 'sm') + ' ' : ''}${inline(esc(t.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, '')))}</span><button aria-label="ปิดประกาศ">${ic('x')}</button>`;

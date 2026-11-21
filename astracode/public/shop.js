@@ -49,7 +49,7 @@ async function plansPage() {
         ${cmpTable(plans.filter(x => aud === 'team' ? x.seats > 1 : x.seats <= 1))}
         ${p ? `<div class="card pay" id="pay" style="text-align:center"><div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : (p.days || 30) + ' วัน'}</div>
           <div class="price" style="margin:8px 0">${coupon?.discount ? `<s class="muted" style="font-size:20px">${fmtPlanPrice(priceOf(p))}</s> ` : ''}${fmtPlanPrice(total)}${getCur() === 'USD' && total > 0 ? `<div class="muted" style="font-size:13px;margin-top:4px">ยอดโอน PromptPay: ฿${baht(total)}</div>` : ''}</div>
-          <form id="cf" class="row" style="max-width:400px;margin:0 auto;flex-wrap:nowrap"><input name="code" placeholder="โค้ดคูปอง" value="${esc(coupon?.code || '')}" autocapitalize="characters"><button class="btn out sm">Apply</button></form>
+          <form id="cf" class="row" style="max-width:400px;margin:0 auto;flex-wrap:nowrap"><input name="code" placeholder="โค้ดคูปอง" value="${esc(coupon?.code || qs().get('coupon') || '')}" autocapitalize="characters"><button class="btn out sm">Apply</button></form>
           <div class="err" id="ce"></div>
           ${me.balance >= total && total > 0 ? `<button class="btn blue" id="wpay" style="margin:12px 0">Pay with Wallet (฿${baht(me.balance)})</button><p class="muted">หรือโอนผ่าน PromptPay</p>` : ''}
           ${total > 0 ? qr(total) + slipForm('ส่งสลิป') : '<button class="btn blue" id="free" style="margin-top:12px">Activate free plan with coupon</button>'}</div>`

@@ -185,3 +185,17 @@ test('Claude credit reminder: 5 days before expiry, once, only when ≥ ฿5 is 
   assert.equal(await remindClaudeCredits(t.env), 1);
   assert.equal(await remindClaudeCredits(t.env), 0, 'only once');
 });
+
+test('trial offers: 2 days before the trial ends a one-use 20% code is sent once; after expiry one reminder; /api/me shows it', async () => {
+  const { trialOffers } = await import('../src/trial.js');
+  const t = await makeEnv(), trial = addPlan(t.DB, { price: 69 }), u = await t.user();
+  t.DB.raw.prepare('UPDATE plans SET once=1, days=7 WHERE id=?').run(trial.id);
+  t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(trial.id, Date.now() + 864e5, u.id);
+  assert.equal(await trialOffers(t.env), 1);
+  assert.equal(await trialOffers(t.env), 0, 'once');
+  const c = t.DB.raw.prepare("SELECT * FROM coupons WHERE code LIKE 'UP%'").get();
+  assert.equal(c.value, 20); assert.equal(c.max_uses, 1);
+  const me = (await t.json('/api/me', { cookie: u.cookie })).data; assert.equal(me.trial_offer.code, c.code);
+  assert.equal(await trialOffers(t.env, Date.now() + 2 * 864e5), 1, 'reminder after the trial ended');
+  assert.equal(await trialOffers(t.env, Date.now() + 2 * 864e5 + 3600e3), 0, 'reminder once');
+});
