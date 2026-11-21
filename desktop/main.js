@@ -405,7 +405,7 @@ async function runTask(o = {}, sender) {
       if (mode === 'plan' && kind === 'edit') return 'Error: โหมดวางแผน สร้างไฟล์ไม่ได้';
       if (!await approve(a, { name, kind, args, outside: out, danger: false, cwd: a.ws.cwd })) return 'Error: ผู้ใช้ไม่อนุญาต';
       if (kind === 'read') return readDocument(f);
-      await a.ws.keep(f); const r = await makeDocument(f, args, { pdf: htmlToPdf }); a.outputs.add(a.ws.rel(f)); return r;
+      await a.ws.keep(f); const r = await makeDocument(f, args, { pdf: htmlToPdf, root: a.ws.root }); a.outputs.add(a.ws.rel(f)); return r;
     }
     if (name.startsWith('rmcp_')) return remoteCall(name, args);
     if (mcp?.has(name)) return mcp.call(name, args);
