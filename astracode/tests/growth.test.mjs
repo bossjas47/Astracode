@@ -199,3 +199,14 @@ test('trial offers: 2 days before the trial ends a one-use 20% code is sent once
   assert.equal(await trialOffers(t.env, Date.now() + 2 * 864e5), 1, 'reminder after the trial ended');
   assert.equal(await trialOffers(t.env, Date.now() + 2 * 864e5 + 3600e3), 0, 'reminder once');
 });
+
+test('admin profit: accounts marked no_report (and staff) are left out; model table has users and speed', async () => {
+  const t = await makeEnv(), adm = await t.user({ role: 'admin' }), a = await t.user(), b = await t.user(), m = addModel(t.DB, { name: 'M', base_url: 'http://x' });
+  const ins = t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft) VALUES (?,?,10,100,0,1,?,?,2000,1000)');
+  ins.run(a.id, m.id, 3, Date.now()); ins.run(b.id, m.id, 5, Date.now());
+  const p1 = (await t.json('/api/admin/profit?days=7', { cookie: adm.cookie })).data;
+  assert.equal(p1.total.cost, 8); const row = p1.models.find(x => x.id === m.id); assert.equal(row.users, 2); assert.equal(row.ttft, 1000); assert.equal(Math.round(row.tps), 100);
+  assert.equal((await t.json('/api/admin/users/' + b.id, { method: 'PUT', cookie: adm.cookie, body: { no_report: true } })).status, 200);
+  const p2 = (await t.json('/api/admin/profit?days=7', { cookie: adm.cookie })).data;
+  assert.equal(p2.total.cost, 3, 'marked account left out'); assert.equal(p2.models.find(x => x.id === m.id).users, 1);
+});

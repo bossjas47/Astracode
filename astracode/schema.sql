@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
   , bill_info TEXT                        -- ข้อมูลผู้ซื้อในใบเสร็จ (JSON: name, address, tax_id)
   , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
   , wallet_day_cap REAL                   -- เพดานใช้ Wallet ต่อวัน (บาท) ที่ผู้ใช้ตั้งเอง
+  , no_report INTEGER                      -- 1 = ไม่นับในรายงานรายได้/กำไร (บัญชีแอดมิน/ทดสอบ)
   , cc_first INTEGER                       -- 1 = ใช้เครดิต Claude ที่แถมก่อนลิมิต (ว่าง = ลิมิตก่อน)
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
   , auto_memory INTEGER                    -- 1 = ให้ AI บันทึกความจำเอง (ค่าเริ่มต้นปิด)
@@ -267,6 +268,7 @@ CREATE TABLE IF NOT EXISTS users (
   , bill_info TEXT                        -- ข้อมูลผู้ซื้อในใบเสร็จ (JSON: name, address, tax_id)
   , vercel_token TEXT                     -- token Vercel ของผู้ใช้ (เข้ารหัสด้วย SECRET_KEY) สำหรับ deploy โปรเจกต์ Code
   , wallet_day_cap REAL                   -- เพดานใช้ Wallet ต่อวัน (บาท) ที่ผู้ใช้ตั้งเอง
+  , no_report INTEGER                      -- 1 = ไม่นับในรายงานรายได้/กำไร (บัญชีแอดมิน/ทดสอบ)
   , cc_first INTEGER                       -- 1 = ใช้เครดิต Claude ที่แถมก่อนลิมิต (ว่าง = ลิมิตก่อน)
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
   , auto_memory INTEGER                    -- 1 = ให้ AI บันทึกความจำเอง (ค่าเริ่มต้นปิด)

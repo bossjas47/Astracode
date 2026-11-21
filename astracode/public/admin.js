@@ -342,6 +342,9 @@ const ADMIN = {
     clearTimeout(ADMIN._lvT); ADMIN._lvT = setTimeout(() => { if (box.isConnected && !document.querySelector('.sheet-bg') && !box.querySelector('input:focus')) ADMIN.live(box).catch(() => {}); }, 30e3);
   },
   async profit(box) {
+    const famOf = n => /uncen/i.test(n) ? 'Uncen' : /claude|haiku|sonnet|opus|fable/i.test(n) ? 'Claude' : /gemini/i.test(n) ? 'Gemini' : /deepseek/i.test(n) ? 'DeepSeek' : /chatgpt|gpt/i.test(n) ? 'ChatGPT' : 'อื่น ๆ';
+    window.famHTML = ms => { const f = new Map(), all = ms.reduce((s, x) => s + x.n, 0) || 1, cost = ms.reduce((s, x) => s + x.cost, 0) || 1; ms.forEach(m => { const k = famOf(m.name || ''), o = f.get(k) || { n: 0, cost: 0 }; o.n += m.n; o.cost += m.cost; f.set(k, o); });
+      return `<div class="kpis sm">${[...f.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, o]) => `<div class="kpi"><div class="muted">${k}</div><div class="stat">${Math.round(o.n / all * 100)}%</div><div class="kd muted">ข้อความ ${num(o.n)} · ต้นทุน ${Math.round(o.cost / cost * 100)}%</div></div>`).join('')}</div>`; };
     const days = +(localStorage.getItem('adm-pdays') || 30), d = await api('/admin/profit?days=' + days), t = d.total, w = d.wallet;
     const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '-', cls = v => v < -0.005 ? 'bad' : v > 0.005 ? 'ok' : 'muted';
     box.innerHTML = `<div class="seg" role="group" aria-label="ช่วงเวลา">${[7, 30, 90, 365].map(x => `<button data-d="${x}" class="${x === days ? 'on' : ''}">${x} วัน</button>`).join('')}</div>
@@ -356,6 +359,10 @@ const ADMIN = {
         <div class="tw"><table class="tbl"><tr><th>แพลน</th><th>สมาชิกตอนนี้</th><th>รายได้</th><th>ต้นทุน</th><th>กำไร</th><th>ต้นทุน/คน</th></tr>
         ${d.plans.map(p => `<tr><td>${esc(p.name)} <span class="muted">${p.price ? '฿' + baht(p.price) : 'ฟรี'}</span></td><td>${num(p.subs)}</td><td>฿${baht(p.rev)}</td><td>฿${baht(p.cost)}</td><td class="${cls(p.rev - p.cost)}">฿${baht(p.rev - p.cost)}</td><td>${p.subs ? '฿' + baht(p.cost / p.subs) : '-'}${p.price && p.subs && p.cost / p.subs > p.price * days / 30 ? ' <span class="bad">เกินค่าแพลน</span>' : ''}</td></tr>`).join('')}</table></div>
         <p class="muted">ต้นทุนนับตามแพลนปัจจุบันของผู้ใช้ · แพลนฟรีไม่มีรายได้ ต้นทุนคือค่าโปรโมต</p></section>
+      <section class="panel"><div class="ph"><h2>โมเดลยอดนิยมและความเร็ว</h2><span class="muted">${days} วัน · ไม่นับบัญชีแอดมิน/ที่ติ๊กไม่นับ</span></div>
+        ${famHTML(d.models || [])}
+        <div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ผู้ใช้</th><th>ข้อความ</th><th>% ข้อความ</th><th>รอตัวแรก</th><th>ทั้งคำตอบ</th><th>token/วิ</th></tr>
+        ${[...(d.models || [])].sort((a, b) => (b.users || 0) - (a.users || 0) || b.n - a.n).slice(0, 25).map(m => `<tr><td>${esc(m.name || '#' + m.id)}</td><td><b>${num(m.users || 0)}</b></td><td>${num(m.n)}</td><td>${pct(m.n, (d.models || []).reduce((s, x) => s + x.n, 0))}</td><td>${m.ttft ? (m.ttft / 1000).toFixed(1) + ' วิ' : '-'}</td><td>${m.ms ? (m.ms / 1000).toFixed(1) + ' วิ' : '-'}</td><td>${m.tps ? Math.round(m.tps) : '-'}</td></tr>`).join('')}</table></div></section>
       <section class="panel"><div class="ph"><h2>ต้นทุนจริงต่อโมเดล</h2><span class="muted">${days} วัน</span></div>
         <div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>คำขอ</th><th>ต้นทุน</th><th>% ของต้นทุนรวม</th><th>token เข้า</th><th>cache</th><th>ออก</th></tr>
         ${(d.models || []).map(m => `<tr><td>${esc(m.name || '#' + m.id)}</td><td>${num(m.n)}</td><td>฿${baht(m.cost)}</td><td>${pct(m.cost, t.cost)}</td><td>${num(m.tin)}</td><td>${num(m.tcache)}</td><td>${num(m.tout)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">ยังไม่มีการใช้งาน</td></tr>'}</table></div></section>
@@ -762,7 +769,7 @@ async function userDrawer(id, after) {
     <h3>จัดการ</h3>
     <label>เปลี่ยนแพลน (30 วันนับจากวันนี้)</label><div class="row"><select id="dp" style="flex:1"><option value="">Free</option>${plans.filter(p => p.price > 0).map(p => `<option value="${p.id}" ${p.id === u.plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn blue sm" id="dps">Choose plan</button></div>
     <label>รีเซ็ตลิมิต</label><div class="row"><select id="dscope" style="flex:1"><option value="all">ทั้งหมด (ทุกโมเดล)</option>${vendors.map(v => `<option value="v:${esc(v)}">ค่าย ${esc(v)} (ทุกโมเดลของค่ายนี้)</option>`).join('')}${allModels.map(m => `<option value="m:${m.id}">โมเดล ${esc(m.name)}</option>`).join('')}</select><button class="btn out sm" id="dr">Reset</button></div>
-    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dpw">Log out all devices</button><button class="btn red sm" id="db">${u.banned ? 'Unban' : 'Ban'}</button>${u.email === me.email || me.role !== 'admin' ? '' : `<select id="drole" style="width:auto" aria-label="สิทธิ์">${[['user', 'ผู้ใช้ทั่วไป'], ['viewer', 'แอดมิน: ดูอย่างเดียว'], ['support', 'แอดมิน: ดูแลลูกค้า'], ['admin', 'แอดมินหลัก (ทุกอย่าง)']].map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`}</div>
+    <div class="row" style="margin-top:12px"><button class="btn out sm" id="dpw">Log out all devices</button><label class="row" style="gap:6px;margin-left:8px;font-size:13px"><input type="checkbox" id="dnorep" style="width:auto" ${u.no_report ? 'checked' : ''}> ไม่นับในรายงานรายได้/กำไร</label><button class="btn red sm" id="db">${u.banned ? 'Unban' : 'Ban'}</button>${u.email === me.email || me.role !== 'admin' ? '' : `<select id="drole" style="width:auto" aria-label="สิทธิ์">${[['user', 'ผู้ใช้ทั่วไป'], ['viewer', 'แอดมิน: ดูอย่างเดียว'], ['support', 'แอดมิน: ดูแลลูกค้า'], ['admin', 'แอดมินหลัก (ทุกอย่าง)']].map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`}</div>
     <h3>ประวัติรีเซ็ตลิมิต</h3><div class="tw">${resetLogTable(rlog, false)}</div>
     <p class="ok" id="dmsg"></p></aside>`;
   document.body.append(d);
@@ -777,6 +784,7 @@ async function userDrawer(id, after) {
     put(scope ? { reset_usage: true, scope } : { reset_usage: true }, 'รีเซ็ตลิมิตแล้ว: ' + label);
   };
   d.querySelector('#dcs').onclick = async () => { const v = +d.querySelector('#dcr').value; if (!v || !await confirmSheet(`ปรับ Wallet ${v > 0 ? '+' : ''}${v} บาท?`, { title: 'ปรับยอด Wallet', ok: 'Confirm' })) return; await put({ credit: v, note: d.querySelector('#dcn').value }, 'ปรับยอดแล้ว'); setTimeout(() => userDrawer(id, after), 500); };
+  d.querySelector('#dnorep').onchange = e => put({ no_report: e.target.checked }, e.target.checked ? 'ไม่นับบัญชีนี้ในรายงานแล้ว' : 'นับบัญชีนี้ในรายงาน');
   d.querySelector('#dpw').onclick = async () => { if (await confirmSheet('ให้ผู้ใช้นี้ออกจากระบบทุกเครื่อง?', { title: 'บังคับออกจากระบบ', ok: 'Confirm' })) put({ logout: 1 }, 'ออกจากระบบทุกเครื่องแล้ว'); };
   d.querySelector('#drole')?.addEventListener('change', async e => { const v = e.target.value, txt = { admin: 'เข้าหลังบ้านได้ทุกอย่าง (เงิน ผู้ใช้ ตั้งค่า)', support: 'ดูแลลูกค้า: อนุมัติสลิป ตอบติดต่อ ดูผู้ใช้', viewer: 'ดูข้อมูลหลังบ้านได้อย่างเดียว', user: 'ถอดสิทธิ์หลังบ้าน' }[v];
     if (await confirmSheet(`${u.email}: ${txt}?${v !== 'user' ? ' ต้องใช้รหัสหลังบ้านเดียวกับคุณ' : ''}`, { title: 'เปลี่ยนสิทธิ์', ok: 'Confirm', danger: v === 'admin' })) { await put({ role: v }, 'เปลี่ยนสิทธิ์แล้ว'); setTimeout(() => userDrawer(id, after), 600); } else e.target.value = u.role; });

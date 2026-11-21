@@ -11,12 +11,13 @@ import { ensureAgentTable, launch, workerModel } from './agent.js';
 // rev (รายได้ที่แสดง) = เงินที่โอนเข้าจริง: ค่าแพลน + เติม Wallet (ไม่นับแพลนที่จ่ายจาก Wallet/คูปองซ้ำ)
 // earned (ใช้คิดกำไร) = ค่าแพลนที่อนุมัติทุกช่องทาง + เงินที่หักจาก Wallet เป็นค่าใช้จริง (API / เกินลิมิต / แพ็ก) · เงินเติมที่ยังไม่ใช้ไม่นับเป็นกำไร
 export const WALLET_SPEND = "('api','overflow','agentpack','wallet')";
+const NOREP = "user_id NOT IN (SELECT id FROM users WHERE no_report=1 OR role<>'user')"; // บัญชีที่ไม่นับในรายงาน (แอดมิน/ทีม/ติ๊กไว้)
 export async function revenueByDay(DB, from, to = 9e15) {
   const day = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`, at = 'COALESCE(approved_at,created_at)';
   const [pl, wl, tp] = await Promise.all([
-    DB.prepare(`SELECT ${day(at)} d, SUM(amount) v FROM payments WHERE kind='plan' AND status='approved' AND ${at}>=? AND ${at}<? GROUP BY d`).bind(from, to).all(),
-    DB.prepare(`SELECT ${day('created_at')} d, -SUM(amount) v FROM wallet_tx WHERE kind IN ${WALLET_SPEND} AND created_at>=? AND created_at<? GROUP BY d`).bind(from, to).all(),
-    DB.prepare(`SELECT ${day(at)} d, SUM(amount) v FROM payments WHERE status='approved' AND kind IN ('plan','topup') AND COALESCE(slip_key,'') NOT IN ('wallet','coupon') AND ${at}>=? AND ${at}<? GROUP BY d`).bind(from, to).all(),
+    DB.prepare(`SELECT ${day(at)} d, SUM(amount) v FROM payments WHERE kind='plan' AND status='approved' AND ${NOREP} AND ${at}>=? AND ${at}<? GROUP BY d`).bind(from, to).all(),
+    DB.prepare(`SELECT ${day('created_at')} d, -SUM(amount) v FROM wallet_tx WHERE kind IN ${WALLET_SPEND} AND ${NOREP} AND created_at>=? AND created_at<? GROUP BY d`).bind(from, to).all(),
+    DB.prepare(`SELECT ${day(at)} d, SUM(amount) v FROM payments WHERE status='approved' AND ${NOREP} AND kind IN ('plan','topup') AND COALESCE(slip_key,'') NOT IN ('wallet','coupon') AND ${at}>=? AND ${at}<? GROUP BY d`).bind(from, to).all(),
   ]);
   const m = new Map(), put = (rows, k) => rows.results.forEach(r => { const o = m.get(r.d) || { d: r.d, plan: 0, wallet: 0, cash: 0 }; o[k] += r.v || 0; m.set(r.d, o); });
   put(pl, 'plan'); put(wl, 'wallet'); put(tp, 'cash');
@@ -180,7 +181,7 @@ export async function admin(req, env, path, url, me) {
   }
   if (path === '/api/admin/users') {
     const q = '%' + (url.searchParams.get('q') || '') + '%';
-    return json((await DB.prepare(`SELECT u.id,u.email,u.role,u.plan_id,u.plan_expires,u.banned,u.created_at,p.name plan_name,
+    return json((await DB.prepare(`SELECT u.id,u.email,u.role,u.no_report,u.plan_id,u.plan_expires,u.banned,u.created_at,p.name plan_name,
       (SELECT MAX(created_at) FROM usage WHERE user_id=u.id) last_active,
       (SELECT COALESCE(SUM(tokens_in+tokens_out+tokens_cache),0) FROM usage WHERE user_id=u.id AND created_at>?2) tok30
       FROM users u LEFT JOIN plans p ON p.id=u.plan_id WHERE u.email LIKE ?1 ORDER BY u.id DESC LIMIT 100`).bind(q, Date.now() - 30 * DAY).all()).results);
@@ -189,6 +190,7 @@ export async function admin(req, env, path, url, me) {
     const b = await req.json();
     await ctxAudit('update user', { id: +r[1], ...b });
     if (b.credit) { const v = Math.round(+b.credit * 100) / 100; if (!v) return err('จำนวนเงินไม่ถูกต้อง'); await walletAdd(env, +r[1], v, 'admin', String(b.note || '').slice(0, 100) || null); }
+    if ('no_report' in b) await DB.prepare('UPDATE users SET no_report=? WHERE id=?').bind(b.no_report ? 1 : null, r[1]).run(); // ไม่นับในรายงาน
     if (b.logout) await DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(r[1]).run(); // รหัสผ่านอยู่ใน Firebase ผู้ใช้รีเซ็ตเองที่หน้าเข้าสู่ระบบ
     let scopedRows = null;
     if (b.reset_usage) {
@@ -364,26 +366,26 @@ export async function admin(req, env, path, url, me) {
     const [plans, users, w] = await Promise.all([
       DB.prepare(`SELECT p.id,p.name,p.price,
         (SELECT COUNT(*) FROM users u WHERE u.banned=0 AND COALESCE(CASE WHEN u.plan_expires>?1 THEN u.plan_id END, ?3)=p.id) subs,
-        (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.plan_id=p.id AND x.kind='plan' AND x.status='approved' AND COALESCE(x.approved_at,x.created_at)>=?2) rev,
-        (SELECT COALESCE(SUM(g.cost),0) FROM usage g JOIN users u ON u.id=g.user_id WHERE g.created_at>=?2 AND g.units>0 AND COALESCE(CASE WHEN u.plan_expires>?1 THEN u.plan_id END, ?3)=p.id) cost
+        (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.plan_id=p.id AND x.${NOREP} AND x.kind='plan' AND x.status='approved' AND COALESCE(x.approved_at,x.created_at)>=?2) rev,
+        (SELECT COALESCE(SUM(g.cost),0) FROM usage g JOIN users u ON u.id=g.user_id WHERE g.created_at>=?2 AND g.units>0 AND COALESCE(u.no_report,0)=0 AND u.role='user' AND COALESCE(CASE WHEN u.plan_expires>?1 THEN u.plan_id END, ?3)=p.id) cost
         FROM plans p ORDER BY p.sort`).bind(now, from, free).all(),
       DB.prepare(`SELECT u.id,u.email,pl.name plan,
         COALESCE((SELECT SUM(cost) FROM usage WHERE user_id=u.id AND created_at>=?1),0) cost,
         COALESCE((SELECT SUM(amount) FROM payments WHERE user_id=u.id AND kind='plan' AND status='approved' AND COALESCE(approved_at,created_at)>=?1),0) rev_plan,
         COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE user_id=u.id AND kind IN ('api','overflow','agentpack','wallet') AND created_at>=?1),0) rev_wallet
         FROM users u LEFT JOIN plans pl ON pl.id=u.plan_id AND u.plan_expires>?2
-        WHERE EXISTS (SELECT 1 FROM usage WHERE user_id=u.id AND created_at>=?1) OR EXISTS (SELECT 1 FROM payments WHERE user_id=u.id AND status='approved' AND created_at>=?1)`).bind(from, now).all(),
-      DB.prepare(`SELECT COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND created_at>=?1),0) charges,
-        COALESCE((SELECT SUM(cost) FROM usage WHERE units=0 AND model_id>0 AND created_at>=?1),0) api_cost,
-        COALESCE((SELECT SUM(amount) FROM payments WHERE kind='topup' AND status='approved' AND COALESCE(approved_at,created_at)>=?1),0) topups,
+        WHERE COALESCE(u.no_report,0)=0 AND u.role='user' AND (EXISTS (SELECT 1 FROM usage WHERE user_id=u.id AND created_at>=?1) OR EXISTS (SELECT 1 FROM payments WHERE user_id=u.id AND status='approved' AND created_at>=?1))`).bind(from, now).all(),
+      DB.prepare(`SELECT COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND ${NOREP} AND created_at>=?1),0) charges,
+        COALESCE((SELECT SUM(cost) FROM usage WHERE units=0 AND model_id>0 AND ${NOREP} AND created_at>=?1),0) api_cost,
+        COALESCE((SELECT SUM(amount) FROM payments WHERE kind='topup' AND status='approved' AND ${NOREP} AND COALESCE(approved_at,created_at)>=?1),0) topups,
         COALESCE((SELECT SUM(balance) FROM users WHERE balance>0),0) liability`).bind(from).first(),
     ]);
     const us = users.results.map(x => ({ ...x, rev: x.rev_plan + x.rev_wallet, profit: x.rev_plan + x.rev_wallet - x.cost })).sort((a, b) => a.profit - b.profit);
     const revDays = await revenueByDay(DB, from), R = sumRev(revDays), rev = R.rev, earned = R.earned;
     const dayOf = c => `CAST((${c}+${BKK})/${DAY} AS INTEGER)`;
     const [pm, pd] = await Promise.all([ // ต้นทุนจริงต่อโมเดล · ต้นทุนรายวัน (เวลาไทย)
-      DB.prepare('SELECT g.model_id id, md.name, COUNT(*) n, COALESCE(SUM(g.cost),0) cost, COALESCE(SUM(g.tokens_in),0) tin, COALESCE(SUM(g.tokens_out),0) tout, COALESCE(SUM(g.tokens_cache),0) tcache FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? AND g.model_id>0 GROUP BY g.model_id ORDER BY cost DESC').bind(from).all(),
-      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(SUM(cost),0) cost FROM usage WHERE created_at>=? GROUP BY d`).bind(from).all(),
+      DB.prepare(`SELECT g.model_id id, md.name, COUNT(*) n, COUNT(DISTINCT g.user_id) users, AVG(CASE WHEN g.ttft>0 THEN g.ttft END) ttft, AVG(CASE WHEN g.ms>0 THEN g.ms END) ms, SUM(CASE WHEN g.ms>g.ttft AND g.ttft>0 THEN g.tokens_out END)*1000.0/NULLIF(SUM(CASE WHEN g.ms>g.ttft AND g.ttft>0 THEN g.ms-g.ttft END),0) tps, COALESCE(SUM(g.cost),0) cost, COALESCE(SUM(g.tokens_in),0) tin, COALESCE(SUM(g.tokens_out),0) tout, COALESCE(SUM(g.tokens_cache),0) tcache FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.created_at>=? AND g.${NOREP} AND g.model_id>0 GROUP BY g.model_id ORDER BY cost DESC`).bind(from).all(),
+      DB.prepare(`SELECT ${dayOf('created_at')} d, COALESCE(SUM(cost),0) cost FROM usage WHERE created_at>=? AND ${NOREP} GROUP BY d`).bind(from).all(),
     ]);
     const cost = pd.results.reduce((a, r) => a + r.cost, 0); // ต้นทุนรวมเท่ากับหน้าภาพรวม (ทุกแถวใน usage ช่วงเดียวกัน)
     const dayMap = new Map([...revDays.values()].map(o => [o.d, { d: o.d, cost: 0, rev: o.rev, earned: o.earned }])); pd.results.forEach(r => { const o = dayMap.get(r.d) || { d: r.d, cost: 0, rev: 0, earned: 0 }; o.cost += r.cost; dayMap.set(r.d, o); });
