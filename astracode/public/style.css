@@ -1791,3 +1791,20 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .repo-it:hover { background: rgba(var(--ov, 255,255,255), .05); }
 .repo-it span { display: flex; flex-direction: column; min-width: 0; flex: 1; } .repo-it b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repo-it small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .repo-it .pill { font-style: normal; flex: none; }
+/* ต้นไม้ไฟล์ (โหมด Code): เส้นแนวตั้งต่อระดับโฟลเดอร์ ให้เห็นว่าไฟล์อยู่ในโฟลเดอร์ไหน · แถวเตี้ยลงครึ่งหนึ่ง
+   (คลาส .trow ใช้ร่วมกับเมนูเครื่องมือในแชตที่มี padding ใหญ่ จึงต้องกำหนดเฉพาะใน #tree) */
+#tree .trow { gap: 2px; padding-top: 0; padding-bottom: 0; padding-right: 0; border-radius: 6px; min-height: 26px;
+  background-image: repeating-linear-gradient(90deg, transparent 0 7px, var(--hair) 7px 8px, transparent 8px 14px);
+  background-size: calc(var(--d, 0) * 14px) 100%; background-repeat: no-repeat; background-position: 6px 0; }
+#tree .trow:hover { background-color: rgba(var(--ov), .05); }
+#tree .tname, .ide #tree .tname, .ide .ide-files #tree .tname { min-height: 26px; padding: 2px 4px; font-size: 13px; line-height: 1.3; gap: 4px; }
+#tree .tname .ic { width: 15px; height: 15px; }
+#tree .tmore, .ide #tree .tmore { width: 26px; height: 26px; min-height: 26px; opacity: .6; }
+
+/* หน้า New project (โหมด Code): ชิปเลือก repo เหนือช่องพิมพ์ แบบ Claude Code */
+.repo-row { display: flex; gap: 8px; width: 100%; max-width: 720px; margin: 0 auto 8px; }
+.repo-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border: 1px solid var(--hair); border-radius: 999px; background: none; color: var(--ash); font: 500 14px var(--font); cursor: pointer; max-width: 100%; }
+.repo-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-chip.on { color: var(--porcelain); border-color: var(--steel); }
+.repo-chip .rc-x { display: inline-flex; margin-left: 2px; opacity: .6; }
+.repo-chip .rc-x:hover { opacity: 1; }

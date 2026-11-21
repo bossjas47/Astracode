@@ -29,10 +29,9 @@ const nameFor = t => { // ชื่อโปรเจกต์จากบรร
 async function codeHome() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
   document.title = 'Code · ASTRACODE';
-  let tpl = 'auto';
-  const tplName = () => TPLS.find(x => x[0] === tpl)[1];
   const host = codeHost(); host.innerHTML = `<div class="cs-wrap"><div class="bar cs-bar"><button class="menu-btn" type="button" data-side aria-label="เมนู">${ic('menu')}</button><div class="ctitle"><b>Code</b></div><button class="lim" data-lim aria-label="ลิมิตการใช้งาน">${limHTML(me.usage || {})}</button></div><div class="cstart"><div class="cs-in">
     <h1 class="cs-h">What should we build?</h1>
+    <div class="repo-row"><button type="button" class="repo-chip" id="nrepo"></button></div>
     <form class="cbox cs-box" id="nf"><textarea id="nt" rows="3" placeholder="อธิบายสิ่งที่อยากสร้าง เช่น เว็บร้านกาแฟ มีเมนูและปุ่มสั่งซื้อ" aria-label="สิ่งที่อยากสร้าง" maxlength="4000"></textarea>
       <div id="nflags" class="cflags"></div>
       <div class="crow"><button type="button" class="cb" id="nplus" aria-label="เครื่องมือและตัวเลือก" aria-haspopup="dialog">${ic('plus')}</button><button type="button" class="cb pick" id="nmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="neff" aria-haspopup="dialog"></button>
@@ -45,7 +44,6 @@ async function codeHome() {
   </div></div></div>`;
   host.querySelector('[data-side]').onclick = () => openSide(); host.querySelector('[data-lim]').onclick = limitSheet;
   if (!window.CM && !window.DEMO) setTimeout(() => prefetch('/cm.js'), 1500); // ตัวแก้โค้ดพร้อมก่อนกดส่ง
-  try { if (!localStorage.getItem('codeRepoAsk') && !window.DEMO) { localStorage.setItem('codeRepoAsk', '1'); setTimeout(() => { if (!document.querySelector('.sheet-bg')) cloneSheet(true); }, 300); } } catch { /* ไม่มีที่เก็บ: ไม่ถาม */ }
   const ta = $('#nt'), grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 260) + 'px'; };
   ta.oninput = grow; if (!isPhone()) ta.focus();
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isPhone()) { e.preventDefault(); $('#nf').requestSubmit(); } };
@@ -58,13 +56,13 @@ async function codeHome() {
     $('#neff').hidden = !efs.length;
     if (efs.length && !efs.includes($('#neffort').value)) $('#neffort').value = efs[0];
     $('#neff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#neffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
-    $('#nflags').innerHTML = (permOf() !== 'auto' ? `<button type="button" class="flag" data-nf="perm">${ic(PERMS.find(x => x[0] === permOf())[2], 'sm')}${PERMS.find(x => x[0] === permOf())[1]}${ic('x', 'sm')}</button>` : '') + (tpl !== 'auto' ? `<button type="button" class="flag" data-nf="tpl">${ic('layers', 'sm')}${esc(tplName())}${ic('x', 'sm')}</button>` : '')
+    $('#nflags').innerHTML = ''
       + (IDE.cloud ? `<button type="button" class="flag agent-on" data-nf="cloud">${ic('terminal', 'sm')}Agent บนคลาวด์${ic('x', 'sm')}</button>` : '')
       + (IDE.agent ? `<button type="button" class="flag agent-on" data-nf="agent">${ic('sparkles', 'sm')}Agent ON${ic('x', 'sm')}</button>` : '')
       + (_skillsCache ? IDE.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-nf="sk" data-id="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
       + (_mcpCache ? IDE.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-nf="mc" data-id="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
   };
-  IDE.cloud = localStorage.getItem('ccloud') === '1';
+  IDE.cloud = localStorage.getItem('ccloud') === '1' && me?.role === 'admin';
   $('#neffort').value = localStorage.getItem('effort') || '';
   $('#nmodel').onchange = e => { localStorage.setItem('model', e.target.value); ui(); };
   $('#neffort').onchange = e => { localStorage.setItem('effort', e.target.value); ui(); };
@@ -73,30 +71,26 @@ async function codeHome() {
   const setAgent = on => { IDE.agent = on; localStorage.setItem('agent', on ? '1' : '0'); ui(); }, setCloud = on => { IDE.cloud = on; localStorage.setItem('ccloud', on ? '1' : '0'); ui(); };
   $('#nflags').onclick = e => {
     const f = e.target.closest('[data-nf]'); if (!f) return; const k = f.dataset.nf, id = +f.dataset.id;
-    if (k === 'perm') { localStorage.setItem('cperm', 'auto'); ui(); } else if (k === 'tpl') { tpl = 'auto'; ui(); } else if (k === 'agent') setAgent(false); else if (k === 'cloud') setCloud(false);
+    if (k === 'agent') setAgent(false); else if (k === 'cloud') setCloud(false);
     else if (k === 'sk') setSkills(IDE.skills.filter(x => x !== id)); else if (k === 'mc') setMcps(IDE.mcps.filter(x => x !== id));
   };
-  const tplSheet = () => sheet('Template', TPLS.map(([v, t, d]) => optHTML(v, esc(t), esc(d), v === tpl)).join(''), (d, close) => d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = () => { tpl = b.dataset.v; close(); ui(); ta.focus(); }));
-  $('#nplus').onclick = () => sheet('เครื่องมือ', optHTML('tpl', ic('layers') + 'แม่แบบ: ' + esc(tplName()), 'Auto = เลือกให้จากสิ่งที่พิมพ์ หรือเลือกเอง (React, Python, Node.js, เกม ฯลฯ)')
-    + optHTML('perm', ic(PERMS.find(x => x[0] === permOf())[2]) + 'โหมดการทำงาน: ' + PERMS.find(x => x[0] === permOf())[1], 'Auto = แก้และตรวจเอง · Ask = กด Apply เอง · Plan = วางแผนก่อน')
-    + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว): ' + (IDE.agent ? 'เปิด' : 'ปิด'), me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
-    + optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้): ' + (IDE.cloud ? 'เปิด' : 'ปิด'), 'Agent แก้ไฟล์ รัน npm / python / git ทดสอบเองในเครื่องแยก ปิดแอปได้', IDE.cloud)
+  $('#nplus').onclick = () => sheet('เครื่องมือ', optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว): ' + (IDE.agent ? 'เปิด' : 'ปิด'), me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
+    + (me.role === 'admin' ? optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้): ' + (IDE.cloud ? 'เปิด' : 'ปิด'), 'Agent แก้ไฟล์ รัน npm / python / git ทดสอบเองในเครื่องแยก ปิดแอปได้', IDE.cloud) : '') // ใช้แค่แอดมิน: ซ่อนจากลูกค้าให้เมนูสั้นลง
     + optHTML('skl', ic('sparkles') + 'Skills', 'เลือก Skill ให้ AI ใช้ในโหมด Code (สูงสุด 3)')
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
-    + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
     + optHTML('clone', ic('branch') + 'Clone จาก GitHub', 'ดึง repo มาเป็นโปรเจกต์ใหม่')
     + (DESK ? optHTML('local', ic('folder') + 'เปิดโฟลเดอร์ในเครื่อง', 'ไฟล์ในโฟลเดอร์ขึ้นมาเป็นโปรเจกต์ AI แก้ไฟล์จริงในเครื่อง') : ''), (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
     close(); const v = b.dataset.v;
-    if (v === 'tpl') tplSheet();
-    if (v === 'perm') permSheet(permOf(), x => { localStorage.setItem('cperm', x); ui(); });
     if (v === 'agent') { if (!me.plan.paid) return toast('โหมด Agent ใช้ได้กับแพลนที่ชำระเงิน', 'bad'); setAgent(!IDE.agent); }
     if (v === 'cloud') setCloud(!IDE.cloud);
     if (v === 'skl') skillsSheet(IDE.skills, setSkills);
     if (v === 'mcp') mcpSheet(IDE.mcps, setMcps);
-    if (v === 'prm') promptLibSheet(p => { ta.value = p + ta.value; grow(); ta.focus(); });
     if (v === 'clone') cloneSheet();
     if (v === 'local') openLocal();
   }));
+  const repoUI = () => { const rp = codeRepo(), b = $('#nrepo'); b.innerHTML = rp ? `${ic('branch', 'sm')}<span>${esc(rp.repo.split('/').pop())} · ${esc(rp.branch || 'main')}</span><i class="rc-x" data-clear title="ไม่ใช้ repo">${ic('x', 'sm')}</i>` : `${ic('branch', 'sm')}<span>เชื่อม GitHub repo</span>`; b.classList.toggle('on', !!rp); };
+  $('#nrepo').onclick = e => { if (e.target.closest('[data-clear]')) { setCodeRepo(null); return repoUI(); } repoPicker(rp => { setCodeRepo(rp); repoUI(); ta.focus(); }); };
+  repoUI();
   ui(); if (IDE.skills.length) loadSkills().then(ui).catch(() => {}); if (IDE.mcps.length) loadMcps().then(ui).catch(() => {});
   const create = async (body, prompt) => {
     const r = await api('/projects', { method: 'POST', body }); delete sideCache.code; openProject(r.id, prompt);
@@ -104,10 +98,10 @@ async function codeHome() {
   $('#nf').onsubmit = async e => {
     e.preventDefault(); const t = ta.value.trim(); if (!t) return ta.focus();
     const btn = $('#ngo'); btn.disabled = true; $('#ne').textContent = '';
-    try { await create({ name: nameFor(t), template: tpl === 'auto' ? tplFor(t) : tpl }, t); }
+    try { const rp = codeRepo(); if (rp) await cloneRepo(rp, t, $('#ne')); else await create({ name: nameFor(t), template: tplFor(t) }, t); }
     catch (x) { $('#ne').textContent = x.message; btn.disabled = false; }
   };
-  $('#nempty').onclick = async e => { e.target.disabled = true; try { await create({ name: 'โปรเจกต์ใหม่', template: tpl === 'auto' ? 'starter' : tpl }); } catch (x) { $('#ne').textContent = x.message; e.target.disabled = false; } };
+  $('#nempty').onclick = async e => { e.target.disabled = true; try { await create({ name: 'โปรเจกต์ใหม่', template: 'starter' }); } catch (x) { $('#ne').textContent = x.message; e.target.disabled = false; } };
   $('#nall').onclick = projectsSheet;
   const openLocal = async () => { // โปรเจกต์ใหม่ที่ผูกกับโฟลเดอร์ในเครื่อง: ไฟล์ในโฟลเดอร์ขึ้นมาเป็นไฟล์ในโปรเจกต์
     try {
@@ -137,31 +131,50 @@ function projectsSheet() {
     });
   })).catch(x => toast(x.message, 'bad'));
 }
-// first = เข้าหน้า Code ครั้งแรก: ชวนเชื่อม repo ทันที · เชื่อม GitHub แล้วมีรายการ repo ให้แตะเลือก
-async function cloneSheet(first = false) {
+// repo ที่เลือกไว้บนหน้า New project (แบบ Claude Code: ชิปเหนือช่องพิมพ์) · จำไว้ต่อเครื่อง
+const codeRepo = () => { try { const r = JSON.parse(localStorage.getItem('codeRepo') || 'null'); return r?.repo ? r : null; } catch { return null; } };
+const setCodeRepo = r => { try { r ? localStorage.setItem('codeRepo', JSON.stringify(r)) : localStorage.removeItem('codeRepo'); } catch { /* ไม่มีที่เก็บ */ } };
+// เลือก repo: รายการ repo ของผู้ใช้ (แตะเดียว) หรือพิมพ์เอง · ยังไม่เชื่อม GitHub ใส่ token ได้ในหน้าต่างเดียวกัน · onPick({ repo, branch, size })
+async function repoPicker(onPick, title = 'เลือก GitHub repo') {
   const g = await api('/github').catch(() => ({})), repos = g.connected ? await api('/github/repos').catch(() => []) : [];
-  sheet(first ? 'เริ่มจาก GitHub repo ของคุณ' : 'Clone from GitHub', `<form id="cf2" class="sheet-form">${first ? '<p class="sheet-msg">เชื่อม repo แล้ว AI จะแก้โค้ดใน repo นั้น และ commit + push ให้อัตโนมัติเมื่อทำงานเสร็จ</p>' : ''}
-    ${repos.length ? `<div class="repo-pick">${repos.map(x => `<button type="button" class="repo-it" data-repo="${esc(x.full_name)}" data-br="${esc(x.branch || '')}">${ic('branch', 'sm')}<span><b>${esc(x.full_name)}</b>${x.description ? `<small class="muted">${esc(x.description.slice(0, 80))}</small>` : ''}</span>${x.private ? '<i class="pill">private</i>' : ''}</button>`).join('')}</div><small class="muted">แตะ repo เพื่อเริ่ม หรือพิมพ์เองด้านล่าง</small>` : ''}
+  sheet(title, `<form id="cf2" class="sheet-form">
+    ${repos.length ? `<div class="repo-pick">${repos.map(x => `<button type="button" class="repo-it" data-repo="${esc(x.full_name)}" data-br="${esc(x.branch || '')}" data-size="${+x.size || 0}">${ic('branch', 'sm')}<span><b>${esc(x.full_name)}</b>${x.description ? `<small class="muted">${esc(x.description.slice(0, 80))}</small>` : ''}</span>${x.private ? '<i class="pill">private</i>' : ''}</button>`).join('')}</div><small class="muted">แตะ repo เพื่อเลือก หรือพิมพ์เองด้านล่าง</small>` : ''}
     <label>Repo</label><input name="repo" placeholder="owner/repo หรือลิงก์ GitHub" required>
     <label>Branch (เว้นว่าง = ค่าเริ่มต้น)</label><input name="branch" placeholder="main">
-    ${g.connected ? `<p class="muted">เชื่อม GitHub แล้ว (${esc(g.login || '')})</p>` : `<label>GitHub token (ครั้งแรกครั้งเดียว · จำเป็นสำหรับ repo ส่วนตัว)</label><input name="token" type="password" autocomplete="off" placeholder="github_pat_... หรือ ghp_..."><small class="muted">สร้างที่ github.com → Settings → Developer settings → Fine-grained tokens · ให้สิทธิ์ Contents: Read and write</small>`}
-    <p class="muted" id="cmsg"></p><div class="sheet-acts">${first ? '<button type="button" class="btn out" data-skip>ข้ามไปก่อน</button>' : ''}<button class="btn blue">${first ? 'เชื่อม repo' : 'Clone'}</button></div></form>`, d => {
-    d.querySelector('[data-skip]')?.addEventListener('click', () => d.remove());
-    d.querySelectorAll('[data-repo]').forEach(b => b.onclick = () => { const f = d.querySelector('#cf2'); f.repo.value = b.dataset.repo; f.branch.value = b.dataset.br; f.requestSubmit(); });
+    ${g.connected ? `<p class="muted">เชื่อม GitHub แล้ว (${esc(g.login || '')})</p>` : `<label>GitHub token (ครั้งแรกครั้งเดียว · จำเป็นสำหรับ repo ส่วนตัว)</label><input name="token" type="password" autocomplete="off" placeholder="github_pat_...">`}
+    <p class="muted" id="cmsg"></p><button class="btn blue">เลือก repo นี้</button></form>`, (d, close) => {
+    d.querySelectorAll('[data-repo]').forEach(b => b.onclick = () => { close(); onPick({ repo: b.dataset.repo, branch: b.dataset.br, size: +b.dataset.size || 0 }); });
     d.querySelector('#cf2').onsubmit = async e => {
-      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), msg = d.querySelector('#cmsg'), btn = e.target.querySelector('.btn.blue'); btn.disabled = true;
-      let id;
-      try {
-        if (f.token?.trim()) { msg.textContent = 'กำลังเชื่อม GitHub...'; await api('/github', { method: 'PUT', body: { token: f.token.trim() } }); }
-        delete f.token;
-        msg.textContent = 'กำลังสร้างโปรเจกต์...';
-        id = (await api('/projects', { method: 'POST', body: { name: f.repo.replace(/^https:\/\/github\.com\//, '').split('/').pop().replace(/\.git$/, '') || 'repo', empty: true } })).id;
-        msg.textContent = 'กำลังเชื่อม repo...'; await api(`/projects/${id}/github`, { method: 'POST', body: f });
-        msg.textContent = 'กำลังดึงไฟล์จาก GitHub...'; await api(`/projects/${id}/github/pull`, { method: 'POST', body: {} });
-        d.remove(); delete sideCache.code; openProject(id);
-      } catch (x) { msg.innerHTML = `<span class="bad">${esc(x.message)}</span>`; if (id) api('/projects/' + id, { method: 'DELETE' }); btn.disabled = false; }
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), msg = d.querySelector('#cmsg');
+      try { if (f.token?.trim()) { msg.textContent = 'กำลังเชื่อม GitHub...'; await api('/github', { method: 'PUT', body: { token: f.token.trim() } }); } close(); onPick({ repo: f.repo.trim().replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, ''), branch: f.branch.trim(), size: 0 }); }
+      catch (x) { msg.innerHTML = `<span class="bad">${esc(x.message)}</span>`; }
     };
   });
+}
+// ดึง repo มาเป็นโปรเจกต์ใหม่ แล้วเปิด (prompt = ส่งให้ AI ทำต่อทันที) · ขึ้น % ระหว่างดึงไฟล์: ประมาณจากขนาด repo (GitHub บอกเป็น KB)
+// ดึงจริงเป็นคำขอเดียวจึงไม่รู้ % จริง: เดินถึง 95% ตามเวลาที่คาด แล้วเป็น 100% เมื่อเสร็จ
+async function cloneRepo(rp, prompt, msgEl) {
+  const say = t => { if (msgEl) msgEl.textContent = t; };
+  let id, timer;
+  try {
+    say('กำลังสร้างโปรเจกต์...');
+    id = (await api('/projects', { method: 'POST', body: { name: rp.repo.split('/').pop() || 'repo', empty: true } })).id;
+    say('กำลังเชื่อม repo...'); await api(`/projects/${id}/github`, { method: 'POST', body: { repo: rp.repo, branch: rp.branch || '' } });
+    const t0 = Date.now(), est = 3 + (rp.size || 2000) / 600; // วินาทีโดยประมาณ (~600KB/วินาที + เวลาเริ่ม)
+    const tick = () => say(`กำลังดึงไฟล์จาก GitHub... ${Math.min(95, Math.round(95 * (1 - Math.exp(-(Date.now() - t0) / 1000 / est * 2))))}%`);
+    tick(); timer = setInterval(tick, 300);
+    await api(`/projects/${id}/github/pull`, { method: 'POST', body: {} });
+    clearInterval(timer); say('กำลังดึงไฟล์จาก GitHub... 100%');
+    delete sideCache.code; openProject(id, prompt);
+  } catch (x) { clearInterval(timer); if (id) api('/projects/' + id, { method: 'DELETE' }).catch(() => {}); throw x; }
+}
+// Clone จาก GitHub (เมนู): เลือก repo แล้วดึงเป็นโปรเจกต์ใหม่ พร้อมแสดง %
+function cloneSheet() {
+  repoPicker(rp => {
+    sheet('Clone from GitHub', `<div class="sheet-form"><p class="sheet-msg">${esc(rp.repo)}${rp.branch ? ' · ' + esc(rp.branch) : ''}</p><p class="muted" id="clp">เริ่ม...</p></div>`, (d, close) => {
+      cloneRepo(rp, null, d.querySelector('#clp')).then(close).catch(x => { d.querySelector('#clp').innerHTML = `<span class="bad">${esc(x.message)}</span>`; });
+    });
+  }, 'Clone from GitHub');
 }
 // ออกจากตัวแก้โค้ด (ไป New project / โปรเจกต์อื่น): หยุดคำตอบที่ค้าง บันทึกไฟล์ ปิดตัวรัน
 function leaveIDE() {
@@ -340,7 +353,7 @@ function drawTree() {
   const root = {};
   const q = (IDE.filter || '').trim().toLowerCase();
   for (const p of [...IDE.files.keys()].sort().filter(x => !q || x.toLowerCase().includes(q))) { let n = root; const parts = p.split('/'); parts.forEach((x, i) => { if (i === parts.length - 1) (n.__f ||= []).push(p); else n = n[x] ||= {}; }); }
-  const row = (depth, inner) => `<div class="trow" style="padding-left:${8 + depth * 14}px">${inner}</div>`;
+  const row = (depth, inner) => `<div class="trow" style="--d:${depth};padding-left:${6 + depth * 14}px">${inner}</div>`; // --d = ระดับโฟลเดอร์ ใช้วาดเส้นโครงต้นไม้
   const walk = (n, prefix, depth) => Object.keys(n).filter(k => k !== '__f').sort().map(d => {
     const full = prefix + d + '/', closed = !q && IDE.closed.has(full);
     return row(depth, `<button class="tname" data-fold="${esc(full)}">${ic(closed ? 'right' : 'down', 'sm')}${ic('folder')} ${esc(d)}</button><button class="tmore" data-dmenu="${esc(full)}" aria-label="ตัวเลือกโฟลเดอร์">${ic('more')}</button>`)
@@ -833,7 +846,7 @@ async function imagesForAI(msg, list) {
 // หลัง AI แก้ไฟล์: โปรเจกต์มี scripts.test → รัน npm test เอง ไม่ผ่านส่งผลให้ AI แก้ (สูงสุด 2 รอบต่อคำสั่ง) · true = รันแล้ว
 async function autoTest() {
   let ts = ''; try { ts = JSON.parse(IDE.files.get('package.json') || '{}').scripts?.test || ''; } catch { /* package.json พัง */ }
-  if (!ts || /no test specified/.test(ts) || localStorage.getItem('autoTest') === '0' || (IDE.round ?? 0) >= 2) return false;
+  if (!ts || /no test specified/.test(ts) || (IDE.round ?? 0) >= 2) return false;
   setStatus('กำลังรัน npm test...'); const d = await nodeRun('npm test').catch(x => ({ code: 1, stderr: x.message }));
   if (d.code === 0) { setStatus('เทสต์ผ่าน ✓'); toast('npm test ผ่าน ✓', 'ok'); return true; }
   const out = (d.stdout || '') + (d.stderr ? '\n[stderr]\n' + d.stderr : ''); IDE.round = (IDE.round ?? 0) + 1; setPane('ai');
@@ -1071,23 +1084,20 @@ function ctxMeter() {
 function codeTools() {
   sheet('เครื่องมือ AI', optHTML('check', ic('camera') + 'ให้ AI ดูผลลัพธ์ตอนนี้', 'รันโปรเจกต์ จับภาพหน้าจอ แล้วส่งให้ AI ตรวจ')
     + optHTML('skl', ic('sparkles') + 'Skills', 'เปิด/ปิด Skill เฉพาะในโหมด Code (สูงสุด 3)')
-    + optHTML('bgagent', ic('server') + 'Agent / ทีม Agent บนเซิร์ฟเวอร์' + newPill('team'), me.plan.paid ? 'สั่งแล้วปิดแอปได้ Agent แก้ไฟล์และสร้างรูปให้เองสูงสุด 20 รอบ เสร็จแล้วส่งอีเมล · ไม่รันโค้ด ตรวจผลเองตอนจบ' : 'ใช้ได้กับแพลนที่ชำระเงิน')
-    + optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้): ' + (IDE.cloud ? 'เปิด' : 'ปิด'), 'เปิดแล้วพิมพ์สั่งในแชตได้เลย: Agent แก้ไฟล์ รัน npm/python/git ทดสอบเองในเครื่องแยก ปิดแอปได้ · Pro ขึ้นไป / แพ็ก Agent / Wallet', IDE.cloud)
-    + optHTML('cloudlog', ic('undo') + 'ประวัติงานบนคลาวด์', 'ดูงานเก่า / log เต็ม')
+    + (me.role === 'admin' ? optHTML('bgagent', ic('server') + 'Agent / ทีม Agent บนเซิร์ฟเวอร์' + newPill('team'), me.plan.paid ? 'สั่งแล้วปิดแอปได้ Agent แก้ไฟล์และสร้างรูปให้เองสูงสุด 20 รอบ เสร็จแล้วส่งอีเมล · ไม่รันโค้ด ตรวจผลเองตอนจบ' : 'ใช้ได้กับแพลนที่ชำระเงิน') : '') // ใช้แค่แอดมิน: ซ่อนจากลูกค้าให้เมนูสั้นลง
+    + (me.role === 'admin' ? optHTML('cloud', ic('terminal') + 'Agent บนคลาวด์ (รันโค้ดได้): ' + (IDE.cloud ? 'เปิด' : 'ปิด'), 'เปิดแล้วพิมพ์สั่งในแชตได้เลย: Agent แก้ไฟล์ รัน npm/python/git ทดสอบเองในเครื่องแยก ปิดแอปได้ · Pro ขึ้นไป / แพ็ก Agent / Wallet', IDE.cloud) : '') // ใช้แค่แอดมิน: ซ่อนจากลูกค้าให้เมนูสั้นลง
+    + (me.role === 'admin' ? optHTML('cloudlog', ic('undo') + 'ประวัติงานบนคลาวด์', 'ดูงานเก่า / log เต็ม') : '') // ใช้แค่แอดมิน: ซ่อนจากลูกค้าให้เมนูสั้นลง
     + optHTML('agent', ic('sparkles') + 'โหมด Agent (งานยาว)', me.plan.paid ? 'AI ทำงานต่อเนื่องได้ถึง 20 รอบต่อคำสั่ง ปิดจอได้ กลับมาดูผล · ใช้ลิมิตมากกว่าปกติ' : 'ใช้ได้กับแพลนที่ชำระเงิน', IDE.agent)
     + optHTML('mcp', ic('server') + 'Remote MCP', 'เชื่อมต่อ GitHub หรือ Remote MCP (สูงสุด 3)')
     + optHTML('rules', ic('filetext') + 'กฎประจำโปรเจกต์', IDE.instructions ? 'ตั้งค่าไว้แล้ว · แตะเพื่อแก้ไข' : 'กำหนด Stack หรือข้อกำหนดให้ AI ทำตามทุกแชต')
-    + optHTML('prm', ic('book') + 'คลัง Prompt', 'เลือกคำสั่งสำเร็จรูปสำหรับเขียนโค้ด')
     + optHTML('audit', ic('activity') + 'ตรวจหน้าเว็บ (ความเร็ว / SEO / การเข้าถึง)', 'ให้คะแนนพร้อมรายการที่ควรแก้ แล้วส่งให้ AI แก้ได้ในคลิกเดียว')
     + optHTML('hist', ic('undo') + 'ประวัติโปรเจกต์ / ย้อนทั้งโปรเจกต์', 'ย้อนไฟล์ทั้งหมดไปสถานะก่อนช่วงเวลาที่เลือก')
     + optHTML('exphtml', ic('download') + 'ส่งออก HTML ไฟล์เดียว', 'รวม HTML/CSS/JS เป็นไฟล์เดียวพร้อมเปิดใช้งาน')
-    + optHTML('autotest', ic('check') + 'รันเทสต์อัตโนมัติ: ' + (localStorage.getItem('autoTest') === '0' ? 'ปิด' : 'เปิด'), 'หลังใช้การแก้ไขของ AI รัน npm test ให้เอง ไม่ผ่านส่งผลกลับให้ AI แก้ (สูงสุด 2 รอบ) · เฉพาะโปรเจกต์ที่มี scripts.test ใน package.json')
     + optHTML('term', ic('terminal') + 'เปิดเทอร์มินัล', IDE.local ? 'รันคำสั่งใน terminal ของเครื่องนี้ (ถามก่อนทุกครั้ง)' : 'พิมพ์คำสั่ง npm / node เอง')
     + (DESK ? optHTML('local', ic('folder') + (IDE.local ? 'โฟลเดอร์ในเครื่อง: ' + esc(IDE.local.name) : 'เชื่อมกับโฟลเดอร์ในเครื่อง'), 'AI แก้ไฟล์จริงในเครื่อง · RUN รันใน terminal ของเครื่อง · แก้ด้วยโปรแกรมอื่นก็ซิงก์ขึ้นมา', !!IDE.local) : ''),
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); const v = b.dataset.v;
       if (v === 'autoapply' || v === 'auto') { setOpt(v, !(v === 'auto' ? IDE.autoMode : IDE.autoApply)); cUI(); }
-      if (v === 'autotest') { const on = localStorage.getItem('autoTest') === '0'; localStorage.setItem('autoTest', on ? '1' : '0'); toast('รันเทสต์อัตโนมัติ: ' + (on ? 'เปิด' : 'ปิด')); }
       if (v === 'bgagent') { seen('team'); return bgAgentSheet(); }
       if (v === 'cloud') { IDE.cloud = !IDE.cloud; localStorage.setItem('ccloud', IDE.cloud ? '1' : '0'); cUI(); return toast(IDE.cloud ? 'Agent บนคลาวด์: พิมพ์งานในแชตแล้วส่งได้เลย' : 'ปิด Agent บนคลาวด์', 'ok'); }
       if (v === 'cloudlog') return cloudSheet();
@@ -1370,11 +1380,7 @@ function stepsBar(m, i) {
 const runCard = (m, i) => { const r = runsOf(m.content); return r.length ? `<div class="changes runs"><span class="muted">AI ขอรันคำสั่ง</span>${r.map(c => `<code>${esc(c)}</code>`).join('')}${m.ran ? '<span class="muted">รันแล้ว ✓</span>' : `<button class="btn blue sm" data-runai="${i}">${ic('terminal', 'sm')} รันแล้วส่งผลให้ AI</button>`}</div>` : ''; };
 const ktok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 // โหมดสิทธิ์แบบ Claude Code: Auto = แก้/รัน/ตรวจเอง · Ask = เสนอการแก้ไข ผู้ใช้กด Apply · Plan = อ่านแล้ววางแผน ยังไม่แก้ไฟล์
-const PERMS = [['auto', 'Auto', 'check', 'AI แก้ไฟล์ รัน และตรวจผลเองทันที แล้ว push ให้ (ถ้าเชื่อม GitHub)'], ['ask', 'Ask', 'hand', 'AI เสนอการแก้ไข คุณดู diff แล้วกด Apply เองทีละไฟล์'], ['plan', 'Plan', 'filetext', 'AI อ่านโค้ดแล้ววางแผนให้ก่อน ยังไม่แก้ไฟล์ · พอใจแล้วกด Start building']];
-const permOf = () => PERMS.some(x => x[0] === localStorage.getItem('cperm')) ? localStorage.getItem('cperm') : 'auto';
-function setPerm(v) { IDE.perm = v; localStorage.setItem('cperm', v); permUI(); }
-function permUI() { const b = $('#cperm'); if (!b) return; const p = PERMS.find(x => x[0] === (IDE.perm || 'auto')); b.innerHTML = `${ic(p[2], 'sm')}<span>${p[1]}</span>${ic('down', 'sm')}`; b.dataset.perm = p[0]; }
-const permSheet = (cur, onPick) => sheet('โหมดการทำงาน', PERMS.map(([v, t, i, d]) => optHTML(v, ic(i) + t, d, v === cur)).join(''), (d, close) => d.querySelectorAll('.opt[data-v]').forEach(b => b.onclick = () => { close(); onPick(b.dataset.v); }));
+const permOf = () => 'auto'; // AI ทำงานได้เต็มที่เสมอ: แก้ไฟล์ รัน และตรวจเองโดยไม่ต้องกด Apply (ตัวเลือก Ask/Plan เอาออกแล้ว)
 // รายการงานสดที่ AI อัปเดตระหว่างทำ (todo_write)
 function todoHTML(m) {
   const t = m.todos; if (!t?.length) return '';
@@ -1796,7 +1802,7 @@ async function codeView(id, prompt) {
         <div id="cmsgs" class="msgs"></div>
         <div class="compose"><div class="err" id="ce"></div>
           <form id="cf" class="cbox"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea>
-            <div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="อัปโหลดไฟล์เข้าโปรเจกต์">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button><button type="button" class="cb pick cperm" id="cperm" aria-haspopup="dialog" title="โหมดการทำงาน"></button>
+            <div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="อัปโหลดไฟล์เข้าโปรเจกต์">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
               <button class="send" id="cgo" aria-label="ส่ง">${ic('up')}</button></div></form></div></aside>
     </div>
     <nav class="ide-nav">${(cl ? [['ai', 'sparkles', 'AI'], ['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['run', 'play', 'Preview']] : [['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['ai', 'sparkles', 'AI'], ['run', 'play', 'ผลลัพธ์']]).map(([k, i, l]) => `<button data-pane-btn="${k}" class="${k === (cl ? 'ai' : 'code') ? 'on' : ''}"><span>${ic(i)}</span>${l}</button>`).join('')}</nav></div>`;
@@ -1814,7 +1820,7 @@ async function codeView(id, prompt) {
 
   $('#cmodel').onchange = e => { localStorage.setItem('model', e.target.value); cUI(); ctxMeter(); };
   $('#cctx').onclick = () => ctxSheet({ chatId: IDE.chatId, projectId: IDE.pid, modelId: +$('#cmodel')?.value || null, skills: IDE.skills, onCompact: ctxMeter, onPickModel: id => { $('#cmodel').value = id; $('#cmodel').onchange({ target: $('#cmodel') }); } });
-  IDE.cloud = localStorage.getItem('ccloud') === '1';
+  IDE.cloud = localStorage.getItem('ccloud') === '1' && me?.role === 'admin';
   if (!window.DEMO) api('/cloud-agent?project=' + IDE.pid).then(l => { const j = l.find(x => x.status === 'running'); if (j && !IDE.busy) { IDE.cloud = true; cUI(); cloudSend(j); } }).catch(() => {});
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
   $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools; $('#cup').onclick = () => $('#uplf').click();
@@ -1848,7 +1854,7 @@ async function codeView(id, prompt) {
   $('#zin').onclick = () => $('#zinf').click(); $('#zinf').onchange = async e => { try { await importZip(e.target.files[0]); } catch (x) { setStatus('zip: ' + x.message, true); } e.target.value = ''; };
   $('#zout').onclick = () => exportZip().catch(x => setStatus(x.message, true));
   $('#cnew').onclick = () => { setUrl(`/code?p=${IDE.pid}&s=new`); openSession('new'); sessionsChanged(); };
-  IDE.perm = permOf(); permUI(); $('#cperm').onclick = () => permSheet(IDE.perm, setPerm);
+  IDE.perm = 'auto';
   $('#chist').onclick = async () => {
     const list = await api('/chats?project=' + IDE.pid).catch(() => []);
     if (!list.length) return toast('ยังไม่มีประวัติแชตในโปรเจกต์นี้');
@@ -1945,7 +1951,7 @@ async function codeView(id, prompt) {
   $('#cmsgs').onclick = async e => {
     if (answer(e)) return;
     if (e.target.closest('[data-opengit]')) return $('#git').click();
-    if (e.target.closest('[data-build]')) { setPerm('auto'); const t = $('#ct'); t.value = 'ทำตามแผนนี้ได้เลย'; t.dispatchEvent(new Event('input')); return codeSend(); }
+    if (e.target.closest('[data-build]')) { IDE.perm = 'auto'; const t = $('#ct'); t.value = 'ทำตามแผนนี้ได้เลย'; t.dispatchEvent(new Event('input')); return codeSend(); }
     const pr = e.target.closest('[data-pr]'); if (pr) return createPR(IDE.msgs[[...$('#cmsgs').children].indexOf(pr.closest('.pushnote'))], pr);
     const of = e.target.closest('[data-openf]'); if (of && has(of.dataset.openf)) { openFile(of.dataset.openf); return; }
     const sm = e.target.closest('.tsteps summary'); if (sm) { const k = [...$('#cmsgs').children].indexOf(sm.closest('.msg')); if (IDE.msgs[k]) IDE.msgs[k]._stepsOpen = !sm.parentElement.open; return; }

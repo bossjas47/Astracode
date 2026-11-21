@@ -306,7 +306,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/github/repos' && M === 'GET') { // repo ของผู้ใช้ (ล่าสุดก่อน) ให้เลือกแตะเดียวตอนเข้าหน้า Code ครั้งแรก
         if (!u.gh_token) return json([]);
         const list = await gh(await unseal(env, u.gh_token), '/user/repos?sort=pushed&per_page=30&affiliation=owner,collaborator,organization_member', { base: env.GITHUB_API }).catch(() => []);
-        return json((Array.isArray(list) ? list : []).map(x => ({ full_name: x.full_name, private: !!x.private, branch: x.default_branch, pushed_at: x.pushed_at, description: x.description || '' })));
+        return json((Array.isArray(list) ? list : []).map(x => ({ full_name: x.full_name, private: !!x.private, branch: x.default_branch, size: x.size || 0, pushed_at: x.pushed_at, description: x.description || '' })));
       }
       if (path === '/api/github') { // เชื่อม GitHub ด้วย Personal Access Token
         if (M === 'GET') return json({ connected: !!u.gh_token, login: u.gh_login, secret: !!env.SECRET_KEY });
