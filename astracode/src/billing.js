@@ -262,6 +262,8 @@ export async function applyPayment(env, p) {
       let base = u.plan_id === p.plan_id && u.plan_expires > now ? u.plan_expires : now; // ต่ออายุแพลนเดิมต่อท้าย
       if (u.plan_id && u.plan_id !== p.plan_id && u.plan_expires > now) base = now + carryMs(await env.DB.prepare('SELECT price,price_year FROM plans WHERE id=?').bind(u.plan_id).first(), u.plan_period, u.plan_expires - now, pl || { price: 0 }, p.period); // เปลี่ยนแพลน: ทบเวลาที่เหลือ
       await env.DB.prepare('UPDATE users SET plan_id=?, plan_expires=?, plan_period=? WHERE id=?').bind(p.plan_id, base + days * DAY, p.period, u.id).run();
+      // แพลนสั้น (≤7 วัน) เริ่มใหม่: เริ่มรอบลิมิตสัปดาห์ ณ วันซื้อ ไม่งั้นรอบเดิมที่เริ่มก่อนซื้อจะรีเซ็ตกลางแพลน = ได้ลิมิตสัปดาห์ 2 รอบใน 7 วัน (ต้นทุนเกินที่คิดราคาไว้)
+      if (days <= 7 && base === now) await env.DB.prepare('UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE id=?').bind(now, u.id).run();
     }
   }
   await useCoupon(env, p.coupon, u.id);

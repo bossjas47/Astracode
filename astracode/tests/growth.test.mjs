@@ -83,3 +83,13 @@ test('skills from GitHub: finds SKILL.md files, reads name/description from fron
     assert.equal((await t.json('/api/skills/github', { method: 'POST', cookie: u.cookie, body: { url: 'https://example.com/x' } })).status, 400);
   } finally { globalThis.fetch = f0; }
 });
+
+test('7-day plan bought fresh starts its weekly limit window at purchase (one window per pass)', async () => {
+  const { applyPayment } = await import('../src/billing.js');
+  const t = await makeEnv(), u = await t.user(), p = addPlan(t.DB, { price: 499 });
+  t.DB.raw.prepare('UPDATE plans SET days=7 WHERE id=?').run(p.id);
+  t.DB.raw.prepare('UPDATE users SET week_start=?, sess_start=? WHERE id=?').run(Date.now() - 6 * 864e5, Date.now() - 3600e3, u.id);
+  await applyPayment(t.env, { id: 5, user_id: u.id, kind: 'plan', plan_id: p.id, amount: 499, slip_key: 'slip/a', period: 'month' });
+  const r = t.DB.raw.prepare('SELECT week_start, usage_reset_at, plan_id FROM users WHERE id=?').get(u.id);
+  assert.equal(r.plan_id, p.id); assert.equal(r.week_start, null); assert.ok(r.usage_reset_at > Date.now() - 5000);
+});
