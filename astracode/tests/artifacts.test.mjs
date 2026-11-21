@@ -111,3 +111,14 @@ test('task mode: chat is stored as a task, todo_write + file tools are offered, 
   assert.equal(folder.length, 1); assert.equal(folder[0].name, 'สรุป.pptx');
   assert.equal((await t.json('/api/chats', { cookie: u.cookie })).data.find(c => c.id === cid).task, 1);
 });
+
+test('stop: releases the answer lock at once (even for a new chat with no id) so the next message is not blocked', async () => {
+  const { t, m, u } = await setup(0, (fm, res) => fm.sse(res, 'สวัสดี'));
+  t.DB.raw.prepare('INSERT INTO rate (key,n,reset) VALUES (?,1,?)').run('chatlock:' + u.id, Date.now() + 45e3);
+  const blocked = await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'hi', model_id: m.id } });
+  assert.equal(blocked.status, 429);
+  await t.json('/api/chat', { method: 'POST', cookie: u.cookie, body: { stop: true, chat_id: null } });
+  assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM rate WHERE key=?').get('chatlock:' + u.id).n, 0);
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'hi', model_id: m.id } }));
+  assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /สวัสดี/);
+});

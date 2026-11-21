@@ -39,7 +39,7 @@ for (const k of ['setUrl', 'go', 'qs', 'here', 'pageName', 'limHTML', 'askHTML',
   if (typeof globalThis[k] !== 'function') console.warn('[AstraCode] app.js ไม่มี ' + k + '() — deploy app.js ให้ตรงกับ chat.js');
 let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ครั้งเดียว กันวนไม่จบ
 // กดหยุด = สั่งเซิร์ฟเวอร์หยุดตอบจริง (แค่ปิดจอหรือหลุดเน็ต AI จะตอบต่อเบื้องหลัง)
-function stopRun() { if (chat.enhancing) return chat.enhancing.abort(); if (chat.id) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id }) }).catch(() => {}); chat.ctrl?.abort(); }
+function stopRun() { if (chat.enhancing) return chat.enhancing.abort(); fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id || null }) }).catch(() => {}); chat.ctrl?.abort(); }
 // สลับแชตโดยไม่โหลดหน้าใหม่
 function openChat(id, space = null) { chat.spaceId = id ? null : space; chat.spaceName = chat.spaceId ? chat.folders?.find(f => f.id === space)?.name || 'this workspace' : null; if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
 PAGES.chat = () => chatView(qs().get('id'));
@@ -1102,6 +1102,11 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
         for (const r of list) if (typeof r.sources === 'string') try { r.sources = JSON.parse(r.sources); } catch { r.sources = null; }
         chat.msgs = list; $('#e').textContent = ''; renderAll(); loadSide();
       }, 6000);
+    }
+    else if (x.status === 429 && /กำลังตอบข้อความก่อนหน้า/.test(x.message) && !chat.lockRetry) { // คำตอบเดิมค้าง (เช่น โมเดลเงียบ): หยุดคำตอบเดิมแล้วส่งใหม่ให้เอง 1 ครั้ง
+      chat.lockRetry = true; chat.msgs.pop(); if (chat.msgs.at(-1)?.role === 'user' && !regenerate && !resume) chat.msgs.pop(); setBusy(false); renderAll(); showErr('กำลังหยุดคำตอบเดิมที่ค้างอยู่ แล้วส่งใหม่ให้…');
+      await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id || null }) }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1200)); $('#t').value ||= text; try { return await send({ regenerate, edit_id, edit_text }); } finally { chat.lockRetry = false; }
     }
     else if (started && x instanceof TypeError && m.provider === 'image' && chat.id) { // ปิดจอระหว่างสร้างภาพ: เซิร์ฟเวอร์สร้างต่อเบื้องหลัง กลับมาแล้วดึงภาพมาให้
       chat.msgs.pop(); chat.imgWake = 'resume'; setBusy(false); renderAll(); if (document.visibilityState === 'visible') imgWake(); return;

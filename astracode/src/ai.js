@@ -450,7 +450,8 @@ export async function costWatch(env, uid, m, now = Date.now()) {
 export async function chat(req, env, u, ctx) {
   const b = await req.json();
   if (b.resume || b.stop) { // ต่อสตรีมคำตอบที่ยังทำอยู่ หรือกดหยุดจริง (การหลุดการเชื่อมต่อเฉยๆ ไม่หยุด AI)
-    const cid = +b.chat_id;
+    const cid = +b.chat_id || (b.stop ? (await env.DB.prepare('SELECT MAX(id) id FROM chats WHERE user_id=?').bind(u.id).first())?.id : 0); // กดหยุดตอนแชตใหม่ยังไม่ได้เลขแชต: หยุดแชตล่าสุด
+    if (b.stop) await unlimit(env, 'chatlock:' + u.id); // ปลดล็อกทันที: ส่งข้อความใหม่ได้เลย ไม่ต้องรอคำตอบเดิมจบ
     if (!env.CHATRUN || !cid || !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, u.id).first()) return json({ ok: true, idle: true });
     const stub = runStub(env, u.id, cid);
     if (b.stop) { await stub.fetch('https://run/stop', { method: 'POST' }); return json({ ok: true }); }
@@ -656,7 +657,7 @@ export async function runChat(env, J, send, st) {
     let toolsSent = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       // นาฬิกาเฝ้าโมเดล: ไม่มีข้อความ/ความคิดตัวแรกภายใน 90 วิ (effort สูงสุด 150 วิ) หรือเงียบเกิน 60 วิกลางทาง = ตัดการเชื่อมต่อ แล้วใช้ทางสลับโมเดลสำรอง/แจ้งข้อผิดพลาด แทนที่ผู้ใช้จะรอไม่จบ
-      const ac = new AbortController(); let stalled = 0, wd;
+      const ac = new AbortController(); let stalled = 0, wd; st.abort = () => ac.abort(); // ปุ่มหยุด: ตัดการเชื่อมต่อกับโมเดลทันที (เดิมรอจนโมเดลส่งข้อความถัดไป)
       const arm = ms => { clearTimeout(wd); wd = setTimeout(() => { stalled = ms; ac.abort(); }, ms); };
       const firstMs = (model.first_token_s > 0 ? model.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 150 : 90) * 1000, idleMs = (model.idle_s > 0 ? model.idle_s : 60) * 1000; // ตั้งต่อโมเดลได้ในหลังบ้าน
       arm(firstMs); let stopR = '', rawT = '';
@@ -693,11 +694,16 @@ export async function runChat(env, J, send, st) {
         // ผู้ให้บริการปฏิเสธเนื้อหา (ตัวกรองความปลอดภัย/ลิขสิทธิ์ เช่น ขอรูปตัวละครดัง) ไม่ใช่โมเดลล่ม: ไม่นับเข้าตัวตัดวงจร และบอกผู้ใช้ตรงๆ
         const refused = !stalled && /moderation|safety|content[ _-]?policy|policy[ _-]?violation|copyright|trademark|blocked by|not allowed|rejected as a result|responsible ai|content[ _-]?filter/i.test(e.message);
         const busy = !stalled && /\b(429|529)\b|rate.?limit|overloaded|temporarily unavailable/i.test(e.message);
+        const broke = !stalled && /\b402\b|insufficient[_ ]?(credit|balance|funds|quota)|exceeded your current quota/i.test(e.message); // เครดิตบัญชีผู้ให้บริการหมด
+        if (st.gone) break; // ผู้ใช้กดหยุด: ไม่ต้องลอง/แจ้ง error
+        if (broke && attempt === 0 && /other requests .* running/i.test(e.message) && !out.trim() && !think && !tcs.size) { await new Promise(r => setTimeout(r, 4000)); continue; } // เครดิตถูกจองโดยคำขออื่นที่กำลังรัน: รอแล้วลองใหม่ 1 ครั้ง
+        if (broke && !await limited(env, 'broke:' + (model.key_name || model.id), 1, 3600e3)) await notify(env, `🚨 เครดิตผู้ให้บริการหมด: ${model.name} (${model.key_name || model.base_url}) · ลูกค้าใช้โมเดลนี้ไม่ได้ เติมเงินที่ผู้ให้บริการ หรือตั้งโมเดลสำรองในหลังบ้าน\n${e.message.slice(0, 200)}`).catch(() => {});
         await event(env, refused ? 'refused' : 'error', model.id, e.message.slice(0, 300));
         const fb = !out.trim() && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
         if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
         await send({ error: u.role === 'admin' ? (busy ? 'ผู้ให้บริการคนเยอะ ลองใหม่ให้ 3 ครั้งแล้วยังไม่ได้ · ' : '') + 'แอดมิน: ' + e.message + (rawT && e.message.startsWith('โมเดลส่งคำตอบว่าง') ? ' · ข้อมูลดิบท้ายสุด: ' + rawT.slice(0, 900) : '') : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล'
           : refused ? (model.provider === 'image' ? 'ผู้ให้บริการไม่สร้างรูปนี้ให้ (มักเป็นตัวละคร แบรนด์ หรือคนดังที่มีลิขสิทธิ์ หรือเนื้อหาที่ไม่อนุญาต) ลองบรรยายเป็นสไตล์ของคุณเองโดยไม่ระบุชื่อตัวละคร' : 'ผู้ให้บริการไม่ตอบคำขอนี้เพราะติดตัวกรองเนื้อหา ลองปรับคำถามหรือเลือกโมเดลอื่น')
+          : broke ? `${model.name} ใช้ไม่ได้ชั่วคราว (ระบบผู้ให้บริการขัดข้อง) แจ้งแอดมินแล้ว · เลือกโมเดลอื่น หรือกด "สลับเป็น Auto" ได้เลย ไม่เสียลิมิต`
           : busy ? 'ตอนนี้มีคนใช้โมเดลนี้เยอะ ลองใหม่อีกครั้งในไม่กี่วินาที หรือเลือกโมเดลอื่น' : 'โมเดลตอบไม่ได้ตอนนี้ ลองใหม่อีกครั้ง' });
         break;
       }
