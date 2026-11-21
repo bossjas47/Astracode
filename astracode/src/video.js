@@ -45,7 +45,8 @@ export async function videoTool(env, u, cid, a, { images = [] } = {}) {
 export async function videoConf(env) {
   const s = await getSettings(env, ['video_enabled', 'video_price', 'video_key_name', 'video_model']);
   const keyName = s.video_key_name || 'VIDEO_KEY';
-  return { enabled: s.video_enabled === '1' && !!env[keyName], price: Math.max(1, +s.video_price || 59), key: env[keyName], model: s.video_model || 'sd26-seedance-2.5-2' };
+  const why = s.video_enabled !== '1' ? 'ยังไม่ได้ติ๊ก "เปิดให้สร้างวิดีโอ" ในหลังบ้าน → ตั้งค่า' : !env[keyName] ? `ยังไม่มี Secret ชื่อ ${keyName} ใน Cloudflare (Workers → astracode → Settings → Variables and Secrets)` : !env.SLIPS ? 'ยังไม่ได้ผูก R2 (SLIPS)' : null;
+  return { enabled: s.video_enabled === '1' && !!env[keyName], why, price: Math.max(1, +s.video_price || 59), key: env[keyName], model: s.video_model || 'sd26-seedance-2.5-2' };
 }
 const up = (c, p, init = {}) => fetch(VIDEO_BASE + p, { ...init, headers: { authorization: 'Bearer ' + c.key, ...(init.body ? { 'content-type': 'application/json' } : {}) }, signal: AbortSignal.timeout(30e3) });
 const upErr = async r => { const d = await r.json().catch(() => ({})); return `${r.status}: ${String(d.error?.message || d.error || d.message || d.code || 'request failed').slice(0, 200)}`; };
@@ -85,7 +86,7 @@ export async function videoApi(req, env, u, path, M) {
   if (path === '/api/videos' && M === 'GET') {
     const L = (await DB.prepare('SELECT * FROM videos WHERE user_id=? ORDER BY id DESC LIMIT 30').bind(u.id).all()).results;
     const out = []; for (const v of L) out.push(c.key && env.SLIPS ? await checkVideo(env, v, c) : v);
-    return json({ enabled: c.enabled, price: c.price, max_s: VIDEO_MAX_S, max_images: VIDEO_IMGS, max_audios: VIDEO_AUDIOS, items: out.map(pub) });
+    return json({ enabled: c.enabled && !!env.SLIPS, why: ['admin', 'support'].includes(u.role) ? c.why : undefined, price: c.price, max_s: VIDEO_MAX_S, max_images: VIDEO_IMGS, max_audios: VIDEO_AUDIOS, items: out.map(pub) });
   }
   if (path === '/api/videos' && M === 'POST') {
     const b = await req.json().catch(() => ({}));

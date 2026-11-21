@@ -1859,7 +1859,7 @@ function videoSheet() {
       if (!box.isConnected) return stop();
       const r = await api('/videos').catch(x => ({ error: x.message }));
       if (r.error) { box.innerHTML = `<p class="muted">${esc(r.error)}</p>`; return; }
-      if (!r.enabled) { box.innerHTML = '<p class="muted">ระบบสร้างวิดีโอยังไม่เปิดให้ใช้ ติดต่อแอดมิน</p>'; return; }
+      if (!r.enabled) { box.innerHTML = `<p class="muted">ระบบสร้างวิดีโอยังไม่เปิดให้ใช้ ติดต่อแอดมิน</p>${r.why ? `<p class="sheet-msg">${ic('alert', 'sm')} สำหรับแอดมิน: ${esc(r.why)}</p>` : ''}`; return; }
       const keep = box.querySelector('#vprompt')?.value ?? '';
       box.innerHTML = `<p class="sheet-msg">${ic('play', 'sm')} 1080p · ยาวได้ถึง ${r.max_s} วินาที · <b>฿${r.price} ต่อคลิป</b> (ไม่ขึ้นกับความยาว) จ่ายจาก Wallet (คงเหลือ ฿${(+me.balance || 0).toFixed(2)}) · สร้างไม่สำเร็จคืนเงินอัตโนมัติ</p>
         <textarea id="vprompt" rows="4" maxlength="2000" placeholder="อธิบายฉาก เช่น มุมกล้อง แสง การเคลื่อนไหว อารมณ์ภาพ · เขียนเป็นภาษาอังกฤษจะได้ผลดีที่สุด"></textarea>
