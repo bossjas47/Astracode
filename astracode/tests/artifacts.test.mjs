@@ -34,6 +34,7 @@ test('artifact: paid plan creates v1, update makes v2, share link is sandboxed +
   assert.match(ev2.filter(e => e.t).map(e => e.t).join(''), /\[\[art:1\|2\|/);
   assert.match(JSON.stringify(fm.hits[2].body.messages), /\[artifact id=1 v1: เครื่องคิดเลข\]/, 'model sees the id, not the marker');
 
+  assert.equal((await t.json('/api/me', { cookie: u.cookie })).data.plan.artifacts, true);
   const a = await t.json('/api/artifacts/1', { cookie: u.cookie });
   assert.equal(a.data.ver, 2); assert.equal(a.data.versions.length, 2); assert.match(a.data.html, /v2/);
   const raw = await t.call('/api/artifacts/1/raw?v=1', { cookie: u.cookie });
@@ -57,6 +58,7 @@ test('artifact: free plan has no artifact tool and cannot share', async () => {
   const { t, m, u, fm } = await setup(0, (fm, res) => fm.sse(res, 'ok'));
   await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ทำเกม', model_id: m.id } }));
   assert.ok(!(fm.hits[0].body.tools || []).some(x => x.function.name === 'artifact'));
+  assert.equal((await t.json('/api/me', { cookie: u.cookie })).data.plan.artifacts, false, 'client shows the upgrade button');
   t.DB.raw.prepare("INSERT INTO artifacts (id,user_id,title,created_at,updated_at) VALUES (5,?,'x',0,0)").run(u.id);
   assert.equal((await t.json('/api/artifacts/5/share', { method: 'POST', cookie: u.cookie, body: { on: true } })).status, 403);
 });

@@ -1818,3 +1818,5 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .cv-v { width: auto; padding: 2px 6px; font-size: 13px; }
 #cv-sh.on { border-color: #3fb950; color: #3fb950; }
 .cv-h b#cv-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30vw; }
+.code-h .art-up { margin-right: 4px; color: var(--accent, #d97757); }
+@media (max-width: 520px) { .code-h .art-up { font-size: 0; } .code-h .art-up .ic { font-size: 14px; } }

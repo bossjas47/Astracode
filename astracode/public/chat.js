@@ -290,6 +290,7 @@ async function chatView(id) {
     const b = e.target.closest('button'); if (!b) return;
     if (b.classList.contains('cp-code')) copy(b.closest('.code').querySelector('code').textContent, b);
     if (b.dataset.zip) zipFiles(+b.dataset.zip, b).catch(x => toast('ทำ zip ไม่ได้: ' + x.message, 'bad'));
+    if (b.classList.contains('art-up')) return void (location.href = '/plans?from=artifact');
     if (b.classList.contains('run-code')) openCanvas(b.closest('.code').querySelector('code').textContent);
     if (b.classList.contains('run-py')) runPyChat(b.closest('.code'));
     if (b.dataset.edit != null) editMsg(+b.dataset.edit);
