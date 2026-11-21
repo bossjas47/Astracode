@@ -35,7 +35,7 @@ async function setupTool(tool, { site, key, model, home = os.homedir() }) {
   }
   if (tool === 'OpenCode') {
     const f = path.join(home, '.config', 'opencode', 'opencode.json'); let j = {}; try { j = JSON.parse(await fs.readFile(f, 'utf8')); } catch { /* ไม่มี/เสีย */ }
-    j.provider = { ...(j.provider || {}), astra: { npm: '@ai-sdk/openai-compatible', name: 'AstraCode', options: { baseURL: site + '/v1', apiKey: key }, models: { [model]: {} } } };
+    j.provider = { ...(j.provider || {}), astra: { npm: '@ai-sdk/openai-compatible', name: 'AstraCode', options: { baseURL: site + '/v1', apiKey: key }, models: { [model]: { limit: { context: 1050000, output: 128000 } } } } }; // บอกขนาด context จริง ไม่งั้น OpenCode ตัดที่ 200K
     j.model = 'astra/' + model;
     await backupWrite(f, JSON.stringify(j, null, 2) + '\n'); return f;
   }
