@@ -276,6 +276,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     // อ่านต่อได้ไม่เกิน 25 วินาที (Cloudflare ให้งานเบื้องหลังหลังลูกค้าหลุดราว 30 วินาที) เกินนั้นตัดแล้วคิดตามประมาณ
     let gone = false; const upstream = new AbortController();
     const chunk = async (delta, extra = {}, fin = null) => { if (gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { gone = true; setTimeout(() => upstream.abort(), 25e3); } };
+    // โมเดล error ก่อนตอบ: ต้องคืนช่อง Wallet ด้วย (เดิมค้าง 3 นาที → OpenCode ลองซ้ำจนช่องเต็ม 8 ช่อง)
     ctx.waitUntil((async () => {
       let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0;
       try {
@@ -303,7 +304,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         if (tcCount > 0 && finishReason === 'stop') finishReason = 'tool_calls';
         const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars, gone ? 'gone' : null);
         if (!gone) await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
-      } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2), 'part').catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
+      } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2), 'part').catch(() => {}); else if (walletKey && !lg.logged) await unlimit(env, walletKey).catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
     return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors, ...rl } });

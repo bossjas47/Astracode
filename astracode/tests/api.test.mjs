@@ -381,3 +381,13 @@ test('desktop Agent on a plan without Agent: the error says Agent is not in the 
   assert.equal((await v1('/v1/chat/completions', body)).status, 200, 'a normal key uses the plan');
   fm.close();
 });
+
+test('wallet slots: streamed requests that fail before any answer free their slot (no "too many wallet-billed requests" after retries)', async () => {
+  const { t, fm, raw } = await setup();
+  const bad = await fakeModel((q, res) => { res.writeHead(500, { 'content-type': 'application/json' }); res.end('{"error":{"message":"insufficient credit"}}'); });
+  addModel(t.DB, { name: 'Broke One', base_url: bad.url });
+  for (let i = 0; i < 3; i++) { const r = await raw('/v1/chat/completions', { model: 'broke-one', stream: true, messages: [{ role: 'user', content: 'hi' }] }); assert.equal(r.status, 200); assert.match(r.text, /could not answer/); }
+  assert.equal(t.DB.raw.prepare("SELECT COUNT(*) n FROM rate WHERE key LIKE 'walletlock:%'").get().n, 0, 'every failed request released its wallet slot');
+  const ok = await raw('/v1/chat/completions', { model: 'chat-one', stream: true, messages: [{ role: 'user', content: 'hi' }] });
+  assert.match(ok.text, /hello/); bad.close(); fm.close();
+});
