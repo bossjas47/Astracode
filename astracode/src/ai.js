@@ -1,3 +1,4 @@
+import { claudeCreditLeft, isClaudeEco, useClaudeCredit } from './credits.js';
 import { artPaid, artifactTool } from './artifacts.js';
 import { FREE_CTX, FREE_DAY_CAP, isFreeModel, DAY, HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
@@ -424,7 +425,7 @@ export async function logUsage(env, uid, m, usage, { units = true, wallet = null
   const L = flat(m) ? null : longPart(m, usage);
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6 + longExtra(m, L, { in: m.cost_in, cache: m.cost_cache, write: m.cost_cache_write, out: m.cost_out }); // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
-  usage._units = un; // ให้ /v1 บอกลูกค้าว่าคำขอนี้ใช้ลิมิตไปกี่ % (ไม่เปิดเผยต้นทุน)
+  usage._units = un; usage._cost = cost; // ให้ /v1 บอกลูกค้าว่าคำขอนี้ใช้ลิมิตไปกี่ % (ไม่เปิดเผยต้นทุน)
   const pk = pack ? Math.max(cost * limMult(m), 1e-9) : null; usage._pack = pk; // แพ็ก Agent: หักจากโควตาแพ็ก (คอลัมน์ pack) ไม่ใช่ลิมิตแพลน
   const now = Date.now();
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
@@ -494,8 +495,9 @@ export async function chat(req, env, u, ctx) {
   const freeM = !offPlan && !ephemeral && isFreeModel(plan, m.id); // โมเดลฟรีไม่จำกัดของแพลน: ลิมิตเต็มก็ยังใช้ได้ ไม่หักลิมิต
   if (freeM && (await env.DB.prepare('SELECT COUNT(*) n FROM usage WHERE user_id=? AND model_id=? AND created_at>?').bind(u.id, m.id, Date.now() - DAY).first()).n >= FREE_DAY_CAP) return bail(json({ error: `${m.name} ใช้ฟรีครบ ${FREE_DAY_CAP} ข้อความใน 24 ชม. แล้ว (การใช้งานปกติ) ลองโมเดลอื่นได้เลย`, cap: true }, 429));
   // ลิมิตเต็ม: ใช้เงินใน wallet ต่อได้ ถ้าผู้ใช้เปิดไว้
-  const overflow = offPlan ? 'wallet' : freeM ? null : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance >= WALLET_MIN && !ephemeral ? 'overflow' : null) : null;
-  if (!offPlan && !freeM && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return bail(json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429));
+  const ccM = !offPlan && !freeM && !ephemeral && isClaudeEco(m) && (await claudeCreditLeft(env, u.id)).left > 0; // แถมเครดิต Claude Eco: ใช้เครดิตก่อน ลิมิตเต็มก็ยังใช้ได้
+  const overflow = offPlan ? 'wallet' : freeM || ccM ? null : (st.pct4h >= 100 || st.pctWeek >= 100) ? (u.wallet_overflow && u.balance >= WALLET_MIN && !ephemeral ? 'overflow' : null) : null;
+  if (!offPlan && !freeM && !ccM && (st.pct4h >= 100 || st.pctWeek >= 100) && !overflow) return bail(json({ error: 'ลิมิตเต็มแล้ว', ...st, wallet: u.balance }, 429));
   if (overflow && dayCapped) return bail(err('ใช้ Wallet ครบเพดานต่อวันที่ตั้งไว้แล้ว ปรับได้ที่หน้าบัญชี', 429));
   if (tooFast) return bail(err('ส่งเร็วเกินไป รอสักครู่', 429));
   if (ephemeral) for (const k of [0, 1, 2].map(i => 'chatlock:' + u.id + ':e' + i)) if ((lock = await takeLock(k))) break; // โหมดเทียบขนานได้สูงสุด 3 ช่อง
@@ -550,7 +552,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
+  const J = { cc: ccM, u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -799,7 +801,8 @@ export async function runChat(env, J, send, st) {
   let mid = null;
   if ((out || think) && cid) mid = (await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout,tcr,tcw,tctx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id')
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null, usage && !usage.flag ? usage.read : null, usage && !usage.flag ? usage.write : null, lastCtx || null).first())?.id ?? null;
-  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet' && !(isFreeModel(plan, model.id) && usage.fresh + usage.read + usage.write < FREE_CTX), ms: Date.now() - tStart, ttft, src: 'chat', prep: prepMs }) : 0;
+  const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet' && !(isFreeModel(plan, model.id) && usage.fresh + usage.read + usage.write < FREE_CTX) && !(J.cc && isClaudeEco(model)), ms: Date.now() - tStart, ttft, src: 'chat', prep: prepMs }) : 0;
+  if (usage && J.cc && isClaudeEco(model)) await useClaudeCredit(env, u.id, usage._cost || 0).catch(() => {}); // หักจากเครดิต Claude ที่แถม แทนลิมิต
   await unlimit(env, lock);
   const fin = await usageStatus(env, u, plan);
   await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: lastCtx || ctxUsed, max: ctxMax(model), real: !!lastCtx }, ...fin });

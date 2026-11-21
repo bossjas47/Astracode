@@ -126,3 +126,32 @@ test('plan free models: a reply whose context is 100K+ tokens counts against the
   const r = await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'hi', model_id: free.id } }); await r.text();
   assert.ok(t.DB.raw.prepare('SELECT units FROM usage WHERE user_id=? AND model_id=?').get(u.id, free.id).units > 0);
 });
+
+test('Claude credit: new Pro X2+ buyers get ฿100 for Claude Eco (25 days), used before the limit; 7-day plans and old customers get none', async () => {
+  const { applyPayment } = await import('../src/billing.js'), { CC } = await import('../src/credits.js');
+  let fm; fm = await fakeModel((req, res) => fm.sse(res, 'ok', { prompt_tokens: 1000000, completion_tokens: 0 }));
+  const t = await makeEnv({ K: 'k' }), eco = addModel(t.DB, { name: 'Claude Sonnet 5.5 Eco', base_url: fm.url, cost_in: 1.67 }), other = addModel(t.DB, { name: 'GPT', base_url: fm.url });
+  await t.json('/api/version');
+  const px2 = addPlan(t.DB, { price: 1490, models: [eco.id, other.id], limit_4h: 1, limit_week: 1 }), wk = addPlan(t.DB, { price: 499, models: [eco.id] });
+  t.DB.raw.prepare('UPDATE plans SET days=7 WHERE id=?').run(wk.id);
+  const u = await t.user(), old = await t.user(), w = await t.user();
+  const pay = (uid, plan, id, at = Date.now()) => ({ id, user_id: uid, kind: 'plan', plan_id: plan, amount: 1, slip_key: 'slip/a', period: 'month', created_at: at });
+  await applyPayment(t.env, pay(u.id, px2.id, 1));
+  const c = t.DB.raw.prepare('SELECT * FROM claude_credits WHERE user_id=?').get(u.id);
+  assert.equal(c.amount, 100); assert.ok(Math.abs(c.expires_at - Date.now() - 25 * 864e5) < 60e3);
+  await applyPayment(t.env, pay(u.id, px2.id, 1)); assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM claude_credits WHERE user_id=?').get(u.id).n, 1, 'same payment once');
+  await applyPayment(t.env, pay(u.id, px2.id, 2)); assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM claude_credits WHERE user_id=?').get(u.id).n, 2, 'each renewal');
+  await applyPayment(t.env, pay(w.id, wk.id, 3)); assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM claude_credits WHERE user_id=?').get(w.id).n, 0, '7-day plan gets none');
+  t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at) VALUES (?,?,1490,'slip/o','approved','plan','month',?,?)").run(old.id, px2.id, CC.start - 864e5, CC.start - 864e5);
+  await applyPayment(t.env, pay(old.id, px2.id, 4)); assert.equal(t.DB.raw.prepare('SELECT COUNT(*) n FROM claude_credits WHERE user_id=?').get(old.id).n, 0, 'old customer gets none');
+
+  t.DB.raw.prepare('UPDATE users SET week_start=?, sess_start=? WHERE id=?').run(Date.now() - 1000, Date.now() - 1000, u.id);
+  t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,0,0,0,5,5,?)').run(u.id, other.id, Date.now());
+  const send = async mid => { t.DB.raw.exec('DELETE FROM rate'); const r = await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'hi', model_id: mid } }); await r.text(); return r.status; };
+  assert.equal(await send(other.id), 429, 'limit full');
+  assert.equal(await send(eco.id), 200, 'Claude Eco still works on the credit');
+  const used = t.DB.raw.prepare('SELECT SUM(used) s FROM claude_credits WHERE user_id=?').get(u.id).s;
+  assert.ok(used > 1.6 && used < 1.8, 'cost taken from the credit: ' + used);
+  assert.equal(t.DB.raw.prepare('SELECT units FROM usage WHERE user_id=? AND model_id=?').get(u.id, eco.id).units, 0);
+  const me = (await t.json('/api/me', { cookie: u.cookie })).data; assert.ok(me.claude_credit.left > 198 && me.claude_credit.usd > 290);
+});

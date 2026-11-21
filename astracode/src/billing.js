@@ -1,3 +1,4 @@
+import { grantClaudeCredit } from './credits.js';
 import { DAY, err, flat, hex, json, limited, rand, sha, slipPut, userErr, viaProxy } from './core.js';
 import { b64 } from './projects.js';
 import { status } from './jobs.js';
@@ -265,6 +266,7 @@ export async function applyPayment(env, p) {
       // แพลนสั้น (≤7 วัน) เริ่มใหม่: เริ่มรอบลิมิตสัปดาห์ ณ วันซื้อ ไม่งั้นรอบเดิมที่เริ่มก่อนซื้อจะรีเซ็ตกลางแพลน = ได้ลิมิตสัปดาห์ 2 รอบใน 7 วัน (ต้นทุนเกินที่คิดราคาไว้)
       if (days <= 7 && base === now) await env.DB.prepare('UPDATE users SET usage_reset_at=?, sess_start=NULL, week_start=NULL WHERE id=?').bind(now, u.id).run();
     }
+    await grantClaudeCredit(env, u, pl, p).catch(e => console.log('claude credit', e.message)); // แถมเครดิต Claude Eco ทุกครั้งที่ซื้อ/ต่อ (ลูกค้าใหม่ Pro X2 ขึ้นไป)
   }
   await useCoupon(env, p.coupon, u.id);
   // Affiliate: คนที่ชวนมาจ่ายเงินจริง → ผู้ชวนได้ค่าคอม % เข้า Wallet ภายใน aff_months เดือนแรกของบัญชีนั้น · aff_pct = 0 (ค่าเริ่มต้น) = ปิด

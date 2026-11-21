@@ -49,7 +49,7 @@ PAGES.account = async function account() {
 
     <div class="acc-ov">
       <div class="acc-big"><span class="muted">Wallet</span><b>฿${baht(w.balance)}</b><a class="btn blue sm" href="/plans?topup=1">Top up</a></div>
-      <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span></div>
+      <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span>${me.claude_credit ? `<span class="cc-pill">🎁 แถม Claude Eco เหลือ ≈ $${me.claude_credit.usd} · ใช้ได้ถึง ${when(me.claude_credit.exp)}</span>` : ''}</div>
     </div>
     ${me.upsell_year ? `<div class="card acc-c" style="border-color:var(--blue)"><b>เปลี่ยนเป็นรายปี ประหยัด ฿${me.upsell_year.save.toLocaleString()}</b><p class="muted" style="margin:4px 0 10px">คุณต่อ ${esc(me.plan.name)} รายเดือนมาแล้วหลายเดือน จ่ายรายปี ฿${me.upsell_year.price_year.toLocaleString()} ถูกกว่าจ่ายรายเดือน 12 ครั้ง</p><a class="btn blue sm" href="/plans?plan=${me.upsell_year.plan_id}&period=year">ดูแพลนรายปี</a></div>` : ''}
     <div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
