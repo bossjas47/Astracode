@@ -5,10 +5,9 @@ import { err, esc, json, limited, planOf, rand } from './core.js';
 export const ART_MAX = 2e6, ART_VERS = 30, ART_SHARES = 20, ART_REPORT_OFF = 5;
 export const artPaid = plan => plan?.price > 0 && !plan.once; // แพลนทดลอง (once) และฟรีใช้ไม่ได้
 export const ART_TABLES = [
-  'CREATE TABLE IF NOT EXISTS artifacts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, chat_id INTEGER, title TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1, share_token TEXT, share_ver INTEGER, reports INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS artifacts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, chat_id INTEGER, title TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1, share_token TEXT, share_ver INTEGER, reports INTEGER NOT NULL DEFAULT 0, gallery INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)',
   'CREATE INDEX IF NOT EXISTS artifacts_user ON artifacts(user_id, updated_at)',
   'CREATE UNIQUE INDEX IF NOT EXISTS artifacts_share ON artifacts(share_token)',
-  'ALTER TABLE artifacts ADD COLUMN gallery INTEGER', // 1 = เจ้าของให้โชว์ในแกลเลอรีสาธารณะ
   'CREATE TABLE IF NOT EXISTS artifact_versions (artifact_id INTEGER NOT NULL, ver INTEGER NOT NULL, html TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (artifact_id, ver))',
 ];
 export const artMarker = (id, ver, title) => `\n\n[[art:${id}|${ver}|${String(title).replace(/[\]|\n]/g, ' ')}]]\n`;
