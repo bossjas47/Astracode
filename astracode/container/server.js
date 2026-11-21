@@ -7,11 +7,21 @@ const lib = process.env.AGENT_LIB || path.join(__dirname, 'app');
 const { runAgent } = require(path.join(lib, 'agent'));
 const { AGENT_TOOLS, Workspace, agentSystem, projectRules } = require(path.join(lib, 'agenttools'));
 const { scanFolder } = require(path.join(lib, 'localfs'));
-const COWORK_SYS = `\n\nCOWORK MODE: you are working for a non-programmer on an office task. First call todo_write with a short plan, then do the work yourself until it is done. Make deliverables as real files with make_document (.docx/.xlsx with live formulas/.pptx/.pdf) or with python (pandas, matplotlib → PNG). Use web_search / web_fetch / browser for information from the web. Explain progress in plain Thai when the user writes Thai; do not show code unless asked. Before deleting or overwriting the user's own uploaded files, ask (ask in your reply and stop). Finish with a short summary listing the files you made.`;
+const COWORK_SYS = `\n\nCOWORK MODE: you are working for a non-programmer on an office task. First call todo_write with a short plan, then do the work yourself until it is done. Make deliverables as real files with make_document (.docx/.xlsx with live formulas/.pptx/.pdf) or with python (pandas, matplotlib → PNG). Use web_search / web_fetch / browser for information from the web. Use the user's connectors (tools named rmcp_..., e.g. Gmail, Google Drive/Sheets/Calendar) when the task involves their email, files or calendar; save_to_drive / email_files send finished files; look_at_image reads photos and scans; generate_image makes pictures for slides or posts. Explain progress in plain Thai when the user writes Thai; do not show code unless asked. Before deleting or overwriting the user's own uploaded files, ask (ask in your reply and stop). Finish with a short summary listing the files you made.`;
 const ROOT = process.env.WORK || '/work';
 let OFFICE = null, BROWSER = null; // Cowork: ไฟล์ออฟฟิศ + เบราว์เซอร์ (โหลดเมื่อใช้ · ถ้าไม่มีแพ็กเกจก็ทำงานต่อได้แบบไม่มีเครื่องมือนั้น)
 try { OFFICE = require(path.join(lib, 'office')); } catch {}
 try { BROWSER = require('./browser'); } catch {}
+const S = d => ({ type: 'string', description: d }), fnT = (name, description, properties, required = []) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } });
+// เครื่องมือเพิ่มของ Cowork: สร้างรูป · อ่านรูป/สแกน (OCR) · ส่งไฟล์ขึ้น Drive · ส่งอีเมลแนบไฟล์ (2 อย่างหลังใช้ Google ที่ลูกค้าเชื่อมไว้บนเว็บ)
+const COWORK_TOOLS = [
+  fnT('generate_image', 'Create a picture (illustration, banner, product shot, slide image) with the image generator and save it as a PNG in the task folder.', { prompt: S('Detailed English description'), path: S('Where to save, e.g. images/cover.png') }, ['prompt']),
+  fnT('look_at_image', 'Look at an image or scanned document in the task folder (receipt, photo of a form, chart, screenshot) and get its text and description. Use it for OCR before working with the numbers.', { path: S('Image path (.png .jpg .jpeg .webp)'), question: S('What to extract, e.g. "all line items and totals as a table"') }, ['path']),
+  fnT('save_to_drive', 'Upload a file from the task folder to the user\'s Google Drive (needs Google connected on the website). Office files can be converted to Google Docs/Sheets/Slides.', { path: S('File path'), convert: { type: 'boolean' } }, ['path']),
+  fnT('email_files', 'Email files from the task folder as real attachments through the user\'s Gmail. Creates a DRAFT unless send=true; only send when the user clearly asked to send.', { to: S('Recipient emails, comma separated'), subject: S('Subject'), body: S('Plain text body'), paths: { type: 'array', items: { type: 'string' } }, send: { type: 'boolean' } }, ['to', 'subject', 'body']),
+];
+const MIME = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', csv: 'text/csv', txt: 'text/plain', md: 'text/markdown', html: 'text/html' };
+const mimeOf = p => MIME[String(p).split('.').pop().toLowerCase()] || 'application/octet-stream';
 let session = null; // Cowork: บทสนทนาต่อเนื่องหลายข้อความในเครื่องเดียว { messages, ws, cowork }
 
 let job = null; // { status: running|done|error, events, final, error, ac, before: Map }
@@ -41,14 +51,40 @@ async function turn(o, before) {
   const ws = session?.ws && o.follow ? session.ws : new Workspace(ROOT, { ask: async () => true, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
     search: async q => { const r = await fetch(o.site + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key }, body: JSON.stringify({ query: q }) }); return (await r.json()).results || []; } });
   ws.signal = ac.signal;
-  const sys = o.cowork ? agentSystem({ root: ROOT, os: 'Linux cloud sandbox (node, npm, python3 + pip, git, Chromium). This is the user\'s Cowork task folder: put every deliverable (reports, spreadsheets, slides, PDFs, charts) as real files in this folder; the user sees and downloads them from the Artifacts panel', rules: '' }) + COWORK_SYS
+  const sys = o.cowork ? agentSystem({ root: ROOT, os: 'Linux cloud sandbox (node, npm, python3 + pip, git, Chromium). This is the user\'s Cowork task folder: put every deliverable (reports, spreadsheets, slides, PDFs, charts) as real files in this folder; the user sees and downloads them from the Artifacts panel', rules: '' }) + COWORK_SYS + (o.skills ? '\n\nThe user\'s Skills (follow them whenever they apply):\n' + String(o.skills).slice(0, 30000) : '')
     : agentSystem({ root: ROOT, os: 'Linux (cloud sandbox: node, npm, python3, pip, git available; changes to files under the working folder are saved back to the user\'s project)', rules: await projectRules(ROOT) });
   const messages = o.follow && session?.messages ? session.messages : (o.history?.length ? [{ role: 'system', content: sys }, ...o.history.slice(-40)] : [{ role: 'system', content: sys }]);
   messages.push({ role: 'user', content: String(o.prompt || '').slice(0, 100000) });
   if (o.cowork) session = { messages, ws };
-  const extra = o.cowork ? [...(OFFICE ? OFFICE.OFFICE_TOOLS : []), ...(BROWSER ? [BROWSER.BROWSER_TOOL] : [])] : [];
+  const api = (p, init = {}) => fetch(o.site + p, { ...init, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key, ...(init.headers || {}) } });
+  let conn = []; // Connectors ที่ลูกค้าเชื่อมไว้บนเว็บ (Gmail, Drive, Sheets, Calendar, MCP อื่น ๆ) ผ่าน /v1/mcp · token อยู่ที่เซิร์ฟเวอร์ ไม่ลงเครื่องนี้
+  if (o.cowork) try { const d = await (await api('/v1/mcp/tools')).json(); conn = (d.tools || []).slice(0, 60).map(x => ({ type: 'function', function: { name: x.name, description: x.description, parameters: x.parameters || { type: 'object', properties: {} } } })); } catch { conn = []; }
+  if (o.cowork && conn.length) events.push({ type: 'info', text: 'Connectors: ' + [...new Set(conn.map(x => x.function.name.replace(/^rmcp_\d+_/, '').split('_')[0]))].slice(0, 8).join(', '), t: Date.now() });
+  const gTool = suffix => conn.find(x => x.function.name.endsWith('_' + suffix))?.function.name;
+  const mcpCall = async (name, args) => { const d = await (await api('/v1/mcp/call', { method: 'POST', body: JSON.stringify({ name, args }) })).json().catch(() => ({})); return String(d.text ?? d.error?.message ?? 'Error: no answer'); };
+  const readB64 = async p => { const f = ws.abs(p); if (!ws.inside(f)) throw new Error('path must be inside the task folder'); const b = await fs.readFile(f); if (b.length > 15e6) throw new Error('file is over 15MB'); return b.toString('base64'); };
+  const extra = o.cowork ? [...(OFFICE ? OFFICE.OFFICE_TOOLS : []), ...(BROWSER ? [BROWSER.BROWSER_TOOL] : []), ...COWORK_TOOLS, ...conn] : [];
   const call = async (n, a) => {
     if (o.cowork && OFFICE && (n === 'make_document' || n === 'read_document')) { const f = ws.abs(a.path); if (!ws.inside(f)) return 'Error: path must be inside the task folder'; return n === 'read_document' ? OFFICE.readDocument(f) : OFFICE.makeDocument(f, a, { pdf: BROWSER?.htmlToPdf }); }
+    if (o.cowork && n.startsWith('rmcp_')) return mcpCall(n, a);
+    if (o.cowork && n === 'generate_image') {
+      const r = await api('/v1/images/generations', { method: 'POST', body: JSON.stringify({ prompt: String(a.prompt || '').slice(0, 2000), n: 1, size: '1536x1024' }) }), d = await r.json().catch(() => ({}));
+      if (!r.ok) return 'Error: ' + (d.error?.message_th || d.error?.message || 'HTTP ' + r.status);
+      const it = d.data?.[0] || {}, buf = it.b64_json ? Buffer.from(it.b64_json, 'base64') : it.url ? Buffer.from(await (await fetch(it.url.startsWith('/') ? o.site + it.url : it.url)).arrayBuffer()) : null; if (!buf) return 'Error: no image returned';
+      const rel = String(a.path || `images/image-${Date.now()}.png`).replace(/^\/+/, ''), f = ws.abs(rel); if (!ws.inside(f)) return 'Error: path must be inside the task folder';
+      await fs.mkdir(path.dirname(f), { recursive: true }); await fs.writeFile(f, buf); events.push({ type: 'shot', path: rel, t: Date.now() }); return `Saved image ${rel}`;
+    }
+    if (o.cowork && n === 'look_at_image') {
+      const b64 = await readB64(a.path), type = mimeOf(a.path); if (!type.startsWith('image/')) return 'Error: use read_document for PDF/Office files';
+      const r = await api('/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: o.model, stream: false, max_tokens: 4000, messages: [{ role: 'user', content: [{ type: 'text', text: String(a.question || 'Transcribe all text in this image exactly (keep numbers and table layout), then describe anything else important.') }, { type: 'image_url', image_url: { url: `data:${type};base64,${b64}` } }] }] }) });
+      const d = await r.json().catch(() => ({})); return r.ok ? String(d.choices?.[0]?.message?.content || '(no text)') : 'Error: ' + (d.error?.message || 'HTTP ' + r.status);
+    }
+    if (o.cowork && n === 'save_to_drive') { const t = gTool('drive_upload_file'); if (!t) return 'Error: Google is not connected. Ask the user to connect Google on the website (Settings → Connectors), or give them the file from the Artifacts panel.'; return mcpCall(t, { name: path.basename(String(a.path)), b64: await readB64(a.path), mime: mimeOf(a.path), convert: !!a.convert }); }
+    if (o.cowork && n === 'email_files') {
+      const t = gTool(a.send ? 'gmail_send' : 'gmail_draft'); if (!t) return 'Error: Gmail is not connected. Ask the user to connect Google on the website (Settings → Connectors).';
+      const attachments = []; for (const p of (Array.isArray(a.paths) ? a.paths : []).slice(0, 10)) attachments.push({ name: path.basename(String(p)), b64: await readB64(p), mime: mimeOf(p) });
+      return mcpCall(t, { to: a.to, subject: a.subject, body: a.body, attachments });
+    }
     if (o.cowork && BROWSER && n === 'browser') return BROWSER.browserTool(a, ROOT, rel => events.push({ type: 'shot', path: rel, t: Date.now() }));
     return ws.call(n, a);
   };

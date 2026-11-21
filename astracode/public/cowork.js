@@ -37,7 +37,7 @@ async function coworkView(id) {
   clearTimeout(CW.poll); CW.id = id ? (CW.local ? String(id) : +id) : null; CW.ev = []; CW.files = []; CW.total = 0; CW.status = 'idle'; CW.title = '';
   host.innerHTML = `<div class="cw ${CW.id ? '' : 'cw-empty'}">
     <section class="cw-conv">
-      <div class="bar cw-bar"><button class="menu-btn" id="cwmenu" aria-label="เมนู">${ic('menu')}</button><b id="cwtitle">${CW.id ? '' : 'Cowork'}</b><span class="cw-model">${ic('sparkles', 'sm')} ${CW_MODEL.replace('Claude ', '')}</span><button type="button" class="icon-btn sm ghost cw-paneb" id="cwpane" aria-label="Progress และไฟล์">${ic('layers', 'sm')}</button></div>
+      <div class="bar cw-bar"><button class="menu-btn" id="cwmenu" aria-label="เมนู">${ic('menu')}</button><b id="cwtitle">${CW.id ? '' : 'Cowork'}</b><span class="cw-model">${ic('sparkles', 'sm')} ${CW_MODEL.replace('Claude ', '')}</span>${CW.local ? '' : `<button type="button" class="icon-btn sm ghost" id="cwsched" aria-label="ตั้งเวลาให้ทำซ้ำ" title="ตั้งเวลาให้ทำซ้ำ">${ic('clock', 'sm')}</button>`}<button type="button" class="icon-btn sm ghost cw-paneb" id="cwpane" aria-label="Progress และไฟล์">${ic('layers', 'sm')}</button></div>
       <div class="cw-msgs" id="cwmsgs"></div>
       <form class="cw-box" id="cwform">
         <div class="cw-chips" id="cwchips"></div>
@@ -55,6 +55,7 @@ async function coworkView(id) {
     </aside></div>`;
   $('#cwmenu').onclick = () => openSide?.();
   $('#cwpane').onclick = () => $('#cwside').classList.toggle('open');
+  const sc = $('#cwsched'); if (sc) sc.onclick = cwSchedule;
   const t = $('#cwt'); t.oninput = () => { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 220) + 'px'; };
   t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(pointer:fine)').matches) { e.preventDefault(); $('#cwform').requestSubmit(); } };
   $('#cwform').onsubmit = e => { e.preventDefault(); CW.busy ? cwStop() : cwSend(); };
@@ -144,13 +145,15 @@ function cwPanels() {
   const link = f => CW.local ? `<button type="button" class="cw-file" data-cwopen="${esc(f.path)}">` : `<a class="cw-file" href="/api/cowork/${CW.id}/file?path=${encodeURIComponent(f.path)}${/^(png|jpe?g|pdf)$/.test(cwExt(f.path)) ? '&view=1" target="_blank' : ''}" rel="noopener">`;
   const row = f => `${link(f)}${ic(cwIcon(f.path), 'sm')}<span>${esc(f.path.split('/').pop())}</span>${f.size ? `<small>${f.size > 1e6 ? (f.size / 1e6).toFixed(1) + 'MB' : Math.ceil(f.size / 1e3) + 'KB'}</small>` : ''}${CW.local ? '</button>' : '</a>'}`;
   $('#cwart').innerHTML = mine.length ? mine.map(row).join('') : '<p class="muted">ไฟล์ที่ AI สร้างจะอยู่ที่นี่</p>';
+  const conn = CW.ev.filter(e => e.type === 'info' && /^Connectors: /.test(e.text)).at(-1)?.text.slice(12).split(', ') || [];
   $('#cwctx').innerHTML = `<small class="muted">${CW.local ? 'Selected folder' : 'Workspace'}</small><div class="cw-file static">${ic(CW.local ? 'folder' : 'server', 'sm')}<span>${esc(CW.local ? CW.folder || 'ยังไม่ได้เลือก' : 'เครื่องเสมือนบนคลาวด์')}</span></div>
-    <small class="muted">Connectors</small><div class="cw-file static">${ic('globe', 'sm')}<span>Web search</span></div>${CW.local ? '' : `<div class="cw-file static">${ic('web', 'sm')}<span>Browser</span></div>`}
+    <small class="muted">Connectors</small><div class="cw-file static">${ic('globe', 'sm')}<span>Web search</span></div>${CW.local ? '' : `<div class="cw-file static">${ic('web', 'sm')}<span>Browser</span></div><div class="cw-file static">${ic('image', 'sm')}<span>Image &amp; OCR</span></div>`}${conn.map(c => `<div class="cw-file static">${ic('server', 'sm')}<span>${esc(c)}</span></div>`).join('')}${CW.local ? '' : `<button type="button" class="cw-file" data-cwconn>${ic('plus', 'sm')}<span>เชื่อม Gmail / Drive / อื่น ๆ</span></button>`}
     ${inputs.length ? `<small class="muted">Working files</small>${inputs.map(row).join('')}` : ''}`;
 }
 document.addEventListener('click', e => {
   const o = e.target.closest?.('[data-cwopen]'); if (o && window.astraDesktop?.agent) window.astraDesktop.agent.open('chat', o.dataset.cwopen).catch(x => toast(String(x.message), 'bad'));
   const a = e.target.closest?.('[data-cwans]'); if (a && CW.local && CW.askId) { window.astraDesktop.agent.answer('cw' + CW.id, CW.askId, a.dataset.cwans); CW.askId = null; }
+  if (e.target.closest?.('[data-cwconn]')) openConnectors?.();
   const n = e.target.closest?.('#cwnew'); if (n) { closeSide?.(); CW.pending = []; setUrl('/chat?mode=cowork'); coworkView(null); }
   const t = e.target.closest?.('[data-cwt]'); if (t) { e.preventDefault(); closeSide?.(); setUrl('/chat?mode=cowork&task=' + t.dataset.cwt); coworkView(t.dataset.cwt); }
 });
@@ -187,4 +190,20 @@ async function cwLocalSend(text) {
   cwSub?.(); cwSub = null; const last = L.events.at(-1); if (last?.live) delete last.live;
   L.status = L.events.at(-1)?.type === 'end' ? 'error' : 'done'; L.updated_at = Date.now(); L.events = L.events.slice(-400); cwSaveLocal(list);
   CW.status = L.status; cwBusy(false); cwPaint(); cwLoadTasks(); D.notify?.('Cowork เสร็จแล้ว', L.title);
+}
+
+// ตั้งเวลาให้ Cowork ทำงานนี้ซ้ำ (เช่น ทุกวันจันทร์ 8 โมง ดึงยอดขายทำรายงานส่งอีเมล) · ใช้ระบบงานตามเวลาเดิม (cowork=1)
+function cwSchedule() {
+  const first = CW.ev.find(e => e.type === 'user')?.text || $('#cwt').value.trim();
+  const hours = Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === 8 ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('');
+  sheet('ตั้งเวลาให้ Cowork ทำซ้ำ', `<form class="sheet-form" id="cwsf">
+    <label>ชื่องาน<input name="title" maxlength="60" required value="${esc((CW.title || first).slice(0, 60))}"></label>
+    <label>คำสั่ง (AI ทำในเครื่องเสมือนใหม่ทุกรอบ)<textarea name="prompt" rows="5" maxlength="4000" required>${esc(first)}</textarea></label>
+    <div class="row"><label style="flex:1">เวลา (ไทย)<select name="hour">${hours}</select></label>
+    <label style="flex:1">ทุก<select name="days"><option value="daily">วัน</option><option value="weekdays">วันทำงาน</option><option value="mon">วันจันทร์</option><option value="tue">วันอังคาร</option><option value="wed">วันพุธ</option><option value="thu">วันพฤหัส</option><option value="fri">วันศุกร์</option><option value="sat">วันเสาร์</option><option value="sun">วันอาทิตย์</option></select></label></div>
+    <small class="muted">เสร็จแล้วแจ้งเตือน · ถ้าเชื่อม Gmail ไว้ สั่งในคำสั่งได้ เช่น "ส่งไฟล์ให้ boss@company.com" · ตั้งได้รวมกับงานตามเวลาอื่นไม่เกิน 3 งาน</small>
+    <button class="btn blue">${ic('clock', 'sm')} บันทึก</button></form>`, (d, close) => {
+    d.querySelector('#cwsf').onsubmit = async e => { e.preventDefault(); const f = new FormData(e.target);
+      try { await api('/schedules', { method: 'POST', body: { title: f.get('title'), prompt: f.get('prompt'), hour: +f.get('hour'), days: f.get('days'), cowork: 1, search: true } }); close(); toast('ตั้งเวลาแล้ว · ดู/แก้ได้ที่เมนู Scheduled tasks', 'ok'); } catch (x) { toast(x.message, 'bad'); } };
+  });
 }

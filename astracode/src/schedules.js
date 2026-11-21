@@ -8,7 +8,7 @@ import { sendPush } from './push.js';
 export const SCHED_MAX = 3, SCHED_FRESH = 20; // ข้อความในแชตเกิน 20 = เริ่มแชตใหม่ (context ไม่โตไม่สิ้นสุด)
 export const SCHED_TABLE = 'CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, prompt TEXT NOT NULL, model_id INTEGER NOT NULL, hour INTEGER NOT NULL, days TEXT NOT NULL DEFAULT \'daily\', email INTEGER NOT NULL DEFAULT 0, search INTEGER NOT NULL DEFAULT 1, chat_id INTEGER, last_run INTEGER, last_status TEXT, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL)';
 let tableDone = null;
-const ensureTable = env => tableDone ||= env.DB.prepare(SCHED_TABLE).run().catch(e => { tableDone = null; throw e; });
+const ensureTable = env => tableDone ||= env.DB.prepare(SCHED_TABLE).run().then(() => env.DB.prepare('ALTER TABLE schedules ADD COLUMN cowork INTEGER').run().catch(() => {})).catch(e => { tableDone = null; throw e; }); // cowork = 1: เปิดงาน Cowork ใหม่ตามเวลา
 const DAYS = ['daily', 'weekdays', 'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const schedPaid = plan => plan?.price > 0 && !plan.once;
 // ถึงรอบหรือยัง (เวลาไทย): ชั่วโมงตรง + วันตรง + ยังไม่รันใน 20 ชม.
@@ -22,11 +22,18 @@ function clean(b) {
   const hour = Math.floor(+b.hour), days = DAYS.includes(b.days) ? b.days : 'daily';
   if (!title || !prompt) throw new Error('ใส่ชื่องานและคำสั่ง');
   if (!(hour >= 0 && hour <= 23)) throw new Error('เวลาไม่ถูกต้อง');
-  return { title, prompt, hour, days, model_id: +b.model_id || 0, email: b.email ? 1 : 0, search: b.search === false ? 0 : 1 };
+  return { title, prompt, hour, days, model_id: +b.model_id || 0, email: b.email ? 1 : 0, search: b.search === false ? 0 : 1, cowork: b.cowork ? 1 : 0 };
 }
 
 // รันหนึ่งงาน: ส่งคำสั่งเข้าแชตเหมือนผู้ใช้พิมพ์ แล้วรออ่านสตรีมจนจบ
 export async function runSchedule(env, s, u) {
+  if (s.cowork) { // งาน Cowork ตามเวลา: เปิดงานใหม่ในเครื่องเสมือน (แจ้งเตือนเมื่อเสร็จจาก finishCowork)
+    const { coworkStart } = await import('./cowork.js'); let status = 'ok', id = null;
+    try { id = await coworkStart(env, u, `[งาน Cowork ตามเวลา: ${s.title}]\n${s.prompt}`); } catch (e) { status = String(e.message).slice(0, 200); }
+    await env.DB.prepare('UPDATE schedules SET last_run=?, last_status=? WHERE id=?').bind(Date.now(), status, s.id).run();
+    if (status !== 'ok') await sendPush(env, u.id, { title: '⏰ ' + s.title, body: 'เริ่มงาน Cowork ไม่สำเร็จ: ' + status, url: '/chat?mode=cowork' });
+    return { status, task_id: id };
+  }
   let cid = s.chat_id;
   if (cid) { const n = await env.DB.prepare('SELECT COUNT(*) n FROM messages m JOIN chats c ON c.id=m.chat_id WHERE m.chat_id=? AND c.user_id=? AND c.deleted_at IS NULL').bind(cid, u.id).first(); if (!n?.n || n.n >= SCHED_FRESH) cid = null; }
   const pending = [], ctx = { waitUntil: p => pending.push(Promise.resolve(p).catch(() => {})) };
@@ -80,7 +87,7 @@ export async function schedApi(req, env, u, path, M) {
   if (path === '/api/schedules' && M === 'POST') {
     let v; try { v = clean(await req.json()); } catch (e) { return err(e.message); }
     if ((await mine()).length >= SCHED_MAX) return err(`ตั้งได้สูงสุด ${SCHED_MAX} งาน`, 403);
-    const row = await DB.prepare('INSERT INTO schedules (user_id,title,prompt,model_id,hour,days,email,search,created_at) VALUES (?,?,?,?,?,?,?,?,?) RETURNING *').bind(u.id, v.title, v.prompt, v.model_id, v.hour, v.days, v.email, v.search, Date.now()).first();
+    const row = await DB.prepare('INSERT INTO schedules (user_id,title,prompt,model_id,hour,days,email,search,created_at,cowork) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING *').bind(u.id, v.title, v.prompt, v.model_id, v.hour, v.days, v.email, v.search, Date.now(), v.cowork).first();
     return json(row);
   }
   const m = path.match(/^\/api\/schedules\/(\d+)(\/run)?$/); if (!m) return err('not found', 404);

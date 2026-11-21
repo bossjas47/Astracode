@@ -19,6 +19,7 @@ export const GOOGLE_TOOLS = [
   { name: 'calendar_list', description: 'List events in the primary Google Calendar between two times (ISO 8601). Defaults to the next 7 days.', inputSchema: O({ time_min: S('ISO start'), time_max: S('ISO end'), query: S('Text filter') }) },
   { name: 'calendar_create', description: 'Create an event in the primary Google Calendar. Times are ISO 8601 with offset, e.g. 2026-11-20T14:00:00+07:00.', inputSchema: O({ summary: S('Title'), start: S('ISO start'), end: S('ISO end'), description: S('Details'), location: S('Place'), attendees: { type: 'array', items: { type: 'string' }, description: 'Guest emails' } }, ['summary', 'start', 'end']) },
   { name: 'drive_save_file', description: 'Save a file from the user\'s AstraCode account (file_id from create_file / list_account_files) to their Google Drive: spreadsheets become a Google Sheet (all sheets, formulas kept), documents and slides a Google Doc. Returns the link; put it in an email with gmail_draft to share it.', inputSchema: O({ file_id: { type: 'number' } }, ['file_id']) },
+  { name: 'drive_upload_file', description: 'Upload a real file (base64) to Google Drive. Cowork agents should use their save_to_drive tool instead, which reads the file for you.', inputSchema: O({ name: S('File name'), b64: S('Base64 content'), mime: S('MIME type'), convert: { type: 'boolean', description: 'Convert Office files to Google Docs/Sheets/Slides' }, folder_id: S('Optional Drive folder id') }, ['name', 'b64']) },
   { name: 'gmail_search', description: 'Search Gmail with Gmail query syntax (e.g. "from:bank newer_than:7d"). Returns id, from, subject, date, snippet.', inputSchema: O({ query: S('Gmail search query'), max: { type: 'number' } }, ['query']) },
   { name: 'gmail_read', description: 'Read one email as plain text.', inputSchema: O({ id: S('Message id from gmail_search') }, ['id']) },
   { name: 'gmail_draft', description: 'Create a Gmail draft (not sent). Prefer this unless the user clearly asked to send.', inputSchema: O({ to: S('Recipient emails, comma separated'), subject: S('Subject'), body: S('Plain text body') }, ['to', 'subject', 'body']) },
@@ -71,6 +72,12 @@ async function accessToken(env, uid) {
   return tk.access_token;
 }
 const b64url = s => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// อีเมลแนบไฟล์จริง (multipart/mixed) · att = [{ name, b64, mime }] รวมไม่เกิน ~18MB
+const mimeAtt = (to, subject, body, att) => { const bd = 'astra' + rand(10), enc = s => '=?UTF-8?B?' + btoa(String.fromCharCode(...new TextEncoder().encode(String(s).replace(/[\r\n]/g, ' ')))) + '?=', wrap = s => String(s).replace(/(.{76})/g, '$1\r\n');
+  const parts = [`--${bd}\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(btoa(String.fromCharCode(...new TextEncoder().encode(String(body || '')))))}`,
+    ...att.map(f => `--${bd}\r\nContent-Type: ${String(f.mime || 'application/octet-stream').replace(/[\r\n;]/g, '')}; name="${enc(f.name)}"\r\nContent-Disposition: attachment; filename="${enc(f.name)}"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(String(f.b64).replace(/[^A-Za-z0-9+/=]/g, ''))}`)];
+  return b64url(`To: ${String(to).replace(/[\r\n]/g, '')}\r\nSubject: ${enc(subject)}\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="${bd}"\r\n\r\n${parts.join('\r\n')}\r\n--${bd}--`); };
+const atts = a => (Array.isArray(a.attachments) ? a.attachments : []).slice(0, 10).filter(f => f && f.name && f.b64);
 const mime = (to, subject, body) => b64url(`To: ${String(to).replace(/[\r\n]/g, '')}\r\nSubject: =?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(String(subject).replace(/[\r\n]/g, ' '))))}?=\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${body}`);
 const unb64url = s => { try { return new TextDecoder().decode(Uint8Array.from(atob(String(s).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))); } catch { return ''; } };
 function mailText(p) { // หาส่วน text/plain ก่อน ไม่มีค่อยใช้ html แบบตัดแท็ก
@@ -122,6 +129,13 @@ export async function googleCall(env, uid, name, a = {}) {
       }
       return googleCall(env, uid, 'drive_create_doc', { name: title, content: mdHtml(data.md || ''), html: true });
     }
+    case 'drive_upload_file': { // ไฟล์จริง (xlsx/docx/pdf/png ...) ขึ้น Drive · convert=true แปลงเป็น Google Docs/Sheets/Slides
+      const name = String(a.name || 'file').slice(0, 200), type = String(a.mime || 'application/octet-stream').replace(/[\r\n;]/g, ''), bd = 'astra' + rand(8);
+      const conv = a.convert ? { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'application/vnd.google-apps.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'application/vnd.google-apps.spreadsheet', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'application/vnd.google-apps.presentation' }[type] : null;
+      const meta = JSON.stringify({ name: conv ? name.replace(/\.\w+$/, '') : name, ...(conv ? { mimeType: conv } : {}), ...(a.folder_id ? { parents: [String(a.folder_id)] } : {}) });
+      const d = await g('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', { method: 'POST', headers: { 'content-type': `multipart/related; boundary=${bd}` }, body: `--${bd}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${bd}\r\nContent-Type: ${type}\r\nContent-Transfer-Encoding: base64\r\n\r\n${String(a.b64 || '').replace(/[^A-Za-z0-9+/=]/g, '')}\r\n--${bd}--` });
+      return JSON.stringify(d);
+    }
     case 'sheets_read': { const d = await g(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(a.spreadsheet_id)}/values/${encodeURIComponent(a.range)}`); return JSON.stringify(d.values || []).slice(0, 100000); }
     case 'sheets_write': {
       const base = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(a.spreadsheet_id)}/values/${encodeURIComponent(a.range)}`;
@@ -147,8 +161,8 @@ export async function googleCall(env, uid, name, a = {}) {
       return JSON.stringify(out);
     }
     case 'gmail_read': { const d = await g(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(a.id)}?format=full`); const h = n => d.payload?.headers?.find(x => x.name === n)?.value || ''; return `From: ${h('From')}\nTo: ${h('To')}\nDate: ${h('Date')}\nSubject: ${h('Subject')}\n\n${mailText(d.payload).slice(0, 60000)}`; }
-    case 'gmail_draft': { const d = await g('https://gmail.googleapis.com/gmail/v1/users/me/drafts', { method: 'POST', body: JSON.stringify({ message: { raw: mime(a.to, a.subject, a.body) } }) }); return 'สร้างฉบับร่างแล้ว id ' + d.id + ' (ยังไม่ได้ส่ง เปิดดูใน Gmail > ฉบับร่าง)'; }
-    case 'gmail_send': { const d = await g('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: JSON.stringify({ raw: mime(a.to, a.subject, a.body) }) }); return 'ส่งแล้ว id ' + d.id; }
+    case 'gmail_draft': { const at = atts(a), d = await g('https://gmail.googleapis.com/gmail/v1/users/me/drafts', { method: 'POST', body: JSON.stringify({ message: { raw: at.length ? mimeAtt(a.to, a.subject, a.body, at) : mime(a.to, a.subject, a.body) } }) }); return 'สร้างฉบับร่างแล้ว id ' + d.id + ' (ยังไม่ได้ส่ง เปิดดูใน Gmail > ฉบับร่าง)'; }
+    case 'gmail_send': { const at = atts(a), d = await g('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: JSON.stringify({ raw: at.length ? mimeAtt(a.to, a.subject, a.body, at) : mime(a.to, a.subject, a.body) }) }); return 'ส่งแล้ว id ' + d.id; }
     default: return 'ไม่พบเครื่องมือ ' + name;
   }
 }
