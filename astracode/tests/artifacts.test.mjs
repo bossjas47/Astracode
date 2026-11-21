@@ -73,3 +73,22 @@ test('artifact: free plan has no artifact tool and cannot share', async () => {
   t.DB.raw.prepare("INSERT INTO artifacts (id,user_id,title,created_at,updated_at) VALUES (5,?,'x',0,0)").run(u.id);
   assert.equal((await t.json('/api/artifacts/5/share', { method: 'POST', cookie: u.cookie, body: { on: true } })).status, 403);
 });
+
+test('account files: attached Excel is saved, AI edits it in place, owner sees versions and can restore; other users cannot read it', async () => {
+  let n = 0;
+  const { t, m, u } = await setup(0, (fm, res, body) => {
+    n++; const tools = body.messages.filter(x => x.role === 'tool').length;
+    if (n === 1 && !tools) return toolSSE(res, 'edit_account_file', { file_id: 1, ops: [{ op: 'add_column', header: 'กำไร', formula: '=C{r}-B{r}' }], note: 'เพิ่มคอลัมน์กำไร' });
+    return fm.sse(res, 'เพิ่มแล้ว');
+  });
+  const up = await t.json('/api/files', { method: 'POST', cookie: u.cookie, body: { name: 'ยอดขาย.xlsx', kind: 'sheet', data: { sheets: [{ name: 'S', rows: [['สินค้า', 'ทุน', 'ขาย'], ['A', 6, 10]] }] } } });
+  assert.equal(up.data.id, 1);
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: '[ไฟล์นี้บันทึกในบัญชีแล้ว file_id=1] เพิ่มคอลัมน์กำไร', model_id: m.id } }));
+  assert.match(ev.filter(e => e.t).map(e => e.t).join(''), /\[\[uf:1\|2\|ยอดขาย\.xlsx\]\]/);
+  const f = (await t.json('/api/files/1', { cookie: u.cookie })).data;
+  assert.equal(f.ver, 2); assert.deepEqual(f.data.sheets[0].rows[1], ['A', 6, 10, '=C2-B2']); assert.equal(f.versions[0].note, 'เพิ่มคอลัมน์กำไร');
+  const r = await t.json('/api/files/1/restore', { method: 'POST', cookie: u.cookie, body: { ver: 1 } });
+  assert.equal(r.data.ver, 3); assert.equal((await t.json('/api/files/1', { cookie: u.cookie })).data.data.sheets[0].rows[1].length, 3);
+  const other = await t.user();
+  assert.equal((await t.call('/api/files/1', { cookie: other.cookie })).status, 404);
+});

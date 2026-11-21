@@ -128,7 +128,7 @@ async function chatView(id) {
           <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
-        <nav class="side-nav">${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
+        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
@@ -220,7 +220,7 @@ async function chatView(id) {
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
+  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
   $('#search').oninput = () => {
@@ -237,9 +237,9 @@ async function chatView(id) {
       if ($('#search')?.value.trim() === q) drawSide();
     }, 250);
   };
-  $('#cv-x').onclick = () => { $('#canvas').hidden = true; };
+  $('#cv-x').onclick = () => { $('#canvas').hidden = true; chat.ufSeen = null; };
   $('#cv-sh').onclick = artShare;
-  $('#cv-v').onchange = e => openArtifact(chat.art.id, +e.target.value);
+  $('#cv-v').onchange = e => chat.art ? openArtifact(chat.art.id, +e.target.value) : chat.uf && openFile(chat.uf.id, +e.target.value);
   $('#cv-dl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([chat.cvCode || ''], { type: 'text/html' })); a.download = (chat.art ? chat.art.title : 'page').replace(/[\\/:*?"<>|]+/g, '_') + '.html'; a.click(); };
   $('#cv-cp').onclick = e => copy(chat.cvCode || '', e.target);
   $('#cv-tc').onclick = async e => { // เก็บหน้าที่ AI เขียนเป็นโปรเจกต์ใหม่ใน Code
@@ -250,7 +250,7 @@ async function chatView(id) {
   app.querySelectorAll('[data-cv]').forEach(b => b.onclick = () => {
     app.querySelectorAll('[data-cv]').forEach(x => x.classList.toggle('on', x === b));
     const isCode = b.dataset.cv === 'code';
-    $('#cv-f').hidden = isCode; $('#cv-c').hidden = !isCode;
+    if (chat.uf) return; $('#cv-f').hidden = isCode; $('#cv-c').hidden = !isCode;
   });
   pcInit(); setTimeout(remoteWatch, 400);
   const t = $('#t');
@@ -361,7 +361,7 @@ async function bookmarksSheet() {
 }
 function openCanvas(code) {
   const cv = $('#canvas'); if (!cv) return showPreview(code);
-  chat.cvCode = code; chat.art = null; cv.classList.remove('is-art'); $('#cv-t').textContent = 'Canvas'; $('#cv-v').hidden = true; $('#cv-sh').hidden = true;
+  chat.cvCode = code; chat.art = null; chat.uf = null; cv.classList.remove('is-art', 'is-file'); if ($('#cv-s')) $('#cv-s').hidden = true; $('#cv-t').textContent = 'Canvas'; $('#cv-v').hidden = true; $('#cv-sh').hidden = true;
   const html = /^\s*<svg/i.test(code) ? `<!doctype html><body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#fff">${code}</body>` : code;
   cv.hidden = false;
   app.querySelectorAll('[data-cv]').forEach(x => x.classList.toggle('on', x.dataset.cv === 'prev'));
@@ -833,10 +833,12 @@ async function readFile(f) {
     text = id ? `${head} [[zipref:${id}]]\nรายชื่อไฟล์ (AI เปิดอ่านเองได้):\n` + list.slice(0, 1500).map(p => `${p} · ${files[p].length.toLocaleString()} ตัวอักษร`).join('\n') + (list.length > 1500 ? `\n…และอีก ${list.length - 1500} ไฟล์` : '')
       : head + '\n\n' + list.map(p => `===== ${p} =====\n${files[p]}`).join('\n\n');
   } else if (n.endsWith('.docx')) {
-    await lib('mammoth'); text = (await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() })).value;
+    await lib('mammoth'); const ab = await f.arrayBuffer(); text = (await mammoth.extractRawText({ arrayBuffer: ab })).value;
+    const mdx = await mammoth.convertToMarkdown?.({ arrayBuffer: ab }).then(r => r.value.replace(/\\([.()\-#*_!])/g, '$1')).catch(() => null); text = ufNote(await ufUpload(f.name, 'doc', { md: mdx || text })) + text;
   } else if (/\.(xlsx|xlsm|xls|ods)$/.test(n)) {
     await lib('xlsx'); const wb = XLSX.read(await f.arrayBuffer());
     text = wb.SheetNames.map(s => `--- ชีต ${s} ---\n` + XLSX.utils.sheet_to_csv(wb.Sheets[s])).join('\n');
+    if (/\.xlsx?$|\.xlsm$|\.ods$/.test(n)) text = ufNote(await ufUpload(f.name.replace(/\.(xls|xlsm|ods)$/i, '.xlsx'), 'sheet', wbBook(wb))) + text; // เก็บเข้าบัญชี: AI แก้ไฟล์นี้ได้ตรง ๆ
   } else if (TEXT_EXT.test(n) || f.type.startsWith('text/') || /json|xml|javascript/.test(f.type) || !n.includes('.') || /^(dockerfile|makefile|\.\w+)$/.test(n)) {
     text = await f.text();
     if (text.includes('\u0000')) throw new Error('ไฟล์นี้ไม่ใช่ข้อความ');
@@ -931,7 +933,7 @@ function msgHTML(m, i, isNew) {
   const { text: t00, mem } = parseMem(tTools, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
-    ${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · tap to open</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
+    ${ufCards(m.content)}${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · tap to open</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
@@ -1076,7 +1078,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
       if (d.model) ai.model = d.model;
       noteOf(ai, d); if (d.fallback) ai.model = d.fallback;
-      if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(tick); }
+      if (d.t || d.th) { onStreamEvent(ai, d); if (d.t?.includes("]]")) ufLive(ai.content); if (!raf) raf = requestAnimationFrame(tick); }
       if (d.error) streamErr = d.error;
       if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; }
       if (d.ctx) { chat.ctx = { ...d.ctx, id: chat.id }; }
@@ -1288,7 +1290,7 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   const paint = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; const box = $('#msgs'), el = box?.lastElementChild, stick = box && nearBottom(box); if (el) el.outerHTML = msgHTML(ai, chat.msgs.length - 1); if (stick) box.scrollTop = box.scrollHeight; }); };
   agSub?.(); agSub = PCD.agent.onEvent(d => {
     if (d.sid !== sid) return;
-    if (d.type === 'delta') ai.content += d.text;
+    if (d.type === 'delta') { ai.content += d.text; if (d.text.includes('[[uf:')) ufLive(ai.content); }
     if (d.type === 'think') ai.thinking += d.text;
     if (d.type === 'tool') ai.steps.push({ id: d.id, name: d.name, args: d.args, step: d.step, st: 'run' });
     if (d.type === 'sub') ai.steps.push({ name: 'sub', title: d.title, tool: d.name, args: d.args });
@@ -1436,7 +1438,7 @@ const unb64t = b => { try { return new TextDecoder().decode(Uint8Array.from(atob
 function parseTools(content) {
   const files = [], py = [];
   const mems = [], approves = [], arts = [];
-  const text = String(content || '').replace(ART_RE, (_, id, v, t) => { arts.push({ id: +id, v: +v, t }); return ''; }).replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; }).replace(APPROVE_RE, (_, id, label) => { approves.push({ id: +id, label }); return ''; });
+  const text = String(content || '').replace(ART_RE, (_, id, v, t) => { arts.push({ id: +id, v: +v, t }); return ''; }).replace(UF_RE, '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; }).replace(APPROVE_RE, (_, id, label) => { approves.push({ id: +id, label }); return ''; });
   return { text, files, py, mems, approves, arts };
 }
 function toolCards(m, i, files, py, asks = []) {
@@ -1449,6 +1451,8 @@ function toolCards(m, i, files, py, asks = []) {
 // สร้างไฟล์ในเบราว์เซอร์: Excel ด้วย SheetJS, Word = HTML เปิดใน Word (.doc), PDF = หน้าพิมพ์ (บันทึกเป็น PDF), ที่เหลือเป็นข้อความ
 async function makeFile(name, content) {
   const ext = name.split('.').pop().toLowerCase(), save = (blob, n) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = n; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+  if (ext === 'xlsx') try { let j = null; try { j = JSON.parse(content); } catch {} return await bookXlsx(Array.isArray(j?.sheets) ? j : { sheets: [{ name: 'Sheet1', rows: content.split(/\r?\n/).filter(Boolean).map(l => l.split(',')) }] }, name); } catch { /* โหลดตัวเขียนไม่ได้: ใช้แบบเดิม */ }
+  if (ext === 'docx') try { return await mdDocx(content, name); } catch {}
   if (ext === 'xlsx') {
     await lib('xlsx'); let wb = null;
     try { const j = JSON.parse(content); if (Array.isArray(j?.sheets)) { wb = XLSX.utils.book_new(); j.sheets.forEach((sh, k) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(Array.isArray(sh.rows) ? sh.rows : []), String(sh.name || 'Sheet' + (k + 1)).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31))); } } catch { /* ไม่ใช่ JSON: อ่านเป็น CSV */ }
@@ -1538,7 +1542,7 @@ async function openArtifact(id, v) {
   const cv = $('#canvas'); if (!cv) return;
   let a; try { a = await api('/artifacts/' + id + (v ? '?v=' + v : '')); } catch (x) { return toast(x.message, 'bad'); }
   chat.art = a; chat.artV = v || a.ver; chat.cvCode = a.html;
-  cv.hidden = false; cv.classList.add('is-art');
+  cv.hidden = false; cv.classList.add('is-art'); cv.classList.remove('is-file'); if ($('#cv-s')) $('#cv-s').hidden = true; chat.uf = null;
   if (chat.cvMsg) { removeEventListener('message', chat.cvMsg); chat.cvMsg = null; }
   $('#cv-t').textContent = a.title;
   $('#cv-v').innerHTML = a.versions.map(x => `<option value="${x.ver}" ${x.ver === chat.artV ? 'selected' : ''}>v${x.ver}</option>`).join(''); $('#cv-v').hidden = a.versions.length < 2;
@@ -1570,3 +1574,150 @@ document.addEventListener('click', async e => {
   const b = e.target.closest?.('[data-unmem]'); if (!b) return;
   try { await api('/memories/' + b.dataset.unmem, { method: 'DELETE' }); b.closest('.mem-saved').innerHTML = `${ic('x', 'sm')}<span>ยกเลิกความจำนี้แล้ว</span>`; toast('ลบความจำแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); }
 });
+// ---------- ไฟล์ในบัญชี (แบบ Cowork): Excel/Word ที่ AI สร้างหรือแก้ เปิดข้างแชตและอัปเดตสดทุกครั้งที่ AI แก้ [[uf:id|ver|ชื่อ]] ----------
+ICONS.sheet = '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/>';
+const UF_RE = /\[\[uf:(\d+)\|(\d+)\|([^\]\n]{0,120})\]\]/g;
+const ufKind = n => /\.(xlsx|xlsm|xls|ods|csv)$/i.test(n) ? 'sheet' : 'doc';
+const ufCards = content => { const seen = new Map(); for (const m of String(content || '').matchAll(UF_RE)) seen.set(m[1], { id: +m[1], v: +m[2], t: m[3] }); // ไฟล์เดียวแก้หลายรอบ: การ์ดเดียว (เวอร์ชันล่าสุด)
+  return [...seen.values()].map(f => `<button type="button" class="art-card uf-card" data-uf="${f.id}">${ic(ufKind(f.t) === 'sheet' ? 'sheet' : 'filetext', 'sm')}<span><b>${esc(f.t)}</b><small>${ufKind(f.t) === 'sheet' ? 'Excel' : 'Word'} · v${f.v} · เปิดดู / แก้ไข / ดาวน์โหลด</small></span></button>`).join(''); };
+document.addEventListener('click', e => { const b = e.target.closest?.('[data-uf]'); if (b) openFile(+b.dataset.uf); });
+// ตอน AI กำลังตอบ: เจอเวอร์ชันใหม่ของไฟล์ → เปิด/รีเฟรชแผงข้างแชตทันที
+function ufLive(content) {
+  const all = [...String(content || '').matchAll(UF_RE)], last = all.at(-1); if (!last) return;
+  const key = last[1] + ':' + last[2]; if (chat.ufSeen === key) return; chat.ufSeen = key;
+  openFile(+last[1], 0, true);
+}
+// สูตรแบบง่ายสำหรับแสดงผลในหน้าเว็บ (Excel คำนวณจริงอีกรอบตอนเปิดไฟล์) · คำนวณไม่ได้แสดงสูตรแทน
+const UF_FN = {
+  SUM: (...a) => a.flat(9).reduce((s, x) => s + (typeof x === 'number' ? x : 0), 0),
+  AVERAGE: (...a) => { const n = a.flat(9).filter(x => typeof x === 'number'); return n.length ? n.reduce((s, x) => s + x, 0) / n.length : 0; },
+  MIN: (...a) => Math.min(...a.flat(9).filter(x => typeof x === 'number')), MAX: (...a) => Math.max(...a.flat(9).filter(x => typeof x === 'number')),
+  COUNT: (...a) => a.flat(9).filter(x => typeof x === 'number').length, COUNTA: (...a) => a.flat(9).filter(x => x !== '' && x != null).length,
+  ROUND: (x, d = 0) => Math.round(x * 10 ** d) / 10 ** d, ABS: Math.abs, IF: (c, a, b = false) => c ? a : b, AND: (...a) => a.flat(9).every(Boolean), OR: (...a) => a.flat(9).some(Boolean),
+  CONCAT: (...a) => a.flat(9).join(''), CONCATENATE: (...a) => a.flat(9).join(''), UPPER: s => String(s).toUpperCase(), LOWER: s => String(s).toLowerCase(), LEN: s => String(s).length,
+  SUMIF: (r, c, s) => { const R = r.flat(), S = (s || r).flat(), t = ufCrit(c); return R.reduce((n, x, i) => n + (t(x) && typeof S[i] === 'number' ? S[i] : 0), 0); },
+  COUNTIF: (r, c) => { const t = ufCrit(c); return r.flat().filter(t).length; }, IFERROR: (a, b) => a, TODAY: () => new Date().toLocaleDateString(LOC),
+};
+const ufCrit = c => { const m = /^(<=|>=|<>|<|>|=)?(.*)$/.exec(String(c)), op = m[1] || '=', v = m[2] !== '' && !isNaN(m[2]) ? +m[2] : m[2];
+  return x => op === '=' ? x == v : op === '<>' ? x != v : op === '<' ? x < v : op === '>' ? x > v : op === '<=' ? x <= v : x >= v; };
+function ufEval(rows) {
+  const memo = new Map(), busy = new Set(), A = s => { let n = 0; for (const c of s) n = n * 26 + c.charCodeAt(0) - 64; return n - 1; };
+  const V = (c, r) => { const k = r + ':' + c; if (memo.has(k)) return memo.get(k); const raw = rows[r]?.[c] ?? ''; if (typeof raw !== 'string' || raw[0] !== '=') return raw === '' ? '' : raw;
+    if (busy.has(k)) return '#CYCLE'; busy.add(k); let out; try { out = calc(raw.slice(1)); } catch { out = raw; } busy.delete(k); memo.set(k, out); return out; };
+  const calc = f => {
+    const strs = []; let js = f.replace(/"([^"]*)"/g, (_, s) => { strs.push(s); return `S[${strs.length - 1}]`; });
+    js = js.replace(/\b([A-Z]+)\(/g, (_, n) => { if (!UF_FN[n]) throw 0; return `F.${n}(`; }).replace(/\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)/g, (_, a, b, c, d) => `R(${A(a)},${b - 1},${A(c)},${d - 1})`).replace(/\$?\b([A-Z]{1,3})\$?(\d+)\b/g, (_, a, b) => `V(${A(a)},${b - 1})`)
+      .replace(/<>/g, '!=').replace(/(^|[^<>!=])=(?!=)/g, '$1==').replace(/\^/g, '**').replace(/&/g, '+""+');
+    if (/[^\s\d.+\-*/()<>=!,"FVRS[\]A-Z]/.test(js) || /\b(?!F\b|V\b|R\b|S\b)[A-Za-z_]+\b(?!\()/.test(js.replace(/F\.[A-Z]+/g, ''))) throw 0;
+    return Function('F', 'V', 'R', 'S', '"use strict";return (' + js + ')')(UF_FN, V, (c1, r1, c2, r2) => { const o = []; for (let r = r1; r <= r2; r++) { const row = []; for (let c = c1; c <= c2; c++) row.push(V(c, r)); o.push(row); } return o; }, strs);
+  };
+  return V;
+}
+const ufFmt = (v, f) => { if (typeof v !== 'number' || !isFinite(v)) return v;
+  if (f && /%/.test(f)) return (v * 100).toFixed((f.split('.')[1] || '').replace(/[^0]/g, '').length) + '%';
+  const d = f ? (f.split('.')[1] || '').replace(/[^0]/g, '').length : Number.isInteger(v) ? 0 : 2;
+  return f && !/,/.test(f) ? v.toFixed(d) : v.toLocaleString(LOC, { minimumFractionDigits: f ? d : 0, maximumFractionDigits: d }); };
+const colL = n => { let s = ''; n++; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+async function openFile(id, v, live) {
+  const cv = $('#canvas'); if (!cv) return;
+  if (live && !cv.hidden && chat.uf && chat.uf.id !== id && !cv.classList.contains('is-file')) { /* แผงกำลังแสดงอย่างอื่น: สลับมาไฟล์ที่ AI แก้ */ }
+  let f; try { f = await api('/files/' + id + (v ? '?v=' + v : '')); } catch (x) { return live ? null : toast(x.message, 'bad'); }
+  chat.uf = f; chat.art = null; chat.ufSheet = Math.min(chat.ufSheet && chat.uf?.id === id ? chat.ufSheet : 0, (f.data.sheets?.length || 1) - 1);
+  cv.hidden = false; cv.classList.remove('is-art'); cv.classList.add('is-file');
+  $('#cv-t').textContent = f.name;
+  $('#cv-v').innerHTML = f.versions.map(x => `<option value="${x.ver}" ${x.ver === f.shown ? 'selected' : ''}>v${x.ver}${x.note ? ' · ' + esc(x.note.slice(0, 40)) : ''}</option>`).join(''); $('#cv-v').hidden = f.versions.length < 2;
+  $('#cv-sh').hidden = true; $('#cv-f').hidden = true; $('#cv-c').hidden = true;
+  let box = $('#cv-s'); if (!box) { box = Object.assign(document.createElement('div'), { id: 'cv-s', className: 'cv-s' }); $('#cv-f').parentNode.append(box); }
+  box.hidden = false; drawFile(box, live);
+}
+function drawFile(box, live) {
+  const f = chat.uf, old = f.shown !== f.ver;
+  const bar = `<div class="uf-bar">${old ? `<span class="muted">กำลังดู v${f.shown} (เก่า)</span><button type="button" class="btn blue sm" data-ufrest>${ic('undo', 'sm')} ย้อนกลับไปใช้เวอร์ชันนี้</button>` : `<span class="muted">${live ? '<b class="uf-live">AI เพิ่งแก้</b> · ' : ''}v${f.ver} · ${f.kind === 'sheet' ? 'ดับเบิลคลิกที่ช่องเพื่อแก้' : 'กดแก้ไขเพื่อเขียนเอง'}</span>`}<span class="sp"></span>${f.kind === 'doc' && !old ? `<button type="button" class="btn out sm" data-ufedit>${ic('pen', 'sm')} แก้ไข</button>` : ''}<button type="button" class="btn out sm" data-ufdl>${ic('download', 'sm')} ${f.kind === 'sheet' ? 'Excel' : 'Word'}</button></div>`;
+  if (f.kind === 'doc') { box.innerHTML = bar + `<div class="uf-doc b">${md(f.data.md || '')}</div>`; renderRich(box); return; }
+  const sh = f.data.sheets[chat.ufSheet] || f.data.sheets[0], V = ufEval(sh.rows), w = Math.max(1, ...sh.rows.map(r => r.length)), fmt = sh.fmt || {};
+  const tabs = f.data.sheets.length > 1 ? `<div class="uf-tabs">${f.data.sheets.map((s, k) => `<button type="button" data-ufsh="${k}" class="${k === chat.ufSheet ? 'on' : ''}">${esc(s.name)}</button>`).join('')}</div>` : '';
+  const n = Math.min(sh.rows.length, 2000);
+  let h = `<div class="uf-grid"><table><thead><tr><th></th>${Array.from({ length: w }, (_, c) => `<th style="${sh.widths?.[c] ? `min-width:${sh.widths[c] * 7}px` : ''}">${colL(c)}</th>`).join('')}</tr></thead><tbody>`;
+  for (let r = 0; r < n; r++) {
+    h += `<tr class="${r === 0 && sh.header !== false ? 'hd' : ''}"><th>${r + 1}</th>`;
+    for (let c = 0; c < w; c++) { const raw = sh.rows[r]?.[c] ?? '', isF = typeof raw === 'string' && raw[0] === '=', out = isF ? V(c, r) : raw, shown = ufFmt(out, fmt[colL(c)]);
+      h += `<td data-r="${r}" data-c="${c}" class="${typeof out === 'number' ? 'num' : ''}${isF ? ' fx' : ''}" title="${isF ? esc(raw) : ''}">${esc(String(shown))}</td>`; }
+    h += '</tr>';
+  }
+  box.innerHTML = bar + tabs + h + `</tbody></table>${sh.rows.length > n ? `<p class="muted">แสดง ${n} จาก ${sh.rows.length} แถว · ดาวน์โหลดเพื่อดูทั้งหมด</p>` : ''}</div>`;
+}
+// บันทึกที่ลูกค้าแก้เอง (รวมหลายช่องเป็นเวอร์ชันเดียว)
+let ufT; const ufSave = () => { clearTimeout(ufT); ufT = setTimeout(async () => { const f = chat.uf; try { const r = await api('/files/' + f.id, { method: 'PUT', body: { data: f.data } }); f.ver = f.shown = r.ver; f.versions.unshift({ ver: r.ver, note: 'แก้โดยคุณ' }); chat.ufSeen = f.id + ':' + r.ver; $('#cv-v').innerHTML = f.versions.map(x => `<option value="${x.ver}" ${x.ver === f.shown ? 'selected' : ''}>v${x.ver}${x.note ? ' · ' + esc(x.note.slice(0, 40)) : ''}</option>`).join(''); $('#cv-v').hidden = false; if (!document.querySelector('.uf-in')) drawFile($('#cv-s')); } catch (x) { toast(x.message, 'bad'); } }, 700); };
+document.addEventListener('dblclick', e => {
+  const td = e.target.closest?.('#cv-s td[data-r]'); if (!td || chat.uf?.shown !== chat.uf?.ver) return;
+  const sh = chat.uf.data.sheets[chat.ufSheet], r = +td.dataset.r, c = +td.dataset.c, raw = sh.rows[r]?.[c] ?? '';
+  const inp = Object.assign(document.createElement('input'), { value: String(raw), className: 'uf-in' }); td.textContent = ''; td.append(inp); inp.focus(); inp.select();
+  const done = keep => { if (!inp.isConnected) return; if (keep) { const v = inp.value.trim(), val = v !== '' && !/^0\d/.test(v) && !isNaN(v) ? +v : inp.value; while (sh.rows.length <= r) sh.rows.push([]); while (sh.rows[r].length < c) sh.rows[r].push(''); if (sh.rows[r][c] !== val) { sh.rows[r][c] = val; ufSave(); } } drawFile($('#cv-s')); };
+  inp.onkeydown = k => { if (k.key === 'Enter') done(true); if (k.key === 'Escape') done(false); }; inp.onblur = () => done(true);
+});
+document.addEventListener('click', async e => {
+  if (!e.target.closest?.('#cv-s')) return;
+  const t = e.target.closest('[data-ufsh],[data-ufdl],[data-ufrest],[data-ufedit]'); if (!t) return; const f = chat.uf;
+  if (t.dataset.ufsh != null) { chat.ufSheet = +t.dataset.ufsh; return drawFile($('#cv-s')); }
+  if (t.hasAttribute('data-ufdl')) { t.disabled = true; try { f.kind === 'sheet' ? await bookXlsx(f.data, f.name) : await mdDocx(f.data.md || '', f.name); } catch (x) { toast('สร้างไฟล์ไม่สำเร็จ: ' + x.message, 'bad'); } t.disabled = false; return; }
+  if (t.hasAttribute('data-ufrest')) { try { await api('/files/' + f.id + '/restore', { method: 'POST', body: { ver: f.shown } }); toast('ย้อนกลับแล้ว (บันทึกเป็นเวอร์ชันใหม่)', 'ok'); openFile(f.id); } catch (x) { toast(x.message, 'bad'); } return; }
+  if (t.hasAttribute('data-ufedit')) { const box = $('#cv-s'); box.innerHTML = `<div class="uf-bar"><span class="muted">แก้เป็น Markdown (# หัวข้อ, - รายการ, | ตาราง |)</span><span class="sp"></span><button type="button" class="btn out sm" id="ufx">ยกเลิก</button><button type="button" class="btn blue sm" id="ufok">บันทึก</button></div><textarea class="uf-ta" id="ufta"></textarea>`;
+    box.querySelector('#ufta').value = f.data.md || ''; box.querySelector('#ufx').onclick = () => drawFile(box);
+    box.querySelector('#ufok').onclick = () => { f.data.md = box.querySelector('#ufta').value; clearTimeout(ufT); ufSave(); drawFile(box); }; }
+});
+// ดาวน์โหลด Excel จริง: สูตรทำงาน · หัวตารางตัวหนามีสีพื้น · ความกว้างคอลัมน์ · รูปแบบตัวเลข · ตัวกรอง
+async function bookXlsx(book, name) {
+  await lib('xlsxStyle'); const X = window.XLSX, wb = X.utils.book_new();
+  for (const sh of book.sheets) {
+    const ws = {}, w = Math.max(1, ...sh.rows.map(r => r.length)), fmt = sh.fmt || {}, line = { style: 'thin', color: { rgb: 'D0D7E2' } };
+    sh.rows.forEach((row, r) => row.forEach((v, c) => {
+      if (v === '' || v == null) return; const a = X.utils.encode_cell({ r, c }), z = fmt[colL(c)], hd = r === 0 && sh.header !== false;
+      const cell = typeof v === 'string' && v[0] === '=' && v.length > 1 ? { t: 'n', f: v.slice(1) } : typeof v === 'number' ? { t: 'n', v } : typeof v === 'boolean' ? { t: 'b', v } : { t: 's', v: String(v) };
+      if (z && !hd) cell.z = z;
+      cell.s = hd ? { font: { bold: true, color: { rgb: '1F2937' } }, fill: { fgColor: { rgb: 'E8EEF7' } }, border: { bottom: { style: 'medium', color: { rgb: '9AA8BD' } } }, alignment: { vertical: 'center', wrapText: true } }
+        : { border: { bottom: line }, ...(z ? { numFmt: z } : {}), alignment: { vertical: 'top' } };
+      ws[a] = cell;
+    }));
+    ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, sh.rows.length - 1), c: w - 1 } });
+    ws['!cols'] = Array.from({ length: w }, (_, c) => ({ wch: sh.widths?.[c] || Math.min(50, Math.max(8, ...sh.rows.slice(0, 300).map(r => [...String(r[c] ?? '')].length + 2))) }));
+    if (sh.header !== false && sh.rows.length > 1) ws['!autofilter'] = { ref: X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: sh.rows.length - 1, c: w - 1 } }) };
+    X.utils.book_append_sheet(wb, ws, sh.name);
+  }
+  X.writeFile(wb, name.replace(/\.(xls|xlsm|ods|csv)$/i, '') .replace(/(\.xlsx)?$/i, '.xlsx'));
+}
+// ดาวน์โหลด Word .docx จริงจาก Markdown: หัวข้อ, ย่อหน้า, รายการ, ตาราง, ตัวหนา/เอียง
+async function mdDocx(src, name) {
+  await lib('docx'); const D = window.docx, kids = [], lines = String(src).replace(/\r/g, '').split('\n');
+  const runs = (t, o = {}) => String(t).split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/).filter(Boolean).map(p => p.startsWith('**') ? new D.TextRun({ text: p.slice(2, -2), bold: true, ...o }) : p.startsWith('`') ? new D.TextRun({ text: p.slice(1, -1), font: 'Consolas', ...o }) : p.length > 2 && p[0] === '*' ? new D.TextRun({ text: p.slice(1, -1), italics: true, ...o }) : new D.TextRun({ text: p, ...o }));
+  const cells = l => l.trim().replace(/^\||\|$/g, '').split('|').map(x => x.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i], h = /^(#{1,4})\s+(.*)$/.exec(l);
+    if (h) { kids.push(new D.Paragraph({ heading: [D.HeadingLevel.HEADING_1, D.HeadingLevel.HEADING_2, D.HeadingLevel.HEADING_3, D.HeadingLevel.HEADING_4][h[1].length - 1], children: runs(h[2]) })); continue; }
+    if (/^\s*\|.*\|\s*$/.test(l)) { const rows = []; while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { if (!/^\s*\|[\s:|-]+\|\s*$/.test(lines[i])) rows.push(cells(lines[i])); i++; } i--;
+      const w = Math.max(...rows.map(r => r.length)), b = { style: D.BorderStyle.SINGLE, size: 4, color: '999999' };
+      kids.push(new D.Table({ width: { size: 100, type: D.WidthType.PERCENTAGE }, rows: rows.map((r, k) => new D.TableRow({ tableHeader: k === 0, children: Array.from({ length: w }, (_, c) => new D.TableCell({ borders: { top: b, bottom: b, left: b, right: b }, shading: k === 0 ? { fill: 'E8EEF7' } : undefined, children: [new D.Paragraph({ children: runs(r[c] ?? '', k === 0 ? { bold: true } : {}) })] })) })) }));
+      kids.push(new D.Paragraph('')); continue; }
+    const li = /^(\s*)[-*•]\s+(.*)$/.exec(l); if (li) { kids.push(new D.Paragraph({ bullet: { level: Math.min(3, li[1].length >> 1) }, children: runs(li[2]) })); continue; }
+    const nl = /^(\s*)(\d+)[.)]\s+(.*)$/.exec(l); if (nl) { kids.push(new D.Paragraph({ indent: { left: 360 }, children: runs(nl[2] + '. ' + nl[3]) })); continue; }
+    if (/^---+$/.test(l.trim())) { kids.push(new D.Paragraph({ border: { bottom: { style: D.BorderStyle.SINGLE, size: 6, color: 'BBBBBB' } } })); continue; }
+    if (l.trim()) kids.push(new D.Paragraph({ spacing: { after: 120 }, children: runs(l.replace(/^>\s?/, '')) }));
+  }
+  const doc = new D.Document({ styles: { default: { document: { run: { font: 'Tahoma', size: 22 } } } }, sections: [{ children: kids }] });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await D.Packer.toBlob(doc)); a.download = name.replace(/\.(docx?|md|pdf)$/i, '') + '.docx'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+// ไฟล์ Excel ที่แนบ → ข้อมูลตาราง (เก็บสูตร + ความกว้างคอลัมน์)
+const wbBook = wb => ({ sheets: wb.SheetNames.slice(0, 30).map(n => { const ws = wb.Sheets[n], rows = []; if (ws['!ref']) { const R = XLSX.utils.decode_range(ws['!ref']);
+  for (let r = R.s.r; r <= Math.min(R.e.r, 20000); r++) { const row = []; for (let c = R.s.c; c <= Math.min(R.e.c, 199); c++) { const x = ws[XLSX.utils.encode_cell({ r, c })]; row.push(!x ? '' : x.f ? '=' + x.f : x.v instanceof Date ? x.w || x.v.toISOString().slice(0, 10) : x.v ?? ''); } while (row.length && row.at(-1) === '') row.pop(); rows.push(row); } }
+  while (rows.length && !rows.at(-1).length) rows.pop(); return { name: n, rows, widths: (ws['!cols'] || []).map(c => Math.round(c?.wch || 0)) }; }) });
+async function ufUpload(name, kind, data) { if (window.DEMO) return null; try { return (await api('/files', { method: 'POST', body: { name, kind, data, chat_id: chat.id || null } })).id; } catch { return null; } }
+const ufNote = id => id ? `[ไฟล์นี้บันทึกในบัญชีแล้ว file_id=${id} · ถ้าลูกค้าขอให้แก้ไฟล์นี้ ใช้ edit_account_file กับ file_id นี้ ไม่ต้องสร้างไฟล์ใหม่]\n` : '';
+// แถบข้าง: ไฟล์ของฉัน
+async function filesSheet() {
+  const draw = async (d, q = '') => { const L = (await api('/files').catch(() => [])).filter(f => !q || f.name.toLowerCase().includes(q.toLowerCase()));
+    d.querySelector('#ufl').innerHTML = L.map(f => `<div class="mem tm row" style="align-items:center"><button type="button" class="linkish" data-ufo="${f.id}" style="flex:1;text-align:left;color:inherit">${ic(f.kind === 'sheet' ? 'sheet' : 'filetext', 'sm')} <b>${esc(f.name)}</b><br><small class="muted">v${f.ver} · ${when(f.updated_at)}</small></button>${f.chat_id ? `<a class="btn out sm" href="/chat?id=${f.chat_id}">แชต</a>` : ''}<button type="button" class="icon-btn sm ghost" data-ufdel="${f.id}" aria-label="ลบไฟล์">${ic('trash', 'sm')}</button></div>`).join('') || '<p class="muted">ยังไม่มีไฟล์ · สั่ง AI เช่น "ทำตารางรายรับรายจ่ายเป็น Excel" หรือแนบไฟล์ Excel/Word แล้วสั่งให้แก้</p>'; };
+  sheet('ไฟล์ของฉัน', '<div class="sheet-form"><input id="ufq" type="search" placeholder="ค้นหาไฟล์" aria-label="ค้นหาไฟล์"><div id="ufl"><p class="muted">กำลังโหลด...</p></div></div>', (d, close) => {
+    draw(d); d.querySelector('#ufq').oninput = e => draw(d, e.target.value);
+    d.querySelector('#ufl').onclick = async e => { const o = e.target.closest('[data-ufo]'); if (o) { close(); return openFile(+o.dataset.ufo); }
+      const x = e.target.closest('[data-ufdel]'); if (x && confirm('ลบไฟล์นี้และทุกเวอร์ชัน?')) { try { await api('/files/' + x.dataset.ufdel, { method: 'DELETE' }); toast('ลบแล้ว', 'ok'); draw(d); } catch (y) { toast(y.message, 'bad'); } } };
+  });
+}

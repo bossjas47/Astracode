@@ -179,7 +179,7 @@ test('chat tools: create_file, save_memory, generate_image, run_python and searc
   t.DB.raw.prepare("INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)").run(old, 'user', 'สรุปงบประมาณปีนี้ 5 ล้าน', Date.now());
   const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ทำใบเสนอราคา', model_id: m.id } }));
   const text = ev.filter(e => e.t).map(e => e.t).join(''), cid = ev.find(e => e.chat_id).chat_id;
-  assert.match(text, /\[\[dl:quote\.xlsx\|[A-Za-z0-9+/=]+\]\]/); assert.match(text, /```remember\nชื่อบอส\n```/);
+  assert.match(text, /\[\[uf:\d+\|1\|quote\.xlsx\]\]/); // .xlsx เก็บเข้าบัญชี assert.match(text, /```remember\nชื่อบอส\n```/);
   assert.match(fm.hits[1].body.messages.filter(x => x.role === 'tool').map(x => x.content).join('\n'), /สรุปงบประมาณปีนี้/, 'search_chats found the old chat');
   const names = fm.hits[0].body.tools.map(x => x.function.name);
   for (const n of ['create_file', 'save_memory', 'search_chats', 'run_python']) assert.ok(names.includes(n), n);
@@ -189,7 +189,7 @@ test('chat tools: create_file, save_memory, generate_image, run_python and searc
   assert.match(ev2.filter(e => e.t).map(e => e.t).join(''), /\[\[py:[A-Za-z0-9+/=]+\]\]/);
   assert.equal(fm.hits.length, 3, 'run_python ends the answer without another model call');
   assert.doesNotMatch(JSON.stringify(fm.hits[2].body.messages), /\[\[dl:/, 'file base64 is not sent back to the model');
-  assert.match(JSON.stringify(fm.hits[2].body.messages), /file created: quote\.xlsx/);
+  assert.match(JSON.stringify(fm.hits[2].body.messages), /account file file_id=\d+ v1: quote\.xlsx/);
   fm.close();
 });
 
@@ -326,4 +326,21 @@ test('Code mode: a round that only writes the checklist does not end the answer'
   assert.equal(fm.hits.length, 2, 'checklist round, then the edit round ends it');
   assert.ok(ev.filter(e => e.t).map(e => e.t).join('').includes('path=a.js'));
   fm.close();
+});
+
+// ไฟล์ในบัญชี: แก้ Excel ทีละคำสั่ง (สูตร {r}, เพิ่มคอลัมน์, จัดรูปแบบ) · แก้ Word ด้วย replace · ล้มทั้งชุดถ้ามีคำสั่งผิด
+test('account files: sheet and doc ops apply in order and fail as a whole', async () => {
+  const F = await import('../src/files.js');
+  const b = F.parseSheetContent('item,cost,price\nA,6,10\nB,3,5');
+  assert.deepEqual(b.sheets[0].rows[1], ['A', 6, 10]);
+  const r = F.applySheetOps(b, [{ op: 'add_column', header: 'Profit', formula: '=C{r}-B{r}' }, { op: 'append_rows', rows: [['Total', '=SUM(B2:B3)', '=SUM(C2:C3)', '=SUM(D2:D3)']] }, { op: 'format', number_formats: { d: '#,##0.00' } }, { op: 'set_cells', cells: { A2: 'Apple' } }]);
+  const s = r.data.sheets[0];
+  assert.deepEqual(s.rows[1], ['Apple', 6, 10, '=C2-B2']); assert.equal(s.rows[3][3], '=SUM(D2:D3)'); assert.equal(s.fmt.D, '#,##0.00');
+  assert.match(F.sheetText(r.data), /4\tTotal\t=SUM\(B2:B3\)/);
+  assert.throws(() => F.applySheetOps(b, [{ op: 'set_cells', cells: { A1: 'x' } }, { op: 'nope' }]), /unknown op/);
+  assert.equal(b.sheets[0].rows[0][0], 'item'); // ต้นฉบับไม่ถูกแก้
+  const d = F.applyDocOps({ md: '# สัญญา\nราคา 100 บาท' }, [{ op: 'replace', find: '100', with: '200' }, { op: 'append', text: 'ลงชื่อ' }]);
+  assert.equal(d.data.md, '# สัญญา\nราคา 200 บาท\n\nลงชื่อ');
+  assert.throws(() => F.applyDocOps({ md: 'a' }, [{ op: 'replace', find: 'zz', with: 'y' }]), /not found/);
+  assert.equal(F.colName(27), 'AB'); assert.equal(F.colNum('AB'), 27);
 });

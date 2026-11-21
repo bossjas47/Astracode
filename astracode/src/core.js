@@ -1,4 +1,5 @@
 import { ART_TABLES } from './artifacts.js';
+import { UF_TABLES } from './files.js';
 import { event, getSettings, mail, mailBox, origin } from './billing.js';
 import { projects } from './projects.js';
 import { admin } from './admin.js';
@@ -272,7 +273,7 @@ export const ensureCols = env => colsDone ||= (async () => {
     apiLog = !rows.some(r => r.t === 'api_log');
   } catch { /* ถามโครงสร้างไม่ได้: ใช้วิธีเดิม ลองเพิ่มทุกคอลัมน์ */ }
   if (apiLog) todo.push(API_LOG, 'CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id)');
-  todo.push(...PAY_UQ, ...ART_TABLES, 'CREATE TABLE IF NOT EXISTS team_log (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at INTEGER NOT NULL)', 'CREATE INDEX IF NOT EXISTS team_log_team ON team_log(team_id, id)'); // ถ้ามีข้อมูลซ้ำอยู่แล้วคำสั่งจะล้ม (ถูก catch ด้านล่าง) · ตรวจซ้ำที่หลังบ้านแล้วค่อยสร้างเอง
+  todo.push(...PAY_UQ, ...ART_TABLES, ...UF_TABLES, 'CREATE TABLE IF NOT EXISTS team_log (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at INTEGER NOT NULL)', 'CREATE INDEX IF NOT EXISTS team_log_team ON team_log(team_id, id)'); // ถ้ามีข้อมูลซ้ำอยู่แล้วคำสั่งจะล้ม (ถูก catch ด้านล่าง) · ตรวจซ้ำที่หลังบ้านแล้วค่อยสร้างเอง
   for (const q of todo) try { await env.DB.prepare(q).run(); } catch { /* มีคอลัมน์แล้ว */ }
 })();
 // ตัวคูณหน่วยลิมิตของโมเดล: ช่วงโปรใช้ promo_mult (ถ้าตั้ง) ไม่งั้นใช้ use_mult · ว่าง = 1

@@ -3,6 +3,7 @@ import { artPaid, artifactTool } from './artifacts.js';
 import { FREE_CTX, FREE_DAY_CAP, isFreeModel, DAY, HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
+import { createAccountFile, fileTool } from './files.js';
 import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, PLAN_NOTE, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, todosOf, verifyWork, webTools } from './codetools.js';
 import { GOOGLE_TOOLS, GOOGLE_URL, googleCall } from './google.js';
 import { askApproval, connCall, connTools } from './connectors.js';
@@ -1038,8 +1039,10 @@ export async function chatTool(env, u, cid, name, a, st) {
     if (!FILE_EXT.test(fname)) return fail('use one of: .xlsx .csv .docx .pdf .md .txt .html .json', 'สร้างไฟล์');
     if (!content.trim()) return fail('content is empty', 'สร้างไฟล์ ' + fname);
     if (content.length > 200e3) return fail('content is over 200,000 characters; split it into smaller files', 'สร้างไฟล์ ' + fname);
+    if (/\.(xlsx|docx)$/i.test(fname)) try { return await createAccountFile(env, u, cid, fname, content); } catch (x) { if (/ไม่เกิน|too large/.test(x.message)) return fail(x.message, 'สร้างไฟล์ ' + fname); } // เก็บไม่ได้: ให้ดาวน์โหลดแบบเดิม
     return { result: `File ready: ${fname}. The user can download it from the button under your answer.`, emit: dlMarker(fname, content), ok: true, label: 'สร้างไฟล์ ' + fname };
   }
+  if (name === 'list_account_files' || name === 'read_account_file' || name === 'edit_account_file') return fileTool(env, u, cid, name, a);
   if (name === 'artifact') return artPaid(st.plan) ? artifactTool(env, u, cid, a) : fail('artifacts need a paid plan', 'Artifact');
   if (name === 'run_python') {
     const code = String(a.code || ''); if (!code.trim()) return fail('code is empty', 'รัน Python');

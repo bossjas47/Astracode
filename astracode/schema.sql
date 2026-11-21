@@ -656,3 +656,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS artifacts_share ON artifacts(share_token);
 
 CREATE TABLE IF NOT EXISTS team_log (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS team_log_team ON team_log(team_id, id);
+
+-- ไฟล์ในบัญชี (Excel/Word ที่ AI สร้างหรือแก้) + เวอร์ชัน
+CREATE TABLE IF NOT EXISTS user_files (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, chat_id INTEGER, name TEXT NOT NULL, kind TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS user_files_user ON user_files(user_id, updated_at);
+CREATE TABLE IF NOT EXISTS user_file_versions (file_id INTEGER NOT NULL, ver INTEGER NOT NULL, data TEXT NOT NULL, note TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (file_id, ver));

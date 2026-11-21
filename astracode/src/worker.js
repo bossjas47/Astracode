@@ -12,6 +12,7 @@ import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
 import { passkeyApi, passkeyPublic } from './passkey.js';
 import { schedApi } from './schedules.js';
+import { filesApi } from './files.js';
 import { artPaid, artApi, artAdmin, artGallery, artPublic, artReport, artShell } from './artifacts.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
@@ -224,6 +225,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (u.role !== 'admin' && !['/api/me', '/api/logout'].includes(path) && maint === '1') return json({ error: 'ระบบปิดปรับปรุงชั่วคราว', maintenance: true }, 503);
       const extra = await userRoutes(req, env, ctx, url, path, M, u); if (extra) return extra;
       const art = await artApi(req, env, u, path, M, url); if (art) return art;
+      const uf = await filesApi(req, env, u, path, M, url); if (uf) return uf;
       const sch = await schedApi(req, env, u, path, M); if (sch) return sch;
 
       if (path === '/api/feedback' && M === 'POST') { // 👍 = 1, 👎 = -1, 0 = ยกเลิก

@@ -76,6 +76,18 @@ const FLOWS = [
     const hidden = await page.evaluate(() => stripTools('ok\n\u2063\u2063IMAGE a voxel hill -> images/a.jpg\nต่อ'));
     return [!errs.length || errs.join(' | '), /เชื่อม GitHub repo/.test(before) || 'chip: ' + before, /shop · main/.test(after) || 'picked: ' + after, /"repo":"me\/shop"/.test(link?.body || '') || 'repo not linked', !!pull || 'not pulled', /เพิ่มปุ่มสั่งซื้อ/.test(send?.body || '') || 'prompt not sent', !/IMAGE/.test(hidden) || 'IMAGE line shown'];
   }],
+  ['account file: AI edits an Excel file, the side panel opens live with formulas worked out, a cell edit saves a version', async () => {
+    const file = { id: 5, name: 'ยอดขาย.xlsx', kind: 'sheet', ver: 2, shown: 2, chat_id: 7, versions: [{ ver: 2, note: 'เพิ่มกำไร' }, { ver: 1, note: 'created' }], data: { sheets: [{ name: 'S', header: true, fmt: { D: '#,##0.00' }, rows: [['สินค้า', 'ทุน', 'ขาย', 'กำไร'], ['A', 6, 1000, '=C2-B2'], ['รวม', '=SUM(B2:B2)', '', '=SUM(D2:D2)']] }] } };
+    const { page, errs, calls } = await open('/chat', { '/api/files/5': q => q.method() === 'PUT' ? { ok: true, ver: 3 } : file, '/api/files': [{ id: 5, name: 'ยอดขาย.xlsx', kind: 'sheet', ver: 2, updated_at: Date.now() }],
+      chat: () => [{ chat_id: 7 }, { t: 'เพิ่มคอลัมน์กำไรแล้ว\n\n[[uf:5|2|ยอดขาย.xlsx]]\n' }, { done: true, msg_id: 1 }] });
+    await page.fill('#t', 'เพิ่มคอลัมน์กำไร'); await page.click('#go'); await page.waitForTimeout(900);
+    const grid = await page.locator('#cv-s').innerText().catch(() => '');
+    const card = await page.locator('.uf-card').count();
+    await page.dblclick('#cv-s td[data-r="1"][data-c="1"]'); await page.fill('.uf-in', '10'); await page.press('.uf-in', 'Enter'); await page.waitForTimeout(1000);
+    if (process.env.SHOT) { await page.setViewportSize({ width: 1280, height: 760 }); await page.waitForTimeout(300); await page.screenshot({ path: process.env.SHOT }); }
+    const put = calls.find(c => c.m === 'PUT' && c.p === '/api/files/5'), after = await page.locator('#cv-s').innerText().catch(() => '');
+    return [!errs.length || errs.join(' | '), !(await page.locator('#canvas').isHidden()) || 'panel not opened', /994\.00/.test(grid) || 'formula not computed: ' + grid.slice(0, 120), card === 1 || 'no file card', !!put || 'cell edit not saved', /990\.00/.test(after) || 'recalc after edit failed'];
+  }],
   ['send a chat message and see the streamed answer', async () => {
     const { page, errs, calls } = await open('/chat');
     await page.fill('#t', 'สวัสดี'); await page.click('#go'); await page.waitForTimeout(800);
