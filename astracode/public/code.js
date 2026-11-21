@@ -1506,17 +1506,39 @@ function codeStop() {
   if (IDE.chatId) fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: IDE.chatId }) }).catch(() => {});
   IDE.ctrl?.abort();
 }
+// ---------- แนบรูป/ไฟล์ข้อความในข้อความถึง AI (เหมือนโหมดแชต) ----------
+const ATT_TEXT = /\.(md|markdown|txt|csv|json|html|css|js|ts|py|xml|ya?ml|log)$/i;
+const shrinkImg = f => new Promise((ok, no) => { const u = URL.createObjectURL(f), im = new Image(); im.onload = () => { const s = Math.min(1, 1600 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(u); ok(c.toDataURL('image/jpeg', 0.85)); }; im.onerror = () => no(new Error('เปิดรูปไม่ได้')); im.src = u; });
+async function addAtt(list) {
+  IDE.att ||= { images: [], files: [] };
+  for (const f of list) {
+    try {
+      if (/^image\//.test(f.type)) { if (IDE.att.images.length >= 4) { setStatus('แนบรูปได้สูงสุด 4 รูป', true); continue; } IDE.att.images.push(await shrinkImg(f)); }
+      else if (ATT_TEXT.test(f.name)) { if (IDE.att.files.length >= 5) { setStatus('แนบไฟล์ได้สูงสุด 5 ไฟล์', true); continue; } if (f.size > 300e3) { setStatus(f.name + ' ใหญ่เกิน 300KB', true); continue; } IDE.att.files.push({ name: f.name.slice(0, 120), text: await f.text() }); }
+      else setStatus('แนบได้เฉพาะรูป หรือไฟล์ข้อความ (.md .txt .csv .json ...)', true);
+    } catch (x) { setStatus(x.message, true); }
+  }
+  drawAtt(); $('#ct')?.focus();
+}
+function drawAtt() {
+  const box = $('#catts'), a = IDE.att || { images: [], files: [] }; if (!box) return;
+  box.hidden = !a.images.length && !a.files.length;
+  box.innerHTML = a.images.map((d, i) => `<span class="catt"><img src="${d}" alt=""><button type="button" data-rmi="${i}" aria-label="เอาออก">×</button></span>`).join('') + a.files.map((f, i) => `<span class="catt f">${ic('filetext', 'sm')}<b>${esc(f.name)}</b><button type="button" data-rmf="${i}" aria-label="เอาออก">×</button></span>`).join('');
+  box.onclick = e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.rmi) a.images.splice(+b.dataset.rmi, 1); else a.files.splice(+b.dataset.rmf, 1); drawAtt(); };
+}
+function takeAtt() { const a = IDE.att || { images: [], files: [] }; IDE.att = { images: [], files: [] }; drawAtt(); return a; }
 async function codeSend(auto) {
   if (IDE.busy && IDE.cloudJob) return api(`/cloud-agent/${IDE.cloudJob}/stop`, { method: 'POST' }).then(() => toast('สั่งหยุดแล้ว ไฟล์ที่ทำถึงตรงนั้นจะเข้าโปรเจกต์')).catch(() => {});
   if (IDE.cloud && !auto && !IDE.busy) return cloudSend();
   if (IDE.busy) return codeStop(); // กดหยุด = หยุดโหมดอัตโนมัติและหยุดฝั่งเซิร์ฟเวอร์ด้วย
   const resume = !!auto?.resume;
   if (resume && IDE.msgs.at(-1)?.role !== 'user') return;
-  const t = $('#ct'), text = resume ? '' : auto ? auto.text : t.value.trim();
-  if (!resume && !text) return;
+  const t = $('#ct'), text = resume ? '' : auto ? auto.text : t.value.trim() || (IDE.att?.images.length || IDE.att?.files.length ? 'ดูรูป/ไฟล์ที่แนบ' : '');
+  if (!resume && !text && !(IDE.att?.images.length || IDE.att?.files.length)) return;
   if (!auto) { IDE.round = 0; IDE.t0 = Date.now(); IDE.task = resume || IDE.perm !== 'auto' ? null : { prompt: text, touched: new Set() }; }
   await saveNow();
-  const files = []; // ไม่มีระบบแนบไฟล์: AI อ่านไฟล์เองด้วย READ / GREP
+  const att = !auto && !resume ? takeAtt() : { images: [], files: [] }; // รูป/ไฟล์ที่แนบในข้อความนี้ (ไม่เข้าโปรเจกต์)
+  const files = att.files;
   const tree = resume ? '' : [...IDE.files.keys()].join('\n').slice(0, 15000) + (IDE.active && has(IDE.active) ? `\n\n[ไฟล์ที่เปิดอยู่ในตัวแก้ไข: ${IDE.active}]` : '');
   // ไฟล์ที่เปิดอยู่ (ถ้าเป็นข้อความและไม่ใหญ่เกิน) + ข้อความที่ผู้ใช้เลือกไว้: AI ไม่ต้อง READ ซ้ำ (เซิร์ฟเวอร์ตัดออกจากข้อความเก่า)
   const openBlock = (() => {
@@ -1533,7 +1555,7 @@ async function codeSend(auto) {
   })();
   const full = resume ? '' : `${text}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${tree}${openBlock}${smallBlock}`;
   const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
-  const images = auto?.images || [];
+  const images = [...(auto?.images || []), ...att.images];
   if (!auto) { t.value = ''; t.style.height = 'auto'; }
   $('#ce').textContent = '';
   if (!resume) IDE.msgs.push({ role: 'user', content: withFiles(full, files), imgs: images.length ? images : null, auto: !!auto });
@@ -1801,8 +1823,8 @@ async function codeView(id, prompt) {
         <select id="ceffort" hidden>${EFFORTS.map(([v]) => `<option value="${v}">${v}</option>`).join('')}</select></div>
         <div id="cmsgs" class="msgs"></div>
         <div class="compose"><div class="err" id="ce"></div>
-          <form id="cf" class="cbox"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea>
-            <div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="อัปโหลดไฟล์เข้าโปรเจกต์">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
+          <form id="cf" class="cbox"><div id="catts" class="catts" hidden></div><input type="file" id="catt" multiple hidden accept="image/png,image/jpeg,image/webp,.md,.markdown,.txt,.csv,.json,.html,.css,.js,.ts,.py,.xml,.yml,.yaml,.log"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea>
+            <div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="แนบรูปหรือไฟล์ในข้อความ" title="แนบรูป / ไฟล์ .md ให้ AI อ่าน">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
               <button class="send" id="cgo" aria-label="ส่ง">${ic('up')}</button></div></form></div></aside>
     </div>
     <nav class="ide-nav">${(cl ? [['ai', 'sparkles', 'AI'], ['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['run', 'play', 'Preview']] : [['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['ai', 'sparkles', 'AI'], ['run', 'play', 'ผลลัพธ์']]).map(([k, i, l]) => `<button data-pane-btn="${k}" class="${k === (cl ? 'ai' : 'code') ? 'on' : ''}"><span>${ic(i)}</span>${l}</button>`).join('')}</nav></div>`;
@@ -1823,7 +1845,7 @@ async function codeView(id, prompt) {
   IDE.cloud = localStorage.getItem('ccloud') === '1' && me?.role === 'admin';
   if (!window.DEMO) api('/cloud-agent?project=' + IDE.pid).then(l => { const j = l.find(x => x.status === 'running'); if (j && !IDE.busy) { IDE.cloud = true; cUI(); cloudSend(j); } }).catch(() => {});
   $('#ceffort').value = localStorage.getItem('effort') || ''; $('#ceffort').onchange = e => { localStorage.setItem('effort', e.target.value); cUI(); };
-  $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools; $('#cup').onclick = () => $('#uplf').click();
+  $('#cmdl').onclick = $('#bmdl').onclick = () => modelSheet('#cmodel'); $('#ceff').onclick = $('#beff').onclick = () => effortSheet('#ceffort', me.models.find(x => x.id === +$('#cmodel').value) || me.models[0]); $('#clim').onclick = limitSheet; $('#cplus').onclick = codeTools; $('#cup').onclick = () => $('#catt').click(); $('#ct').addEventListener('paste', e => { const fs = [...(e.clipboardData?.files || [])].filter(f => /^image\//.test(f.type)); if (fs.length) { e.preventDefault(); addAtt(fs); } }); $('#catt').onchange = async e => { await addAtt([...e.target.files]); e.target.value = ''; };
   $('#cflags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'cloud') { IDE.cloud = false; localStorage.setItem('ccloud', '0'); cUI(); return; } if (f === 'bgagent') { bgAgentSheet(); return; } if (f === 'agent') { IDE.agent = false; localStorage.setItem('agent', '0'); toast('ปิดโหมด Agent', 'ok'); cUI(); return; } if (f === 'sk') { IDE.skills = IDE.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('cskills', JSON.stringify(IDE.skills)); cUI(); }
     else if (f === 'mc') { IDE.mcps = IDE.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('cmcps', JSON.stringify(IDE.mcps)); cUI(); } else if (f) { setOpt(f, false); cUI(); } };
   $('#clim').innerHTML = limHTML(me.usage); lowWarn(me.usage); agWatch().catch(() => {}); Promise.all([loadSkills(), loadMcps()]).then(() => cUI()); cUI();

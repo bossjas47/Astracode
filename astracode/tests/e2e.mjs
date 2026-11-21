@@ -350,6 +350,20 @@ const FLOWS = [
     return [!errs.length || errs.join(' | '), pane === 'ai' || 'phone did not open on the chat: ' + pane, r.file?.trim() === '<h1>new</h1>' || 'edit not applied: ' + r.file, /อ่าน 1/.test(r.steps) && /แก้ 1/.test(r.steps) || 'steps: ' + r.steps,
       /เปลี่ยนหัวข้อเป็น new/.test(push?.body || '') && /index\.html/.test(push?.body || '') || 'push message: ' + push?.body, /main/.test(r.push) && /abc1234/.test(r.push) || 'push note: ' + r.push];
   }],
+  ['Code: attach an image and a .md file to a message; they go with the request, not into the project', async () => {
+    const { page, errs, calls } = await open('/code?p=8', {
+      '/api/projects/8': { id: 8, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] },
+      chat: () => [{ chat_id: 80 }, { t: 'อ่านแล้ว' }, { done: true, pct4h: 1, pctWeek: 1, mid: 5 }],
+    });
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    await page.setInputFiles('#catt', [{ name: 'shot.png', mimeType: 'image/png', buffer: png }, { name: 'spec.md', mimeType: 'text/markdown', buffer: Buffer.from('# Spec\nทำปุ่มสีแดง') }]);
+    await page.waitForFunction(() => document.querySelectorAll('#catts .catt').length === 2, null, { timeout: 4000 }).catch(() => {});
+    const chips = await page.locator('#catts .catt').count();
+    await page.fill('#ct', 'ทำตามไฟล์'); await page.click('#cgo'); await page.waitForTimeout(800);
+    const req = calls.find(c => c.m === 'POST' && c.p === '/api/chat'), b = JSON.parse(req?.body || '{}');
+    const after = await page.evaluate(() => ({ left: document.querySelectorAll('#catts .catt').length, inProject: IDE.files.has('spec.md') }));
+    return [!errs.length || errs.join(' | '), chips === 2 || 'chips: ' + chips, b.images?.length === 1 && /^data:image\/jpeg/.test(b.images[0]) || 'image not sent', b.files?.[0]?.name === 'spec.md' && /ปุ่มสีแดง/.test(b.files[0].text) || 'md not sent', after.left === 0 || 'attachments not cleared', !after.inProject || 'md went into the project'];
+  }],
   ['Code stream: a SEARCH/REPLACE edit is applied and saved as applied, no raw diff left on screen, Send comes back; after reload the card stays "applied" even when the file changed later', async () => {
     const edit = '```html path=index.html\n<<<<<<< SEARCH\n<h1>old</h1>\n=======\n<h1>new</h1>\n>>>>>>> REPLACE\n```';
     const { page, errs, calls } = await open('/code?p=8', {
