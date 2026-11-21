@@ -9,6 +9,7 @@ import { oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
 import { passkeyApi, passkeyPublic } from './passkey.js';
+import { artApi, artPublic, artReport } from './artifacts.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 // ---------- router ----------
 // ข้อมูลหน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
@@ -60,6 +61,8 @@ export default {
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
     if (path === '/node-runner' || path === '/node-runner.html') return sandboxed(await env.ASSETS.fetch(req), '/preview.html'); // เทอร์มินัล Node: origin แยกเหมือนหน้าแสดงผล
     if (path.startsWith('/v1/')) return v1(req, env, ctx, path); // API สำหรับนักพัฒนา (แบบ OpenAI)
+    if ((r = path.match(/^\/a\/([A-Za-z0-9]{8,40})$/)) && M === 'GET') { await ensureCols(env); return artPublic(env, r[1]); } // หน้า Artifact ที่แชร์ (sandbox · noindex)
+    if ((r = path.match(/^\/api\/a\/([A-Za-z0-9]{8,40})\/report$/)) && M === 'POST') return secure(await artReport(env, r[1], ip(req, env)));
     if (path === '/robots.txt' || path === '/api/robots') return robots(req, env);
     if (path === '/sitemap.xml' || path === '/api/sitemap') return secure(await sitemap(req, env));
     if ((r = path.match(/^(?:\/api\/page)?\/blog\/([\w-]+)$/))) return secure(await blogPage(req, env, r[1])); // บทความ: ใส่ meta ให้ Google/social
@@ -215,6 +218,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (!u || u.banned) return err('กรุณาเข้าสู่ระบบ', 401);
       if (u.role !== 'admin' && !['/api/me', '/api/logout'].includes(path) && maint === '1') return json({ error: 'ระบบปิดปรับปรุงชั่วคราว', maintenance: true }, 503);
       const extra = await userRoutes(req, env, ctx, url, path, M, u); if (extra) return extra;
+      const art = await artApi(req, env, u, path, M, url); if (art) return art;
 
       if (path === '/api/feedback' && M === 'POST') { // 👍 = 1, 👎 = -1, 0 = ยกเลิก
         const b = await req.json(), vote = +b.vote;

@@ -341,6 +341,7 @@ function settingsSheet() {
     <label class="opt set-toggle"><span class="opt-t">${ic('bulb')}Auto-save memory</span><span class="opt-d">AI remembers lasting facts you share (up to 3 a day). You can undo each one.</span><input type="checkbox" data-k="automem" ${me.auto_memory ? 'checked' : ''}></label>
     <h4>Chats</h4>
     ${onChat ? btn('bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days') : row('/chat?open=bin', 'trash', 'Archive &amp; trash', 'Deleted chats can be restored for 30 days')}
+    ${onChat ? btn('arts', 'code', 'Artifacts ของฉัน', 'หน้าเว็บที่ AI สร้างในแชต') : row('/chat?open=arts', 'code', 'Artifacts ของฉัน', 'หน้าเว็บที่ AI สร้างในแชต')}
     ${onChat ? btn('saved', 'book', 'Saved messages', 'Answers you bookmarked before') : row('/chat?open=saved', 'book', 'Saved messages', 'Answers you bookmarked before')}
     <h4>Connectors &amp; tools</h4>
     ${btn('conn', 'layers', 'Connectors · Skills · Plugins', 'Connect Google, Notion, GitHub and more so the AI can use them in every chat')}
@@ -359,7 +360,7 @@ function settingsSheet() {
     d.querySelector('[data-k=lim]').onclick = () => { close(); limitSheet(); };
     d.querySelector('[data-k=conn]').onclick = () => { close(); openConnectors(); };
     d.querySelector('[data-k=automem]').onchange = async e => { const on = e.target.checked; try { await api('/me', { method: 'PUT', body: { auto_memory: on } }); me.auto_memory = on ? 1 : 0; toast(on ? 'Auto-save memory on' : 'Auto-save memory off', 'ok'); } catch (x) { e.target.checked = !on; toast(x.message, 'bad'); } };
-    if (onChat) { d.querySelector('[data-k=bin]').onclick = () => { close(); binSheet(); }; d.querySelector('[data-k=saved]').onclick = () => { close(); bookmarksSheet(); }; }
+    if (onChat) { d.querySelector('[data-k=bin]').onclick = () => { close(); binSheet(); }; d.querySelector('[data-k=saved]').onclick = () => { close(); bookmarksSheet(); }; d.querySelector('[data-k=arts]').onclick = () => { close(); artsSheet(); }; }
   });
 }
 document.addEventListener('click', e => { const b = e.target.closest?.('.nav [data-acct]'); if (!b || !me) return; e.stopPropagation(); acctMenu(b, b.closest('.nav-panel')); });

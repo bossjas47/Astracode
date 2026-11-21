@@ -160,7 +160,7 @@ async function chatView(id) {
             
             <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div></div>
     <aside class="canvas" id="canvas" hidden>
-      <div class="cv-h"><b>Canvas</b><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">Preview</button><button type="button" data-cv="code">Code</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="btn out sm" id="cv-tc">ส่งไป Code</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
+      <div class="cv-h"><b id="cv-t">Canvas</b><select id="cv-v" class="cv-v" hidden aria-label="เวอร์ชัน"></select><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">Preview</button><button type="button" data-cv="code">Code</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-sh" hidden>แชร์</button><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="icon-btn sm ghost" id="cv-dl" aria-label="ดาวน์โหลด .html">${ic('download')}</button><button type="button" class="btn out sm" id="cv-tc">ส่งไป Code</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
       <div class="cv-b"><iframe id="cv-f" sandbox="allow-scripts allow-modals allow-forms allow-popups" title="Canvas Preview"></iframe><pre id="cv-c" hidden><code></code></pre></div>
     </aside></div>`;
   const host = keep || Object.assign(document.createElement('div'), { id: 'cmain', className: 'cmain' });
@@ -174,7 +174,7 @@ async function chatView(id) {
   if (sideMode === 'code') drawProjects();
   $('#sclose').onclick = closeSide;
   $('#acct').onclick = e => { e.stopPropagation(); acctMenu($('#acct'), side); };
-  { const op = qs().get('open'), cn = qs().get('connectors'); if (op === 'bin') binSheet(); else if (op === 'saved') bookmarksSheet(); else if (op === 'connectors' || cn) { openConnectors('connectors', 'mine'); if (cn === 'ok') toast('เชื่อมต่อแล้ว · AI ใช้ได้ทุกแชต', 'ok'); else if (cn === 'err') toast('เชื่อมต่อไม่สำเร็จ ลองอีกครั้ง', 'bad'); if (cn) history.replaceState(null, '', location.pathname + (chat.id ? '?id=' + chat.id : '')); } } // ลิงก์จากตั้งค่าของหน้าอื่น / กลับจากหน้าล็อกอิน connector
+  { const op = qs().get('open'), cn = qs().get('connectors'); if (op === 'bin') binSheet(); else if (op === 'saved') bookmarksSheet(); else if (op === 'arts') artsSheet(); else if (op === 'connectors' || cn) { openConnectors('connectors', 'mine'); if (cn === 'ok') toast('เชื่อมต่อแล้ว · AI ใช้ได้ทุกแชต', 'ok'); else if (cn === 'err') toast('เชื่อมต่อไม่สำเร็จ ลองอีกครั้ง', 'bad'); if (cn) history.replaceState(null, '', location.pathname + (chat.id ? '?id=' + chat.id : '')); } } // ลิงก์จากตั้งค่าของหน้าอื่น / กลับจากหน้าล็อกอิน connector
   $('#menu').onclick = openSide; // เงาใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
   if (!window.DEMO && !id && sideMode === 'chat') try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
@@ -236,6 +236,9 @@ async function chatView(id) {
     }, 250);
   };
   $('#cv-x').onclick = () => { $('#canvas').hidden = true; };
+  $('#cv-sh').onclick = artShare;
+  $('#cv-v').onchange = e => openArtifact(chat.art.id, +e.target.value);
+  $('#cv-dl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([chat.cvCode || ''], { type: 'text/html' })); a.download = (chat.art ? chat.art.title : 'page').replace(/[\\/:*?"<>|]+/g, '_') + '.html'; a.click(); };
   $('#cv-cp').onclick = e => copy(chat.cvCode || '', e.target);
   $('#cv-tc').onclick = async e => { // เก็บหน้าที่ AI เขียนเป็นโปรเจกต์ใหม่ใน Code
     const code = chat.cvCode || '', svg = /^\s*<svg/i.test(code), b = e.target; b.disabled = true;
@@ -335,6 +338,19 @@ function chatInsSheet(id, cur) {
     d.querySelector('#cif').onsubmit = async e => { e.preventDefault(); const v = new FormData(e.target).get('v'); try { await api('/chats/' + id, { method: 'PUT', body: { instructions: v } }); const c = chat.chats.find(x => x.id === id); if (c) c.instructions = v; close(); toast('บันทึกแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); } };
   });
 }
+async function artsSheet() {
+  const draw = async (d, q = '') => {
+    const list = (await api('/artifacts').catch(() => [])).filter(a => !q || a.title.toLowerCase().includes(q.toLowerCase()));
+    d.querySelector('#arl').innerHTML = list.map(a => `<div class="mem tm row" style="align-items:center"><button type="button" class="linkish" data-arto="${a.id}" style="flex:1;text-align:left;color:inherit"><b>${esc(a.title)}</b><br><small class="muted">v${a.ver} · ${when(a.updated_at)}${a.share_token ? ' · แชร์อยู่' : ''}</small></button>${a.chat_id ? `<a class="btn out sm" href="/chat?id=${a.chat_id}">แชต</a>` : ''}<button type="button" class="icon-btn sm ghost" data-ardel="${a.id}" aria-label="ลบ">${ic('trash', 'sm')}</button></div>`).join('') || '<p class="muted">ยังไม่มี Artifact · ลองขอให้ AI ทำเครื่องคิดเลข เกม หรือแดชบอร์ด</p>';
+  };
+  sheet('Artifacts ของฉัน', '<div class="sheet-form"><input id="arq" type="search" placeholder="ค้นหา" aria-label="ค้นหา Artifact"><div id="arl"><p class="muted">กำลังโหลด...</p></div></div>', (d, close) => {
+    draw(d); d.querySelector('#arq').oninput = e => draw(d, e.target.value);
+    d.querySelector('#arl').onclick = async e => {
+      const o = e.target.closest('[data-arto]'); if (o) { close(); return openArtifact(+o.dataset.arto); }
+      const x = e.target.closest('[data-ardel]'); if (x && confirm('ลบ Artifact นี้? ลิงก์ที่แชร์จะใช้ไม่ได้ด้วย')) { try { await api('/artifacts/' + x.dataset.ardel, { method: 'DELETE' }); toast('ลบแล้ว', 'ok'); draw(d); } catch (y) { toast(y.message, 'bad'); } }
+    };
+  });
+}
 async function bookmarksSheet() {
   const draw = async (d, q = '') => { const list = await api('/bookmarks' + (q ? '?q=' + encodeURIComponent(q) : '')).catch(() => []);
     d.querySelector('#bml').innerHTML = list.map(b => `<a class="mem tm" style="display:block;color:inherit" href="/chat?id=${b.chat_id}#m${b.id}"><small class="muted">${esc(b.title)} · ${when(b.created_at)}</small><br>${esc(b.content.replace(/[#*`>]/g, '').slice(0, 220))}</a>`).join('') || '<p class="muted">ยังไม่มีบุ๊กมาร์ก กดไอคอนดาวใต้คำตอบเพื่อเก็บไว้</p>'; };
@@ -342,7 +358,7 @@ async function bookmarksSheet() {
 }
 function openCanvas(code) {
   const cv = $('#canvas'); if (!cv) return showPreview(code);
-  chat.cvCode = code;
+  chat.cvCode = code; chat.art = null; cv.classList.remove('is-art'); $('#cv-t').textContent = 'Canvas'; $('#cv-v').hidden = true; $('#cv-sh').hidden = true;
   const html = /^\s*<svg/i.test(code) ? `<!doctype html><body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#fff">${code}</body>` : code;
   cv.hidden = false;
   app.querySelectorAll('[data-cv]').forEach(x => x.classList.toggle('on', x.dataset.cv === 'prev'));
@@ -837,11 +853,11 @@ function msgHTML(m, i, isNew) {
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts"><button data-copy="${i}" aria-label="คัดลอกข้อความ">${ic('copy', 'sm')}</button>${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}" class="${MEM_RE.test(m.content) ? 'memhint' : ''}">${MEM_RE.test(m.content) ? ic('bulb') + ' ให้ AI จำเรื่องนี้?' : 'Remember'}</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
-  const { text: tTools, files: dlFiles, py: pyCodes, mems: memSaved, approves } = parseTools(m.content);
+  const { text: tTools, files: dlFiles, py: pyCodes, mems: memSaved, approves, arts } = parseTools(m.content);
   const { text: t00, mem } = parseMem(tTools, m.streaming), { text: t0, prompt: imgP } = parseImg(t00, m.streaming), { text: t1, asks } = parseAsk(t0, m.streaming), text = pcFmt(t1);
   const mcpH = m.mcps?.length ? `<div class="steps-bar mcp-live" style="cursor:default">${ic('server', 'sm')}<span>${m.mcps.map(x => esc(x.tool)).join(', ')}</span></div>` : '';
   return `<div class="msg ai ${isNew ? 'new' : ''}">${hasSegs(m) ? '' : thinkHTML(m)}${mcpH}${m.agent ? agentHTML(m, i) : ''}<div class="b">${hasSegs(m) ? segHTML(m, text) : text ? md(text) : m.thinking || asks.length ? '' : imgP ? `<details class="imgp"><summary class="muted">${ic('image', 'sm')} สั่งสร้างรูปแล้ว · ดูคำบรรยายรูป</summary><p>${esc(imgP)}</p></details>` : emptyHTML(m)}</div>${askHTML(asks, last && !m.streaming)}${mem ? `<div class="acts"><button data-rem="${i}">${ic('plus', 'sm')} จำไว้: ${esc(mem)}</button></div>` : ''}${sourcesHTML(m)}
-    ${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
+    ${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · แตะเพื่อเปิด</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
     ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
@@ -1332,9 +1348,9 @@ const DL_RE = /\[\[dl:([^|\]\n]{1,120})\|([A-Za-z0-9+/=]+)\]\]/g, PY_RE = /\[\[p
 const unb64t = b => { try { return new TextDecoder().decode(Uint8Array.from(atob(b), c => c.charCodeAt(0))); } catch { return ''; } };
 function parseTools(content) {
   const files = [], py = [];
-  const mems = [], approves = [];
-  const text = String(content || '').replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; }).replace(APPROVE_RE, (_, id, label) => { approves.push({ id: +id, label }); return ''; });
-  return { text, files, py, mems, approves };
+  const mems = [], approves = [], arts = [];
+  const text = String(content || '').replace(ART_RE, (_, id, v, t) => { arts.push({ id: +id, v: +v, t }); return ''; }).replace(DL_RE, (_, name, b) => { files.push({ name, b }); return ''; }).replace(PY_RE, (_, b) => { py.push(unb64t(b)); return ''; }).replace(MEM_MARK, (_, id, t) => { mems.push({ id, t }); return ''; }).replace(APPROVE_RE, (_, id, label) => { approves.push({ id: +id, label }); return ''; });
+  return { text, files, py, mems, approves, arts };
 }
 function toolCards(m, i, files, py, asks = []) {
   if (!files.length && !py.length && !m.pyOut && !asks.length) return '';
@@ -1429,6 +1445,38 @@ document.addEventListener('click', async e => {
   } catch (x) { toast(x.message, 'bad'); APPR.delete(id); renderAll(); }
 });
 // ---------- ความจำที่บันทึกอัตโนมัติ [[mem:id|ข้อความ]]: แสดง "จำแล้ว" + ปุ่มยกเลิก ----------
+const ART_RE = /\[\[art:(\d+)\|(\d+)\|([^\]\n]{0,120})\]\]/g;
+// ---------- Artifact: เปิดในแผงข้าง (คอม) / เต็มจอ (มือถือ) · เวอร์ชัน · แชร์ลิงก์ ----------
+async function openArtifact(id, v) {
+  const cv = $('#canvas'); if (!cv) return;
+  let a; try { a = await api('/artifacts/' + id + (v ? '?v=' + v : '')); } catch (x) { return toast(x.message, 'bad'); }
+  chat.art = a; chat.artV = v || a.ver; chat.cvCode = a.html;
+  cv.hidden = false; cv.classList.add('is-art');
+  if (chat.cvMsg) { removeEventListener('message', chat.cvMsg); chat.cvMsg = null; }
+  $('#cv-t').textContent = a.title;
+  $('#cv-v').innerHTML = a.versions.map(x => `<option value="${x.ver}" ${x.ver === chat.artV ? 'selected' : ''}>v${x.ver}</option>`).join(''); $('#cv-v').hidden = a.versions.length < 2;
+  $('#cv-sh').hidden = false; $('#cv-sh').classList.toggle('on', !!a.share_token);
+  app.querySelectorAll('[data-cv]').forEach(x => x.classList.toggle('on', x.dataset.cv === 'prev'));
+  $('#cv-f').hidden = false; $('#cv-c').hidden = true; $('#cv-c code').innerHTML = hlCode(a.html);
+  $('#cv-f').src = window.DEMO ? 'about:blank' : `/api/artifacts/${id}/raw?v=${chat.artV}`; if (window.DEMO) $('#cv-f').srcdoc = a.html;
+}
+function artShare() {
+  const a = chat.art; if (!a) return;
+  const link = a.share_token ? location.origin + '/a/' + a.share_token : '';
+  sheet('แชร์ Artifact', `<div class="sheet-form">
+    <p class="sheet-msg">${a.share_token ? 'ทุกคนที่มีลิงก์นี้เปิดดูได้ (ไม่ต้องล็อกอิน)' : 'ตอนนี้เป็นส่วนตัว เห็นแค่คุณ'}</p>
+    ${link ? `<div class="row"><input id="ashl" readonly value="${esc(link)}"><button type="button" class="btn out sm" id="ashc">คัดลอก</button></div>` : ''}
+    <label>เวอร์ชันที่แชร์<select id="ashv"><option value="">ล่าสุดเสมอ</option>${a.versions.map(x => `<option value="${x.ver}" ${a.share_ver === x.ver ? 'selected' : ''}>ล็อกไว้ที่ v${x.ver}</option>`).join('')}</select></label>
+    <button type="button" class="btn blue" id="asho">${a.share_token ? 'บันทึก' : 'เปิดลิงก์แชร์'}</button>
+    ${a.share_token ? '<button type="button" class="btn out" id="ashx">ปิดการแชร์</button>' : ''}
+    <small class="muted">หน้าที่แชร์รันแยกจากบัญชีของคุณ และไม่ขึ้นใน Google</small></div>`, (d, close) => {
+    const go = async on => { try { const r = await api(`/artifacts/${a.id}/share`, { method: 'POST', body: { on, ver: +d.querySelector('#ashv').value || null } }); a.share_token = r.share_token; a.share_ver = r.share_ver ?? null; $('#cv-sh').classList.toggle('on', !!a.share_token); close(); if (on) { copy(location.origin + '/a/' + r.share_token); toast('คัดลอกลิงก์แล้ว', 'ok'); } else toast('ปิดการแชร์แล้ว ลิงก์เดิมใช้ไม่ได้'); } catch (x) { toast(x.message, 'bad'); } };
+    d.querySelector('#asho').onclick = () => go(true);
+    const x = d.querySelector('#ashx'); if (x) x.onclick = () => go(false);
+    const c = d.querySelector('#ashc'); if (c) c.onclick = e => copy(link, e.target);
+  });
+}
+document.addEventListener('click', e => { const b = e.target.closest?.('[data-art]'); if (b) openArtifact(+b.dataset.art); });
 const MEM_MARK = /\[\[mem:(\d+)\|([^\]\n]{1,300})\]\]/g;
 document.addEventListener('click', async e => {
   const b = e.target.closest?.('[data-unmem]'); if (!b) return;

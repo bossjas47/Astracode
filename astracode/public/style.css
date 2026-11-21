@@ -1810,3 +1810,11 @@ svg.spark rect { fill: var(--accent, #c25b3a); opacity: .85; }
 .repo-chip .rc-x:hover { opacity: 1; }
 .seo-static{max-width:720px;margin:0 auto;padding:24px 16px;line-height:1.6}
 .seo-static h1{font-size:22px}.seo-static h2{font-size:17px}
+.art-card { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 420px; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 12px; background: rgba(255,255,255,.03); color: inherit; text-align: left; cursor: pointer; }
+.art-card:hover { border-color: var(--accent, #d97757); }
+.art-card span { display: flex; flex-direction: column; min-width: 0; }
+.art-card b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.art-card small { color: var(--muted, #9aa0aa); font-size: 12px; }
+.cv-v { width: auto; padding: 2px 6px; font-size: 13px; }
+#cv-sh.on { border-color: #3fb950; color: #3fb950; }
+.cv-h b#cv-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30vw; }
