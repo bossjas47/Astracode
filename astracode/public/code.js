@@ -224,8 +224,50 @@ function extensions(path) {
     edTheme(), CM.basicSetup, ...(edLight() ? [] : [CM.oneDark]), CM.lang(path), CM.EditorView.contentAttributes.of({ 'aria-label': 'ตัวแก้ไขโค้ด', 'aria-multiline': 'true' }), // ธีมของเราไว้ก่อน oneDark เพื่อให้ชนะ
     wrap.of(localStorage.getItem('wrap') === '0' ? [] : CM.EditorView.lineWrapping), ghostC.of(ghostExt()),
     CM.keymap.of([CM.indentWithTab, { key: 'Mod-s', preventDefault: true, run: () => { saveNow(); return true; } }]),
-    CM.EditorView.updateListener.of(u => { if (u.docChanged) markDirty(path); if (u.selectionSet || u.docChanged) { const b = $('#selai'); if (b) b.hidden = u.state.selection.main.empty; } }),
+    CM.EditorView.updateListener.of(u => { if (u.docChanged) { markDirty(path); lintSoon(path); } if (u.selectionSet || u.docChanged) { const b = $('#selai'); if (b) b.hidden = u.state.selection.main.empty; } }),
   ];
+}
+// ---------- ตรวจ error ตอนพิมพ์ (JS / JSON / HTML / CSS) · แถบใต้ตัวแก้ไข แตะเพื่อไปบรรทัดนั้น ----------
+const lineAt = (s, i) => s.slice(0, Math.max(0, i)).split('\n').length;
+function lintText(path, src) {
+  const out = [], ext = (path.split('.').pop() || '').toLowerCase();
+  if (src.length > 400e3) return out;
+  if (ext === 'json') { try { JSON.parse(src); } catch (e) { const m = /position (\d+)/.exec(e.message), l = /line (\d+)/.exec(e.message); out.push({ line: l ? +l[1] : m ? lineAt(src, +m[1]) : jsonLine(src), msg: 'JSON ไม่ถูกต้อง: ' + e.message.split(', "')[0].slice(0, 100) }); } }
+  if (/^(m?js|cjs)$/.test(ext)) { // ตรวจไวยากรณ์ด้วยตัวแปลภาษาของเบราว์เซอร์ (ไม่รันโค้ด) · บรรทัด import/export ถูกเว้นไว้เพราะ Function() ไม่รับ
+    const body = src.split('\n').map(l => { const x = l.trimStart(); return /^import\s+[^(]/.test(x) || /^export\s*(\{|\*)/.test(x) ? '' : l.replace(/^(\s*)export\s+(default\s+)?/, '$1'); }).join('\n');
+    try { new Function(body); } catch (e) { if (!/await is only valid|import\.meta|Cannot use import/.test(e.message)) out.push({ line: guessLine(body), msg: 'JavaScript: ' + e.message.slice(0, 140) }); }
+  }
+  if (/^html?$/.test(ext)) { // แท็กเปิด-ปิดไม่ครบ (ข้าม void tag / script / style / comment)
+    const VOID = /^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr|!doctype)$/i, OPT = /^(p|li|td|th|tr|option|html|head|body|tbody|thead|dt|dd)$/, stack = [];
+    const clean = src.replace(/<!--[\s\S]*?-->/g, m => m.replace(/[^\n]/g, ' ')).replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, m => m.replace(/[^\n<>/a-z]/gi, ' '));
+    const re = /<(\/)?([a-zA-Z][\w-]*)[^>]*?(\/)?>/g; let m;
+    while ((m = re.exec(clean))) { const tag = m[2].toLowerCase(); if (VOID.test(tag) || m[3]) continue;
+      if (!m[1]) stack.push({ tag, i: m.index }); else { const k = stack.map(x => x.tag).lastIndexOf(tag); if (k < 0) out.push({ line: lineAt(src, m.index), msg: `HTML: มีแท็กปิด </${tag}> แต่ไม่มีแท็กเปิด` }); else { for (const x of stack.slice(k + 1)) if (!OPT.test(x.tag)) out.push({ line: lineAt(src, x.i), msg: `HTML: <${x.tag}> ไม่มีแท็กปิด (ก่อน </${tag}>)` }); stack.length = k; } } }
+    for (const s of stack.filter(x => !OPT.test(x.tag)).slice(-3)) out.push({ line: lineAt(src, s.i), msg: `HTML: <${s.tag}> ไม่มีแท็กปิด` });
+  }
+  if (ext === 'css') { let d = 0, i = 0; for (const ch of src.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' '))) { if (ch === '{') d++; else if (ch === '}') { d--; if (d < 0) { out.push({ line: lineAt(src, i), msg: 'CSS: มี } เกิน' }); d = 0; } } i++; } if (d > 0) out.push({ line: lineAt(src, src.length), msg: `CSS: ขาด } อีก ${d} ตัว` }); }
+  return out.slice(0, 5);
+}
+function jsonLine(src) { // ข้อความ error ของ JSON ไม่มีตำแหน่ง: แปลทีละบรรทัดเพิ่มขึ้น หาบรรทัดแรกที่ไม่ใช่ "จบก่อนเวลา"
+  const lines = src.split('\n'); if (lines.length > 3000) return 1;
+  for (let n = 1; n <= lines.length; n++) { const pre = lines.slice(0, n).join('\n'); try { JSON.parse(pre); } catch (e) { const pos = /position (\d+)/.exec(e.message); if (!(/end of|Unterminated string/i.test(e.message) || (pos && +pos[1] >= pre.trimEnd().length))) return n; } }
+  return lines.length;
+}
+function guessLine(src) { // หาบรรทัดแรกที่พัง: แปลทีละบรรทัดเพิ่มขึ้น · "จบไฟล์ก่อนเวลา" = ยังพิมพ์ไม่ครบ ข้ามไป
+  const lines = src.split('\n'); if (lines.length > 3000) return 1;
+  for (let n = 1; n <= lines.length; n++) { try { new Function(lines.slice(0, n).join('\n')); } catch (e) { if (!/end of input|Unterminated template|missing \} after/i.test(e.message)) return n; } }
+  return lines.length;
+}
+let lintT = 0;
+function lintSoon(path, ms = 700) {
+  clearTimeout(lintT);
+  lintT = setTimeout(() => {
+    const bar = $('#lintbar'); if (!bar || !IDE.view || IDE.active !== path) return;
+    const probs = isImg(path) ? [] : lintText(path, IDE.view.state.doc.toString());
+    bar.hidden = !probs.length;
+    bar.innerHTML = probs.map(p => `<button type="button" data-line="${p.line}">${ic('alert', 'sm')}<b>บรรทัด ${p.line}</b> ${esc(p.msg)}</button>`).join('');
+    bar.onclick = e => { const b = e.target.closest('[data-line]'); if (!b) return; const ln = IDE.view.state.doc.line(Math.min(+b.dataset.line, IDE.view.state.doc.lines)); IDE.view.dispatch({ selection: { anchor: ln.from }, scrollIntoView: true }); IDE.view.focus(); };
+  }, ms);
 }
 function stateFor(path) {
   let s = IDE.states.get(path);
@@ -310,7 +352,7 @@ function openFile(path) {
   IDE.recent = [path, ...(IDE.recent || []).filter(x => x !== path)].slice(0, 8);
   try { localStorage.setItem('recent:' + IDE.pid, JSON.stringify(IDE.recent)); } catch { /* ไม่มีที่เก็บ ไม่เป็นไร */ }
   if (IDE.active && IDE.view) IDE.states.set(IDE.active, IDE.view.state);
-  IDE.view.setState(stateFor(path)); showImg(path);
+  IDE.view.setState(stateFor(path)); showImg(path); lintSoon(path, 0);
   IDE.active = path;
   if (!IDE.open.includes(path)) IDE.open.push(path);
   drawTabs(); drawTree(); drawRecent(); setPane('code'); drawer(false);
@@ -1809,7 +1851,7 @@ async function codeView(id, prompt) {
       <section class="ide-main"><div class="ide-tabs" id="tabs"></div>
         <div class="ide-tools"><button id="split" aria-label="แบ่งจอ: โค้ดกับผลลัพธ์" aria-pressed="false">${ic('layers', 'sm')} แบ่งจอ</button><button id="undo" aria-label="ย้อนกลับ">${ic('undo')}</button><button id="redo" aria-label="ทำซ้ำ">${ic('redo')}</button><button id="find" aria-label="ค้นหา">${ic('search')}</button>
           <button id="fmtb" aria-label="จัดรูปแบบโค้ด" title="จัดรูปแบบโค้ด (Prettier)">${ic('code', 'sm')} จัดรูป</button><button id="wrapb" aria-label="ตัดบรรทัด">${ic('filetext', 'sm')} ตัดบรรทัด</button><button id="ghostb" aria-pressed="${localStorage.getItem('ghost') !== '0'}" title="ให้ AI เดาโค้ดต่อขณะพิมพ์ (ใช้ลิมิตเล็กน้อย)">${ic('sparkles', 'sm')} AI เดา ${localStorage.getItem('ghost') === '0' ? 'ปิด' : 'เปิด'}</button><button id="hist" aria-label="ประวัติไฟล์">${ic('activity', 'sm')} History</button><button id="save" aria-label="บันทึก">${ic('check', 'sm')} Save</button></div>
-        <div id="editor" class="ide-editor"></div><div id="imgview" class="imgview" hidden></div>
+        <div id="editor" class="ide-editor"></div><div id="lintbar" class="lintbar" hidden></div><div id="imgview" class="imgview" hidden></div>
         <button type="button" class="sel-ai" id="selai" hidden>${ic('sparkles', 'sm')} ถาม / แก้ส่วนที่เลือก</button>
         <form class="cmdbar" id="cmdbar"><div class="cmd-opts"><button type="button" id="bmdl" aria-haspopup="dialog"></button><button type="button" id="beff" aria-haspopup="dialog"></button><span class="muted">อัตโนมัติ: แก้ไฟล์ · รัน · ตรวจผล</span></div>
           <div class="cmd-in"><input id="cmdi" placeholder="สั่ง AI แก้ไฟล์นี้ เช่น เพิ่มปุ่มรีเซ็ต" aria-label="สั่ง AI" autocomplete="off"><button aria-label="ส่ง">${ic('up')}</button></div></form>

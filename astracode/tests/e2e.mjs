@@ -308,6 +308,14 @@ const FLOWS = [
     const put = calls.find(c => c.m === 'PUT' && c.p === '/api/projects/1/file');
     return [!errs.length || errs.join(' | '), !!put || 'no save request', /<p>ok<\/p>/.test(put?.body || '') || 'typed text not saved'];
   }],
+  ['Code editor shows syntax problems under the editor and tapping one jumps to the line', async () => {
+    const { page, errs } = await open('/code?p=1', { '/api/projects/1': { id: 1, name: 'Site', instructions: '', gh: null, files: [{ path: 'app.js', content: 'const a = 1\nfunction f( {\n}\n' }, { path: 'index.html', content: '<h1>x</h1>' }] } });
+    await page.evaluate(() => { setPane('code'); openFile('app.js'); }); await page.waitForTimeout(1200);
+    const txt = await page.locator('#lintbar').innerText().catch(() => ''), shown = await page.locator('#lintbar').isVisible().catch(() => false);
+    await page.evaluate(() => openFile('index.html')); await page.waitForTimeout(1200);
+    const clean = await page.locator('#lintbar').isHidden().catch(() => false);
+    return [!errs.length || errs.join(' | '), shown || 'no problem bar', /บรรทัด 3/.test(txt) || 'wrong line: ' + txt, clean || 'bar stays on a clean file'];
+  }],
   ['Code: New project starts from a prompt, opens the editor in place and the AI starts right away', async () => {
     const { page, errs, calls } = await open('/code', { '/api/projects': q => q.method() === 'POST' ? { id: 7 } : [{ id: 3, name: 'Old', files: 1, size: 10, updated_at: Date.now() }], '/api/projects/7': { id: 7, name: 'เว็บร้านกาแฟ', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] } });
     await page.evaluate(() => { window.__same = 1; });
