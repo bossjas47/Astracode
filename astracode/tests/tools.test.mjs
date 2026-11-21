@@ -293,6 +293,20 @@ test('Code mode self-check: an edit that leaves a function never called, or a ch
   fm.close();
 });
 
+test('Code mode: the AI only read files and stopped with an unfinished checklist → it is told to keep going with the tools', async () => {
+  const { t, m, u, fm } = await setup((fm, res, body) => {
+    const last = body.messages.at(-1), tools = body.messages.filter(x => x.role === 'tool');
+    if (!tools.length) return toolSSE(res, [['todo_write', { todos: [{ content: 'รันบนเครื่องจริง', status: 'pending' }] }], ['read_file', { path: 'app.js' }]]);
+    if (last.role === 'user' && /stopped before doing the work/.test(last.content)) return toolSSE(res, [['todo_write', { todos: [{ content: 'รันบนเครื่องจริง', status: 'completed' }] }]]);
+    return fm.sse(res, "Let's run things on the real machine.");
+  });
+  const pid = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'p', empty: true } })).data.id;
+  await t.json(`/api/projects/${pid}/file`, { method: 'PUT', cookie: u.cookie, body: { path: 'app.js', content: 'x\n' } });
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ทำ', model_id: m.id, project_id: pid } }));
+  assert.ok(fm.hits.some(h => /stopped before doing the work/.test(h.body.messages.at(-1).content || '')), 'nudged to continue');
+  fm.close();
+});
+
 test('Code mode history: older user messages drop the project file list and attached file contents; the newest keeps them', async () => {
   const { stripOpenFile } = await import('../src/ai.js');
   assert.equal(stripOpenFile('ทำปุ่ม\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js\nb.js\n\n[เนื้อหาไฟล์ที่เปิดอยู่]\na.js:\nx'), 'ทำปุ่ม');

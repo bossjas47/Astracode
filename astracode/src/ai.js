@@ -629,9 +629,11 @@ export async function runChat(env, J, send, st) {
   // ตรวจงานก่อนจบคำตอบ (โหมด Code): ไฟล์ที่แก้ในคำตอบนี้ + รายการงานล่าสุด · ตรวจได้ไม่เกิน 2 ครั้งต่อคำตอบ กันวนไม่จบ
   const touched = new Set(); let lastTodo = null, checks = 0;
   const reviewNote = async round => { // round = รอบปัจจุบัน (ใช้บอกหน้าเว็บว่ากำลังตรวจ)
-    if (!ws || !touched.size || checks >= 2 || st.gone || J.perm === 'plan') return '';
-    const probs = verifyWork(ws, touched);
-    if (!probs.length && [...touched].some(f => /\.(?:html?|m?js|jsx|css)$/i.test(f)) && [...ws.files.keys()].some(f => /(^|\/)index\.html?$/i.test(f))) { // เปิดหน้าเว็บจริงบนเซิร์ฟเวอร์ ดู error ของ JavaScript (ถ้าตั้งค่า Browser Rendering ไว้)
+    const open0 = (lastTodo || []).some(x => x.status !== 'completed');
+    // ไม่ได้แก้ไฟล์เลยแต่รายการงานยังค้าง (เช่น อ่านไฟล์เสร็จแล้วพิมพ์ "จะทำต่อ" แล้วหยุด) ก็ให้ทำต่อ · ตรวจได้ไม่เกิน 3 ครั้งต่อคำตอบ
+    if (!ws || (!touched.size && !open0) || checks >= 3 || st.gone || J.perm === 'plan') return '';
+    const probs = touched.size ? verifyWork(ws, touched) : [];
+    if (!probs.length && touched.size && [...touched].some(f => /\.(?:html?|m?js|jsx|css)$/i.test(f)) && [...ws.files.keys()].some(f => /(^|\/)index\.html?$/i.test(f))) { // เปิดหน้าเว็บจริงบนเซิร์ฟเวอร์ ดู error ของ JavaScript (ถ้าตั้งค่า Browser Rendering ไว้)
       await send({ round: round + 2, of: maxRounds + 3, doing: 'เปิดหน้าเว็บตรวจ error' });
       const errs = await import('./agent.js').then(m => m.pageErrors(env, ws.files)).catch(() => null);
       if (errs?.length) probs.push('The page shows JavaScript errors when it loads: ' + errs.slice(0, 6).join(' | '));
@@ -641,6 +643,7 @@ export async function runChat(env, J, send, st) {
     if (!probs.length && !open.length) { if (checks) await event(env, 'selfcheck_ok', model.id, String(checks)).catch(() => {}); return ''; }
     await event(env, 'selfcheck', model.id, JSON.stringify({ probs: probs.length, open: open.length, n: checks + 1 })).catch(() => {});
     checks++;
+    if (!touched.size && !probs.length) return `[Automatic check] You stopped before doing the work. Your checklist still has unfinished items:\n${open.map(x => '- ' + x).join('\n')}\nDo not just describe the next step: call the tools now and keep going until every item is done, then update the checklist and give a short summary. If an item truly cannot be done, say why in one line.`;
     return `[Automatic check before you finish]\n${probs.length ? 'Problems found in the files you changed:\n' + probs.map(x => '- ' + x).join('\n') + '\n' : ''}${open.length ? 'Your checklist still has unfinished items:\n' + open.map(x => '- ' + x).join('\n') + '\n' : ''}Fix these now with the tools (read the exact lines first if needed), then update the checklist and give a short summary. If an item is truly not needed, say why in one line.`;
   };
   let ctxUsed = 0, lastCtx = 0, cumIn = 0, capped = false, trimmedSent = false; // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
