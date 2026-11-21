@@ -260,7 +260,7 @@ const PAY_UQ = ["CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_key_uq ON payme
 // โปรเจกต์ที่ผู้ใช้เข้าถึงได้: เจ้าของ หรือสมาชิกที่ถูกเชิญให้แก้ (owner = true เฉพาะเจ้าของ)
 export const projectFor = async (env, pid, uid) => { const p = await env.DB.prepare('SELECT * FROM projects p WHERE id=?1 AND user_id=?2').bind(pid, uid).first(); return p && { ...p, owner: p.user_id === uid }; };
 // โมเดลฟรีไม่จำกัดของแพลน (plans.free_models = JSON [model_id]) · ไม่หักลิมิต แต่จำกัด FREE_DAY_CAP ข้อความ/วัน/โมเดล กันใช้เกินควร
-export const FREE_DAY_CAP = 500;
+export const FREE_DAY_CAP = 500, FREE_CTX = 100e3; // ข้อความที่ context ตั้งแต่ 100K token (ราคาขั้นที่ 2 แพงขึ้น 5 เท่า) หักลิมิตตามปกติ
 export const freeIds = plan => { try { const a = JSON.parse(plan?.free_models || '[]'); return Array.isArray(a) ? a.map(Number) : []; } catch { return []; } };
 export const isFreeModel = (plan, id) => !!plan && freeIds(plan).includes(+id);
 export const ensureCols = env => colsDone ||= (async () => {

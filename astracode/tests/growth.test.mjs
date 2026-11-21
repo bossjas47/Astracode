@@ -113,5 +113,16 @@ test('plan free models: no limit units, still usable when the limit is full, oth
   assert.equal(pp.models[0].free, true); assert.equal(pp.models[0].name, 'Haiku');
   const ins = t.DB.raw.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at) VALUES (?,?,0,0,0,0,0,?)');
   for (let i = 0; i < 500; i++) ins.run(u.id, free.id, Date.now());
+  const { FREE_CTX } = await import('../src/core.js'); assert.equal(FREE_CTX, 100e3);
   const capped = await send(free.id); assert.equal(capped.status, 429); assert.match(capped.body, /500/);
+});
+
+test('plan free models: a reply whose context is 100K+ tokens counts against the limit', async () => {
+  let fm; fm = await fakeModel((req, res) => fm.sse(res, 'ok', { prompt_tokens: 150000, completion_tokens: 10 }));
+  const t = await makeEnv({ K: 'k' }), free = addModel(t.DB, { name: 'Haiku', base_url: fm.url });
+  await t.json('/api/version');
+  const { u, p } = await paidUser(t, 749, [free.id]);
+  t.DB.raw.prepare('UPDATE plans SET free_models=? WHERE id=?').run(JSON.stringify([free.id]), p.id);
+  const r = await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'hi', model_id: free.id } }); await r.text();
+  assert.ok(t.DB.raw.prepare('SELECT units FROM usage WHERE user_id=? AND model_id=?').get(u.id, free.id).units > 0);
 });
