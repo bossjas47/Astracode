@@ -89,6 +89,15 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (b.auto_renew === false && typeof b.reason === 'string' && b.reason.trim()) await event(env, 'cancel', null, `${u.email}: ${b.reason.trim().slice(0, 300)}`); // เหตุผลที่ปิดต่ออายุ ให้แอดมินดูในเหตุการณ์ระบบ
     return json({ ok: true });
   }
+  if (path === '/api/memories/import' && M === 'POST') { // นำเข้าความจำจาก ChatGPT/Claude: วางข้อความ แยกเป็นข้อ ๆ ข้ามที่ซ้ำ เติมจนครบ 50
+    const raw = String((await req.json().catch(() => ({}))).text || '').slice(0, 30000);
+    const key = s => s.toLowerCase().replace(/[\s.,!?'"“”]+/g, ''), have = (await DB.prepare('SELECT text FROM memories WHERE user_id=?').bind(u.id).all()).results.map(x => key(x.text));
+    const items = [...new Set(raw.split(/\r?\n|(?<=[.!?])\s+(?=[A-Z])/).map(l => l.replace(/^\s*([-*•·▪●]|\d+[.)])\s*/, '').replace(/^(user|ผู้ใช้)\s*[:：]\s*/i, '').trim()).filter(l => l.length >= 4 && !/^(saved memories|memory|ความจำ|manage memories)$/i.test(l)))];
+    let room = 50 - have.length, added = 0, skipped = 0; const now = Date.now(), q = [];
+    for (const it of items) { if (room <= 0) { skipped++; continue; } if (have.includes(key(it))) { skipped++; continue; } have.push(key(it)); q.push(DB.prepare('INSERT INTO memories (user_id,text,created_at) VALUES (?,?,?)').bind(u.id, it.slice(0, 300), now + added)); added++; room--; }
+    if (q.length) await DB.batch(q);
+    return json({ added, skipped, total: 50 - room });
+  }
   if (path === '/api/memories') {
     if (M === 'GET') return json((await DB.prepare('SELECT id,text,created_at FROM memories WHERE user_id=? ORDER BY id').bind(u.id).all()).results);
     const text = String((await req.json()).text || '').trim().slice(0, 300);

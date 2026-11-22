@@ -115,7 +115,7 @@ PAGES.account = async function account() {
       <button class="btn out sm" id="insave">Save</button> <span id="insok"></span>
       <label style="margin-top:16px">ความจำ (${mems.length}/50)</label>
       <div id="mems">${mems.map(m => `<div class="mem"><span>${esc(m.text)}</span><button data-mem="${m.id}" aria-label="ลบ">${ic('x')}</button></div>`).join('') || '<p class="muted">ยังไม่มี กด "จำไว้" ใต้ข้อความในแชต หรือเพิ่มเองด้านล่าง</p>'}</div>
-      <form id="memf" class="row" style="flex-wrap:nowrap"><input name="text" maxlength="300" placeholder="เช่น ฉันชื่อแซม ทำงานด้านการตลาด" required><button class="btn out sm">Add</button></form></div>
+      <form id="memf" class="row" style="flex-wrap:nowrap"><input name="text" maxlength="300" placeholder="เช่น ฉันชื่อแซม ทำงานด้านการตลาด" required><button class="btn out sm">Add</button></form><button type="button" class="btn out sm" id="memimp" style="margin-top:8px">${ic('download', 'sm')} นำเข้าจาก ChatGPT / Claude</button></div>
 
     <div class="card acc-c" id="sec-security">${h3('ความปลอดภัย')}
       <div class="row"><button class="btn out sm" id="pw">Email password reset link</button><span id="pe"></span></div>
@@ -188,6 +188,7 @@ PAGES.account = async function account() {
   $('#cpref')?.addEventListener('click', e => copy($('#ref').value, e.target));
   $('#insave').onclick = async () => { await api('/me', { method: 'PUT', body: { instructions: $('#ins').value } }); $('#insok').innerHTML = '<span class="ok">บันทึกแล้ว</span>'; };
   $('#mems').onclick = async e => { const b = e.target.closest('[data-mem]'); if (!b) return; await api('/memories/' + b.dataset.mem, { method: 'DELETE' }); b.parentElement.remove(); };
+  $('#memimp').onclick = () => sheet('นำเข้าความจำ', `<form class="sheet-form" id="mif"><p class="sheet-msg"><b>ChatGPT:</b> Settings → Personalization → Memory → Manage → คัดลอกทั้งหมด<br>หรือพิมพ์ใน ChatGPT: <i>"แสดงความจำทั้งหมดที่คุณมีเกี่ยวกับฉัน เป็นรายการทีละบรรทัด"</i> แล้วคัดลอกคำตอบ<br><b>Claude:</b> ถามแบบเดียวกันในแชต แล้วคัดลอกคำตอบ</p><textarea name="text" rows="9" placeholder="วางที่นี่ (บรรทัดละ 1 เรื่อง)" required></textarea><small class="muted">เก็บได้สูงสุด 50 เรื่อง · เรื่องที่ซ้ำจะข้ามให้</small><button class="btn blue">นำเข้า</button></form>`, (d, close) => { d.querySelector('#mif').onsubmit = async e => { e.preventDefault(); try { const r = await api('/memories/import', { method: 'POST', body: { text: new FormData(e.target).get('text') } }); close(); toast(`นำเข้าแล้ว ${r.added} เรื่อง${r.skipped ? ` · ข้าม ${r.skipped} (ซ้ำหรือเต็ม 50)` : ''}`, 'ok'); boot(); } catch (x) { toast(x.message, 'bad'); } }; });
   $('#memf').onsubmit = async e => { e.preventDefault(); try { await api('/memories', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); boot(); } catch (x) { toast(x.message, 'bad'); } };
   $('#pw').onclick = async e => { // รหัสผ่านอยู่ใน Firebase
     e.target.disabled = true;

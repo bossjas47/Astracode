@@ -629,3 +629,15 @@ test('Code: which files an AI reply was applied to is saved on the message, only
   await t.json(`/api/messages/${mid}/applied`, { method: 'POST', cookie: u.cookie, body: { paths: null } }); // Undo
   assert.equal((await t.json('/api/chats/' + cid, { cookie: u.cookie })).data.at(-1).applied, null);
 });
+
+test('memory import: pasted ChatGPT memories become separate items, bullets stripped, duplicates skipped, capped at 50', async () => {
+  const { makeEnv } = await import('./helpers.mjs');
+  const t = await makeEnv(); await t.json('/api/version'); const u = await t.user();
+  await t.json('/api/memories', { method: 'POST', cookie: u.cookie, body: { text: 'ชื่อแซม' } });
+  const r = await t.json('/api/memories/import', { method: 'POST', cookie: u.cookie, body: { text: 'Saved memories\n- ชื่อแซม\n• ทำงานด้านการตลาด\n1. ชอบคำตอบสั้น ๆ\nUser: Prefers Thai replies\n\n- ทำงานด้านการตลาด' } });
+  assert.equal(r.data.added, 3); assert.equal(r.data.total, 4);
+  const L = (await t.json('/api/memories', { cookie: u.cookie })).data.map(m => m.text);
+  assert.deepEqual(L, ['ชื่อแซม', 'ทำงานด้านการตลาด', 'ชอบคำตอบสั้น ๆ', 'Prefers Thai replies']);
+  const big = Array.from({ length: 60 }, (_, i) => 'fact number ' + i).join('\n');
+  assert.equal((await t.json('/api/memories/import', { method: 'POST', cookie: u.cookie, body: { text: big } })).data.total, 50);
+});
