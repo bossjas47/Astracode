@@ -1,7 +1,7 @@
 import { err, hex, json, projectFor, userErr } from './core.js';
 // ---------- projects (โหมด Code) ----------
 export const PATH_RE = /^(?!.*\.\.)(?!.*\/\/)(?!.*\/$)[^\/\\\x00-\x1f<>:"|?*][^\\\x00-\x1f<>:"|?*]{0,199}$/;
-export const IMG_LIMIT = 700e3, FILE_LIMIT = 500e3, PROJECT_LIMIT = 10e6, FILES_PER_PROJECT = 600, PROJECTS_PER_USER = 20;
+export const IMG_LIMIT = 700e3, FILE_LIMIT = 500e3, PROJECT_LIMIT = 20e6, FILES_PER_PROJECT = 1000, PROJECTS_PER_USER = 20;
 export const STARTER = {
   'index.html': '<!DOCTYPE html>\n<html lang="th">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>โปรเจกต์ใหม่</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <h1>สวัสดี AstraCode</h1>\n  <button id="btn">กดเลย</button>\n  <script src="script.js"></script>\n</body>\n</html>\n',
   'style.css': 'body {\n  font-family: system-ui, sans-serif;\n  background: #111;\n  color: #f5f5f7;\n  padding: 24px;\n}\nbutton {\n  padding: 10px 20px;\n  border-radius: 999px;\n  border: 0;\n  background: #0071e3;\n  color: #fff;\n}\n',
@@ -78,7 +78,7 @@ export async function projects(req, env, u, path, url) {
     const sizes = new Map(cur.map(x => [x.path, x.n]));
     for (const f of files) sizes.set(f.path, f.content.length);
     if (sizes.size > FILES_PER_PROJECT) return `ไฟล์เกิน ${FILES_PER_PROJECT} ไฟล์ต่อโปรเจกต์`;
-    if ([...sizes.values()].reduce((a, b) => a + b, 0) > PROJECT_LIMIT) return 'โปรเจกต์ใหญ่เกิน 10MB';
+    if ([...sizes.values()].reduce((a, b) => a + b, 0) > PROJECT_LIMIT) return 'โปรเจกต์ใหญ่เกิน 20MB';
     return null;
   };
   const valid = f => typeof f?.path === 'string' && PATH_RE.test(f.path) && typeof f.content === 'string' && f.content.length <= FILE_LIMIT;
@@ -281,7 +281,7 @@ export async function github(req, env, u, p, sub, now) {
     // รูปจาก repo: เขียนทับทุกครั้งที่ Pull แยกจากการเทียบ 3 ทาง (ไม่อยู่ใน synced = Push ไม่ส่ง/ไม่ลบรูปบน GitHub) · ถ้าเกินขีดจำกัด ข้ามรูปที่เหลือ
     let room = PROJECT_LIMIT - [...size.values()].reduce((a, b) => a + b, 0), slots = FILES_PER_PROJECT - size.size; const imgW = [];
     for (const [k, v] of images) { if (v.length <= room && slots > 0) { imgW.push({ path: k, content: v }); room -= v.length; slots--; } else skipped.push(k); }
-    if (size.size > FILES_PER_PROJECT || [...size.values()].reduce((a, b) => a + b, 0) > PROJECT_LIMIT) return err('repo ใหญ่เกินขีดจำกัดโปรเจกต์ (600 ไฟล์ / 10MB)');
+    if (size.size > FILES_PER_PROJECT || [...size.values()].reduce((a, b) => a + b, 0) > PROJECT_LIMIT) return err('repo ใหญ่เกินขีดจำกัดโปรเจกต์ (1,000 ไฟล์ / 20MB)');
     const put = 'INSERT INTO project_files VALUES (?,?,?,?) ON CONFLICT(project_id,path) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at';
     await snapshot(env, p.id, writes, 'git');
     const ops = [...[...writes, ...imgW].map(f => DB.prepare(put).bind(p.id, f.path, f.content, now)), ...dels.map(k => DB.prepare('DELETE FROM project_files WHERE project_id=? AND path=?').bind(p.id, k))];

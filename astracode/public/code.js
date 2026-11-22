@@ -503,7 +503,7 @@ async function fileEntry(path, u) {
   const t = new TextDecoder('utf-8').decode(u).replace(/^﻿/, '');
   return t.length > PF_MAX ? { why: 'ไฟล์ข้อความใหญ่เกิน 500KB' } : { file: { path, content: t } };
 }
-const PF_MAX = 500e3, PF_COUNT = 600, PF_BYTES = 10e6;
+const PF_MAX = 500e3, PF_COUNT = 1000, PF_BYTES = 20e6;
 // ส่งขึ้นเซิร์ฟเวอร์ทีละชุด (กันคำขอใหญ่เกิน) · ชุดที่ไม่ผ่านไม่ทำให้ชุดอื่นหาย
 async function writeChunks(files, skip) {
   let done = 0, chunk = [], size = 0;
@@ -542,7 +542,7 @@ async function importZip(file) {
     const r = await fileEntry(name, await e.async('uint8array'));
     if (!r.file) { skip.push([name, r.why]); continue; }
     const next = new Map(have); next.set(name, r.file.content.length);
-    if (next.size > PF_COUNT || [...next.values()].reduce((a, b) => a + b, 0) > PF_BYTES) { skip.push([name, 'เกินขีดจำกัดโปรเจกต์ (600 ไฟล์ / 10MB)']); continue; }
+    if (next.size > PF_COUNT || [...next.values()].reduce((a, b) => a + b, 0) > PF_BYTES) { skip.push([name, 'เกินขีดจำกัดโปรเจกต์ (1,000 ไฟล์ / 20MB)']); continue; }
     have.set(name, r.file.content.length); out.push(r.file);
   }
   if (junk) skip.push([`${junk} ไฟล์ใน node_modules / .git / __MACOSX`, 'ไฟล์ระบบ / แพ็กเกจ (ไม่ต้องนำเข้า)']);
@@ -810,7 +810,7 @@ async function syncDisk(first) {
     if (down.length) await DESK.write(lkey(), down.map(p => ({ path: p, content: content(p) })));
     IDE.seen = new Set([...disk.keys(), ...down]);
     if (delHere.length) refresh();
-    if (first && skipped.length) toast(`ข้าม ${skipped.length} ไฟล์ในเครื่อง (ไบนารี / ใหญ่เกิน 500KB / เกิน 600 ไฟล์ หรือ 10MB) · ไฟล์ยังอยู่ในเครื่องครบ`);
+    if (first && skipped.length) toast(`ข้าม ${skipped.length} ไฟล์ในเครื่อง (ไบนารี / ใหญ่เกิน 500KB / เกิน 1,000 ไฟล์ หรือ 20MB) · ไฟล์ยังอยู่ในเครื่องครบ`);
     if (up.length || delHere.length) setStatus(`ซิงก์จากเครื่อง ${up.length + delHere.length} ไฟล์ ✓`);
   } catch (x) { setStatus('ซิงก์โฟลเดอร์ในเครื่องไม่ได้: ' + x.message, true); }
   finally { IDE.syncing = false; }
