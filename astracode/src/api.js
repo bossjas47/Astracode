@@ -200,12 +200,13 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         if (!(pr.req > 0)) maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * (slot ? 1 / (2 * (WALLET_SLOTS - 1)) : 0.5) * 1e6 / Math.max(pr.out, 1e-9)))); // คิดเหมาต่อ request ไม่ต้องจำกัดความยาวตามยอดที่เหลือ
       }
       if (!walletKey) return fail(`Too many wallet-billed requests at once (max ${WALLET_SLOTS}). Wait for one to finish.`, 429, 'rate_limit_error', { 'retry-after': '5' });
-    } else if (billingMode === 'credit' || billingMode === 'mcredit') { // กันยิงขนานหลายสิบคำขอตอนเครดิตใกล้หมดจนใช้เกินยอด
-      const kk = 'creditlock:' + k.id;
-      if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(kk, Date.now() + 180e3, Date.now()).first()) {
-        return fail('Another credit-billed request is still running on this account. Wait for it to finish.', 429, 'rate_limit_error', { 'retry-after': '3' });
+    } else if (billingMode === 'credit' || billingMode === 'mcredit') { // ยิงขนานได้สูงสุด 3 ช่อง (พอสำหรับ sub-agent แต่กันยิงรัว 60 ครั้งตอนเครดิตใกล้หมด)
+      for (let slot = 0; slot < 3 && !walletKey; slot++) {
+        const kk = 'creditlock:' + k.id + (slot ? ':' + slot : '');
+        if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(kk, Date.now() + 180e3, Date.now()).first()) continue;
+        walletKey = kk;
       }
-      walletKey = kk;
+      if (!walletKey) return fail('Too many credit-billed requests at once (max 3). Wait for one to finish.', 429, 'rate_limit_error', { 'retry-after': '3' });
     }
     let activeModel = m; lg.model = slug(m);
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read }, ...(u.astra ? { astra: u.astra } : {}) });
@@ -218,7 +219,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (finalU) finalU.astra = { charge_thb: charge, week_pct: plan?.limit_week > 0 && finalU._units ? +(finalU._units / plan.limit_week * 100).toFixed(4) : 0, ...(finalU._pack ? { pack_pct: +(finalU._pack / (k.agent_pack_units || 1) * 100).toFixed(4) } : {}) }; // ค่าใช้จ่ายคำขอนี้: บาทจาก Wallet / % ลิมิตสัปดาห์ (แอป Desktop ใช้คุมเพดานต่องาน)
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
       if (walletKey) await unlimit(env, walletKey);
-      lg.model = slug(activeModel); lg.tin = finalU ? finalU.fresh + finalU.read + finalU.write : 0; lg.tout = finalU?.out || 0; lg.charge = charge; lg.logged = true;
+      lg.model = slug(activeModel); lg.tin = finalU ? finalU.fresh + finalU.read + finalU.write : 0; lg.tout = finalU?.out || 0; lg.tcr = finalU?.read || 0; lg.charge = charge; lg.logged = true;
       await apiLog(env, lg, 200);
       if (k.budget > 0) for (const [pct, label] of [[1, 'ใช้ครบงบแล้ว'], [0.8, 'ใช้ไป 80% ของงบแล้ว']]) { // เตือนครั้งเดียวตอนข้ามเส้น (งบรีเซ็ตทุกเดือน)
         if (spent < k.budget * pct && spent + charge >= k.budget * pct) {
@@ -246,6 +247,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl })) {
+            if (!lg.ttft && (e.t || e.th || e.tc_start || e.tc)) lg.ttft = Date.now() - lg.t0;
             if (e.t) content += e.t;
             if (e.th) reasoning += e.th;
             if (e.tc_start) { const idx = tcs.size; anthIdx.set(e.tc_start.index, idx); tcs.set(idx, { id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }); }
@@ -293,7 +295,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: upstream.signal })) {
-              if (!sentAny) { sentAny = true; await chunk({ role: 'assistant', content: '' }); }
+              if (!sentAny) { sentAny = true; if (!lg.ttft) lg.ttft = Date.now() - lg.t0; await chunk({ role: 'assistant', content: '' }); }
               if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
               if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }
               if (e.tc_start) { const idx = tcCount++; anthIdx.set(e.tc_start.index, idx); await chunk({ tool_calls: [{ index: idx, id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }] }); }
@@ -324,8 +326,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
 // ---------- ตัวช่วย /v1: บันทึกคำขอ, IP allowlist, ตัวห่อและตัวแปลง Anthropic Messages / OpenAI Responses ----------
 // ตารางสั่ง Agent จากมือถือ (สร้างเองครั้งแรก) · events = ความคืบหน้าล่าสุด 300 รายการ, ask = คำถามขออนุญาตที่รอ, answer/inbox = จากมือถือ รอแอปมารับ
 export const ensureRemote = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_remote (chat_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, events TEXT, ask TEXT, answer TEXT, inbox TEXT, running INTEGER, updated_at INTEGER)').run();
-export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-  .bind(lg.kid, lg.uid, lg.path, lg.model || null, status, lg.tin || 0, lg.tout || 0, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
+export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,tcr,ttft,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  .bind(lg.kid, lg.uid, lg.path, lg.model || null, status, lg.tin || 0, lg.tout || 0, lg.tcr || 0, lg.ttft || null, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
 export const v4 = x => { const p = String(x).split('.'); return p.length === 4 && p.every(n => /^\d{1,3}$/.test(n) && +n < 256) ? p.reduce((a, n) => a * 256 + +n, 0) : null; };
 // IPv6 เป็น BigInt 128 บิต (รองรับ :: ย่อ) · null = ไม่ใช่ IPv6
 export const v6 = x => {

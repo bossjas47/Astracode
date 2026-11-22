@@ -98,7 +98,7 @@ export default {
       if (clean) return new Response(null, { status: 301, headers: { location: clean + url.search } }); // Location แบบ relative: ผ่าน Vercel แล้วไม่หลุดไปโดเมน workers.dev
       const res = await env.ASSETS.fetch(path === '/' ? new Request(new URL('/home', req.url), req) : req);
       if (res.status === 404 && M === 'GET') return secure(new Response((await env.ASSETS.fetch(new Request(new URL('/404.html', req.url), req))).body, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })); // หน้าไม่มีจริง: แสดงหน้าแรก
-      return secure(versioned(res, path, url, env)); // บังคับใช้ CSP จริงบนหน้าเว็บ
+      return secure(versioned(res, path, url, env), true); // คง report-only ไว้ก่อนจนกว่าจะตรวจคอนโซลทุกหน้าครบ (กันบล็อกลูกค้าบนโปรดักชัน)
     }
     if (M !== 'GET' && M !== 'HEAD') {
       const o = req.headers.get('origin'); // กัน CSRF: รับคำขอแก้ข้อมูลจากเว็บตัวเองเท่านั้น

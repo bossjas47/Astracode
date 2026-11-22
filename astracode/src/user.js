@@ -232,7 +232,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   }
   if ((r = path.match(/^\/api\/keys\/(\d+)\/log$/)) && M === 'GET') { // คำขอล่าสุดของ key (เก็บ 30 วัน)
     if (!await DB.prepare('SELECT 1 FROM api_keys WHERE id=? AND user_id=?').bind(r[1], u.id).first()) return err('ไม่พบ key', 404);
-    return json((await DB.prepare('SELECT path,model,status,tin,tout,ROUND(charge,4) charge,ms,err,created_at FROM api_log WHERE key_id=? ORDER BY id DESC LIMIT 50').bind(r[1]).all()).results);
+    return json((await DB.prepare('SELECT path,model,status,tin,tout,COALESCE(tcr,0) tcr,ttft,ROUND(charge,4) charge,ms,err,created_at FROM api_log WHERE key_id=? ORDER BY id DESC LIMIT 50').bind(r[1]).all()).results);
   }
   if ((r = path.match(/^\/api\/keys\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=?').bind(r[1], u.id).run(); return json({ ok: true }); }
   if ((r = path.match(/^\/api\/keys\/(\d+)$/)) && M === 'PUT') { // งบต่อเดือน (บาท) และโมเดลที่ key นี้ใช้ได้
