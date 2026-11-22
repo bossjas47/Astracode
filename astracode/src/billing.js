@@ -363,8 +363,7 @@ export async function pay(req, env, u) {
     if (n === 3) await notify(env, `⚠️ ตรวจสลิปอัตโนมัติไม่สำเร็จ 3 ครั้งติดกัน (ล่าสุด: ${String(c.code).slice(0, 120)}) สลิปค้างรออนุมัติเอง · เช็คคีย์/URL ในหน้าตั้งค่า แล้วกด Test connection`);
   }
   // ผ่านทุกเงื่อนไข (หรือพบสลิปและยอดตรง) และเปิดอนุมัติอัตโนมัติ: เปิดแพลน/เติมเงินทันที
-  const fresh = Date.now() - (u.created_at || 0) < 864e5 && !(await env.DB.prepare("SELECT 1 FROM payments WHERE user_id=? AND status='approved'").bind(u.id).first()); // บัญชีใหม่ไม่ถึงวัน ยังไม่เคยจ่าย
-  const pass = !fail && (c.code === '200200' || (c.code === '200000' && c.amount === amount)) && (await getSetting(env, 'slip_auto_approve')) !== '0' && !(fresh && amount >= 1490); // บัญชีใหม่ซื้อแพลนแพง: แอดมินตรวจเอง
+  const pass = !fail && (c.code === '200200' || (c.code === '200000' && c.amount === amount)) && (await getSetting(env, 'slip_auto_approve')) !== '0';
   const now = Date.now(), what = kind === 'topup' ? 'เติม Wallet' : plan.name + (period === 'year' ? ' รายปี' : '');
   // ดัชนี unique (slip_key, slip_ref) กันสลิปเดียวส่งพร้อมกันสองครั้งแล้วอนุมัติซ้ำ: ตัวที่สองชนดัชนีและถูกปฏิเสธก่อนถึง applyPayment
   const p = await env.DB.prepare('INSERT INTO payments (user_id,plan_id,amount,slip_key,slip_check,slip_amount,slip_ref,status,approved_at,created_at,kind,period,coupon,discount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *')
