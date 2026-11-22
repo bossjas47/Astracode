@@ -28,7 +28,7 @@ const sumRev = m => [...m.values()].reduce((a, o) => ({ rev: a.rev + o.rev, earn
 // วันเริ่มของช่วง N วันล่าสุด (เที่ยงคืนเวลาไทย) · ใช้เหมือนกันทั้งหน้าภาพรวมและหน้ากำไร ตัวเลขจึงตรงกัน
 export const rangeFrom = (days, now = Date.now()) => (Math.floor((now + BKK) / DAY) - days + 1) * DAY - BKK;
 export const TABLES = {
-  plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'agent', 'cowork', 'compare', 'description', 'sort', 'active'],
+  plans: ['name', 'price', 'price_year', 'days', 'once', 'limit_4h', 'use_4h', 'limit_week', 'seats', 'shared_pool', 'api_limit', 'agent', 'cowork', 'compare', 'min_margin', 'description', 'sort', 'active'],
   models: ['name', 'provider', 'api_model', 'base_url', 'key_name', 'multiplier', 'cap_pct', 'cost_in', 'cost_out', 'cost_cache', 'cost_cache_write', 'price_in', 'price_out', 'price_cache', 'price_cache_write', 'promo_pct', 'promo_start', 'promo_end', 'use_mult', 'promo_mult', 'first_token_s', 'idle_s', 'ctx_k', 'long_k', 'long_in', 'long_out', 'req_cap', 'bill', 'req_cost', 'req_price', 'code_prompt', 'sys_prompt', 'public', 'note', 'cats', 'fallback_id', 'vision', 'tools', 'effort', 'effort_levels', 'sort', 'active', 'new_until'],
   posts: ['slug', 'title', 'summary', 'body', 'cover', 'published', 'changelog'],
 };
@@ -98,6 +98,12 @@ export async function admin(req, env, path, url, me) {
       b.bill = b.bill === 'request' ? 'request' : null;
       if (b.bill && !(+b.req_cost > 0)) return err('คิดต่อ request ต้องใส่ต้นทุนต่อ request มากกว่า 0');
       if (!b.bill) { b.req_cost = null; b.req_price = null; } // โหมด token ล้างค่าต่อ request ทิ้ง ไม่ค้างปนกัน
+    }
+    if (t === 'plans' && b.min_margin != null && b.min_margin !== '' && +b.price > 0) { // กำไรขั้นต่ำ: ลิมิตสัปดาห์ = ราคา × (1 − กำไร%) ÷ จำนวนสัปดาห์ (กรณีลูกค้าใช้เต็มทุกสัปดาห์)
+      const m = +b.min_margin; if (!(m >= 0 && m < 100)) return err('กำไรขั้นต่ำต้องอยู่ระหว่าง 0–99%');
+      const weeks = +b.days > 0 ? +b.days / 7 : 30 / 7, members = +b.seats > 1 && !+b.shared_pool && !+b.per_seat ? +b.seats : 1; // แพลนทีมแยกโควตาต่อคน: แบ่งเงินตามจำนวนคน
+      const ratio = +b.limit_week > 0 && +b.limit_4h > 0 ? +b.limit_4h / +b.limit_week : 0.25, wk = Math.round(+b.price * (1 - m / 100) / weeks / members * 100) / 100;
+      b.limit_week = wk; b.limit_4h = Math.round(wk * ratio * 100) / 100;
     }
     if (t === 'plans' && !(b.limit_4h > 0)) b.limit_4h = +b.limit_week || 0; // ปิดรอบ 4 ชม./เว้นว่าง: ใช้งบเท่ารอบสัปดาห์ (คอลัมน์ห้ามว่าง)
     const vals = cols.map(c => b[c] ?? null);

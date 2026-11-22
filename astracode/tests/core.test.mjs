@@ -641,3 +641,17 @@ test('memory import: pasted ChatGPT memories become separate items, bullets stri
   const big = Array.from({ length: 60 }, (_, i) => 'fact number ' + i).join('\n');
   assert.equal((await t.json('/api/memories/import', { method: 'POST', cookie: u.cookie, body: { text: big } })).data.total, 50);
 });
+
+test('plan min margin: the weekly and 4h limits are worked out from the price (full use every week), team plans split per member', async () => {
+  const { makeEnv } = await import('./helpers.mjs');
+  const t = await makeEnv(); await t.json('/api/version'); const adm = await t.user({ role: 'admin' });
+  const base = { name: 'Plus', price: 349, limit_4h: 8.75, limit_week: 35, seats: 1, active: 1, sort: 1, min_margin: 50, description: 'x', use_4h: 1, shared_pool: 0, api_limit: 0, agent: 0, once: 0 };
+  const r = await t.json('/api/admin/plans', { method: 'POST', cookie: adm.cookie, body: base }); assert.equal(r.status, 200, JSON.stringify(r.data));
+  const p = t.DB.raw.prepare('SELECT limit_week, limit_4h FROM plans WHERE id=?').get(r.data.id);
+  assert.equal(p.limit_week, 40.72); assert.equal(p.limit_4h, 10.18);
+  const w = await t.json('/api/admin/plans', { method: 'POST', cookie: adm.cookie, body: { ...base, name: 'Week', price: 499, days: 7, min_margin: 60 } });
+  assert.equal(t.DB.raw.prepare('SELECT limit_week FROM plans WHERE id=?').get(w.data.id).limit_week, 199.6);
+  const tm = await t.json('/api/admin/plans', { method: 'POST', cookie: adm.cookie, body: { ...base, name: 'Team 5', price: 1790, seats: 5, shared_pool: 0, min_margin: 50 } });
+  assert.equal(t.DB.raw.prepare('SELECT limit_week FROM plans WHERE id=?').get(tm.data.id).limit_week, 41.77);
+  assert.equal((await t.json('/api/admin/plans', { method: 'POST', cookie: adm.cookie, body: { ...base, min_margin: 120 } })).status, 400);
+});
