@@ -14,9 +14,14 @@ async function ensure() {
   const { chromium } = require('playwright-core');
   br ||= await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const ctx = await br.newContext({ viewport: { width: 1280, height: 860 }, locale: 'th-TH', userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36 AstraCodeCowork' });
+  await ctx.route('**/*', route => {
+    const u = route.request().url();
+    if (/^(data:|blob:|about:)/.test(u)) return route.request().isNavigationRequest() ? route.abort('blockedbyclient') : route.continue();
+    return okUrl(u) ? route.continue() : route.abort('blockedbyclient');
+  });
   page = await ctx.newPage(); page.setDefaultTimeout(20000); return page;
 }
-const okUrl = u => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) && !/^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|\[)/.test(x.hostname); } catch { return false; } };
+const okUrl = u => { try { const x = new URL(u), h = x.hostname.toLowerCase(); if (!/^https?:$/.test(x.protocol) || x.username || x.password || !h) return false; if (/^(localhost\.?|127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|198\.1[89]\.|192\.0\.0\.|2[2-5]\d\.)/.test(h)) return false; if (/\.(local|internal|localhost|localdomain|intranet|lan)$/.test(h) || /^\d+$/.test(h) || h.includes(':')) return false; return true; } catch { return false; } };
 async function readPage(p) {
   const d = await p.evaluate(() => {
     const vis = e => { const r = e.getBoundingClientRect(), s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
@@ -46,6 +51,6 @@ async function browserTool(a, root, onShot) {
   return 'Error: unknown action';
 }
 // PDF จาก HTML (ให้ make_document ทำ .pdf ได้ในเครื่องเสมือน · ฟอนต์ไทยจาก fonts-thai-tlwg)
-async function htmlToPdf(html) { await ensure(); const pg = await page.context().newPage(); try { await pg.setContent(html, { waitUntil: 'load' }); return await pg.pdf({ format: 'A4', printBackground: true, margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' } }); } finally { await pg.close(); } }
+async function htmlToPdf(html) { await ensure(); const pg = await page.context().newPage(); try { await pg.route('**/*', route => /^(data:|blob:|about:)/.test(route.request().url()) ? route.continue() : route.abort('blockedbyclient')); await pg.setContent(html, { waitUntil: 'load' }); return await pg.pdf({ format: 'A4', printBackground: true, margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' } }); } finally { await pg.close(); } }
 async function closeBrowser() { try { await br?.close(); } catch {} br = page = null; }
 module.exports = { BROWSER_TOOL, browserTool, htmlToPdf, closeBrowser };

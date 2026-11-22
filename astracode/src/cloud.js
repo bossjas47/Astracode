@@ -50,7 +50,7 @@ export class AgentBox {
       job.err = 0; await this.s.storage.put('job', job); await this.s.storage.setAlarm(Date.now() + 4000);
     } catch (e) {
       job.err = (job.err || 0) + 1;
-      if (job.err > 15) { await (job.kind === 'cowork' ? finishCowork : finishJob)(this.env, job.id, { status: 'error', error: 'เครื่องเสมือนไม่ตอบ: ' + String(e.message).slice(0, 200), changed: [], deleted: [] }); await this.s.storage.delete('job'); return; }
+      if (job.err > 15) { await (job.kind === 'cowork' ? finishCowork : finishJob)(this.env, job.id, { status: 'error', error: 'เครื่องเสมือนไม่ตอบ: ' + String(e.message).slice(0, 200), changed: [], deleted: [] }); await this.s.storage.delete('job'); try { this.s.container?.destroy?.(); } catch { /* ปิดอยู่แล้ว */ } return; }
       await this.s.storage.put('job', job); await this.s.storage.setAlarm(Date.now() + 5000);
     }
   }
@@ -68,7 +68,7 @@ export async function finishJob(env, id, res) {
   const ap = changes.length ? await applyChanges(env, job.project_id, changes, true).catch(e => ({ applied: [], problems: [e.message] })) : { applied: [], problems: [] };
   const error = [res.error, ...(ap.problems || [])].filter(Boolean).join(' · ') || null;
   await env.DB.batch([
-    env.DB.prepare('UPDATE cloud_jobs SET status=?, final=?, changed=?, error=?, finished_at=? WHERE id=?').bind(res.status === 'done' && !ap.problems?.length ? 'done' : res.status === 'done' ? 'done' : 'failed', String(res.final || '').slice(0, 20000), JSON.stringify(ap.applied || []), error ? error.slice(0, 1000) : null, Date.now(), id),
+    env.DB.prepare('UPDATE cloud_jobs SET status=?, final=?, changed=?, error=?, finished_at=? WHERE id=?').bind(res.status === 'done' && !ap.problems?.length ? 'done' : res.status === 'done' ? 'partial' : 'failed', String(res.final || '').slice(0, 20000), JSON.stringify(ap.applied || []), error ? error.slice(0, 1000) : null, Date.now(), id),
     env.DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=?').bind(job.key_id || 0), // key ชั่วคราวของงานนี้ใช้ไม่ได้อีก
   ]);
   try { const { sendPush } = await import('./push.js'); await sendPush(env, job.user_id, { title: 'Agent บนคลาวด์ ' + (res.status === 'done' ? 'เสร็จแล้ว' : 'หยุดแล้ว'), body: String(res.final || error || '').slice(0, 140), url: '/code?p=' + job.project_id }); } catch { /* ไม่ได้เปิดแจ้งเตือน */ }

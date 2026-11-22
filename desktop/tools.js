@@ -3,6 +3,7 @@ const fs = require('fs/promises');
 const fsSync = require('fs');
 const path = require('path');
 const { exec, spawn } = require('child_process');
+const { StringDecoder } = require('string_decoder');
 
 // path จริงหลังตาม symlink: ส่วนที่ยังไม่มีบนดิสก์ (ไฟล์ที่กำลังจะสร้าง) ต่อท้ายโฟลเดอร์แม่ที่มีอยู่จริง
 function realOf(abs) {
@@ -45,9 +46,10 @@ function runCmd(cwd, cmd, { onOut = () => {}, timeout = 600e3, signal } = {}) {
     const kill = () => { try { win ? exec(`taskkill /pid ${p.pid} /T /F`) : process.kill(-p.pid, 'SIGKILL'); } catch { /* จบไปแล้ว */ } };
     const t = timeout ? setTimeout(() => { stderr += '\n(หมดเวลา ' + timeout / 1000 + ' วินาที หยุดคำสั่งแล้ว)'; kill(); }, timeout) : null;
     signal?.addEventListener('abort', () => { stderr += '\n(หยุดแล้ว)'; kill(); });
-    const take = (k, b) => { const s = b.toString('utf8'); if (k === 'out') { if (stdout.length < OUT_MAX) stdout += s; } else if (stderr.length < OUT_MAX) stderr += s; onOut(k, s); };
-    p.stdout.on('data', b => take('out', b)); p.stderr.on('data', b => take('err', b));
-    const end = code => { if (done) return; done = true; clearTimeout(t); ok({ code: code ?? 1, stdout, stderr }); };
+    const decOut = new StringDecoder('utf8'), decErr = new StringDecoder('utf8');
+    const take = (k, s) => { if (!s) return; if (k === 'out') { if (stdout.length < OUT_MAX) stdout += s; } else if (stderr.length < OUT_MAX) stderr += s; onOut(k, s); };
+    p.stdout.on('data', b => take('out', decOut.write(b))); p.stderr.on('data', b => take('err', decErr.write(b)));
+    const end = code => { if (done) return; done = true; clearTimeout(t); take('out', decOut.end()); take('err', decErr.end()); ok({ code: code ?? 1, stdout, stderr }); };
     p.on('error', e => { stderr += e.message; end(1); }); p.on('close', end);
   });
 }

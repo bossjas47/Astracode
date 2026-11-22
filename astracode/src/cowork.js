@@ -142,7 +142,8 @@ export async function coworkStart(env, u, prompt) {
   if ((await env.DB.prepare("SELECT COUNT(*) n FROM cowork_tasks WHERE user_id=? AND status='running'").bind(u.id).first()).n) throw new Error('มีงาน Cowork ทำอยู่แล้ว');
   const m = await coworkModel(env); if (!m) throw new Error('ไม่พบโมเดล ' + COWORK_MODEL);
   const now = Date.now(), t = await env.DB.prepare("INSERT INTO cowork_tasks (user_id,title,status,events,files,history,created_at,updated_at) VALUES (?,?,'idle','[]','[]','[]',?,?) RETURNING *").bind(u.id, prompt.replace(/\s+/g, ' ').slice(0, 80), now, now).first();
-  await startTurn(env, u, t, prompt.slice(0, 20000), m, false); return t.id;
+  try { await startTurn(env, u, t, prompt.slice(0, 20000), m, false); return t.id; }
+  catch (e) { await finishCowork(env, t.id, { status: 'error', error: 'เริ่มงานไม่สำเร็จ: ' + e.message }); await env.DB.prepare("UPDATE cowork_tasks SET status='error', error=? WHERE id=? AND status='idle'").bind('เริ่มงานไม่สำเร็จ: ' + String(e.message).slice(0, 300), t.id).run(); throw e; }
 }
 // งานค้าง running นานเกิน (เครื่องหายกลางทาง): ปิดเป็น error (เรียกจาก cron)
 export async function reapCowork(env) {

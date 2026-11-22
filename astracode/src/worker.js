@@ -34,7 +34,7 @@ async function pricingBody(env) {
     let official = {}; try { official = JSON.parse(await getSetting(env, 'official_prices') || '{}') || {}; } catch { /* ค่าเสีย ไม่แสดงเทียบ */ }
     return {
       note: await getSetting(env, 'price_note'),
-      plans: ps.results, // limit_week = งบต้นทุนต่อสัปดาห์ (บาท) ใช้คำนวณ % ในเครื่องคิดเลข
+      plans: ps.results.map(({ limit_week, ...p }) => ({ ...p, limit_week: limit_week > 0 ? 1 : 0 })), // ส่งเฉพาะสถานะว่ามีลิมิตหรือไม่ (ไม่เปิดเผยงบต้นทุนจริงเป็นบาท)
       models: await Promise.all(ms.results.map(async m => {
         const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
         return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lim: limMult(m), note: m.note,
@@ -98,7 +98,7 @@ export default {
       if (clean) return new Response(null, { status: 301, headers: { location: clean + url.search } }); // Location แบบ relative: ผ่าน Vercel แล้วไม่หลุดไปโดเมน workers.dev
       const res = await env.ASSETS.fetch(path === '/' ? new Request(new URL('/home', req.url), req) : req);
       if (res.status === 404 && M === 'GET') return secure(new Response((await env.ASSETS.fetch(new Request(new URL('/404.html', req.url), req))).body, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })); // หน้าไม่มีจริง: แสดงหน้าแรก
-      return secure(versioned(res, path, url, env), true); // shortcut: CSP ของหน้าเว็บเป็น report-only จนกว่าจะตรวจว่าไม่บล็อกอะไร (เดิม wrangler 3 ข้าม run_worker_first หน้าเว็บจึงไม่เคยมี CSP)
+      return secure(versioned(res, path, url, env)); // บังคับใช้ CSP จริงบนหน้าเว็บ
     }
     if (M !== 'GET' && M !== 'HEAD') {
       const o = req.headers.get('origin'); // กัน CSRF: รับคำขอแก้ข้อมูลจากเว็บตัวเองเท่านั้น

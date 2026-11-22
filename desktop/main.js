@@ -60,7 +60,7 @@ const show = () => { if (!web) return; if (web.isMinimized()) web.restore(); web
 function makeTray() {
   try {
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')).resize({ width: 16, height: 16 }));
-    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; } }, ...(Object.values(settings.links || {}).some(r => settings.autoRun?.[r] ?? true) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = Object.fromEntries(Object.values(settings.links || {}).map(r => [r, false])); save(); } }] : []), ...(fs.existsSync(CMD_LOG()) ? [{ label: 'เปิดบันทึกคำสั่งที่รัน', click: () => shell.openPath(CMD_LOG()) }] : []), { label: 'ออกจากแอป', click: quit }]);
+    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; settings.screenAlways = false; save(); } }, ...(Object.values(settings.links || {}).some(r => settings.autoRun?.[r] ?? true) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = Object.fromEntries(Object.values(settings.links || {}).map(r => [r, false])); save(); } }] : []), ...(fs.existsSync(CMD_LOG()) ? [{ label: 'เปิดบันทึกคำสั่งที่รัน', click: () => shell.openPath(CMD_LOG()) }] : []), { label: 'ออกจากแอป', click: quit }]);
     tray.setToolTip('AstraCode'); tray.setContextMenu(menu()); tray.on('click', show); tray.on('right-click', () => tray.setContextMenu(menu()));
   } catch { tray = null; } // บาง Linux ไม่มีถาด: ปิดหน้าต่าง = ออกจากแอป
 }
@@ -178,7 +178,7 @@ h('desk:edit', (_, k, p, edits) => editRel(rootOf(k), p, Array.isArray(edits) ? 
 let screenOk = false; // ตั้งค่าเริ่มจาก settings.screenAlways ตอนโหลด settings
 const askScreen = async () => {
   if (process.platform !== 'win32') throw new Error('คุมเมาส์/คีย์บอร์ดใช้ได้เฉพาะ Windows ตอนนี้');
-  const a = await dialog.showMessageBox(web, { checkboxLabel: 'จำไว้ ไม่ต้องถามอีก (ปิดได้ที่ไอคอนถาด หรือ Ctrl+Alt+Esc)', checkboxChecked: true, type: 'warning', title: 'ให้ AI ควบคุมคอมพิวเตอร์?', message: 'AI จะเห็นหน้าจอ และคลิก/พิมพ์แทนคุณได้ จนกว่าจะปิดแอป', detail: 'ระหว่างนั้นอย่าเปิดหน้าธนาคาร รหัสผ่าน หรือข้อมูลลับไว้บนจอ\nหยุดทันที: กด Ctrl+Alt+Esc หรือคลิกขวาไอคอนที่ถาด → หยุดให้ AI คุมเมาส์/คีย์บอร์ด', buttons: ['อนุญาต', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
+  const a = await dialog.showMessageBox(web, { checkboxLabel: 'จำไว้ ไม่ต้องถามอีก (ปิดได้ที่ไอคอนถาด หรือ Ctrl+Alt+Esc)', checkboxChecked: false, type: 'warning', title: 'ให้ AI ควบคุมคอมพิวเตอร์?', message: 'AI จะเห็นหน้าจอ และคลิก/พิมพ์แทนคุณได้ จนกว่าจะปิดแอป', detail: 'ระหว่างนั้นอย่าเปิดหน้าธนาคาร รหัสผ่าน หรือข้อมูลลับไว้บนจอ\nหยุดทันที: กด Ctrl+Alt+Esc หรือคลิกขวาไอคอนที่ถาด → หยุดให้ AI คุมเมาส์/คีย์บอร์ด', buttons: ['อนุญาต', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
   screenOk = a.response === 0; if (screenOk && a.checkboxChecked) { settings.screenAlways = true; save(); } return screenOk;
 };
 h('desk:screenOn', askScreen);
@@ -213,7 +213,7 @@ async function screenRun(acts) {
       else if (k === 'KEY') await ps(`Add-Type -AssemblyName System.Windows.Forms;[System.Windows.Forms.SendKeys]::SendWait('${keyCombo(r.join('')).replace(/'/g, "''")}')`);
       else if (k === 'MOVE') await ps(U32 + `[U]::SetCursorPos(${X(0)},${Y(1)})|Out-Null`);
       else if (k === 'DRAG') await ps(U32 + `[U]::SetCursorPos(${X(0)},${Y(1)})|Out-Null;[U]::mouse_event(2,0,0,0,[UIntPtr]::Zero);Start-Sleep -m 120;1..10|%{[U]::SetCursorPos(${X(0)}+(${X(2)}-${X(0)})*$_/10,${Y(1)}+(${Y(3)}-${Y(1)})*$_/10)|Out-Null;Start-Sleep -m 25};[U]::mouse_event(4,0,0,0,[UIntPtr]::Zero)`);
-      else if (k === 'OPEN') { if (!r[0]) { log.push('OPEN: ต้องบอกโปรแกรม/ไฟล์/ลิงก์'); continue; } await ps(`Start-Process -FilePath '${String(r[0]).replace(/'/g, "''")}'`); await new Promise(ok => setTimeout(ok, 2500)); }
+      else if (k === 'OPEN') { const tgt = String(r[0] || '').trim(); if (!tgt) { log.push('OPEN: ต้องบอกโปรแกรม/ไฟล์/ลิงก์'); continue; } if (/^\\\\|\.(bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|scr|msi|com|hta|reg)$/i.test(tgt) || /^(cmd|powershell|pwsh|wscript|cscript|mshta|regedit)(\.exe)?$/i.test(path.basename(tgt))) { log.push('OPEN: ไม่อนุญาตให้เปิดสคริปต์หรือโปรแกรมระบบนี้'); continue; } await ps(`Start-Process -FilePath '${tgt.replace(/'/g, "''")}'`); await new Promise(ok => setTimeout(ok, 2500)); }
       else if (k === 'WAIT') await new Promise(ok => setTimeout(ok, Math.min(10e3, +r[0] || 1000)));
       else if (k !== 'SCREEN') { log.push('ไม่รู้จักคำสั่ง ' + k); continue; }
       log.push(`${k} ${r.join(' ')}`.trim() + ' ✓'); await new Promise(ok => setTimeout(ok, 250));

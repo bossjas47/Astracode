@@ -2,7 +2,8 @@
 // ลูกค้าจ่ายจาก Wallet ต่อคลิป (ตั้งราคาในหลังบ้าน) · สร้างไม่สำเร็จ = คืนเงินอัตโนมัติ · ไฟล์ mp4 เก็บใน R2 (SLIPS) video/<user>/<id>.mp4
 // ต้นทุน ~฿37.5 ต่อคลิป 5 วินาที 1080p · key = Secret ตามชื่อในตั้งค่า video_key_name (ค่าเริ่มต้น VIDEO_KEY)
 import { err, json, limited } from './core.js';
-import { getSettings } from './billing.js';
+import { dayCapHit, getSettings } from './billing.js';
+import { V1_CORS, monthKey } from './api.js';
 
 export const VIDEO_BASE = 'https://api.maxplus-ai.cc', VIDEO_COST = 37.5;
 const TABLE = 'CREATE TABLE IF NOT EXISTS videos (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, prompt TEXT NOT NULL, aspect TEXT NOT NULL, status TEXT NOT NULL, upstream_id TEXT, error TEXT, charged REAL NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0, checked_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)';
@@ -69,7 +70,9 @@ export async function checkVideo(env, v, c) {
   if (d.status === 'failed') { await refund(env, v, d.error?.message || 'ผู้ให้บริการสร้างไม่สำเร็จ'); return { ...v, status: 'failed' }; }
   if (['completed', 'succeeded'].includes(d.status) && !d.output?.url) return v; // เสร็จแต่ยังไม่มีลิงก์: รอรอบหน้า
   if (d.status === 'completed' || d.status === 'succeeded' || (d.output?.url && !['queued', 'processing'].includes(d.status))) {
-    const f = await fetch(d.output.url.startsWith('/') ? VIDEO_BASE + d.output.url : d.output.url, { headers: { authorization: 'Bearer ' + c.key } }).catch(() => null);
+    const outUrl = d.output.url.startsWith('/') ? VIDEO_BASE + d.output.url : d.output.url;
+    const sameHost = outUrl.startsWith(VIDEO_BASE + '/') || outUrl === VIDEO_BASE;
+    const f = await fetch(outUrl, sameHost ? { headers: { authorization: 'Bearer ' + c.key } } : undefined).catch(() => null);
     if (!f?.ok) return v; // ลองใหม่รอบหน้า
     await env.SLIPS.put(`video/${v.user_id}/${v.id}.mp4`, await f.arrayBuffer(), { httpMetadata: { contentType: 'video/mp4' } });
     await env.DB.prepare("UPDATE videos SET status='done', updated_at=? WHERE id=?").bind(Date.now(), v.id).run();
@@ -110,16 +113,25 @@ export async function cronVideos(env) {
 
 // /v1/videos สำหรับ API key (Cowork บนคลาวด์ และลูกค้า API): POST สร้าง · GET /v1/videos/:id สถานะ · GET /v1/videos/:id/content ไฟล์ mp4
 export async function videoV1(req, env, k, path) {
-  const u = { id: k.id };
+  const u = { id: k.id }, out = (d, st = 200) => json(d, st, V1_CORS);
   if (path === '/v1/videos' && req.method === 'POST') {
+    if (await limited(env, 'api:' + k.kid, 60, 60e3)) return out({ error: { message: 'Rate limit reached: 60 requests per minute per key.', type: 'rate_limit_error' } }, 429);
+    if (await dayCapHit(env, k.id)) return out({ error: { message: 'Daily wallet limit reached (set on the account page).', type: 'insufficient_quota' } }, 429);
+    const month = monthKey(), spent = k.spent_month === month ? (+k.spent || 0) : 0;
+    const conf = await videoConf(env);
+    if (k.budget != null && spent + conf.price > k.budget) return out({ error: { message: `This key has used its monthly budget (THB ${k.budget}).`, type: 'insufficient_quota' } }, 429);
     const b = await req.json().catch(() => ({}));
-    try { const r = await createVideo(env, u, { prompt: b.prompt, aspect: b.aspect_ratio || b.aspect, duration: b.duration, images: b.images, audios: b.audios }); return json({ id: String(r.id), object: 'video', status: 'processing', duration: r.duration, charged_thb: r.price }); }
-    catch (x) { return json({ error: { message: x.message, type: 'video_error' } }, x.status || 500); }
+    try {
+      const r = await createVideo(env, u, { prompt: b.prompt, aspect: b.aspect_ratio || b.aspect, duration: b.duration, images: b.images, audios: b.audios });
+      await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, r.price, Date.now(), k.kid).run();
+      return out({ id: String(r.id), object: 'video', status: 'processing', duration: r.duration, charged_thb: r.price });
+    }
+    catch (x) { return out({ error: { message: x.message, type: 'video_error' } }, x.status || 500); }
   }
   const m = path.match(/^\/v1\/videos\/(\d+)(\/content)?$/); if (!m || req.method !== 'GET') return null;
   await ensureVideos(env); const c = await videoConf(env);
-  let v = await env.DB.prepare('SELECT * FROM videos WHERE id=? AND user_id=?').bind(+m[1], k.id).first(); if (!v) return json({ error: { message: 'video not found' } }, 404);
+  let v = await env.DB.prepare('SELECT * FROM videos WHERE id=? AND user_id=?').bind(+m[1], k.id).first(); if (!v) return out({ error: { message: 'video not found' } }, 404);
   if (c.key && env.SLIPS) v = await checkVideo(env, v, c);
-  if (m[2]) { const o = v.status === 'done' && await env.SLIPS.get(`video/${v.user_id}/${v.id}.mp4`); return o ? new Response(o.body, { headers: { 'content-type': 'video/mp4' } }) : json({ error: { message: 'not ready' } }, 409); }
-  return json({ id: String(v.id), object: 'video', status: v.status === 'done' ? 'completed' : v.status, error: v.error ? { message: v.error } : null, output: v.status === 'done' ? { url: `/v1/videos/${v.id}/content` } : null });
+  if (m[2]) { const o = v.status === 'done' && await env.SLIPS.get(`video/${v.user_id}/${v.id}.mp4`); return o ? new Response(o.body, { headers: { 'content-type': 'video/mp4', ...V1_CORS } }) : out({ error: { message: 'not ready' } }, 409); }
+  return out({ id: String(v.id), object: 'video', status: v.status === 'done' ? 'completed' : v.status, error: v.error ? { message: v.error } : null, output: v.status === 'done' ? { url: `/v1/videos/${v.id}/content` } : null });
 }

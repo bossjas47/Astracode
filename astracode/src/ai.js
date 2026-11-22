@@ -52,7 +52,7 @@ export function nearEffort(errText, cur) {
 // เพดาน output ตามค่ายของโมเดล (ไม่ส่ง = ผู้ให้บริการบางรายใช้ค่าน้อยจนคิดหมดก่อนตอบ) · ค่ายที่ไม่รู้เพดานไม่ส่ง เพราะค่าเกินอาจถูกปฏิเสธ
 export const gptMax = m => { const a = m.api_model || ''; return /^(gpt|o\d|gemini|qwen)/i.test(a) ? 256000 : /^deepseek/i.test(a) ? 356000 : undefined; };
 const capOut = (m, want) => { const cap = gptMax(m); return want && cap ? Math.min(want, cap) : want || cap; }; // ลูกค้า API ขอเกินเพดาน: ลดให้ ไม่ปล่อยให้ผู้ให้บริการปฏิเสธ
-export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false, cacheTtl = null } = {}) {
+export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, systemBlocks = null, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false, cacheTtl = null } = {}) {
   const key = env[m.key_name];
   const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
   if (!key) throw new Error('missing key ' + m.key_name);
@@ -79,22 +79,48 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       const content = Array.isArray(x.content) ? x.content.map(toAnthropicPart).filter(Boolean) : x.content;
       messages.push({ role: x.role, content });
     }
-    // แชตเว็บ: cache 1 ชม. (คนพิมพ์ห่างเกิน 5 นาทีบ่อย → cache 5 นาทีหมดก่อนข้อความถัดไป) · Agent/API ยิงถี่ใช้ 5 นาทีที่เขียนถูกกว่า
+    // แชตเว็บและ /v1 context ยาว: cache 1 ชม. · วาง breakpoint ได้สูงสุด 4 จุด (tools สุดท้าย, system, ข้อความก่อนล่าสุด, ข้อความล่าสุด)
     let cc = cacheTtl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
-    const last = messages.at(-1); // cache ทั้งบทสนทนาถึงข้อความล่าสุด
+    let ccUsed = 0;
+    const last = messages.at(-1);
     if (last) {
       const baseParts = Array.isArray(last.content) ? last.content : [{ type: 'text', text: String(last.content || '') }];
       const imgParts = images.map(d => ({ type: 'image', source: { type: 'base64', media_type: d.slice(5, d.indexOf(';')), data: d.slice(d.indexOf(',') + 1) } }));
       last.content = [...imgParts, ...baseParts];
-      if (last.content.length) last.content[last.content.length - 1] = { ...last.content.at(-1), cache_control: cc };
     }
     const body = { model: m.api_model, max_tokens: Math.min(maxTokens || 128000, 128000), stream: true, messages }; // เพดาน output ของ Claude ทุกรุ่น · ค่าน้อยกว่านี้โมเดลคิดจนหมดก่อนได้ตอบ (คิดเงินตามที่ใช้จริง ไม่ใช่ตามเพดาน)
-    if (system) body.system = [{ type: 'text', text: system, cache_control: cc }];
     if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
       body.tools = tools.map(t => ({ name: t.function?.name || t.name, description: t.function?.description || t.description || '', input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} } }));
+      body.tools[body.tools.length - 1].cache_control = cc; ccUsed++; // ลำดับ prefix ของ Anthropic: tools → system → messages
       if (toolChoice === 'auto') body.tool_choice = { type: 'auto' };
       else if (toolChoice === 'required') body.tool_choice = { type: 'any' };
       else if (toolChoice?.function?.name) body.tool_choice = { type: 'tool', name: toolChoice.function.name };
+    }
+    if (Array.isArray(systemBlocks) && systemBlocks.length) { // คงบล็อก system แยกส่วนคงที่/ส่วนที่เปลี่ยนบ่อยของ client (เช่น Claude Code) ไม่ยุบรวมเป็นก้อนเดียว
+      const sb = systemBlocks.filter(x => x && typeof x.text === 'string' && x.text.trim()).map(x => ({ type: 'text', text: x.text, ...(x.cache_control ? { cache_control: cc } : {}) }));
+      let marked = sb.filter(x => x.cache_control);
+      while (marked.length > 1) { delete marked.shift().cache_control; } // ใช้กับ system สูงสุด 1 จุด เพื่อเหลือ 2 จุดให้ messages
+      if (!marked.length && sb.length) sb[sb.length - 1].cache_control = cc;
+      if (sb.length) { body.system = sb; ccUsed++; }
+    } else if (system) {
+      body.system = [{ type: 'text', text: system, cache_control: cc }]; ccUsed++;
+    }
+    const markMsg = msg => {
+      if (!msg) return false;
+      const parts = Array.isArray(msg.content) ? msg.content : (typeof msg.content === 'string' && msg.content.trim() ? [{ type: 'text', text: msg.content }] : null);
+      if (!parts?.length) return false;
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (parts[i]?.type === 'text' && !String(parts[i].text || '').trim()) continue; // Anthropic ไม่รับ cache_control บน text ว่าง
+        parts[i] = { ...parts[i], cache_control: cc };
+        msg.content = parts;
+        return true;
+      }
+      return false;
+    };
+    let msgMarks = Math.min(2, 4 - ccUsed);
+    if (msgMarks > 0 && markMsg(messages.at(-1))) msgMarks--;
+    if (msgMarks > 0 && messages.length >= 3) { // ยึด breakpoint ที่รอบ user ก่อนหน้าด้วย กันหลุด cache เวลาบทสนทนาเลื่อน
+      for (let i = messages.length - 2; i >= 0; i--) { if (messages[i].role === 'user' && markMsg(messages[i])) break; }
     }
     // shortcut: Max ของ Claude ส่งเป็น high เพราะ effort max ใช้ได้แค่บางรุ่น ถ้ารุ่นที่ใช้รองรับ ให้เปลี่ยนเป็น 'max'
     if (m.effort === 'anthropic' && effort) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: { minimal: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'max', max: 'max', on: 'medium' }[effort] || 'medium' }; }
@@ -199,6 +225,19 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       const parts = Array.isArray(prev) ? prev : [{ type: 'text', text: String(prev || '') }];
       messages.at(-1).content = [...parts, ...images.map(url => ({ type: 'image_url', image_url: { url } }))];
     }
+    let oaiCc = false;
+    if (/claude/i.test(m.api_model || '')) { // กรณีตั้งโมเดล Claude เป็น provider=openai ผ่าน gateway: แนบ cache_control แบบปลอดภัย (ถ้า gateway ไม่รับจะถอดออกแล้วส่งใหม่)
+      const tagOai = msg => {
+        if (!msg) return;
+        if (typeof msg.content === 'string' && msg.content.trim()) { msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]; oaiCc = true; }
+        else if (Array.isArray(msg.content) && msg.content.length) {
+          for (let i = msg.content.length - 1; i >= 0; i--) { if (msg.content[i]?.type === 'text' && !String(msg.content[i].text || '').trim()) continue; msg.content[i] = { ...msg.content[i], cache_control: { type: 'ephemeral' } }; oaiCc = true; break; }
+        }
+      };
+      if (messages[0]?.role === 'system') tagOai(messages[0]);
+      tagOai(messages.at(-1));
+      for (let i = messages.length - 2; i >= 1; i--) { if (messages[i].role === 'user') { tagOai(messages[i]); break; } }
+    }
     const body = { model: m.api_model, stream: true, stream_options: { include_usage: true }, messages };
     if (Array.isArray(tools) && tools.length && toolChoice !== 'none') {
       body.tools = tools;
@@ -217,6 +256,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     for (const k of ['seed', 'response_format', ...(thinking ? [] : ['temperature', 'top_p', 'presence_penalty', 'frequency_penalty', 'stop'])]) if (extra[k] !== undefined) body[k] = extra[k];
     const post = () => fetch(m.base_url + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
     let res = await busyRetry(post);
+    if (res.status === 400 && oaiCc) { const t = await res.clone().text(); if (/cache_control|content|invalid/i.test(t)) { for (const msg of body.messages) if (Array.isArray(msg.content)) { for (const p of msg.content) delete p?.cache_control; if (msg.content.length === 1 && msg.content[0]?.type === 'text') msg.content = msg.content[0].text; } oaiCc = false; res = await post(); } } // gateway ไม่รองรับ cache_control ในรูปแบบ OpenAI: ถอดออกแล้วส่งใหม่
     if (res.status === 400 && body.prompt_cache_key) { const t = await res.clone().text(); if (/prompt_cache_key/i.test(t)) { delete body.prompt_cache_key; res = await post(); } } // ตัวกลางบางรายไม่รู้จักช่องนี้
     if (res.status === 400 && body.reasoning_effort) { const t = await res.text(), ne = nearEffort(t, body.reasoning_effort); if (!ne) throw new Error(`upstream 400: ${t.slice(0, 300)}`); body.reasoning_effort = ne; res = await post(); }
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);

@@ -1003,7 +1003,7 @@ async function bgAgentSheet() {
   sheet('Agent บนเซิร์ฟเวอร์', '<p class="muted">กำลังโหลด...</p>', d => { draw(d); timer = setInterval(() => draw(d), 5000); new MutationObserver((_, o) => { if (!document.contains(d)) { clearInterval(timer); o.disconnect(); } }).observe(document.body, { childList: true }); });
 }
 // Agent บนคลาวด์: สั่งงาน → เครื่องเสมือนทำเอง (แก้ไฟล์ + รันคำสั่ง) → ดูความคืบหน้าสด → เสร็จแล้วโหลดไฟล์ใหม่
-const CL_LABEL = { running: 'กำลังทำ', done: 'เสร็จ', failed: 'ไม่สำเร็จ' };
+const CL_LABEL = { running: 'กำลังทำ', done: 'เสร็จ', partial: 'เสร็จบางส่วน', failed: 'ไม่สำเร็จ' };
 const clLine = e => e.type === 'tool' ? `⚙ ${esc(e.name)} ${esc(e.args?.command || e.args?.path || e.args?.pattern || e.args?.url || '')}` : e.type === 'tool_result' ? `<span class="${e.ok ? 'muted' : 'bad'}">  ${esc(String(e.preview || '').split('\n').slice(0, 3).join(' ⏎ ').slice(0, 240))}</span>` : e.type === 'text' ? esc(e.text) : e.type === 'info' ? `<span class="muted">${esc(e.text)}</span>` : '';
 // ข้อความของงานคลาวด์ในแชต: Thinking + ขั้นตอน (เปิดดูผลคำสั่งได้) + คำตอบ + ไฟล์ที่เปลี่ยน · สร้างใหม่จาก events ทุกครั้งที่ดึง
 function cloudApply(m, j) {

@@ -169,6 +169,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const hasImg = c => Array.isArray(c) && c.some(x => x?.type === 'image_url');
     const normContent = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text' || x?.type === 'image_url') : '';
     let system = [m.sys_prompt?.trim(), ...msgs.filter(x => x.role === 'system' || x.role === 'developer').map(x => text(x.content))].filter(Boolean).join('\n\n'); // sys_prompt = บุคลิกประจำโมเดล (เช่นโมเดลการเงิน) มาก่อนคำสั่งของผู้เรียก
+    let systemBlocks = Array.isArray(b._sys_blocks) && b._sys_blocks.length ? [...(m.sys_prompt?.trim() ? [{ type: 'text', text: m.sys_prompt.trim() }] : []), ...b._sys_blocks] : null;
     const hist = msgs.filter(x => ['user', 'assistant', 'tool'].includes(x.role)).map(x => x.role === 'tool'
       ? { role: 'tool', tool_call_id: String(x.tool_call_id || ''), content: typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '') }
       : x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.length
@@ -176,12 +177,15 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         : { role: x.role, content: normContent(x.content) }).filter(x => x.role === 'tool' || (x.tool_calls?.length) || (Array.isArray(x.content) ? x.content.length : x.content));
     if (await blockedText(env, hist.map(x => typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '')).join('\n'), blockWords)) return fail('This request contains content that is not accepted.', 400, 'invalid_request_error');
     if (extra.response_format && m.provider !== 'openai') { // Claude/Responses ไม่มี JSON mode แบบ chat/completions: สั่งผ่านคำสั่งระบบ
-      system += (system ? '\n\n' : '') + 'Respond with a single valid JSON value only: no prose, no code fences.' + (extra.response_format.json_schema?.schema ? ' It must match this JSON Schema: ' + JSON.stringify(extra.response_format.json_schema.schema).slice(0, 4000) : '');
+      const jsonHint = 'Respond with a single valid JSON value only: no prose, no code fences.' + (extra.response_format.json_schema?.schema ? ' It must match this JSON Schema: ' + JSON.stringify(extra.response_format.json_schema.schema).slice(0, 4000) : '');
+      system += (system ? '\n\n' : '') + jsonHint; if (systemBlocks) systemBlocks.push({ type: 'text', text: jsonHint });
       delete extra.response_format;
     }
     if (!hist.length || !['user', 'tool'].includes(hist.at(-1).role)) return fail('messages ต้องลงท้ายด้วยข้อความของ user หรือ tool', 400);
     if (hist.some(x => hasImg(x.content)) && !m.vision) return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
-    if (JSON.stringify(hist).length > 4e6) return fail('ข้อความยาวเกินไป', 413); // ~1M token: ทุกโมเดล context 1.05M (เดิม 800K ตัวอักษร = เครื่องมือแบบ Claude Code / OpenCode ชนเร็ว)
+    const histLen = JSON.stringify(hist).length;
+    if (histLen > 4e6) return fail('ข้อความยาวเกินไป', 413); // ~1M token: ทุกโมเดล context 1.05M (เดิม 800K ตัวอักษร = เครื่องมือแบบ Claude Code / OpenCode ชนเร็ว)
+    const cacheTtl = (histLen + system.length) >= 80000 ? '1h' : null; // context ยาว (~25K+ token): ใช้ cache 1 ชม. กันหมดอายุตอนหยุดอ่านโค้ดเกิน 5 นาที (ถ้า upstream ไม่รองรับ ai.js ถอยกลับ 5 นาทีเอง)
     const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.reasoning_effort) ? b.reasoning_effort : null, id = 'chatcmpl-' + rand(12), created = Math.floor(Date.now() / 1000);
     const tools = Array.isArray(b.tools) && b.tools.length ? b.tools : undefined, toolChoice = b.tool_choice;
     let maxTokens = +b.max_tokens || +b.max_completion_tokens || undefined;
@@ -196,6 +200,12 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         if (!(pr.req > 0)) maxTokens = Math.min(maxTokens || Infinity, Math.max(1, Math.floor(room * (slot ? 1 / (2 * (WALLET_SLOTS - 1)) : 0.5) * 1e6 / Math.max(pr.out, 1e-9)))); // คิดเหมาต่อ request ไม่ต้องจำกัดความยาวตามยอดที่เหลือ
       }
       if (!walletKey) return fail(`Too many wallet-billed requests at once (max ${WALLET_SLOTS}). Wait for one to finish.`, 429, 'rate_limit_error', { 'retry-after': '5' });
+    } else if (billingMode === 'credit' || billingMode === 'mcredit') { // กันยิงขนานหลายสิบคำขอตอนเครดิตใกล้หมดจนใช้เกินยอด
+      const kk = 'creditlock:' + k.id;
+      if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(kk, Date.now() + 180e3, Date.now()).first()) {
+        return fail('Another credit-billed request is still running on this account. Wait for it to finish.', 429, 'rate_limit_error', { 'retry-after': '3' });
+      }
+      walletKey = kk;
     }
     let activeModel = m; lg.model = slug(m);
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read }, ...(u.astra ? { astra: u.astra } : {}) });
@@ -220,7 +230,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const nextFallback = async cur => cur.fallback_id ? env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(cur.fallback_id).first() : null;
     if (isEmb) {
       const key = env[m.key_name];
-      if (billingMode === 'wallet' && k.balance < Math.ceil(embIn.join('').length / 2) * (await priceOf(env, m)).in / 1e6) return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota');
+      if (billingMode === 'wallet' && k.balance < Math.ceil(embIn.join('').length / 2) * (await priceOf(env, m)).in / 1e6) { if (walletKey) await unlimit(env, walletKey); return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota'); }
       const body = { model: m.api_model, input: embIn, encoding_format: b.encoding_format === 'base64' ? 'base64' : 'float' };
       if (Number.isInteger(b.dimensions) && b.dimensions > 0) body.dimensions = b.dimensions;
       const r = key && await fetch(m.base_url.replace(/\/$/, '') + '/embeddings', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) }).catch(() => null);
@@ -235,7 +245,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       let content = '', reasoning = '', usage = null, finishReason = 'stop', tcs = new Map(), anthIdx = new Map();
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice, extra, imageOpts, api: true })) {
+          for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl })) {
             if (e.t) content += e.t;
             if (e.th) reasoning += e.th;
             if (e.tc_start) { const idx = tcs.size; anthIdx.set(e.tc_start.index, idx); tcs.set(idx, { id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }); }
@@ -282,7 +292,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            for await (const e of callModel(env, activeModel, hist, { system, effort, maxTokens, tools, toolChoice, extra, imageOpts, api: true, signal: upstream.signal })) {
+            for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: upstream.signal })) {
               if (!sentAny) { sentAny = true; await chunk({ role: 'assistant', content: '' }); }
               if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
               if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }
@@ -370,7 +380,8 @@ export const usageIn = u => ({ cached: u?.prompt_tokens_details?.cached_tokens |
 // --- Anthropic Messages API: POST /v1/messages, /v1/messages/count_tokens ---
 export const aText = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text).join('\n') : '';
 export function anthropicToChat(b) {
-  const msgs = [], sys = Array.isArray(b.system) ? b.system.map(x => x?.text || '').join('\n') : String(b.system || '');
+  const msgs = [], sysBlocks = Array.isArray(b.system) ? b.system.filter(x => x && typeof x.text === 'string' && x.text).map(x => ({ type: 'text', text: x.text, ...(x.cache_control ? { cache_control: x.cache_control } : {}) })) : (typeof b.system === 'string' && b.system ? [{ type: 'text', text: b.system }] : []);
+  const sys = sysBlocks.map(x => x.text).join('\n');
   if (sys) msgs.push({ role: 'system', content: sys });
   for (const m of Array.isArray(b.messages) ? b.messages : []) {
     const blocks = typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : Array.isArray(m.content) ? m.content : [];
@@ -383,7 +394,7 @@ export function anthropicToChat(b) {
       if (parts.length) msgs.push({ role: 'user', content: parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts });
     }
   }
-  const o = { model: b.model, messages: msgs, stream: !!b.stream };
+  const o = { model: b.model, messages: msgs, stream: !!b.stream, ...(sysBlocks.length > 1 ? { _sys_blocks: sysBlocks } : {}) };
   if (b.max_tokens) o.max_tokens = b.max_tokens;
   if (b.temperature != null) o.temperature = b.temperature; if (b.top_p != null) o.top_p = b.top_p;
   if (b.stop_sequences?.length) o.stop = b.stop_sequences.slice(0, 4);

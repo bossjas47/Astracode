@@ -1,6 +1,7 @@
 // Passkey (WebAuthn): ล็อกอินด้วยลายนิ้วมือ/ใบหน้า/PIN ของเครื่อง · เก็บ public key (SPKI จาก getPublicKey()) ไม่ต้องแกะ CBOR
 // ไม่ตรวจ attestation (ขอแบบ none) · ตรวจ challenge, origin, rpIdHash, flag UP และลายเซ็น
 import { err, ip, json, limited, startSession } from './core.js';
+import { origin } from './billing.js';
 import { b64u, unb64u } from './push.js';
 
 const S = crypto.subtle, te = new TextEncoder();
@@ -21,23 +22,31 @@ async function newChallenge(env, uid) {
 // ใช้ challenge ได้ครั้งเดียว · คืน clientData ที่ผ่านการตรวจ หรือ null
 async function checkClient(env, req, cdjB64, type, uid) {
   let cd; try { cd = JSON.parse(new TextDecoder().decode(unb64u(cdjB64))); } catch { return null; }
-  if (cd.type !== type || cd.origin !== new URL(req.url).origin || typeof cd.challenge !== 'string') return null;
+  if (cd.type !== type || cd.origin !== origin(req, env) || typeof cd.challenge !== 'string') return null;
   const row = await env.DB.prepare('DELETE FROM webauthn_ch WHERE ch=? AND exp>? RETURNING user_id').bind(cd.challenge, Date.now()).first();
   if (!row || (uid != null && row.user_id !== uid)) return null;
   return cd;
 }
 // ลายเซ็น ECDSA ของ WebAuthn เป็น DER → WebCrypto ต้องการ r||s อย่างละ 32 ไบต์
 export function derToRaw(der) {
+  if (!(der instanceof Uint8Array) || der.length < 8 || der[0] !== 0x30) return null;
   let i = 2; if (der[1] & 0x80) i += der[1] & 0x7f;
-  const int = () => { i++; const n = der[i++]; let v = der.slice(i, i + n); i += n; while (v.length > 32 && v[0] === 0) v = v.slice(1); const o = new Uint8Array(32); o.set(v, 32 - v.length); return o; };
-  const r = int(), s = int(); return cat(r, s);
+  const int = () => {
+    if (i + 2 > der.length || der[i++] !== 0x02) return null;
+    const n = der[i++]; if (!n || i + n > der.length) return null;
+    let v = der.slice(i, i + n); i += n;
+    while (v.length > 32 && v[0] === 0) v = v.slice(1);
+    if (v.length > 32) return null;
+    const o = new Uint8Array(32); o.set(v, 32 - v.length); return o;
+  };
+  const r = int(), s = int(); return r && s ? cat(r, s) : null;
 }
 const ALGS = { [-7]: { imp: { name: 'ECDSA', namedCurve: 'P-256' }, ver: { name: 'ECDSA', hash: 'SHA-256' } }, [-257]: { imp: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, ver: { name: 'RSASSA-PKCS1-v1_5' } } };
 
 // ก่อนล็อกอิน (ไม่ต้องมี session)
 export async function passkeyPublic(req, env, path) {
   await ensure(env);
-  const rpId = new URL(req.url).hostname;
+  const rpId = new URL(origin(req, env)).hostname;
   if (path === '/api/passkey/login-options') {
     if (await limited(env, 'pkopt:' + ip(req, env), 30, 600e3)) return err('ลองบ่อยเกินไป รอสักครู่', 429);
     return json({ challenge: await newChallenge(env, null), rpId, userVerification: 'preferred', timeout: 60000 });
@@ -51,11 +60,13 @@ export async function passkeyPublic(req, env, path) {
     if (ad.length < 37 || !(ad[32] & 1) || b64u(ad.slice(0, 32)) !== b64u(await sha(rpId))) return fail(); // rpIdHash + flag UP
     const a = ALGS[pk.alg]; if (!a) return fail();
     const key = await S.importKey('spki', unb64u(pk.spki), a.imp, false, ['verify']).catch(() => null); if (!key) return fail();
-    const ok = await S.verify(a.ver, key, pk.alg === -7 ? derToRaw(sig) : sig, cat(ad, await sha(unb64u(String(b.clientDataJSON))))).catch(() => false);
+    const rawSig = pk.alg === -7 ? derToRaw(sig) : sig; if (!rawSig) return fail();
+    const ok = await S.verify(a.ver, key, rawSig, cat(ad, await sha(unb64u(String(b.clientDataJSON))))).catch(() => false);
     if (!ok) return fail();
     const cnt = new DataView(ad.buffer, ad.byteOffset + 33, 4).getUint32(0);
     if (cnt && pk.sign_count && cnt <= pk.sign_count) return fail(); // ตัวนับไม่เดิน = อาจเป็น passkey ที่ถูกโคลน
-    const u = await env.DB.prepare('SELECT id,banned FROM users WHERE id=?').bind(pk.user_id).first(); if (!u || u.banned) return fail();
+    const u = await env.DB.prepare('SELECT id,banned,totp_on FROM users WHERE id=?').bind(pk.user_id).first(); if (!u || u.banned) return fail();
+    if (u.totp_on && !(ad[32] & 4)) return fail(); // บัญชีเปิด 2FA ต้องยืนยันตัวตนบนอุปกรณ์ (UV flag)
     await env.DB.prepare('UPDATE passkeys SET sign_count=?, used_at=? WHERE id=?').bind(cnt, Date.now(), pk.id).run();
     return await startSession(env, u.id, req);
   }
@@ -72,7 +83,7 @@ export async function passkeyApi(req, env, u, path) {
   if (path === '/api/passkey/register-options' && M === 'POST') {
     const have = (await env.DB.prepare('SELECT cred_id FROM passkeys WHERE user_id=?').bind(u.id).all()).results;
     if (have.length >= 10) return err('เพิ่ม Passkey ได้สูงสุด 10 อัน');
-    return json({ challenge: await newChallenge(env, u.id), rp: { id: url.hostname, name: 'AstraCode' }, user: { id: b64u(te.encode('u' + u.id)), name: u.email, displayName: u.email },
+    return json({ challenge: await newChallenge(env, u.id), rp: { id: new URL(origin(req, env)).hostname, name: 'AstraCode' }, user: { id: b64u(te.encode('u' + u.id)), name: u.email, displayName: u.email },
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }], authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' }, attestation: 'none', timeout: 60000,
       excludeCredentials: have.map(x => ({ type: 'public-key', id: x.cred_id })) });
   }

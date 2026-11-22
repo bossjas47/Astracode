@@ -35,7 +35,7 @@ let session = null; // Cowork: บทสนทนาต่อเนื่อง�
 
 let job = null; // { status: running|done|error, events, final, error, ac, before: Map }
 const json = (res, code, d) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(d)); };
-const body = req => new Promise((ok, no) => { let b = ''; req.on('data', d => { b += d; if (b.length > 30e6) { no(new Error('ใหญ่เกิน')); req.destroy(); } }); req.on('end', () => { try { ok(JSON.parse(b || '{}')); } catch (e) { no(e); } }); });
+const body = req => new Promise((ok, no) => { const chunks = []; let len = 0, done = false; req.on('data', d => { if (done) return; len += d.length; if (len > 30e6) { done = true; no(new Error('ใหญ่เกิน')); req.destroy(); return; } chunks.push(d); }); req.on('error', e => { if (!done) { done = true; no(e); } }); req.on('end', () => { if (done) return; done = true; try { ok(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch (e) { no(e); } }); });
 
 async function putFiles(files, before) {
   for (const f of (files || []).slice(0, 1000)) {

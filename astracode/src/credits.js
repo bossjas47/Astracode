@@ -45,7 +45,7 @@ export async function useClaudeCredit(env, uid, cost, now = Date.now()) {
   const rows = (await env.DB.prepare('SELECT id, amount-used rem FROM claude_credits WHERE user_id=? AND expires_at>? AND used<amount ORDER BY expires_at').bind(uid, now).all()).results;
   if (!rows.length) return false;
   let rest = cost;
-  for (const r of rows) { if (rest <= 0) break; const take = Math.min(r.rem, rest); await env.DB.prepare('UPDATE claude_credits SET used=used+? WHERE id=?').bind(take, r.id).run(); rest -= take; }
+  for (const r of rows) { if (rest <= 0) break; const take = Math.min(r.rem, rest); await env.DB.prepare('UPDATE claude_credits SET used=MIN(amount, used+?) WHERE id=? AND used<amount').bind(take, r.id).run(); rest -= take; }
   return true;
 }
 
@@ -69,7 +69,7 @@ export async function useModelCredit(env, uid, mid, cost, now = Date.now()) {
   await mcEnsure(env);
   const rows = (await env.DB.prepare(`SELECT id, amount-used rem FROM model_credits WHERE user_id=? AND expires_at>? AND used<amount AND ${covers} ORDER BY expires_at`).bind(uid, now, String(mid)).all()).results;
   let rest = cost;
-  for (const r of rows) { if (rest <= 0) break; const take = Math.min(r.rem, rest); await env.DB.prepare('UPDATE model_credits SET used=used+? WHERE id=?').bind(take, r.id).run(); rest -= take; }
+  for (const r of rows) { if (rest <= 0) break; const take = Math.min(r.rem, rest); await env.DB.prepare('UPDATE model_credits SET used=MIN(amount, used+?) WHERE id=? AND used<amount').bind(take, r.id).run(); rest -= take; }
   return rows.length > 0;
 }
 export async function modelCredits(env, uid, now = Date.now()) {

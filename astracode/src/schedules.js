@@ -83,9 +83,11 @@ export async function schedApi(req, env, u, path, M) {
   await ensureTable(env);
   const DB = env.DB, mine = () => DB.prepare('SELECT * FROM schedules WHERE user_id=? ORDER BY created_at').bind(u.id).all().then(r => r.results);
   if (path === '/api/schedules' && M === 'GET') return json({ items: await mine(), max: SCHED_MAX, allowed: schedPaid(await planOf(env, u)) });
-  if (!schedPaid(await planOf(env, u))) return err('งานตามเวลาใช้ได้กับแพลนที่ชำระเงิน', 403);
+  const plan = await planOf(env, u);
+  if (!schedPaid(plan)) return err('งานตามเวลาใช้ได้กับแพลนที่ชำระเงิน', 403);
   if (path === '/api/schedules' && M === 'POST') {
     let v; try { v = clean(await req.json()); } catch (e) { return err(e.message); }
+    if (v.cowork && !plan?.cowork) return err('งาน Cowork ตามเวลาใช้ได้กับแพลน Pro ขึ้นไป', 403);
     if ((await mine()).length >= SCHED_MAX) return err(`ตั้งได้สูงสุด ${SCHED_MAX} งาน`, 403);
     const row = await DB.prepare('INSERT INTO schedules (user_id,title,prompt,model_id,hour,days,email,search,created_at,cowork) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING *').bind(u.id, v.title, v.prompt, v.model_id, v.hour, v.days, v.email, v.search, Date.now(), v.cowork).first();
     return json(row);
@@ -100,7 +102,8 @@ export async function schedApi(req, env, u, path, M) {
   if (M === 'PUT') {
     const b = await req.json(); if (Object.keys(b).length === 1 && 'active' in b) { await DB.prepare('UPDATE schedules SET active=? WHERE id=?').bind(b.active ? 1 : 0, s.id).run(); return json({ ok: true }); }
     let v; try { v = clean({ ...s, ...b }); } catch (e) { return err(e.message); }
-    await DB.prepare('UPDATE schedules SET title=?,prompt=?,model_id=?,hour=?,days=?,email=?,search=? WHERE id=?').bind(v.title, v.prompt, v.model_id, v.hour, v.days, v.email, v.search, s.id).run();
+    if (v.cowork && !plan?.cowork) return err('งาน Cowork ตามเวลาใช้ได้กับแพลน Pro ขึ้นไป', 403);
+    await DB.prepare('UPDATE schedules SET title=?,prompt=?,model_id=?,hour=?,days=?,email=?,search=?,cowork=? WHERE id=?').bind(v.title, v.prompt, v.model_id, v.hour, v.days, v.email, v.search, v.cowork, s.id).run();
     return json({ ok: true });
   }
   return err('not found', 404);
