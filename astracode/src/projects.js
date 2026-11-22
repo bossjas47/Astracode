@@ -263,6 +263,7 @@ export async function github(req, env, u, p, sub, now) {
   if (sub === '/github/pull' && M === 'POST') { // รวมแบบ 3 ทาง ทีละไฟล์: ของเรา / GitHub / ครั้งล่าสุดที่ sync
     const keep = (await req.json()).resolve; // 'remote' | 'local' เมื่อชนกัน
     const h = await head(), { files: remote, skipped } = await remoteFiles(tok, p.gh_repo, h, env.GITHUB_API), mineRows = await local();
+    await DB.prepare('UPDATE projects SET gh_skipped=? WHERE id=?').bind(JSON.stringify(skipped.slice(0, 3000)), p.id).run().catch(() => {}); // AI ต้องรู้ว่าไฟล์รูป/ไบนารีพวกนี้มีอยู่ใน repo (ไม่ได้หาย)
     const mine = await shaMap(mineRows), theirs = new Map(await Promise.all([...remote].map(async ([k, v]) => [k, await blobSha(v)])));
     const writes = [], dels = [], conflicts = [];
     for (const k of new Set([...mine.keys(), ...theirs.keys(), ...synced.keys()])) {

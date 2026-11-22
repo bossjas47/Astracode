@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS projects (      -- โหมด Code
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   gh_repo TEXT, gh_branch TEXT, gh_sha TEXT, -- repo ที่เชื่อม และคอมมิตล่าสุดที่ sync
+  gh_skipped TEXT,                          -- ไฟล์ใน repo ที่ไม่ได้โหลด (รูป/ไบนารี/ใหญ่เกิน) ให้ AI รู้ว่ามีอยู่จริง
   gh_synced TEXT                            -- JSON: path → blob sha ตอน sync ล่าสุด
   , instructions TEXT NOT NULL DEFAULT ''
   , share_token TEXT                        -- ลิงก์แชร์แบบอ่านอย่างเดียว /p/<token>

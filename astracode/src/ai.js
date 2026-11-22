@@ -597,7 +597,7 @@ export async function runChat(env, J, send, st) {
     }),
     // ค้นเว็บก่อนตอบเฉพาะเมื่อผู้ใช้กดค้นเอง หรือโมเดลใช้ tool ไม่ได้ (โมเดลที่ใช้ tool ได้ค้นเองเมื่อจำเป็น)
     (async () => !pid && (J.search || (!useTools && await autoSearch(env, lastText))) ? smartSearch(env, u, hist) : [])(),
-    pid ? env.DB.batch([env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid), env.DB.prepare('SELECT instructions FROM projects WHERE id=?').bind(pid)]).then(r => r.map(x => x.results?.[0])) : [],
+    pid ? env.DB.batch([env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid), env.DB.prepare('SELECT instructions, gh_skipped FROM projects WHERE id=?').bind(pid)]).then(r => r.map(x => x.results?.[0])) : [],
     systemFor(env, u, '', J.skill_ids),
     connTools(env, u.id, { ids: J.mcp_ids || [], off: J.mcp_off || [], askOk: !pid }).catch(() => ({ tools: [], map: new Map() })), // connectors ที่เปิดใช้ทุกแชต + ที่เลือกเพิ่ม · โหมด Code ไม่มีปุ่มอนุญาต จึงได้เฉพาะเครื่องมือที่อนุญาตเสมอ
     model.fallback_id ? modelDown(env, model.id) : false,
@@ -607,7 +607,8 @@ export async function runChat(env, J, send, st) {
   ]);
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
   const projFile = projRows[0]?.content?.trim() || ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์ GitHub ได้)
-  const projIns = pid ? [projRows[1]?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : ''].filter(Boolean).join('\n\n') : '';
+  let ghSkip = []; try { ghSkip = JSON.parse(projRows[1]?.gh_skipped || '[]'); } catch { /* ไม่มี */ }
+  const projIns = pid ? [projRows[1]?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : '', ghSkip.length ? `These ${ghSkip.length} files exist in the linked GitHub repo but are not loaded here because they are images, fonts or other binary/large files. They are NOT missing: never report them as missing, never recreate or delete them; reference them by path as usual:\n` + ghSkip.slice(0, 300).join('\n') + (ghSkip.length > 300 ? `\n…and ${ghSkip.length - 300} more` : '') : ''].filter(Boolean).join('\n\n') : '';
   // systemFor ต่อท้ายคำสั่งผู้ใช้/ความจำ/Skills หลังข้อความหลัก จึงคำนวณส่วนท้ายครั้งเดียวแล้ววางต่อจากข้อความหลักของโหมดนั้น
   const system = (pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM + (m.sys_prompt?.trim() ? '\n\n' + m.sys_prompt.trim() : '')) + systemBase + (J.summary ?  `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.folder_ins ? `\n\nInstructions for every chat in this folder (follow them):\n${J.folder_ins}` : '') + folderDocs(J.folder_docs, String(hist.at(-1)?.content || '').slice(0, 4000)) + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + imgPrompt; // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
   const mcpTools = mcpSrvs.tools, mcpMap = mcpSrvs.map; let askStop = false;
