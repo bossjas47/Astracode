@@ -225,3 +225,15 @@ test('server page check: JavaScript errors are read back from the rendered page;
     assert.deepEqual(errs, ['ReferenceError: makeSea is not defined @ index.html:1']); assert.match(sentHtml, /__astra_errs/, 'the error hook is injected');
   } finally { globalThis.fetch = real; }
 });
+
+test('fake-slip guard: temp-mail accounts cannot pay; 3 rejected slips in a day pause uploads; 5 rejected and never paid bans the account', async () => {
+  const { makeEnv, addPlan } = await import('./helpers.mjs');
+  const t = await makeEnv(); await t.json('/api/version'); const p = addPlan(t.DB, { price: 6790 });
+  const send = u => { const fd = new FormData(); fd.append('kind', 'plan'); fd.append('plan_id', String(p.id)); fd.append('slip', new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }), 's.jpg'); return t.worker.default.fetch(new Request('https://t.test/api/pay', { method: 'POST', body: fd, headers: { cookie: u.cookie } }), t.env, t.ctx); };
+  const tmp = await t.user({ email: 'abc@guerrillamailblock.com' });
+  assert.equal((await send(tmp)).status, 403);
+  const u = await t.user(), rej = n => { for (let i = 0; i < n; i++) t.DB.raw.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,created_at,kind) VALUES (?,?,?,?,'rejected',?,'plan')").run(u.id, p.id, 6790, 'k' + Math.random(), Date.now() - i); };
+  rej(3); assert.equal((await send(u)).status, 429);
+  rej(2); assert.equal((await send(u)).status, 403);
+  assert.equal(t.DB.raw.prepare('SELECT banned FROM users WHERE id=?').get(u.id).banned, 1);
+});

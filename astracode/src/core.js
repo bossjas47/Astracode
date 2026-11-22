@@ -146,10 +146,10 @@ export async function turnstileOk(req, env, token) {
   } catch { return false; }
 }
 // อีเมลชั่วคราว (ใช้แล้วทิ้ง) สมัครไม่ได้ กันสมัครหลายบัญชีเพื่อใช้แพลนฟรี · แอดมินเพิ่มโดเมนได้ที่ settings.block_domains (คั่นด้วย , หรือขึ้นบรรทัด)
-const TEMP_MAIL = 'mailinator.com guerrillamail.com guerrillamail.net sharklasers.com 10minutemail.com 10minutemail.net temp-mail.org tempmail.com tempmail.net tempmailo.com throwawaymail.com yopmail.com yopmail.net getnada.com nada.email dispostable.com trashmail.com trashmail.net maildrop.cc mintemail.com mohmal.com emailondeck.com fakeinbox.com moakt.com tempr.email discard.email spamgourmet.com mailnesia.com mytemp.email tmpmail.org tmail.ws burnermail.io inboxkitten.com 1secmail.com 1secmail.net 1secmail.org emltmp.com tmpeml.com dropmail.me minuteinbox.com linshiyouxiang.net'.split(' ');
+const TEMP_MAIL = 'guerrillamailblock.com guerrillamail.org guerrillamail.biz guerrillamail.de guerrillamail.info grr.la pokemail.net spam4.me 10minemail.com emailfake.com fakemail.net mailnesia.com mailcatch.com tempinbox.com burnermail.io inboxkitten.com mail.tm mailinator.com guerrillamail.com guerrillamail.net sharklasers.com 10minutemail.com 10minutemail.net temp-mail.org tempmail.com tempmail.net tempmailo.com throwawaymail.com yopmail.com yopmail.net getnada.com nada.email dispostable.com trashmail.com trashmail.net maildrop.cc mintemail.com mohmal.com emailondeck.com fakeinbox.com moakt.com tempr.email discard.email spamgourmet.com mailnesia.com mytemp.email tmpmail.org tmail.ws burnermail.io inboxkitten.com 1secmail.com 1secmail.net 1secmail.org emltmp.com tmpeml.com dropmail.me minuteinbox.com linshiyouxiang.net'.split(' ');
 export async function tempEmail(env, email) {
   const d = email.split('@')[1] || '', extra = String(await env.DB.prepare("SELECT value FROM settings WHERE key='block_domains'").first().then(r => r?.value || '', () => '')).toLowerCase().split(/[\s,]+/).filter(Boolean);
-  return [...TEMP_MAIL, ...extra].some(x => d === x || d.endsWith('.' + x));
+  return [...TEMP_MAIL, ...extra].some(x => d === x || d.endsWith('.' + x)) || /guerrilla|tempmail|temp-mail|10minute|throwaway|disposable|trashmail|fakemail|burner|mailinator|yopmail/.test(d); // โดเมนเครือเดียวกันมีหลายชื่อ: ดักด้วยคำในชื่อด้วย
 }
 export async function emailAuth(req, env) {
   const b = await req.json(), a = b.action, email = String(b.email || '').trim().toLowerCase(), pw = String(b.password || '');

@@ -284,6 +284,16 @@ export async function applyPayment(env, p) {
 export const SEATS_MAX = 100;
 const setSeats = async (env, p, seats) => { if (p && seats) { await env.DB.prepare('UPDATE payments SET seats=? WHERE id=?').bind(seats, p.id).run(); p.seats = seats; } return p; };
 export async function pay(req, env, u) {
+  // กันสลิปปลอม: อีเมลชั่วคราวส่งสลิปไม่ได้ · ปฏิเสธ 3 ครั้งใน 24 ชม. = พัก 24 ชม. · ปฏิเสธ 5 ครั้งและไม่เคยจ่ายผ่าน = ระงับบัญชี
+  const { tempEmail } = await import('./core.js');
+  if (await tempEmail(env, u.email)) return err('บัญชีที่ใช้อีเมลชั่วคราวชำระเงินไม่ได้ กรุณาสมัครด้วยอีเมลจริง', 403);
+  const rj = await env.DB.prepare("SELECT SUM(status='rejected' AND created_at>?2) day, SUM(status='rejected') total, SUM(status='approved') ok FROM payments WHERE user_id=?1").bind(u.id, Date.now() - 864e5).first();
+  if (!rj?.ok && rj?.total >= 5) {
+    await env.DB.prepare('UPDATE users SET banned=1 WHERE id=? AND role=\'user\'').bind(u.id).run(); await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(u.id).run().catch(() => {});
+    await notify(env, `🚫 ระงับบัญชี ${u.email} อัตโนมัติ: สลิปถูกปฏิเสธ ${rj.total} ครั้ง ไม่เคยจ่ายผ่าน (ปลดได้ที่หลังบ้าน → ผู้ใช้)`).catch(() => {});
+    return err('บัญชีถูกระงับเพราะส่งสลิปไม่ถูกต้องหลายครั้ง ติดต่อแอดมิน', 403);
+  }
+  if (rj?.day >= 3) return err('ส่งสลิปไม่ผ่านหลายครั้ง ส่งใหม่ได้ใน 24 ชั่วโมง หรือติดต่อแอดมินถ้าโอนจริงแล้ว', 429);
   const fd = await req.formData(), kind = fd.get('kind') === 'topup' ? 'topup' : 'plan';
   let plan = null, period = 'month', amount, coupon = null, discount = 0, seats = null;
   if (kind === 'plan') {
@@ -353,7 +363,8 @@ export async function pay(req, env, u) {
     if (n === 3) await notify(env, `⚠️ ตรวจสลิปอัตโนมัติไม่สำเร็จ 3 ครั้งติดกัน (ล่าสุด: ${String(c.code).slice(0, 120)}) สลิปค้างรออนุมัติเอง · เช็คคีย์/URL ในหน้าตั้งค่า แล้วกด Test connection`);
   }
   // ผ่านทุกเงื่อนไข (หรือพบสลิปและยอดตรง) และเปิดอนุมัติอัตโนมัติ: เปิดแพลน/เติมเงินทันที
-  const pass = !fail && (c.code === '200200' || (c.code === '200000' && c.amount === amount)) && (await getSetting(env, 'slip_auto_approve')) !== '0';
+  const fresh = Date.now() - (u.created_at || 0) < 864e5 && !(await env.DB.prepare("SELECT 1 FROM payments WHERE user_id=? AND status='approved'").bind(u.id).first()); // บัญชีใหม่ไม่ถึงวัน ยังไม่เคยจ่าย
+  const pass = !fail && (c.code === '200200' || (c.code === '200000' && c.amount === amount)) && (await getSetting(env, 'slip_auto_approve')) !== '0' && !(fresh && amount >= 1490); // บัญชีใหม่ซื้อแพลนแพง: แอดมินตรวจเอง
   const now = Date.now(), what = kind === 'topup' ? 'เติม Wallet' : plan.name + (period === 'year' ? ' รายปี' : '');
   // ดัชนี unique (slip_key, slip_ref) กันสลิปเดียวส่งพร้อมกันสองครั้งแล้วอนุมัติซ้ำ: ตัวที่สองชนดัชนีและถูกปฏิเสธก่อนถึง applyPayment
   const p = await env.DB.prepare('INSERT INTO payments (user_id,plan_id,amount,slip_key,slip_check,slip_amount,slip_ref,status,approved_at,created_at,kind,period,coupon,discount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *')
