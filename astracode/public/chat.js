@@ -1223,7 +1223,10 @@ async function mcpLocalSheet() {
 }
 async function pcAct(ai) {
   chat.pcRound = (chat.pcRound || 0) + 1; if (chat.pcRound > PC_MAX) return showErr(`AI ใช้เครื่องมือในเครื่องครบ ${PC_MAX} รอบแล้ว พิมพ์สั่งต่อได้`);
-  const calls = pcCalls(ai.content), writes = fileBlocks(ai.content), cut = s => s.length > 8000 ? s.slice(0, 2500) + '\n…(ตัดกลาง)…\n' + s.slice(-5000) : s;
+  const calls = pcCalls(ai.content), writes = fileBlocks(ai.content);
+  const nonScreen = calls.filter(c => !PC_SCREEN.has(c[0]));
+  const perLim = Math.min(8000, Math.max(1200, Math.floor(17500 / Math.max(1, nonScreen.length))));
+  const cut = s => s.length > perLim ? s.slice(0, Math.floor(perLim * 0.35)) + '\n…(ตัดกลาง)…\n' + s.slice(-Math.floor(perLim * 0.6)) : s;
   let out = PC_RES; const imgs = [];
   for (const f of writes) { // บล็อก file= ทั้งไฟล์ = เขียนทับ · ข้างในเป็น SEARCH/REPLACE = แก้เฉพาะจุด
     const edits = [...f.text.matchAll(/^<{5,9} SEARCH[ \t]*\n([\s\S]*?)\n?={5,9}[ \t]*\n([\s\S]*?)\n?>{5,9} REPLACE[ \t]*$/gm)].map(m => ({ search: m[1], replace: m[2] }));
@@ -1234,7 +1237,7 @@ async function pcAct(ai) {
   }
   if (writes.length) toast(`อัปเดต ${writes.length} ไฟล์ใน ${chat.pc.name} แล้ว`, 'ok');
   const acts = calls.filter(c => PC_SCREEN.has(c[0])).map(([k, a]) => [k, ...(k === 'TYPE' ? [a] : a.split(/\s+/).filter(Boolean))]);
-  for (const [k, a] of calls.filter(c => !PC_SCREEN.has(c[0]))) {
+  for (const [k, a] of nonScreen) {
     let r;
     try {
       const arg = a.replace(/^path=/, '').replace(/^[`'"]|[`'"]$/g, '');
@@ -1253,6 +1256,7 @@ async function pcAct(ai) {
   }
   if (imgs.length && !curModel()?.vision) out += '\n\n(เครื่องมือส่งรูปมา แต่โมเดลนี้อ่านรูปไม่ได้)';
   const t = $('#t'), keep = [t.value, chat.files, chat.images];
+  if (out.length > 19500) out = out.slice(0, 19420) + '\n…(ผลรวมยาวเกินเพดาน ตัดบางส่วนออกแล้ว)';
   t.value = out; chat.files = []; chat.images = curModel()?.vision ? imgs.slice(0, IMG_MAX) : []; chat.pcAuto = true;
   const p = send(); [t.value, chat.files, chat.images] = keep; drawThumbs(); return p; // ส่งผลกลับให้ AI ทำต่อ (ข้อความที่ผู้ใช้พิมพ์ค้างไว้ยังอยู่)
 }

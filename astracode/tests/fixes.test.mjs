@@ -1,3 +1,5 @@
+import { webcrypto } from 'node:crypto';
+globalThis.crypto ??= webcrypto;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
