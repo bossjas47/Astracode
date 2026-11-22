@@ -1,7 +1,7 @@
 import { err, hex, json, projectFor, userErr } from './core.js';
 // ---------- projects (โหมด Code) ----------
 export const PATH_RE = /^(?!.*\.\.)(?!.*\/\/)(?!.*\/$)[^\/\\\x00-\x1f<>:"|?*][^\\\x00-\x1f<>:"|?*]{0,199}$/;
-export const FILE_LIMIT = 500e3, PROJECT_LIMIT = 10e6, FILES_PER_PROJECT = 600, PROJECTS_PER_USER = 20;
+export const IMG_LIMIT = 700e3, FILE_LIMIT = 500e3, PROJECT_LIMIT = 10e6, FILES_PER_PROJECT = 600, PROJECTS_PER_USER = 20;
 export const STARTER = {
   'index.html': '<!DOCTYPE html>\n<html lang="th">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>โปรเจกต์ใหม่</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <h1>สวัสดี AstraCode</h1>\n  <button id="btn">กดเลย</button>\n  <script src="script.js"></script>\n</body>\n</html>\n',
   'style.css': 'body {\n  font-family: system-ui, sans-serif;\n  background: #111;\n  color: #f5f5f7;\n  padding: 24px;\n}\nbutton {\n  padding: 10px 20px;\n  border-radius: 999px;\n  border: 0;\n  background: #0071e3;\n  color: #fff;\n}\n',
@@ -220,16 +220,19 @@ export async function inflate(z) { return z.method === 0 ? z.data : new Uint8Arr
 export async function remoteFiles(token, repo, sha, base) {
   const buf = await (await gh(token, `/repos/${repo}/zipball/${sha}`, { raw: true, base })).arrayBuffer();
   if (buf.byteLength > 30e6) throw userErr('repo ใหญ่เกิน 30MB');
-  const files = new Map(), skipped = [];
+  const files = new Map(), skipped = [], images = new Map(); // images = รูปใน repo เป็น data URL (แสดง/ใช้ในโปรเจกต์ได้ · ไม่ sync กลับ)
+  const IMG = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon', avif: 'image/avif', bmp: 'image/bmp' };
   for (const z of await unzip(buf)) {
     const path = z.name.split('/').slice(1).join('/'); // ตัดโฟลเดอร์ owner-repo-sha/ ที่ GitHub ครอบไว้
     if (!path || GH_IGNORE.test(path)) continue;
+    const mime = IMG[(path.split('.').pop() || '').toLowerCase()];
+    if (mime && z.usize <= IMG_LIMIT && PATH_RE.test(path)) { const b = await inflate(z); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); images.set(path, `data:${mime};base64,${btoa(s)}`); continue; }
     if (z.usize > FILE_LIMIT || !PATH_RE.test(path)) { skipped.push(path); continue; }
     const bytes = await inflate(z);
     if (bytes.subarray(0, 8000).includes(0)) { skipped.push(path); continue; }
     try { files.set(path, new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { skipped.push(path); }
   }
-  return { files, skipped };
+  return { files, skipped, images };
 }
 export async function github(req, env, u, p, sub, now) {
   const DB = env.DB, M = req.method;
@@ -262,7 +265,7 @@ export async function github(req, env, u, p, sub, now) {
   }
   if (sub === '/github/pull' && M === 'POST') { // รวมแบบ 3 ทาง ทีละไฟล์: ของเรา / GitHub / ครั้งล่าสุดที่ sync
     const keep = (await req.json()).resolve; // 'remote' | 'local' เมื่อชนกัน
-    const h = await head(), { files: remote, skipped } = await remoteFiles(tok, p.gh_repo, h, env.GITHUB_API), mineRows = await local();
+    const h = await head(), { files: remote, skipped, images } = await remoteFiles(tok, p.gh_repo, h, env.GITHUB_API), mineRows = await local();
     await DB.prepare('UPDATE projects SET gh_skipped=? WHERE id=?').bind(JSON.stringify(skipped.slice(0, 3000)), p.id).run().catch(() => {}); // AI ต้องรู้ว่าไฟล์รูป/ไบนารีพวกนี้มีอยู่ใน repo (ไม่ได้หาย)
     const mine = await shaMap(mineRows), theirs = new Map(await Promise.all([...remote].map(async ([k, v]) => [k, await blobSha(v)])));
     const writes = [], dels = [], conflicts = [];
@@ -275,13 +278,16 @@ export async function github(req, env, u, p, sub, now) {
     if (conflicts.length && !keep) return json({ error: 'ไฟล์ถูกแก้ทั้งในนี้และบน GitHub', conflicts }, 409);
     const size = new Map(mineRows.map(f => [f.path, f.content.length]));
     for (const f of writes) size.set(f.path, f.content.length); for (const k of dels) size.delete(k);
+    // รูปจาก repo: เขียนทับทุกครั้งที่ Pull แยกจากการเทียบ 3 ทาง (ไม่อยู่ใน synced = Push ไม่ส่ง/ไม่ลบรูปบน GitHub) · ถ้าเกินขีดจำกัด ข้ามรูปที่เหลือ
+    let room = PROJECT_LIMIT - [...size.values()].reduce((a, b) => a + b, 0), slots = FILES_PER_PROJECT - size.size; const imgW = [];
+    for (const [k, v] of images) { if (v.length <= room && slots > 0) { imgW.push({ path: k, content: v }); room -= v.length; slots--; } else skipped.push(k); }
     if (size.size > FILES_PER_PROJECT || [...size.values()].reduce((a, b) => a + b, 0) > PROJECT_LIMIT) return err('repo ใหญ่เกินขีดจำกัดโปรเจกต์ (600 ไฟล์ / 10MB)');
     const put = 'INSERT INTO project_files VALUES (?,?,?,?) ON CONFLICT(project_id,path) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at';
     await snapshot(env, p.id, writes, 'git');
-    const ops = [...writes.map(f => DB.prepare(put).bind(p.id, f.path, f.content, now)), ...dels.map(k => DB.prepare('DELETE FROM project_files WHERE project_id=? AND path=?').bind(p.id, k))];
+    const ops = [...[...writes, ...imgW].map(f => DB.prepare(put).bind(p.id, f.path, f.content, now)), ...dels.map(k => DB.prepare('DELETE FROM project_files WHERE project_id=? AND path=?').bind(p.id, k))];
     for (let i = 0; i < ops.length; i += 50) await DB.batch(ops.slice(i, i + 50));
     await save(h, theirs);
-    return json({ ok: true, head: h, updated: writes.map(f => f.path), deleted: dels, conflicts, skipped: skipped.slice(0, 30), skippedCount: skipped.length });
+    return json({ ok: true, head: h, updated: writes.map(f => f.path), images: imgW.length, deleted: dels, conflicts, skipped: skipped.slice(0, 30), skippedCount: skipped.length });
   }
   if (sub === '/github/branches') {
     const list = await ghApi(`/repos/${p.gh_repo}/branches?per_page=100`), info = await ghApi(`/repos/${p.gh_repo}`);
