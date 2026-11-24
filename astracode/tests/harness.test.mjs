@@ -154,6 +154,20 @@ test('/v1/agent/stat stores Kyber Harness telemetry in its own table; old apps w
   assert.deepEqual(JSON.parse(h.tools), { grep: { calls: 5, errors: 1 }, x: { calls: 0, errors: 0 } });
 });
 
+test('/v1 refuses a model the moment it is disabled or hidden (the 30 s model cache is not trusted)', async () => {
+  const fm = await fakeModel((q, res) => fm.sse(res, 'hello'));
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Soon Off', base_url: fm.url });
+  const { raw } = await client(t), ask = () => raw('/v1/chat/completions', { model: 'soon-off', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal((await ask()).status, 200); // โหลดรายการโมเดลเข้า cache แล้ว
+  t.DB.raw.prepare('UPDATE models SET active=0 WHERE id=?').run(m.id);
+  const off = await ask(); assert.equal(off.status, 404); assert.match(off.json().error.message, /does not exist|ไม่พบโมเดล/);
+  t.DB.raw.prepare('UPDATE models SET active=1, public=0 WHERE id=?').run(m.id);
+  assert.equal((await ask()).status, 404);
+  assert.equal((await raw('/v1/messages', { model: 'soon-off', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })).status, 404);
+  assert.equal(fm.hits.length, 1); // หลังปิดไม่มีคำขอไปถึงผู้ให้บริการเลย
+  fm.close();
+});
+
 test('syntax: every hand-written JS file parses (bundles skipped)', () => {
   const SKIP = new Set(['node-runner.js', 'cm.js', 'fb.js']); // ไฟล์ bundle/minified: ไม่แตะ
   const dirs = [['astracode/src', /\.js$/], ['astracode/public', /\.js$/], ['astracode/container', /\.js$/], ['desktop', /\.js$/], ['astracode/tools', /\.mjs$/]];
