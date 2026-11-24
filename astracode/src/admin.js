@@ -1,6 +1,6 @@
-import { BKK, DAY, creditsInit, err, esc, hex, json, limited, logReset, planOf, rand, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
+import { BKK, DAY, creditsInit, err, esc, hex, json, limitBoost, limited, logReset, planOf, rand, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { callModel, ensureFb, isSafeMcpUrl, logUsage, mcpSync } from './ai.js';
-import { applyPayment, audit, releaseCoupon, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, walletAdd } from './billing.js';
+import { applyPayment, audit, promoOn, releaseCoupon, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, topupPromo, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { adminConnectors, adminPlugins } from './connectors.js';
 import { slug } from './api.js';
@@ -377,7 +377,7 @@ export async function admin(req, env, path, url, me) {
     const free = (await DB.prepare('SELECT id FROM plans WHERE price=0 ORDER BY sort LIMIT 1').first())?.id ?? 0;
     const [plans, users, w] = await Promise.all([
       DB.prepare(`SELECT p.id,p.name,p.price,
-        (SELECT COUNT(*) FROM users u WHERE u.banned=0 AND COALESCE(CASE WHEN u.plan_expires>?1 THEN u.plan_id END, ?3)=p.id) subs,
+        (SELECT COUNT(*) FROM users u WHERE u.banned=0 AND COALESCE(u.no_report,0)=0 AND u.role='user' AND COALESCE(CASE WHEN u.plan_expires>?1 THEN u.plan_id END, ?3)=p.id) subs,
         (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.plan_id=p.id AND x.${NOREP} AND x.kind='plan' AND x.status='approved' AND COALESCE(x.approved_at,x.created_at)>=?2) rev,
         (SELECT COALESCE(SUM(g.cost),0) FROM usage g JOIN users u ON u.id=g.user_id WHERE g.created_at>=?2 AND g.units>0 AND COALESCE(u.no_report,0)=0 AND u.role='user' AND COALESCE(CASE WHEN u.plan_expires>?1 THEN u.plan_id END, ?3)=p.id) cost
         FROM plans p ORDER BY p.sort`).bind(now, from, free).all(),
@@ -390,7 +390,7 @@ export async function admin(req, env, path, url, me) {
       DB.prepare(`SELECT COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND ${NOREP} AND created_at>=?1),0) charges,
         COALESCE((SELECT SUM(cost) FROM usage WHERE units=0 AND model_id>0 AND ${NOREP} AND created_at>=?1),0) api_cost,
         COALESCE((SELECT SUM(amount) FROM payments WHERE kind='topup' AND status='approved' AND ${NOREP} AND COALESCE(approved_at,created_at)>=?1),0) topups,
-        COALESCE((SELECT SUM(balance) FROM users WHERE balance>0),0) liability`).bind(from).first(),
+        COALESCE((SELECT SUM(balance) FROM users WHERE balance>0 AND COALESCE(no_report,0)=0 AND role='user'),0) liability`).bind(from).first(),
     ]);
     const us = users.results.map(x => ({ ...x, rev: x.rev_plan + x.rev_wallet, profit: x.rev_plan + x.rev_wallet - x.cost })).sort((a, b) => a.profit - b.profit);
     const revDays = await revenueByDay(DB, from), R = sumRev(revDays), rev = R.rev, earned = R.earned;
@@ -726,38 +726,70 @@ async function agentBench(env, me, m) {
 // คาดการณ์ทั้งเดือน + ผู้ใช้แพลนที่อาจขาดทุนก่อนแพลนหมด
 // แพลนจ่ายล่วงหน้าทั้งรอบ แต่ต้นทุนทยอยเกิดทุกวัน: กำไรช่วงต้นรอบจึงดูดีเกินจริง
 // ต้นทุนต่อวันของแต่ละคน = ต้นทุนที่หักลิมิต (units>0) ใน 7 วันล่าสุด ÷ จำนวนวันที่ใช้จริง · ไม่เกินเพดานลิมิตรายสัปดาห์ (limit_week ÷ 7 ต่อวัน, ตัวคูณ 1)
+// คาดการณ์ทั้งเดือน · ไม่นับบัญชีที่ติ๊ก "ไม่นับในรายงาน" (และแอดมิน/ทีมงาน) ทั้งรายได้ ต้นทุน และลูกค้าแพลน
+// หลังหมดโปร: (1) โปรเพิ่มลิมิตทั้งเว็บ (promo_until) และตัวคูณลิมิตช่วงโปรของโมเดล (promo_mult) จบ → ลูกค้าแพลนใช้ได้แค่ลิมิตปกติ ต้นทุนต่อคนถูกตัดที่ลิมิตเดิม
+// (2) โปรลดราคาโมเดล (promo_pct) จบ → เงินที่ตัดจาก Wallet ของโมเดลนั้นกลับเป็นราคาเต็ม · ต้นทุนส่วนอื่น (Wallet/API/แพลนฟรี) ถือว่าเท่าเดิม
 export async function profitForecast(env, now = Date.now()) {
   const DB = env.DB, d = new Date(now + BKK), mStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) - BKK, mEnd = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - BKK;
-  const win = 3 * DAY, since7 = now - 7 * DAY;
-  const [m, r, subs] = await Promise.all([
+  const win = 3 * DAY, since7 = now - 7 * DAY, NR = NOREP, NRU = "COALESCE(u.no_report,0)=0 AND u.role='user'";
+  const multAfter = "CASE WHEN md.use_mult >= 0 THEN md.use_mult ELSE 1 END"; // ตัวคูณลิมิตปกติของโมเดล (ไม่ใช่ช่วงโปร)
+  const [m, r, subs, byModel, ms, boost] = await Promise.all([
     DB.prepare(`SELECT
-      COALESCE((SELECT SUM(cost) FROM usage WHERE created_at>=?1),0) cost,
-      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='plan' AND COALESCE(approved_at,created_at)>=?1),0) plan_rev,
-      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='plan' AND slip_key<>'wallet' AND COALESCE(approved_at,created_at)>=?1),0) plan_cash,
-      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='topup' AND COALESCE(approved_at,created_at)>=?1),0) topups,
-      COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND created_at>=?1),0) wallet_rev`).bind(mStart).first(),
-    DB.prepare(`SELECT COALESCE((SELECT SUM(cost) FROM usage WHERE created_at>=?1),0) cost, COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ('api','overflow','agentpack','wallet') AND created_at>=?1),0) wallet_rev`).bind(now - win).first(),
-    DB.prepare(`SELECT u.id, u.email, pl.name plan, pl.price, pl.limit_week, u.plan_expires,
+      COALESCE((SELECT SUM(cost) FROM usage WHERE created_at>=?1 AND ${NR}),0) cost,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='plan' AND ${NR} AND COALESCE(approved_at,created_at)>=?1),0) plan_rev,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='plan' AND slip_key NOT IN ('wallet','coupon') AND ${NR} AND COALESCE(approved_at,created_at)>=?1),0) plan_cash,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE status='approved' AND kind='topup' AND ${NR} AND COALESCE(approved_at,created_at)>=?1),0) topups,
+      COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ${WALLET_SPEND} AND ${NR} AND created_at>=?1),0) wallet_rev,
+      COALESCE((SELECT SUM(amount) FROM wallet_tx WHERE kind IN ('promo_bonus','first_bonus','referral','affiliate') AND ${NR} AND created_at>=?1),0) bonus`).bind(mStart).first(),
+    DB.prepare(`SELECT COALESCE((SELECT SUM(cost) FROM usage WHERE created_at>=?1 AND ${NR}),0) cost, COALESCE((SELECT -SUM(amount) FROM wallet_tx WHERE kind IN ${WALLET_SPEND} AND ${NR} AND created_at>=?1),0) wallet_rev`).bind(now - win).first(),
+    DB.prepare(`SELECT u.id, u.email, pl.name plan, pl.price, pl.limit_week, pl.once, u.plan_expires,
       (SELECT amount FROM payments x WHERE x.user_id=u.id AND x.status='approved' AND x.kind='plan' AND x.plan_id=u.plan_id ORDER BY COALESCE(x.approved_at,x.created_at) DESC LIMIT 1) paid,
       (SELECT COALESCE(x.approved_at,x.created_at) FROM payments x WHERE x.user_id=u.id AND x.status='approved' AND x.kind='plan' AND x.plan_id=u.plan_id ORDER BY COALESCE(x.approved_at,x.created_at) DESC LIMIT 1) paid_at,
-      COALESCE((SELECT SUM(cost) FROM usage g WHERE g.user_id=u.id AND g.units>0 AND g.created_at>=?2),0) cost7,
+      COALESCE((SELECT SUM(g.cost) FROM usage g WHERE g.user_id=u.id AND g.units>0 AND g.created_at>=?2),0) cost7,
+      COALESCE((SELECT SUM(g.units) FROM usage g WHERE g.user_id=u.id AND g.units>0 AND g.created_at>=?2),0) units7,
+      COALESCE((SELECT SUM(g.cost * ${multAfter}) FROM usage g LEFT JOIN models md ON md.id=g.model_id WHERE g.user_id=u.id AND g.units>0 AND g.created_at>=?2),0) units_after7,
       (SELECT MIN(created_at) FROM usage g WHERE g.user_id=u.id AND g.units>0 AND g.created_at>=?2) first7
-      FROM users u JOIN plans pl ON pl.id=u.plan_id WHERE u.banned=0 AND pl.price>0 AND u.plan_expires>?1`).bind(now, since7).all(),
+      FROM users u JOIN plans pl ON pl.id=u.plan_id WHERE u.banned=0 AND ${NRU} AND pl.price>0 AND u.plan_expires>?1`).bind(now, since7).all(),
+    DB.prepare(`SELECT model_id, COALESCE(SUM(charge),0) c FROM usage WHERE created_at>=?1 AND charge>0 AND ${NR} GROUP BY model_id`).bind(now - win).all(), // เงินที่ตัดจาก Wallet ต่อโมเดล 3 วันล่าสุด
+    DB.prepare('SELECT id, name, promo_pct, promo_start, promo_end, promo_mult, use_mult FROM models').all(),
+    limitBoost(env),
   ]);
+  // โปรที่กำลังจัดอยู่ และวันจบ (ไม่ตั้งวันจบ = ไม่รู้ว่าจบเมื่อไร: คิดให้จบสิ้นเดือนในตัวเลขทั้งเดือน)
+  const inWin = x => (!x.promo_start || x.promo_start <= now) && (!x.promo_end || now <= x.promo_end);
+  const priceP = ms.results.filter(x => promoOn(x, now)), multP = ms.results.filter(x => x.promo_mult != null && inWin(x)), tp = topupPromo(now);
+  const ends = [boost?.until, ...priceP.map(x => x.promo_end || mEnd), ...multP.map(x => x.promo_end || mEnd), tp?.end].filter(Boolean);
+  const promoEnd = ends.length ? Math.min(mEnd, Math.max(...ends)) : now, untilEnd = Math.max(0, (promoEnd - now) / DAY);
   const left = Math.max(0, (mEnd - now) / DAY), elapsed = Math.max(1 / 24, (now - mStart) / DAY);
   const costDay = r.cost / 3, walletDay = r.wallet_rev / 3;
-  const projCost = m.cost + costDay * left, projRev = m.plan_rev + m.wallet_rev + walletDay * left;
+  const factor = new Map(priceP.map(x => [x.id, 1 / Math.max(0.01, 1 - Math.min(x.promo_pct, 99) / 100)])); // ราคาเต็ม ÷ ราคาโปร
+  const walletDayAfter = walletDay + byModel.results.reduce((a, x) => a + x.c * ((factor.get(x.model_id) || 1) - 1), 0) / 3;
+  let planNow = 0, planAfter = 0;
   const people = await Promise.all(subs.results.map(async x => {
     const start = x.paid_at || x.plan_expires - 30 * DAY, periodLeft = Math.max(0, (x.plan_expires - now) / DAY);
     const spent = (await DB.prepare('SELECT COALESCE(SUM(cost),0) c FROM usage WHERE user_id=? AND units>0 AND created_at>=?').bind(x.id, start).first()).c;
-    const usedDays = x.first7 ? Math.max(1, (now - x.first7) / DAY) : 7;
-    const cap = x.limit_week / 7, rate = Math.min(x.cost7 / Math.min(7, usedDays), cap);
-    const future = rate * periodLeft, paid = x.paid || 0;
-    return { id: x.id, email: x.email, plan: x.plan, price: x.price, paid, free: !x.paid, spent, rate, days_left: periodLeft, future, total: spent + future, profit: paid - spent - future, worst: paid - spent - cap * periodLeft };
+    const usedDays = Math.min(7, x.first7 ? Math.max(1, (now - x.first7) / DAY) : 7), costRate = x.cost7 / usedDays;
+    const capNow = x.limit_week * (boost && !x.once ? boost.xweek : 1) / 7, capAfter = x.limit_week / 7; // ลิมิตเป็นหน่วย (ต้นทุน × ตัวคูณโมเดล) ต่อวัน · แพลนทดลอง (once) ไม่ได้โปรเพิ่มลิมิต
+    const scale = (u, cap) => u > cap && u > 0 ? cap / u : 1; // ใช้เกินลิมิตไม่ได้: ต้นทุนถูกตัดตามสัดส่วน
+    const rate = costRate * scale(x.units7 / usedDays, capNow), rateAfter = costRate * scale(x.units_after7 / usedDays, capAfter);
+    planNow += rate; planAfter += rateAfter;
+    const future = rate * Math.min(periodLeft, untilEnd) + rateAfter * Math.max(0, periodLeft - untilEnd), paid = x.paid || 0;
+    const unitCost = x.units_after7 > 0 ? x.cost7 / x.units_after7 : 1; // บาทต้นทุนต่อหน่วยลิมิตหลังโปร (แย่สุด = ใช้เต็มลิมิต)
+    const worstRate = d => (d < untilEnd ? capNow * (x.units7 > 0 ? x.cost7 / x.units7 : 1) : capAfter * unitCost);
+    const worst = paid - spent - worstRate(0) * Math.min(periodLeft, untilEnd) - worstRate(untilEnd) * Math.max(0, periodLeft - untilEnd);
+    return { id: x.id, email: x.email, plan: x.plan, price: x.price, paid, free: !x.paid, spent, rate, rate_after: rateAfter, days_left: periodLeft, future, total: spent + future, profit: paid - spent - future, worst };
   }));
   people.sort((a, b) => a.profit - b.profit);
-  const owed = people.reduce((a, x) => a + x.future, 0), worstOwed = people.reduce((a, x) => a + Math.max(0, x.paid - x.spent - x.worst), 0);
-  return { month: new Date(mStart + BKK).toISOString().slice(0, 7), elapsed, left, so_far: { cost: m.cost, plan_rev: m.plan_rev, wallet_rev: m.wallet_rev, cash_in: m.plan_cash + m.topups, profit: m.plan_rev + m.wallet_rev - m.cost },
+  const other = Math.max(0, costDay - planNow), costDayAfter = other + planAfter; // ต้นทุนส่วนที่ไม่ใช่ลูกค้าแพลน (Wallet/API/แพลนฟรี) ถือว่าเท่าเดิม
+  const projCost = m.cost + costDay * left, projRev = m.plan_rev + m.wallet_rev + walletDay * left;
+  const a = Math.min(left, untilEnd), b = Math.max(0, left - untilEnd); // ช่วงที่ยังมีโปร / ช่วงหลังโปรจบ ในเดือนนี้
+  const afCost = m.cost + costDay * a + costDayAfter * b, afRev = m.plan_rev + m.wallet_rev + walletDay * a + walletDayAfter * b;
+  const planDay = m.plan_rev / elapsed; // ค่าแพลนเฉลี่ยต่อวันของเดือนนี้ (ใช้ประมาณเดือนถัดไป)
+  const owed = people.reduce((s, x) => s + x.future, 0), worstOwed = people.reduce((s, x) => s + Math.max(0, x.paid - x.spent - x.worst), 0);
+  return { month: new Date(mStart + BKK).toISOString().slice(0, 7), elapsed, left, so_far: { cost: m.cost, plan_rev: m.plan_rev, wallet_rev: m.wallet_rev, cash_in: m.plan_cash + m.topups, bonus: m.bonus, profit: m.plan_rev + m.wallet_rev - m.cost },
     rate: { cost_day: costDay, wallet_day: walletDay }, proj: { cost: projCost, rev: projRev, profit: projRev - projCost },
+    promo: { active: ends.length > 0, end: ends.length ? promoEnd : null, boost: boost ? { until: boost.until, x4h: boost.x4h, xweek: boost.xweek, label: boost.label } : null,
+      price: priceP.map(x => ({ name: x.name, pct: x.promo_pct, end: x.promo_end || null })), mult: multP.map(x => ({ name: x.name, mult: x.promo_mult, normal: x.use_mult ?? 1, end: x.promo_end || null })), topup: tp ? { pct: tp.pct, end: tp.end } : null },
+    after: { cost_day: costDayAfter, wallet_day: walletDayAfter, plan_day: planDay, plan_cost_now: planNow, plan_cost_after: planAfter, profit_day: planDay + walletDayAfter - costDayAfter, profit_30: (planDay + walletDayAfter - costDayAfter) * 30,
+      month: { cost: afCost, rev: afRev, profit: afRev - afCost } },
     subs: { n: people.length, owed, worst_owed: worstOwed, at_risk: people.filter(x => x.profit < 0).length }, people: people.slice(0, 15) };
 }

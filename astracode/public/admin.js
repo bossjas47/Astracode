@@ -46,6 +46,21 @@ function slipResult(p) {
   return p.slip_amount === p.amount ? `<span class="ok">✓ ยอดตรง ฿${baht(p.slip_amount)}</span>` : `<span class="bad">✕ ยอดไม่ตรง ฿${baht(p.slip_amount)}</span>`;
 }
 const STATUS = { pending: '<span class="pill warn">● รออนุมัติ</span>', approved: '<span class="pill ok">✓ อนุมัติแล้ว</span>', rejected: '<span class="pill bad">✕ ปฏิเสธ</span>', refunded: '<span class="pill">คืนเงินแล้ว</span>' };
+// หลังหมดโปร: ลิมิตกลับเป็นปกติ (ต้นทุนลูกค้าแพลนถูกตัดที่ลิมิตเดิม) และราคาโมเดลกลับเป็นราคาเต็ม (เงินที่ตัดจาก Wallet สูงขึ้น)
+function promoHTML(f, c) {
+  const p = f.promo, a = f.after; if (!p || !a) return '';
+  const day = t => new Date(t).toLocaleDateString(LOC, { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
+  const list = [p.boost && `เพิ่มลิมิต ${p.boost.label ? esc(p.boost.label) + ' ' : ''}(สัปดาห์ ×${p.boost.xweek}) ถึง ${day(p.boost.until)}`, ...p.price.map(x => `${esc(x.name)} ลดราคา ${x.pct}%${x.end ? ' ถึง ' + day(x.end) : ' (ไม่ตั้งวันจบ)'}`),
+    ...p.mult.map(x => `${esc(x.name)} ตัวคูณลิมิต ×${x.mult} (ปกติ ×${x.normal})${x.end ? ' ถึง ' + day(x.end) : ' (ไม่ตั้งวันจบ)'}`), p.topup && `เติม Wallet แถม ${p.topup.pct}% ถึง ${day(p.topup.end)}`].filter(Boolean);
+  return `<div class="ph" style="margin-top:18px"><h2>หลังหมดโปร</h2><span class="muted">${p.active ? 'โปรที่จัดอยู่: ' + list.join(' · ') : 'ตอนนี้ไม่มีโปร: ตัวเลขเท่ากับปัจจุบัน'}</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="muted">คาดกำไรทั้งเดือน (โปรจบ${p.end ? ' ' + day(p.end) : ''})</div><div class="stat ${c(a.month.profit)}">฿${baht(a.month.profit)}</div><div class="kd muted">รายได้ ฿${baht(a.month.rev)} − ต้นทุน ฿${baht(a.month.cost)}</div></div>
+      <div class="kpi"><div class="muted">ต้นทุนต่อวันหลังโปร</div><div class="stat">฿${baht(a.cost_day)}</div><div class="kd muted">ลูกค้าแพลน ฿${baht(a.plan_cost_now)} → ฿${baht(a.plan_cost_after)}/วัน</div></div>
+      <div class="kpi"><div class="muted">รายได้ต่อวันหลังโปร</div><div class="stat">฿${baht(a.plan_day + a.wallet_day)}</div><div class="kd muted">ค่าแพลน ฿${baht(a.plan_day)} + Wallet ฿${baht(a.wallet_day)} (ตอนนี้ ฿${baht(f.rate.wallet_day)})</div></div>
+      <div class="kpi"><div class="muted">กำไรต่อ 30 วัน หลังโปร</div><div class="stat ${c(a.profit_30)}">฿${baht(a.profit_30)}</div><div class="kd muted">฿${baht(a.profit_day)}/วัน</div></div>
+    </div>
+    <p class="muted" style="font-size:12.5px">คิดจากการใช้ 3–7 วันล่าสุด · ค่าแพลนต่อวัน = ค่าแพลนเดือนนี้ ÷ วันที่ผ่านไป (ไม่รู้ล่วงหน้าว่าใครจะต่อ) · ต้นทุน Wallet/API/แพลนฟรีถือว่าเท่าเดิม</p>`;
+}
 // คาดการณ์ทั้งเดือน (แท็บกำไร): แพลนจ่ายล่วงหน้า ต้นทุนทยอยมา จึงต้องดูต้นทุนที่ยังต้องจ่ายให้ลูกค้าแพลนด้วย
 function forecastHTML(f) {
   if (!f) return '';
@@ -57,9 +72,10 @@ function forecastHTML(f) {
       <div class="kpi"><div class="muted">คาดกำไรทั้งเดือน</div><div class="stat ${c(f.proj.profit)}">฿${baht(f.proj.profit)}</div><div class="kd muted">ถ้าใช้เท่า 3 วันล่าสุด · ไม่รวมแพลนที่จะซื้อเพิ่ม</div></div>
       <div class="kpi"><div class="muted">ต้นทุนที่ยังต้องจ่ายให้ลูกค้าแพลน</div><div class="stat">฿${baht(f.subs.owed)}</div><div class="kd muted">${num(f.subs.n)} คนที่แพลนยังไม่หมด · เสี่ยงขาดทุน <b class="${f.subs.at_risk ? 'bad' : ''}">${num(f.subs.at_risk)}</b> คน</div></div>
     </div>
-    <p class="muted" style="font-size:12.5px">เงินเข้าจริงเดือนนี้ (สลิป + เติม Wallet ไม่นับแพลนที่ตัดจาก Wallet ซ้ำ) ฿${baht(f.so_far.cash_in)} · ค่าแพลนจ่ายล่วงหน้าทั้งรอบ แต่ต้นทุนทยอยเกิด กำไรช่วงต้นรอบจึงดูสูงกว่าจริง</p>
-    ${p.length ? `<div class="tw"><table class="tbl"><tr><th>ลูกค้าแพลน (เสี่ยงสุดอยู่บน)</th><th>แพลน</th><th>จ่าย</th><th>ใช้ไปแล้ว</th><th>ต่อวัน</th><th>เหลือ</th><th>คาดกำไรจบรอบ</th><th>แย่สุด</th></tr>
-    ${p.map(x => `<tr class="click" data-user="${x.id}"><td>${esc(x.email)}${x.free ? ' <span class="pill">ไม่ได้จ่าย</span>' : ''}</td><td>${esc(x.plan)}</td><td>฿${baht(x.paid)}</td><td>฿${baht(x.spent)}</td><td>฿${baht(x.rate)}</td><td>${x.days_left.toFixed(0)} วัน</td><td class="${c(x.profit)}">฿${baht(x.profit)}</td><td class="${c(x.worst)}">฿${baht(x.worst)}</td></tr>`).join('')}</table></div>
+    <p class="muted" style="font-size:12.5px">เงินเข้าจริงเดือนนี้ (สลิป + เติม Wallet ไม่นับแพลนที่ตัดจาก Wallet ซ้ำ) ฿${baht(f.so_far.cash_in)} · ค่าแพลนจ่ายล่วงหน้าทั้งรอบ แต่ต้นทุนทยอยเกิด กำไรช่วงต้นรอบจึงดูสูงกว่าจริง · ไม่นับบัญชีที่ติ๊ก "ไม่นับในรายงาน"${f.so_far.bonus ? ` · โบนัส/ค่าแนะนำที่แจกเข้า Wallet เดือนนี้ ฿${baht(f.so_far.bonus)} (ถูกนับเป็นรายได้ตอนลูกค้าใช้)` : ''}</p>
+    ${promoHTML(f, c)}
+    ${p.length ? `<div class="tw"><table class="tbl"><tr><th>ลูกค้าแพลน (เสี่ยงสุดอยู่บน)</th><th>แพลน</th><th>จ่าย</th><th>ใช้ไปแล้ว</th><th>ต่อวัน</th>${f.promo?.active ? '<th>ต่อวันหลังโปร</th>' : ''}<th>เหลือ</th><th>คาดกำไรจบรอบ</th><th>แย่สุด</th></tr>
+    ${p.map(x => `<tr class="click" data-user="${x.id}"><td>${esc(x.email)}${x.free ? ' <span class="pill">ไม่ได้จ่าย</span>' : ''}</td><td>${esc(x.plan)}</td><td>฿${baht(x.paid)}</td><td>฿${baht(x.spent)}</td><td>฿${baht(x.rate)}</td>${f.promo?.active ? `<td>฿${baht(x.rate_after)}</td>` : ''}<td>${x.days_left.toFixed(0)} วัน</td><td class="${c(x.profit)}">฿${baht(x.profit)}</td><td class="${c(x.worst)}">฿${baht(x.worst)}</td></tr>`).join('')}</table></div>
     <p class="muted" style="font-size:12.5px">คาดกำไร = จ่าย − ใช้ไปแล้ว − (ต้นทุนต่อวัน × วันที่เหลือ) · แย่สุด = ถ้าใช้เต็มลิมิตทุกสัปดาห์จนแพลนหมด (ไม่นับสิทธิ์รีเซ็ตลิมิตที่แจกเพิ่ม)</p>` : ''}
   </section>`;
 }
