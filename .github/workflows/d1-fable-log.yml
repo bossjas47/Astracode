@@ -1,0 +1,56 @@
+# ชั่วคราว: อ่านผลตรวจสลิปรายการ #210 จาก D1 (SELECT อย่างเดียว) · repo เป็นสาธารณะ ผลจึงเข้ารหัสด้วย public key ก่อนพิมพ์ลง log
+name: D1 payment 210 check (one-off)
+on:
+  push:
+    branches: [ccr-84ca511c-jo3r38]
+    paths: ['.github/workflows/d1-fable-log.yml']
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Query and encrypt
+        working-directory: astracode
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cat > /tmp/pub.pem <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAvzZCqLmDmSUG9ww1FUMA
+          oba5Ii5XsOvEgphdPzaDt+9Z1/E+3fC/P+uOn3LfsklSMIz93c2N25jGovFKwzgX
+          iRcjYWCOfdyAIlds7s2Zpv7lGbP+DTse4vBDfC5fim6KnigQficP6j2swQ8hXpUm
+          w/8s+jyixDJiQFt2z5xYR+OtxVeWy77x9W1DghMKCYs67YXxRiEam45HkpS3rgk5
+          BXfrDqt60wTD7gQoDHlTB2rmGgiIt65sx/neWA9PhJkFcSAfrRv4S21At7+sWQ2V
+          rfUFOgeW4sQ85Aty3TFv1PUtUUsep3gLkLXYS6h4M2W+4h2HrfygGSBIeVg5RCPe
+          hXFYBblKaq12S3L3Haoic6OEVAOQ0sP48WdRwvEJggFzZFJoh9OCgaGK+RTE1+yK
+          5ffR5SWuWkwbpWBWm+oE7g7p9noallA3hxn684JPOAohZZot9o66gaHHK2l/yWTa
+          J99SkZgnwJC2cAGDd7N5TC8tTIW8UB4GTfofAISDNj5NAgMBAAE=
+          -----END PUBLIC KEY-----
+          PEM
+          cat > /tmp/q.mjs <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { writeFileSync } from 'node:fs';
+          
+          const T = c => "datetime((" + c + "+25200000)/1000,'unixepoch')";
+          const Q = {
+            settings: "SELECT key, CASE WHEN key LIKE '%key%' OR key LIKE '%secret%' OR key LIKE '%token%' THEN '(set, hidden)' ELSE substr(value,1,200) END value FROM settings WHERE key LIKE 'slip%' OR key LIKE 'easyslip%' OR key LIKE 'checkslip%' OR key IN ('promptpay_id','bank_account','topup_min')",
+            p210: "SELECT id, " + T('created_at') + " bkk, kind, amount, status, slip_amount, slip_ref, review, slip_check FROM payments WHERE id IN (208,209,210,211)",
+          };
+          const out = {};
+          for (const [k, sql] of Object.entries(Q)) {
+            try { out[k] = JSON.parse(execFileSync('npx', ['--yes', 'wrangler@4.162.0', 'd1', 'execute', 'astracode', '--remote', '--json', '--command', sql], { encoding: 'utf8', maxBuffer: 64e6, stdio: ['ignore', 'pipe', 'pipe'] }))[0]?.results ?? null; console.log('ok', k, out[k]?.length); }
+            catch (e) { out[k] = { error: String(e.stderr || e.message).slice(0, 2000) }; console.log('FAILED', k); }
+          }
+          writeFileSync('/tmp/out.json', JSON.stringify(out));
+          JS
+          node /tmp/q.mjs
+          K=$(openssl rand -hex 32)
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass pass:"$K" -in /tmp/out.json | base64 -w0 > /tmp/data.b64
+          printf %s "$K" | openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -pkeyopt rsa_padding_mode:oaep | base64 -w0 > /tmp/key.b64
+          rm -f /tmp/out.json
+          echo "KEY:$(cat /tmp/key.b64)"
+          echo "DATA_BEGIN"; fold -w 3000 /tmp/data.b64; echo; echo "DATA_END"
