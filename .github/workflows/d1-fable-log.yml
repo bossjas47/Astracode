@@ -1,0 +1,61 @@
+# ชั่วคราว: อ่าน log ของ Fable จาก D1 (SELECT อย่างเดียว) · repo เป็นสาธารณะ ผลจึงเข้ารหัสด้วย public key ก่อนพิมพ์ลง log
+name: D1 Fable log (one-off)
+on:
+  push:
+    branches: [ccr-84ca511c-jo3r38]
+    paths: ['.github/workflows/d1-fable-log.yml']
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Query and encrypt
+        working-directory: astracode
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cat > /tmp/pub.pem <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAvzZCqLmDmSUG9ww1FUMA
+          oba5Ii5XsOvEgphdPzaDt+9Z1/E+3fC/P+uOn3LfsklSMIz93c2N25jGovFKwzgX
+          iRcjYWCOfdyAIlds7s2Zpv7lGbP+DTse4vBDfC5fim6KnigQficP6j2swQ8hXpUm
+          w/8s+jyixDJiQFt2z5xYR+OtxVeWy77x9W1DghMKCYs67YXxRiEam45HkpS3rgk5
+          BXfrDqt60wTD7gQoDHlTB2rmGgiIt65sx/neWA9PhJkFcSAfrRv4S21At7+sWQ2V
+          rfUFOgeW4sQ85Aty3TFv1PUtUUsep3gLkLXYS6h4M2W+4h2HrfygGSBIeVg5RCPe
+          hXFYBblKaq12S3L3Haoic6OEVAOQ0sP48WdRwvEJggFzZFJoh9OCgaGK+RTE1+yK
+          5ffR5SWuWkwbpWBWm+oE7g7p9noallA3hxn684JPOAohZZot9o66gaHHK2l/yWTa
+          J99SkZgnwJC2cAGDd7N5TC8tTIW8UB4GTfofAISDNj5NAgMBAAE=
+          -----END PUBLIC KEY-----
+          PEM
+          cat > /tmp/q.mjs <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { writeFileSync } from 'node:fs';
+          const A = 1795435200000, B = 1795446000000; // 2026-11-23 19:00–22:00 เวลาไทย
+          const F = "(SELECT id FROM models WHERE name LIKE '%Fable%')", FB = "(SELECT fallback_id FROM models WHERE name LIKE '%Fable%' AND fallback_id IS NOT NULL)";
+          const T = c => "datetime((" + c + "+25200000)/1000,'unixepoch')";
+          const Q = {
+            models: "SELECT id,name,api_model,base_url,key_name,fallback_id,(SELECT name FROM models x WHERE x.id=m.fallback_id) fallback_name,active,public,effort,effort_levels,code_prompt,sys_prompt FROM models m WHERE name LIKE '%Fable%' OR id IN " + FB,
+            events: "SELECT " + T('created_at') + " bkk,kind,model_id,substr(detail,1,300) detail FROM events WHERE (model_id IN " + F + " OR model_id IN " + FB + ") AND created_at BETWEEN " + A + " AND " + B + " ORDER BY created_at",
+            usage_10min: "SELECT strftime('%H:%M', (created_at+25200000)/1000 - ((created_at+25200000)/1000 % 600), 'unixepoch') slot, model_id, COALESCE(src,'-') src, COUNT(*) n, ROUND(AVG(ttft)) ttft_ms, ROUND(AVG(ms)) ms, SUM(tokens_out) tout, ROUND(SUM(cost),3) cost FROM usage WHERE (model_id IN " + F + " OR model_id IN " + FB + ") AND created_at BETWEEN " + A + " AND " + B + " GROUP BY slot, model_id, src ORDER BY slot",
+            switched: "SELECT " + T('a.created_at') + " bkk, a.chat_id, c.user_id, CASE WHEN c.project_id IS NULL THEN 'chat' ELSE 'code' END mode, q.model_id chose, a.model_id answered FROM messages a JOIN messages q ON q.id=(SELECT MAX(id) FROM messages WHERE chat_id=a.chat_id AND id<a.id AND role='user') JOIN chats c ON c.id=a.chat_id WHERE a.role='assistant' AND q.model_id IN " + F + " AND a.model_id<>q.model_id AND a.created_at BETWEEN " + A + " AND " + B,
+            fable_answers: "SELECT " + T('a.created_at') + " bkk, a.chat_id, c.user_id, CASE WHEN c.project_id IS NULL THEN 'chat' ELSE 'code' END mode, length(a.content) chars, length(COALESCE(a.thinking,'')) thinking_chars, a.tin, a.tout FROM messages a JOIN chats c ON c.id=a.chat_id WHERE a.role='assistant' AND a.model_id IN " + F + " AND a.created_at BETWEEN " + A + " AND " + B + " ORDER BY a.created_at",
+            api: "SELECT " + T('created_at') + " bkk, user_id, model, status, tin, tout, ttft, ms, substr(err,1,200) err FROM api_log WHERE model LIKE '%fable%' AND created_at BETWEEN " + A + " AND " + B + " ORDER BY created_at",
+          };
+          const out = {};
+          for (const [k, sql] of Object.entries(Q)) {
+            try { out[k] = JSON.parse(execFileSync('npx', ['--yes', 'wrangler@4.162.0', 'd1', 'execute', 'astracode', '--remote', '--json', '--command', sql], { encoding: 'utf8', maxBuffer: 64e6, stdio: ['ignore', 'pipe', 'pipe'] }))[0]?.results ?? null; console.log('ok', k, out[k]?.length); }
+            catch (e) { out[k] = { error: String(e.stderr || e.message).slice(0, 2000) }; console.log('FAILED', k); }
+          }
+          writeFileSync('/tmp/out.json', JSON.stringify(out));
+          JS
+          node /tmp/q.mjs
+          K=$(openssl rand -hex 32)
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass pass:"$K" -in /tmp/out.json | base64 -w0 > /tmp/data.b64
+          printf %s "$K" | openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -pkeyopt rsa_padding_mode:oaep | base64 -w0 > /tmp/key.b64
+          rm -f /tmp/out.json
+          echo "KEY:$(cat /tmp/key.b64)"
+          echo "DATA_BEGIN"; fold -w 3000 /tmp/data.b64; echo; echo "DATA_END"
