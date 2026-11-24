@@ -264,6 +264,9 @@ async function notifSheet() {
 const cfToken = () => document.querySelector('[name=cf-turnstile-response]')?.value || ''; // โทเคน Turnstile ที่วิดเจ็ตใส่ในฟอร์ม
 // สลับภาษา ไทย / English (โหลดหน้าใหม่เพื่อใช้ภาษาใหม่ทั้งหน้า)
 const langSeg = () => `<div class="seg langseg" role="group" aria-label="Language" data-notr><button type="button" data-lang="th" class="${window.LANG === 'en' ? '' : 'on'}">ไทย</button><button type="button" data-lang="en" class="${window.LANG === 'en' ? 'on' : ''}">English</button></div>`;
+// แทน onclick=/onsubmit= ใน HTML (CSP ห้ามสคริปต์ inline): data-reload = โหลดหน้าใหม่ · data-select = เลือกข้อความในช่อง · data-nosubmit = ฟอร์มไม่ส่งเอง
+document.addEventListener('click', e => { if (e.target.closest?.('[data-reload]')) location.reload(); else if (e.target.matches?.('input[data-select],textarea[data-select]')) e.target.select(); });
+document.addEventListener('submit', e => { if (e.target.matches?.('form[data-nosubmit]')) e.preventDefault(); }, true);
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-lang]'); if (!b || b.dataset.lang === (window.LANG || 'th')) return; try { localStorage.setItem('lang', b.dataset.lang); } catch { /* ไม่มีที่เก็บ */ } location.reload(); });
 // การ์ดโปรไฟล์ในเมนูข้าง: วงกลมตัวอักษร + อีเมล + แพลน (กดไปหน้าบัญชี)
 const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
@@ -563,7 +566,7 @@ function auth(host = null) { // host = วางฟอร์มในหน้�
       <form class="card" id="f">${tabs && (site.google || site.line) ? `<div class="social">${site.google ? `<a class="btn out" href="/api/oauth/google${ref ? '?ref=' + encodeURIComponent(ref) : ''}">Continue with Google</a>` : ''}
         ${site.line ? `<a class="btn out line" href="/api/oauth/line${ref ? '?ref=' + encodeURIComponent(ref) : ''}">Continue with LINE</a>` : ''}<div class="or"><span>หรือ</span></div></div>` : ''}
       ${forms[mode]()}
-      ${site.turnstile && ['login', 'register', 'forgot'].includes(mode) ? '<div id="cft" style="margin:12px 0"></div>' : ''}<div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${btn[mode]}</button>
+      ${site.turnstile && ['login', 'register', 'forgot', 'verify', 'code'].includes(mode) ? '<div id="cft" style="margin:12px 0"></div>' : ''}<div class="err" id="e">${esc(msg)}</div><button class="btn blue" style="width:100%">${btn[mode]}</button>
       ${mode === 'verify' ? '<div class="row" style="justify-content:center;margin-top:12px"><button type="button" class="btn out sm" id="resend">Resend link</button><a href="#" data-m="login">ใช้อีเมลอื่น</a></div>' : ''}
       ${mode === 'login' && window.PublicKeyCredential ? '<button type="button" class="btn out" id="pkl" style="width:100%;margin-top:10px">เข้าสู่ระบบด้วย Passkey</button>' : ''}
       ${mode === 'login' ? '<p style="text-align:center;margin:12px 0 0"><a href="#" data-m="forgot">ลืมรหัสผ่าน?</a></p>' : ''}
@@ -1185,7 +1188,7 @@ const SKEL = '<div class="wrap skel"><div class="sk h"></div><div class="sk p"><
 async function boot() {
   document.querySelector('.shade')?.remove();
   const skT = setTimeout(() => { if (!app.querySelector('.view')) app.innerHTML = nav() + SKEL; }, 250);
-  setTimeout(() => { if (!app.querySelector('.view')) app.insertAdjacentHTML('beforeend', '<div style="text-align:center;margin:24px 16px"><p class="muted">โหลดนานผิดปกติ</p><button class="btn out" onclick="location.reload()">Try again</button></div>'); }, 8000);
+  setTimeout(() => { if (!app.querySelector('.view')) app.insertAdjacentHTML('beforeend', '<div style="text-align:center;margin:24px 16px"><p class="muted">โหลดนานผิดปกติ</p><button class="btn out" data-reload>Try again</button></div>'); }, 8000);
   try {
     if (site.maintenance === '1' && me?.role !== 'admin' && !OPEN_IN_MAINTENANCE.includes(pageName()))
       page(nav() + `<section class="hero"><h1>ปิดปรับปรุงชั่วคราว</h1><p>เรากำลังอัปเกรดระบบ กลับมาใหม่อีกสักครู่ · <a href="/status">ดูสถานะระบบ</a></p></section>`);
@@ -1195,7 +1198,7 @@ async function boot() {
   catch (x) {
     clearTimeout(skT);
     if (!me) return go('/login?next=' + encodeURIComponent(here()));
-    page(nav() + `<div style="text-align:center;margin:48px 16px"><p class="err" style="max-width:420px;margin:0 auto 16px">${esc(x.message)}</p><button class="btn out" onclick="location.reload()">Try again</button></div>`);
+    page(nav() + `<div style="text-align:center;margin:48px 16px"><p class="err" style="max-width:420px;margin:0 auto 16px">${esc(x.message)}</p><button class="btn out" data-reload>Try again</button></div>`);
   }
 }
 if (window.DEMO) addEventListener('click', e => { // เดโม: ลิงก์ภายในเว็บสลับหน้าโดยไม่โหลดใหม่

@@ -527,7 +527,7 @@ const ADMIN = {
       <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><button type="button" class="btn out" id="atest">Send test</button><span class="ok" id="as"></span></div></form>
 
       <section class="panel"><div class="ph"><h2>อีเมลถึงผู้ใช้ทุกคน</h2></div><p class="muted">ไม่ส่งถึงคนที่ปิดอีเมลสรุป/ข่าวสารในหน้าบัญชี · ส่งได้วันละ 2 ครั้ง · กดส่งทดสอบให้ตัวเองก่อน</p>
-        <form id="bcf" class="sheet-form" onsubmit="return false"><input name="subject" maxlength="150" placeholder="หัวข้อ" value="AstraCode โปรเดือนนี้: ใช้งานได้ 2 เท่า ถึง 30 พ.ย.">
+        <form id="bcf" class="sheet-form" data-nosubmit><input name="subject" maxlength="150" placeholder="หัวข้อ" value="AstraCode โปรเดือนนี้: ใช้งานได้ 2 เท่า ถึง 30 พ.ย.">
         <textarea name="body" rows="5" maxlength="4000">ตั้งแต่วันนี้ถึง 30 พ.ย. 23:59 (เวลาไทย) ทุกแพลนที่ชำระเงินใช้งานได้ 2 เท่าในรอบ 4 ชั่วโมง และลิมิตรายสัปดาห์เพิ่ม 50% ไม่ต้องกดรับ ระบบปรับให้เอง
 
 มีอะไรใหม่: Deep research, ทีม Agent ในโหมด Code และระบบสร้างภาพที่ AI ช่วยเขียน prompt ให้</textarea>

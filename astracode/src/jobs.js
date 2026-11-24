@@ -123,6 +123,8 @@ export async function cron(env) {
   if ((await getSetting(env, 'health_check')) === '1') await healthCheck(env).catch(e => console.log('health', e.message)); // ปิดเป็นค่าเริ่มต้น: ยิงโมเดลจริงทุกชั่วโมงเสียเครดิต upstream
   if (new Date(now + BKK).getUTCHours() === 4) await cleanImages(env).catch(e => console.log('cleanImages', e.message)); // ล้างรูปที่ไม่มีข้อความไหนอ้างถึงแล้ว (วันละครั้ง)
   // 5) ล้างข้อมูลหมดอายุ
+  await step('setup-tokens', () => DB.prepare('DELETE FROM setup_tokens WHERE expires_at<? OR uses>=3').bind(now).run().catch(e => { if (!/no such table/.test(e.message)) throw e; })); // payload มี API key ตัวเต็ม: ไม่เก็บค้างหลังลิงก์หมดอายุ
+  await step('share-files', () => cleanShared(env, now)); // ไฟล์ที่แชร์จากแอปอื่น (ไม่ต้องล็อกอิน) ที่ไม่มีใครเปิด: ลบหลัง 1 วัน
   await DB.batch([DB.prepare('DELETE FROM rate WHERE reset<?').bind(now), DB.prepare('DELETE FROM tokens WHERE expires<?').bind(now), DB.prepare('DELETE FROM sessions WHERE expires<?').bind(now), DB.prepare('DELETE FROM events WHERE created_at<?').bind(now - 90 * DAY), DB.prepare('DELETE FROM api_log WHERE created_at<?').bind(now - 30 * DAY),
     DB.prepare('DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE deleted_at<?)').bind(now - 30 * DAY), DB.prepare('DELETE FROM chats WHERE deleted_at<?').bind(now - 30 * DAY)]); // ถังขยะเก็บ 30 วัน
   return log;
@@ -289,4 +291,17 @@ export async function lossModels(env) {
     if (parts.length) out.push({ id: m.id, name: m.name, parts });
   }
   return out;
+}
+
+// ไฟล์ share/<token>/<i> ใน R2 ที่ไม่ถูกเปิด (เปิดแล้วลบเอง) ลบเมื่อเก่ากว่า 1 วัน · ทำทีละไม่เกิน 10 หน้า (10,000 ไฟล์) ต่อรอบ
+export async function cleanShared(env, now = Date.now()) {
+  if (!env.SLIPS?.list) return 0;
+  let cursor, n = 0;
+  for (let page = 0; page < 10; page++) {
+    const r = await env.SLIPS.list({ prefix: 'share/', cursor, limit: 1000 });
+    const old = r.objects.filter(o => +new Date(o.uploaded) < now - DAY).map(o => o.key);
+    if (old.length) { await env.SLIPS.delete(old); n += old.length; }
+    if (!r.truncated) break; cursor = r.cursor;
+  }
+  return n;
 }

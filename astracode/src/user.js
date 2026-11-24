@@ -285,10 +285,11 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     await ensureRemote(env);
     const row = await DB.prepare('SELECT * FROM agent_remote WHERE chat_id=? AND user_id=?').bind(+r[1], u.id).first();
     if (!row) return json(null);
-    if (M === 'GET') return json({ events: JSON.parse(row.events || '[]').slice(-120), ask: row.ask ? JSON.parse(row.ask) : null, running: !!row.running, updated_at: row.updated_at, live: Date.now() - row.updated_at < 20e3 });
+    const parse = (t, d) => { try { return JSON.parse(t) ?? d; } catch { return d; } }; // แถวที่ JSON พังจากบั๊กเดิม: แสดงว่างแทน error
+    if (M === 'GET') return json({ events: parse(row.events || '[]', []).slice(-120), ask: row.ask ? parse(row.ask, null) : null, running: !!row.running, updated_at: row.updated_at, live: Date.now() - row.updated_at < 20e3 });
     const b = await req.json().catch(() => ({}));
     if (r[2] === '/answer') { if (!['yes', 'all', 'no'].includes(b.v)) return err('คำตอบไม่ถูกต้อง'); await DB.prepare('UPDATE agent_remote SET answer=?, ask=NULL WHERE chat_id=?').bind(JSON.stringify({ id: +b.id, v: b.v }), +r[1]).run(); return json({ ok: true }); }
-    if (r[2] === '/say') { const t = String(b.text || '').trim().slice(0, 20000); if (!t) return err('ข้อความว่าง'); const inbox = [...JSON.parse(row.inbox || '[]'), t].slice(-10); await DB.prepare('UPDATE agent_remote SET inbox=? WHERE chat_id=?').bind(JSON.stringify(inbox), +r[1]).run(); return json({ ok: true }); }
+    if (r[2] === '/say') { const t = String(b.text || '').trim().slice(0, 20000); if (!t) return err('ข้อความว่าง'); const inbox = [...parse(row.inbox || '[]', []), t].slice(-10); await DB.prepare('UPDATE agent_remote SET inbox=? WHERE chat_id=?').bind(JSON.stringify(inbox), +r[1]).run(); return json({ ok: true }); }
     return err('not found', 404);
   }
   // แพ็กเสริม Agent: ซื้อด้วย Wallet ได้โควตาใช้ Agent (แอป Desktop / คลาวด์) แยกจากลิมิตแชต · ปิดไว้จนแอดมินเปิด (agent_pack_enabled)
@@ -412,11 +413,11 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path === '/api/image' && M === 'POST') { const job = imageGen(req, env, u); ctx.waitUntil(job.catch(() => {})); return await job; } // ปิดหน้าระหว่างรอ: ยังสร้างเสร็จและคิดเงิน (ผู้ให้บริการคิดเงินเราแล้ว)
   if ((r = path.match(/^\/api\/img\/(\d+)\/([\w-]+)\.(png|jpg)$/))) {
     if (+r[1] !== u.id && u.role !== 'admin') return err('not found', 404);
-    const o = env.SLIPS && await env.SLIPS.get(`img/${r[1]}/${r[2]}.${r[3]}`), cc = { 'cache-control': 'private, max-age=31536000' };
+    const o = env.SLIPS && await env.SLIPS.get(`img/${r[1]}/${r[2]}.${r[3]}`), cc = { 'cache-control': 'private, max-age=31536000', 'content-security-policy': "default-src 'none'; sandbox", 'x-content-type-options': 'nosniff' }; // รูปเปิดตรงๆ ไม่รันสคริปต์ (เช่น SVG)
     if (o) return new Response(o.body, { headers: { 'content-type': 'image/' + (r[3] === 'jpg' ? 'jpeg' : 'png'), ...cc } });
     await ensureImgTable(env);
     const rows = (await DB.prepare('SELECT mime,data FROM chat_images WHERE key=? AND user_id=? ORDER BY n').bind(r[2], +r[1]).all()).results;
-    return rows.length ? new Response(unb64(rows.map(x => x.data).join('')), { headers: { 'content-type': rows[0].mime, ...cc } }) : err('not found', 404);
+    return rows.length ? new Response(unb64(rows.map(x => x.data).join('')), { headers: { 'content-type': /^image\/(png|jpeg|webp|gif)$/.test(rows[0].mime) ? rows[0].mime : 'application/octet-stream', ...cc } }) : err('not found', 404);
   }
   if (path === '/api/team') {
     const tm = await DB.prepare('SELECT t.*, tm.role, p.name plan_name, p.limit_week, p.price plan_price, p.id pid FROM team_members tm JOIN teams t ON t.id=tm.team_id LEFT JOIN plans p ON p.id=t.plan_id WHERE tm.user_id=? ORDER BY t.expires DESC LIMIT 1').bind(u.id).first();
@@ -662,14 +663,21 @@ export async function oauth(req, env, url, path) {
   if (who === 'line') info = await (await fetch('https://api.line.me/oauth2/v2.1/verify', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ id_token: tk.id_token, client_id: cfg.id }) })).json();
   else info = JSON.parse(atob(tk.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
   if (!info?.sub) return fail('ล็อกอินไม่สำเร็จ');
-  const col = who === 'google' ? 'google_id' : 'line_id', email = info.email && (who === 'line' || info.email_verified) ? String(info.email).toLowerCase() : null;
+  // อีเมลจาก LINE ไม่มีสถานะ "ยืนยันแล้ว": ใช้ตั้งบัญชีใหม่ได้ แต่ห้ามใช้ผูกเข้าบัญชีเดิม (กันคนตั้งอีเมลคนอื่นใน LINE แล้วยึดบัญชี)
+  const col = who === 'google' ? 'google_id' : 'line_id', email = info.email && (who === 'line' || info.email_verified) ? String(info.email).toLowerCase() : null, verified = who === 'google' && !!email;
   let u = await env.DB.prepare(`SELECT * FROM users WHERE ${col}=?`).bind(info.sub).first();
-  if (!u && email) { u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first(); if (u) await env.DB.prepare(`UPDATE users SET ${col}=?, email_verified=1 WHERE id=?`).bind(info.sub, u.id).run(); }
+  const cur = !u && who === 'line' && await getUser(req, env).catch(() => null); // ล็อกอินอยู่แล้วกด "เชื่อม LINE" ที่หน้าบัญชี: ผูกกับบัญชีที่ใช้อยู่ (Google ใช้อีเมลที่ยืนยันแล้วผูกเองอยู่แล้ว)
+  if (cur && !cur[col] && !cur.banned) { await env.DB.prepare(`UPDATE users SET ${col}=? WHERE id=?`).bind(info.sub, cur.id).run(); return Response.redirect(`${base}/account#sec-security`, 302); }
+  if (!u && email) {
+    const ex = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first();
+    if (ex && !verified) return fail('อีเมลนี้มีบัญชีอยู่แล้ว เข้าสู่ระบบด้วยวิธีเดิม แล้วกด "เชื่อม LINE" ที่หน้าบัญชี');
+    if (ex) { u = ex; await env.DB.prepare(`UPDATE users SET ${col}=?, email_verified=1${ex.email_verified ? '' : ', line_id=NULL'} WHERE id=?`).bind(info.sub, u.id).run(); } // เจ้าของอีเมลตัวจริงมาแล้ว: ตัด LINE ที่ผูกไว้ตอนอีเมลยังไม่ยืนยันออก
+  }
   if (!u) {
     if (await limited(env, 'reg:' + ip(req, env), 3, DAY)) return fail('สมัครจากเครือข่ายนี้บ่อยเกินไป');
     const by = ref && await env.DB.prepare('SELECT id FROM users WHERE ref_code=?').bind(ref.toUpperCase()).first();
     u = await env.DB.prepare(`INSERT INTO users (email,pass_hash,role,created_at,ref_code,referred_by,${col},email_verified,has_password) VALUES (?,?,?,?,?,?,?,?,0) RETURNING *`)
-      .bind(email || `${who}-${info.sub}@users.local`, 'x', 'user', Date.now(), rand(4).toUpperCase(), by?.id || null, info.sub, email ? 1 : 0).first();
+      .bind(email || `${who}-${info.sub}@users.local`, 'x', 'user', Date.now(), rand(4).toUpperCase(), by?.id || null, info.sub, verified ? 1 : 0).first();
   }
   if (u.banned) return fail('บัญชีนี้ถูกระงับ');
   if (u.totp_on) return Response.redirect(`${base}/login?mfa=${await newToken(env, u.id, 'mfa', 600e3)}`, 302);

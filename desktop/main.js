@@ -29,7 +29,7 @@ function openWeb() {
   const keep = () => { if (!web.isMinimized()) settings.bounds = { ...(web.isMaximized() ? settings.bounds : web.getNormalBounds()), max: web.isMaximized() }; };
   web.on('resize', keep); web.on('move', keep);
   web.on('close', e => { keep(); save(); if (!quitting && tray) { e.preventDefault(); web.hide(); if (!settings.trayTold) { settings.trayTold = true; save(); tray.displayBalloon?.({ title: 'AstraCode ยังทำงานอยู่', content: 'แอปย่ออยู่ที่ถาดมุมขวาล่าง คลิกขวาที่ไอคอน → ออก เพื่อปิดจริง' }); } } });
-  const inApp = u => { try { const x = new URL(u); return x.protocol === 'https:' && AUTH_HOSTS.test(x.hostname); } catch { return false; } };
+  const inApp = u => { try { const x = new URL(u); return x.protocol === 'https:' && AUTH_HOSTS.test(x.hostname) && !(x.origin === SITE && USER_CONTENT.test(x.pathname)); } catch { return false; } }; // หน้าเนื้อหาผู้ใช้เปิดในเบราว์เซอร์ภายนอก
   web.webContents.on('will-navigate', (e, u) => { if (!inApp(u) && !u.startsWith('data:text/html')) { e.preventDefault(); if (/^https?:\/\//.test(u)) shell.openExternal(u); } });
   web.webContents.setWindowOpenHandler(({ url }) => { if (inApp(url)) return { action: 'allow' }; if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; }); // ป๊อปอัปล็อกอิน Google ให้เปิดในแอป
   web.webContents.on('did-fail-load', (e, code, desc, url, main) => { if (main && code !== -3 && !url.startsWith('data:')) web.loadURL(OFFLINE); });
@@ -68,7 +68,9 @@ function makeTray() {
 const deepPath = argv => { const u = argv.find(a => /^astracode:\/\//i.test(a)); if (!u) return null; try { const p = new URL(u).searchParams.get('path') || '/chat'; return /^\/(?!\/)[\w\-./?=&%]*$/.test(p) ? p : '/chat'; } catch { return '/chat'; } };
 
 // ทุกช่องทางที่หน้าเว็บเรียกได้ต้องมาจาก astracode.panderx.xyz เท่านั้น (หน้าล็อกอิน Google/LINE ที่เปิดในหน้าต่างเดียวกันเรียกไม่ได้)
-const fromSite = e => { try { return new URL(e.senderFrame?.url || '').origin === SITE; } catch { return false; } };
+// หน้าที่แสดงเนื้อหาของผู้ใช้ (Artifact ที่แชร์, พรีวิวโค้ด, เทอร์มินัล Node, ไฟล์ที่แชร์เข้ามา) อยู่โดเมนเดียวกันแต่เป็น sandbox: ห้ามเรียกสะพานเด็ดขาด
+const USER_CONTENT = /^\/(a\/|preview(\.html)?$|node-runner(\.html)?$|pyworker\.js$|api\/(shared|img|artifacts|files|cowork|a)\/)/; // ไม่รวม /api/oauth (ล็อกอิน Google/LINE ต้องอยู่ในหน้าต่างแอป)
+const fromSite = e => { try { const u = new URL(e.senderFrame?.url || ''); return u.origin === SITE && !USER_CONTENT.test(u.pathname) && e.senderFrame === e.sender.mainFrame; } catch { return false; } };
 const h = (ch, fn) => ipcMain.handle(ch, (e, ...a) => { if (!fromSite(e)) throw new Error('ไม่อนุญาต'); return fn(e, ...a); });
 
 // โฟลเดอร์ในเครื่อง: เว็บอ้างถึงด้วยชื่อช่อง (p:<id โปรเจกต์> หรือ chat) ไม่เคยส่งพาธเต็มมาเอง · ผู้ใช้เลือกโฟลเดอร์ผ่านหน้าต่างของ Windows เท่านั้น

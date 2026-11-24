@@ -599,7 +599,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { cc: ccM, mc: mcM, u, plan, m, hist, cid, pid, effort, images, overflow, lock, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, task: !pid && !!(b.task || chatRow?.task), agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
+  const J = { cc: ccM, mc: mcM, u, plan, m, hist, cid, pid, effort, images, overflow, lock, eph: ephemeral, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, task: !pid && !!(b.task || chatRow?.task), agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -701,7 +701,17 @@ export async function runChat(env, J, send, st) {
     let part = '', ru = null;
     const tcs = new Map(), anthIdx = new Map();
     const fit = fitContext(system, msgs, ctxMax(model)); msgs = fit.msgs; ctxUsed = fit.used; if (fit.trimmed && !trimmedSent) { trimmedSent = true; await send({ trimmed: true }); } // ไม่ส่งเกิน context ของโมเดล (upstream จะ error)
-    let toolsSent = false;
+    let toolsSent = false, wMax; // wMax = เพดาน output ของรอบนี้เมื่อจ่ายจาก Wallet
+    if (overflow) { // จ่ายจาก Wallet (ตัดเงินหลังตอบ): คำตอบนี้ทุกรอบรวมกันใช้ได้ไม่เกินยอดที่มี · โหมดเทียบ 3 ช่องแบ่งยอดกัน · เดิมเช็กแค่ยอด ≥ ฿1 → ส่ง context ยาวไปโมเดลแพงแล้วยอดติดลบหนัก
+      const pr = await priceOf(env, model), budget = Math.max(0, +u.balance || 0) / (J.eph ? 3 : 1);
+      const spent = usage ? (pr.req > 0 ? pr.req : (usage.fresh * pr.in + usage.read * pr.cache + usage.write * pr.write + usage.out * pr.out) / 1e6) : 0;
+      const room = pr.req > 0 ? (round ? 1 : budget - pr.req) : budget - spent - fit.used * pr.in / 1e6; // ประมาณ input ด้วยราคาเต็ม (ไม่หัก cache) เผื่อไว้
+      if (room < 0 || (!(pr.req > 0) && room * 1e6 / Math.max(pr.out, 1e-9) < 64)) {
+        if (!round) await send({ error: `ยอดเงินใน Wallet ไม่พอสำหรับข้อความนี้ (ประมาณ ฿${Math.max(0.01, budget - room).toFixed(2)} · มี ฿${budget.toFixed(2)}) เติมเงิน ย่อแชต หรือเลือกโมเดลที่ถูกกว่า` });
+        break;
+      }
+      if (!(pr.req > 0)) wMax = Math.max(64, Math.floor(room * 1e6 / Math.max(pr.out, 1e-9)));
+    }
     for (let attempt = 0; attempt < 2; attempt++) {
       // นาฬิกาเฝ้าโมเดล: ไม่มีข้อความ/ความคิดตัวแรกภายใน 90 วิ (effort สูงสุด 150 วิ) หรือเงียบเกิน 60 วิกลางทาง = ตัดการเชื่อมต่อ แล้วใช้ทางสลับโมเดลสำรอง/แจ้งข้อผิดพลาด แทนที่ผู้ใช้จะรอไม่จบ
       const ac = new AbortController(); let stalled = 0, wd; st.abort = () => ac.abort(); // ปุ่มหยุด: ตัดการเชื่อมต่อกับโมเดลทันที (เดิมรอจนโมเดลส่งข้อความถัดไป)
@@ -710,7 +720,7 @@ export async function runChat(env, J, send, st) {
       arm(firstMs); let stopR = '', rawT = '';
       try {
         const tl = toolsNow(); toolsSent = tl.length > 0;
-        for await (const e of callModel(env, model, msgs, { effort, cacheTtl: '1h', images: imgs, system: sysNow(), tools: tl.length ? tl : undefined, userId: u.id, signal: ac.signal, imageOpts: J.img_size ? { size: J.img_size } : {} })) {
+        for await (const e of callModel(env, model, msgs, { effort, cacheTtl: '1h', images: imgs, system: sysNow(), tools: tl.length ? tl : undefined, userId: u.id, signal: ac.signal, maxTokens: wMax, imageOpts: J.img_size ? { size: J.img_size } : {} })) {
           arm(idleMs);
           if (st.gone) break;
           if (Date.now() - beat > 15e3) { beat = Date.now(); await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(beat + LOCK_MS, lock).run(); }

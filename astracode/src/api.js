@@ -64,9 +64,12 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, k.id).first()) return fail('ไม่พบแชต', 404);
       await ensureRemote(env);
       const row = await env.DB.prepare('SELECT events,answer,inbox FROM agent_remote WHERE chat_id=?').bind(cid).first();
-      const ev = [...(row ? JSON.parse(row.events || '[]') : []), ...(Array.isArray(b.events) ? b.events.slice(0, 200) : [])].slice(-300);
-      await env.DB.prepare('INSERT OR REPLACE INTO agent_remote (chat_id,user_id,events,ask,answer,inbox,running,updated_at) VALUES (?,?,?,?,NULL,NULL,?,?)').bind(cid, k.id, JSON.stringify(ev).slice(-400000), b.ask ? JSON.stringify(b.ask).slice(0, 5000) : null, b.running ? 1 : 0, Date.now()).run();
-      return out({ answer: row?.answer ? JSON.parse(row.answer) : null, inbox: row?.inbox ? JSON.parse(row.inbox) : [] });
+      const parse = (t, d) => { try { return JSON.parse(t) ?? d; } catch { return d; } }; // แถวเก่าที่ JSON พัง (บั๊กตัดสตริงเดิม) ไม่ทำให้แชตนี้ error ถาวร
+      const ev = [...(row ? parse(row.events || '[]', []) : []), ...(Array.isArray(b.events) ? b.events.slice(0, 200) : [])].slice(-300);
+      let evJson = JSON.stringify(ev); // เกิน 400KB: ทิ้งเหตุการณ์เก่าสุดทีละชุด (เดิมตัดท้ายสตริง JSON → อ่านกลับไม่ได้)
+      while (evJson.length > 400000 && ev.length) { ev.splice(0, Math.max(1, Math.ceil(ev.length / 10))); evJson = JSON.stringify(ev); }
+      await env.DB.prepare('INSERT OR REPLACE INTO agent_remote (chat_id,user_id,events,ask,answer,inbox,running,updated_at) VALUES (?,?,?,?,NULL,NULL,?,?)').bind(cid, k.id, evJson, b.ask ? JSON.stringify(b.ask).slice(0, 5000) : null, b.running ? 1 : 0, Date.now()).run();
+      return out({ answer: row?.answer ? parse(row.answer, null) : null, inbox: row?.inbox ? parse(row.inbox, []) : [] });
     }
     // สถิติ Agent ในแอป Desktop (ไม่มีเนื้อหางาน): สำเร็จไหม กี่รอบ ใช้เงินเท่าไร → หลังบ้านเลือกโมเดลเริ่มต้นจากข้อมูลจริง
     if (path === '/v1/agent/stat' && req.method === 'POST') {

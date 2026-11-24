@@ -235,7 +235,7 @@ function lintText(path, src) {
   if (ext === 'json') { try { JSON.parse(src); } catch (e) { const m = /position (\d+)/.exec(e.message), l = /line (\d+)/.exec(e.message); out.push({ line: l ? +l[1] : m ? lineAt(src, +m[1]) : jsonLine(src), msg: 'JSON ไม่ถูกต้อง: ' + e.message.split(', "')[0].slice(0, 100) }); } }
   if (/^(m?js|cjs)$/.test(ext)) { // ตรวจไวยากรณ์ด้วยตัวแปลภาษาของเบราว์เซอร์ (ไม่รันโค้ด) · บรรทัด import/export ถูกเว้นไว้เพราะ Function() ไม่รับ
     const body = src.split('\n').map(l => { const x = l.trimStart(); return /^import\s+[^(]/.test(x) || /^export\s*(\{|\*)/.test(x) ? '' : l.replace(/^(\s*)export\s+(default\s+)?/, '$1'); }).join('\n');
-    try { new Function(body); } catch (e) { if (!/await is only valid|import\.meta|Cannot use import/.test(e.message)) out.push({ line: guessLine(body), msg: 'JavaScript: ' + e.message.slice(0, 140) }); }
+    const bad = jsSyntaxLine(body); if (bad) out.push({ line: bad, msg: 'JavaScript: ไวยากรณ์ไม่ถูกต้อง (syntax error)' });
   }
   if (/^html?$/.test(ext)) { // แท็กเปิด-ปิดไม่ครบ (ข้าม void tag / script / style / comment)
     const VOID = /^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr|!doctype)$/i, OPT = /^(p|li|td|th|tr|option|html|head|body|tbody|thead|dt|dd)$/, stack = [];
@@ -253,10 +253,18 @@ function jsonLine(src) { // ข้อความ error ของ JSON ไม่
   for (let n = 1; n <= lines.length; n++) { const pre = lines.slice(0, n).join('\n'); try { JSON.parse(pre); } catch (e) { const pos = /position (\d+)/.exec(e.message); if (!(/end of|Unterminated string/i.test(e.message) || (pos && +pos[1] >= pre.trimEnd().length))) return n; } }
   return lines.length;
 }
-function guessLine(src) { // หาบรรทัดแรกที่พัง: แปลทีละบรรทัดเพิ่มขึ้น · "จบไฟล์ก่อนเวลา" = ยังพิมพ์ไม่ครบ ข้ามไป
+// ตรวจไวยากรณ์ JS ด้วยตัวแยกคำของ CodeMirror (lezer) ไม่ใช้ new Function: หน้าเว็บบังคับ CSP ห้าม eval · คืนเลขบรรทัดแรกที่พัง หรือ 0
+function jsSyntaxLine(src) {
+  let parser; try { const l = CM.lang('x.js'); parser = (Array.isArray(l) ? l[0] : l).language.parser; } catch { return 0; }
+  const errsOf = t => { const e = []; parser.parse(t).iterate({ enter: n => { if (n.type.isError) e.push(n.from); } }); return e; };
+  const all = errsOf(src); if (!all.length) return 0;
   const lines = src.split('\n'); if (lines.length > 3000) return 1;
-  for (let n = 1; n <= lines.length; n++) { try { new Function(lines.slice(0, n).join('\n')); } catch (e) { if (!/end of input|Unterminated template|missing \} after/i.test(e.message)) return n; } }
-  return lines.length;
+  for (let n = 1; n <= lines.length; n++) { // พิมพ์ถึงบรรทัด n แล้วพังก่อนท้ายข้อความ = พังที่บรรทัดนี้ (พังตรงท้าย = แค่ยังพิมพ์ไม่ครบ)
+    const pre = lines.slice(0, n).join('\n'), end = pre.trimEnd().length;
+    if (errsOf(pre).some(x => x < end)) return n;
+  }
+  let last = lines.length; while (last > 1 && !lines[last - 1].trim()) last--; // พังที่ท้ายไฟล์: ชี้บรรทัดสุดท้ายที่มีเนื้อหา
+  return last;
 }
 let lintT = 0;
 function lintSoon(path, ms = 700) {

@@ -12,7 +12,7 @@ PAGES.developers = async () => {
   const planMs = cms.filter(m => !m.wallet), pick0 = (planMs.find(m => /sonnet 5\.5 eco/i.test(m.name)) || planMs[0] || cms[0])?.slug || first;
   let tab = me ? 'keys' : 'connect', ctool = 'Codex', cmodel = pick0, cos = /Win/i.test(navigator.platform || navigator.userAgent) ? 'win' : 'unix', setupRes = null;
   const canUse = !!me && (me.plan.paid || me.balance >= 1);
-  const fld = (label, val, id = '') => `<label>${label}</label><div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(val)}" ${id ? `id="${id}"` : ''} onclick="this.select()"><button type="button" class="btn out sm" data-cp="${esc(val)}">Copy</button></div>`;
+  const fld = (label, val, id = '') => `<label>${label}</label><div class="row" style="flex-wrap:nowrap"><input readonly value="${esc(val)}" ${id ? `id="${id}"` : ''} data-select><button type="button" class="btn out sm" data-cp="${esc(val)}">Copy</button></div>`;
   const TOOLS = { // วิธีใส่ค่าในแต่ละโปรแกรม: k = key (หรือ placeholder), m = model id
     'Cline / Roo': (k, m) => ['ตั้งค่าใน VS Code', `API Provider: OpenAI Compatible\nBase URL: ${base}\nAPI Key: ${k}\nModel ID: ${m}`],
     'Cursor': (k, m) => ['Settings → Models', `เปิด "Override OpenAI Base URL" ใส่: ${base}\nOpenAI API Key: ${k}\nกด "+ Add model" ใส่: ${m}`],

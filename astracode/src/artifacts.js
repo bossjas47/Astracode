@@ -1,6 +1,7 @@
 // Artifact: หน้าเว็บ (HTML+JS) ที่ AI สร้างในแชต · เก็บทุกเวอร์ชัน · เป็นส่วนตัวจนกว่าเจ้าของกดแชร์
 // ความปลอดภัย: หน้าที่แชร์ส่งพร้อม CSP sandbox (origin ทึบ อ่าน cookie / เรียก API ในชื่อผู้ใช้ไม่ได้) และ noindex
 import { err, esc, json, limited, planOf, rand } from './core.js';
+import { notify } from './billing.js';
 
 export const ART_MAX = 2e6, ART_VERS = 30, ART_SHARES = 20, ART_REPORT_OFF = 5;
 export const artPaid = plan => plan?.price > 0 && !plan.once; // แพลนทดลอง (once) และฟรีใช้ไม่ได้
@@ -85,7 +86,8 @@ export async function artReport(env, token, who) {
   if (await limited(env, 'artrep:' + who, 10, 3600e3)) return err('รายงานถี่เกินไป', 429);
   const a = await env.DB.prepare('UPDATE artifacts SET reports=reports+1 WHERE share_token=? RETURNING id, reports').bind(token).first();
   if (!a) return err('ไม่พบหน้านี้', 404);
-  if (a.reports >= ART_REPORT_OFF) await env.DB.prepare('UPDATE artifacts SET share_token=NULL WHERE id=?').bind(a.id).run(); // ถูกรายงานหลายครั้ง: ปิดลิงก์อัตโนมัติ
+  // ถูกรายงานถึงเกณฑ์: แจ้งแอดมินให้ตัดสิน (ปิดลิงก์ได้ที่หลังบ้าน) · ไม่ปิดเอง เพราะคนที่มีหลาย IP กดรายงานปิดลิงก์ของคนอื่นได้ · แกลเลอรีซ่อนเองตั้งแต่ 2 รายงานอยู่แล้ว
+  if (a.reports === ART_REPORT_OFF) await notify(env, `🚩 Artifact #${a.id} ถูกรายงาน ${a.reports} ครั้ง · หลังบ้าน → Artifact (ปิดลิงก์ได้ที่นั่น)`).catch(() => {});
   return json({ ok: true });
 }
 

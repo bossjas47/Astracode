@@ -31,12 +31,13 @@ async function pricingBody(env) {
       env.DB.prepare('SELECT id,name,price,limit_week,compare,seats,once FROM plans WHERE active=1 ORDER BY sort').all(),
       env.DB.prepare('SELECT * FROM plan_models').all(),
     ]);
-    let official = {}; try { official = JSON.parse(await getSetting(env, 'official_prices') || '{}') || {}; } catch { /* ค่าเสีย ไม่แสดงเทียบ */ }
+    const st = await getSettings(env, ['official_prices', 'price_note', 'price_markup']), mk = st.price_markup; // ค่าตั้งอ่านครั้งเดียว (เดิม priceOf อ่าน price_markup ซ้ำ 2 ครั้งต่อโมเดล)
+    let official = {}; try { official = JSON.parse(st.official_prices || '{}') || {}; } catch { /* ค่าเสีย ไม่แสดงเทียบ */ }
     return {
-      note: await getSetting(env, 'price_note'),
+      note: st.price_note,
       plans: ps.results.map(({ limit_week, ...p }) => ({ ...p, limit_week: limit_week > 0 ? 1 : 0 })), // ส่งเฉพาะสถานะว่ามีลิมิตหรือไม่ (ไม่เปิดเผยงบต้นทุนจริงเป็นบาท)
       models: await Promise.all(ms.results.map(async m => {
-        const p = await priceOf(env, m), b = await priceOf(env, m, true), on = promoOn(m);
+        const p = await priceOf(env, m, false, mk), b = await priceOf(env, m, true, mk), on = promoOn(m);
         return { id: m.id, name: m.name, provider: m.provider, vision: !!m.vision, effort: m.effort !== 'none', multiplier: m.multiplier, lim: limMult(m), note: m.note,
           in: p.in, out: p.out, cache: p.cache, cache_write: p.write, req: p.req || null, promo: on ? { pct: m.promo_pct, start: m.promo_start, end: m.promo_end, in: b.in, out: b.out, cache: b.cache, cache_write: b.write } : null,
           long: m.long_k > 0 ? { k: m.long_k, in: m.long_in > 0 ? m.long_in : 2, out: m.long_out > 0 ? m.long_out : 1.5 } : null, // ราคาขั้นที่ 2 เมื่อ context ยาว
@@ -98,7 +99,7 @@ export default {
       if (clean) return new Response(null, { status: 301, headers: { location: clean + url.search } }); // Location แบบ relative: ผ่าน Vercel แล้วไม่หลุดไปโดเมน workers.dev
       const res = await env.ASSETS.fetch(path === '/' ? new Request(new URL('/home', req.url), req) : req);
       if (res.status === 404 && M === 'GET') return secure(new Response((await env.ASSETS.fetch(new Request(new URL('/404.html', req.url), req))).body, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } })); // หน้าไม่มีจริง: แสดงหน้าแรก
-      return secure(versioned(res, path, url, env), true); // คง report-only ไว้ก่อนจนกว่าจะตรวจคอนโซลทุกหน้าครบ (กันบล็อกลูกค้าบนโปรดักชัน)
+      return secure(versioned(res, path, url, env)); // บังคับใช้ CSP จริง (เดิม report-only): XSS ในหน้าเว็บ + สะพานแอป Desktop = รันคำสั่งในเครื่องผู้ใช้ได้
     }
     if (M !== 'GET' && M !== 'HEAD') {
       const o = req.headers.get('origin'); // กัน CSRF: รับคำขอแก้ข้อมูลจากเว็บตัวเองเท่านั้น
@@ -111,8 +112,9 @@ export default {
   scheduled(ev, env, ctx) { ctx.waitUntil(cron(env)); }, // Cron Trigger: ทุกชั่วโมง
 };
 
-// cdn.jsdelivr.net: ตัวอ่าน PDF/Word/Excel (ล็อกเวอร์ชัน + SRI ใน app.js)
-export const CSP = "default-src 'self'; script-src 'self' 'inline-speculation-rules' https://cdn.jsdelivr.net https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src 'self' https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https://promptpay.io; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+// cdn.jsdelivr.net: เฉพาะแพ็กเกจ+เวอร์ชันที่ใช้จริง (app.js / account.js / code.js · ล็อก SRI ด้วย) ไม่เปิดทั้งโดเมน เพราะใครก็อัปไฟล์ขึ้น npm/GitHub แล้วโหลดผ่าน jsdelivr ได้
+export const JSDELIVR = ['pdfjs-dist@3.11.174', 'mammoth@1.8.0', 'jszip@3.10.1', 'xlsx@0.18.5', 'xlsx-js-style@1.2.0', 'pptxgenjs@3.12.0', 'html2pdf.js@0.10.2', 'docx@8.5.0', 'katex@0.16.11', 'mermaid@10.9.3', 'qrcode-generator@1.4.4', 'prettier@3.3.3'].map(p => `https://cdn.jsdelivr.net/npm/${p}/`).join(' ');
+export const CSP = `default-src 'self'; script-src 'self' 'inline-speculation-rules' ${JSDELIVR} https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src 'self' https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`;
 // หน้าแสดงผลโค้ดของผู้ใช้: รันใน iframe sandbox (origin แยก อ่าน cookie / เรียก API ในชื่อผู้ใช้ไม่ได้)
 export function sandboxed(res, path) {
   const r = new Response(res.body, res), h = r.headers;
@@ -262,22 +264,25 @@ export async function route(req, env, ctx, url, path, M) {
       if ((r = path.match(/^\/api\/sessions\/([a-f0-9]{16})$/)) && M === 'DELETE') {
         await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND substr(token,1,16)=? AND token<>?').bind(u.id, r[1], u.sid).run(); return json({ ok: true });
       }
-      if (path === '/api/logout') {
+      if (path === '/api/logout' && M === 'POST') { // POST เท่านั้น: GET ถูกเว็บอื่นสั่งให้ออกจากระบบได้ (คุกกี้ Lax ติดไปกับลิงก์)
         await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(u.sid).run();
         return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
       }
       if (path === '/api/me') {
         await autoJoinTeam(env, u).catch(() => null); // อีเมลโดเมนบริษัท: เข้าทีมเอง
         const plan = await planOf(env, u);
-        const mcList = await import('./credits.js').then(C => C.modelCredits(env, u.id)).catch(() => []), mcLeft = new Map(); // เครดิตเฉพาะโมเดล
+        const yearAsk = plan.price > 0 && !plan._team && u.plan_period !== 'year' && plan.price_year > 0 && plan.price * 12 > plan.price_year;
+        // ทุกอย่างที่ไม่ขึ้นต่อกันยิงพร้อมกัน (เดิมเครดิตโมเดล, ข้อเสนอทดลอง, เครดิต Claude, นับการต่ออายุ, โมเดล Wallet รอทีละอัน = หลายรอบไป-กลับ D1 ทุกหน้า)
+        const [mcList, usage, credits, models, pay, trial, cc, paidN, walletList] = await Promise.all([import('./credits.js').then(C => C.modelCredits(env, u.id)).catch(() => []), usageStatus(env, u, plan), creditList(env, u.id), cachedModels(env, plan.id), getSettings(env, ['promptpay_id', 'bank_name', 'bank_account', 'bank_holder']),
+          trialOffer(env, u.id).catch(() => null), claudeCreditLeft(env, u.id).catch(() => null), yearAsk ? env.DB.prepare("SELECT COUNT(*) n FROM payments WHERE user_id=? AND plan_id=? AND status='approved' AND kind='plan'").bind(u.id, plan.id).first().then(r => r.n) : 0, cachedModels(env, 'wallet')]);
+        const mcLeft = new Map(); // เครดิตเฉพาะโมเดล
         for (const c of mcList) if (c.active) for (const id of c.models) mcLeft.set(id, (mcLeft.get(id) || 0) + c.left);
-        const [usage, credits, models, pay] = await Promise.all([usageStatus(env, u, plan), creditList(env, u.id), cachedModels(env, plan.id), getSettings(env, ['promptpay_id', 'bank_name', 'bank_account', 'bank_holder'])]); // ยิงพร้อมกัน ไม่ต่อคิวทีละอัน
         return json({
-          email: u.email, role: u.role, trial_offer: await trialOffer(env, u.id).catch(() => null), claude_credit: await claudeCreditLeft(env, u.id).then(c => c.left > 0 ? { left: Math.round(c.left * 100) / 100, usd: Math.round(c.left * CC.usdPerBaht), exp: c.exp, first: u.cc_first === 1 } : null).catch(() => null), plan: { id: plan.id, name: plan.name, free_models: freeIds(plan), free_cap: FREE_DAY_CAP, paid: plan.price > 0, artifacts: artPaid(plan), cowork: !!plan.cowork, agent: !!plan.agent, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
-          upsell_year: plan.price > 0 && !plan._team && u.plan_period !== 'year' && plan.price_year > 0 && plan.price * 12 > plan.price_year && (await env.DB.prepare("SELECT COUNT(*) n FROM payments WHERE user_id=? AND plan_id=? AND status='approved' AND kind='plan'").bind(u.id, plan.id).first()).n >= 2 ? { save: Math.round(plan.price * 12 - plan.price_year), price_year: plan.price_year, plan_id: plan.id } : null, // ต่อรายเดือนมาแล้ว 2 ครั้ง: ชวนเปลี่ยนเป็นรายปี
+          email: u.email, role: u.role, trial_offer: trial, claude_credit: cc?.left > 0 ? { left: Math.round(cc.left * 100) / 100, usd: Math.round(cc.left * CC.usdPerBaht), exp: cc.exp, first: u.cc_first === 1 } : null, plan: { id: plan.id, name: plan.name, free_models: freeIds(plan), free_cap: FREE_DAY_CAP, paid: plan.price > 0, artifacts: artPaid(plan), cowork: !!plan.cowork, agent: !!plan.agent, api_limit: !!plan.api_limit, expires: plan._team ? plan._team.expires : (plan.price > 0 ? u.plan_expires : null), period: u.plan_period, team: plan._team ? { id: plan._team.id, name: plan._team.name, role: plan._team.role, max_seats: plan._team.max_seats, shared_pool: plan._team.shared_pool } : null },
+          upsell_year: yearAsk && paidN >= 2 ? { save: Math.round(plan.price * 12 - plan.price_year), price_year: plan.price_year, plan_id: plan.id } : null, // ต่อรายเดือนมาแล้ว 2 ครั้ง: ชวนเปลี่ยนเป็นรายปี
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, webhook_url: u.webhook_url || '', auto_compact: u.auto_compact !== 0, auto_memory: u.auto_memory ? 1 : 0, digest: !u.digest_off, wallet_overflow: !!u.wallet_overflow, wallet_day_cap: u.wallet_day_cap || null, auto_renew: !!u.auto_renew,
-          usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, model_credits: mcList.filter(c => c.active).map(({ names, left, expires_at, models: ids }) => ({ names, left, expires_at, models: ids })), models: [...models, ...(await cachedModels(env, 'wallet')).filter(w => !models.some(x => x.id === w.id)).map(w => ({ ...w, wallet: !mcLeft.has(w.id), locked: !mcLeft.has(w.id) && !(u.balance >= WALLET_MIN) }))].map(({ cost_in, cost_out, cost_cache, ...m }) => mcLeft.has(m.id) ? { ...m, mcredit: Math.round(mcLeft.get(m.id) * 100) / 100 } : m), // มียอด Wallet: ใช้ได้ทุกโมเดล โมเดลนอกแพลนตัดเงินตามราคาขาย
+          usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, model_credits: mcList.filter(c => c.active).map(({ names, left, expires_at, models: ids }) => ({ names, left, expires_at, models: ids })), models: [...models, ...walletList.filter(w => !models.some(x => x.id === w.id)).map(w => ({ ...w, wallet: !mcLeft.has(w.id), locked: !mcLeft.has(w.id) && !(u.balance >= WALLET_MIN) }))].map(({ cost_in, cost_out, cost_cache, ...m }) => mcLeft.has(m.id) ? { ...m, mcredit: Math.round(mcLeft.get(m.id) * 100) / 100 } : m), // มียอด Wallet: ใช้ได้ทุกโมเดล โมเดลนอกแพลนตัดเงินตามราคาขาย
           promptpay_id: pay.promptpay_id, pay_info: { bank_name: pay.bank_name, bank_account: pay.bank_account, bank_holder: pay.bank_holder },
         });
       }
@@ -316,7 +321,7 @@ export async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/chats') {
         const pj = url.searchParams.get('project');
-        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,instructions,task,EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=chats.id AND m.content LIKE '%\`\`\`%') has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
+        return json((await env.DB.prepare(`SELECT id,title,folder_id,pinned,share_token,instructions,task,COALESCE(has_code,0) has_code FROM chats WHERE user_id=? AND deleted_at IS NULL AND COALESCE(archived,0)=0 AND ${pj ? 'project_id=?' : 'project_id IS NULL'} ORDER BY pinned DESC, id DESC LIMIT 100`).bind(...(pj ? [u.id, pj] : [u.id])).all()).results);
       }
       if (path.startsWith('/api/projects')) return await projects(req, env, u, path, url);
       if (path === '/api/github/repos' && M === 'GET') { // repo ของผู้ใช้ (ล่าสุดก่อน) ให้เลือกแตะเดียวตอนเข้าหน้า Code ครั้งแรก
@@ -337,10 +342,12 @@ export async function route(req, env, ctx, url, path, M) {
         if (!await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(r[1], u.id).first()) return err('ไม่พบแชต', 404);
         const rows = (await env.DB.prepare("SELECT model_id, COUNT(*) n, COALESCE(SUM(tin),0) tin, COALESCE(SUM(tout),0) tout FROM messages WHERE chat_id=? AND role='assistant' GROUP BY model_id").bind(r[1]).all()).results;
         let baht = 0, tin = 0, tout = 0, replies = 0;
+        const ids = [...new Set(rows.map(x => x.model_id).filter(Boolean))]; // โมเดลทั้งหมด + ส่วนบวกราคา อ่านครั้งเดียว (เดิมถามทีละแถว)
+        const [ms, markup] = await Promise.all([ids.length ? env.DB.prepare(`SELECT * FROM models WHERE id IN (${ids.map(() => '?')})`).bind(...ids).all().then(r => new Map(r.results.map(m => [m.id, m]))) : new Map(), getSetting(env, 'price_markup')]);
         for (const x of rows) {
           tin += x.tin; tout += x.tout; replies += x.n;
-          const m = x.model_id && await env.DB.prepare('SELECT * FROM models WHERE id=?').bind(x.model_id).first(); if (!m) continue;
-          const pr = await priceOf(env, m); baht += pr.req > 0 ? pr.req * x.n : (x.tin * pr.in + x.tout * pr.out) / 1e6; // shortcut: ไม่นับ cache hit/write จึงเป็นค่าประมาณสูงกว่าจริงเล็กน้อย
+          const m = ms.get(x.model_id); if (!m) continue;
+          const pr = await priceOf(env, m, false, markup); baht += pr.req > 0 ? pr.req * x.n : (x.tin * pr.in + x.tout * pr.out) / 1e6; // shortcut: ไม่นับ cache hit/write จึงเป็นค่าประมาณสูงกว่าจริงเล็กน้อย
         }
         return json({ replies, tin, tout, baht: Math.round(baht * 10000) / 10000 });
       }
@@ -408,7 +415,9 @@ export async function route(req, env, ctx, url, path, M) {
       if ((r = path.match(/^\/api\/shared\/([0-9a-f]{16})\/([0-3])$/)) && env.SLIPS) { // ไฟล์ที่แชร์มาจากแอปอื่น: ส่งครั้งเดียวแล้วลบ
         const k = `share/${r[1]}/${r[2]}`, o = await env.SLIPS.get(k); if (!o) return err('ไฟล์หมดอายุแล้ว', 404);
         ctx.waitUntil(env.SLIPS.delete(k));
-        return new Response(o.body, { headers: { 'content-type': o.httpMetadata?.contentType || 'application/octet-stream', 'x-name': encodeURIComponent(o.customMetadata?.name || 'file'), 'cache-control': 'no-store' } });
+        // ไฟล์มาจากใครก็ได้ (ไม่ต้องล็อกอิน): ห้ามให้เบราว์เซอร์แสดง/รันบนโดเมนเรา · ส่งเป็นไฟล์ดาวน์โหลดเสมอ ชนิดจริงแยกไว้ใน x-type ให้หน้าแชตใช้
+        const ty = String(o.httpMetadata?.contentType || '').split(';')[0].trim().toLowerCase();
+        return new Response(o.body, { headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment', 'content-security-policy': "default-src 'none'; sandbox", 'x-type': /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(ty) ? ty : 'application/octet-stream', 'x-name': encodeURIComponent(o.customMetadata?.name || 'file'), 'cache-control': 'no-store' } });
       }
       if (path === '/api/pay' && M === 'POST') return await pay(req, env, u);
       if ((r = path.match(/^\/api\/pay\/(\d+)\/review$/)) && M === 'POST') { // สลิปถูกปฏิเสธ: ลูกค้าขอให้แอดมินตรวจเอง (ครั้งเดียวต่อรายการ)

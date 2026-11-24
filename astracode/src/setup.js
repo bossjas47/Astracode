@@ -2,6 +2,10 @@
 // หน้าเว็บขอคำสั่ง → สร้าง API key ใหม่ + ลิงก์ใช้ครั้งเดียว (15 นาที) → ลูกค้าวาง `curl -fsSL <ลิงก์> | node` (Windows: `irm <ลิงก์> | node`)
 // สคริปต์ที่ได้เป็น JavaScript ล้วน (Node มากับ Codex/Claude Code/OpenCode อยู่แล้ว) · สำรองไฟล์ตั้งค่าเดิมเป็น .bak ก่อนเขียน
 import { err, json, rand, sha } from './core.js';
+import { seal, unseal } from './projects.js';
+// payload มี API key ตัวเต็ม: เข้ารหัสด้วย SECRET_KEY ก่อนเก็บ (ขึ้นต้น s: ) ถ้าไม่ได้ตั้ง SECRET_KEY เก็บแบบเดิม แต่ cron ลบทิ้งเมื่อหมดอายุ
+const pack = async (env, p) => env.SECRET_KEY ? 's:' + await seal(env, JSON.stringify(p)) : JSON.stringify(p);
+const unpack = async (env, t) => JSON.parse(t.startsWith('s:') ? await unseal(env, t.slice(2)) : t);
 
 export const SETUP_TOOLS = ['Codex', 'Claude Code', 'OpenCode'], SETUP_TTL = 15 * 60e3, SETUP_USES = 3;
 const TABLE = 'CREATE TABLE IF NOT EXISTS setup_tokens (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, payload TEXT NOT NULL, uses INTEGER NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL)';
@@ -21,7 +25,7 @@ export async function setupApi(req, env, u, base) {
   const token = rand(24);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM setup_tokens WHERE expires_at<?').bind(now),
-    env.DB.prepare('INSERT INTO setup_tokens (token,user_id,payload,expires_at) VALUES (?,?,?,?)').bind(token, u.id, JSON.stringify({ tool, model, models, key, site: base }), now + SETUP_TTL),
+    env.DB.prepare('INSERT INTO setup_tokens (token,user_id,payload,expires_at) VALUES (?,?,?,?)').bind(token, u.id, await pack(env, { tool, model, models, key, site: base }), now + SETUP_TTL),
   ]);
   const url = `${base}/setup/${token}`;
   return json({ key, url, unix: `curl -fsSL ${url} | node`, windows: `irm ${url} | node`, expires_at: now + SETUP_TTL });
@@ -31,7 +35,7 @@ export async function setupApi(req, env, u, base) {
 export async function setupScript(env, token) {
   await env.DB.prepare(TABLE).run();
   const row = await env.DB.prepare('UPDATE setup_tokens SET uses=uses+1 WHERE token=? AND expires_at>? AND uses<? RETURNING payload').bind(String(token), Date.now(), SETUP_USES).first();
-  const body = row ? script(JSON.parse(row.payload)) : `console.error("ลิงก์ติดตั้งหมดอายุหรือถูกใช้ครบแล้ว · กลับไปที่หน้า Developers แล้วกด 'สร้างคำสั่ง' ใหม่"); process.exit(1);\n`;
+  const body = row ? script(await unpack(env, row.payload)) : `console.error("ลิงก์ติดตั้งหมดอายุหรือถูกใช้ครบแล้ว · กลับไปที่หน้า Developers แล้วกด 'สร้างคำสั่ง' ใหม่"); process.exit(1);\n`;
   return new Response(body, { status: row ? 200 : 410, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'x-content-type-options': 'nosniff' } });
 }
 

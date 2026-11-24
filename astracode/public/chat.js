@@ -84,7 +84,7 @@ async function switchMode(mode, path, pop) {
   if (!pop && target !== location.pathname + location.search) setUrl(target);
   if (!path && host.childElementCount) return; // กลับมาที่หน้าเดิมที่เปิดค้างไว้ (ตัวแก้โค้ด / หน้าเริ่มโปรเจกต์)
   if (!host.childElementCount) host.innerHTML = '<div class="cs-load"><p class="muted">Loading…</p></div>';
-  try { await loadCode(); } catch (x) { host.innerHTML = `<div class="cs-load"><p class="muted">${esc(x.message)}</p><button class="btn out" onclick="location.reload()">Try again</button></div>`; return; }
+  try { await loadCode(); } catch (x) { host.innerHTML = `<div class="cs-load"><p class="muted">${esc(x.message)}</p><button class="btn out" data-reload>Try again</button></div>`; return; }
   return codeRoute();
 }
 addEventListener('popstate', () => { if (!$('#cmain')) return; const p = location.pathname; if (p.startsWith('/code')) switchMode('code', p + location.search, true); else if (p === '/chat' && qs().get('mode') === 'cowork') switchMode('cowork', p + location.search, true); else if (p === '/chat') switchMode('chat', p + location.search, true); });
@@ -272,7 +272,7 @@ async function chatView(id) {
   const shared = [qs().get('title'), qs().get('text'), qs().get('url')].filter(Boolean).join('\n'); // ข้อความที่แชร์มาจากแอปอื่น (manifest share_target)
   if (shared && !qs().get('id')) { t.value = shared.slice(0, 20000); setTimeout(() => t.oninput(), 0); }
   const shf = (qs().get('shared') || '').match(/^([0-9a-f]{16})\.([1-4])$/); // ไฟล์ที่แชร์มาจากแอปอื่น: ดึงมาแนบในแชตใหม่
-  if (shf && !qs().get('id')) Promise.all(Array.from({ length: +shf[2] }, async (_, i) => { const r = await fetch(`/api/shared/${shf[1]}/${i}`); if (!r.ok) return null; return new File([await r.blob()], decodeURIComponent(r.headers.get('x-name') || 'file'), { type: r.headers.get('content-type') || '' }); }))
+  if (shf && !qs().get('id')) Promise.all(Array.from({ length: +shf[2] }, async (_, i) => { const r = await fetch(`/api/shared/${shf[1]}/${i}`); if (!r.ok) return null; return new File([await r.blob()], decodeURIComponent(r.headers.get('x-name') || 'file'), { type: r.headers.get('x-type') || '' }); }))
     .then(fs => { fs = fs.filter(Boolean); if (fs.length) addFiles(fs); else toast('ไฟล์ที่แชร์หมดอายุแล้ว แชร์ใหม่อีกครั้ง', 'bad'); history.replaceState(null, '', '/chat'); }).catch(() => {});
   slashSkills(t, () => chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); });
   t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#f').requestSubmit(); } };
@@ -1647,12 +1647,35 @@ function ufEval(rows) {
   const memo = new Map(), busy = new Set(), A = s => { let n = 0; for (const c of s) n = n * 26 + c.charCodeAt(0) - 64; return n - 1; };
   const V = (c, r) => { const k = r + ':' + c; if (memo.has(k)) return memo.get(k); const raw = rows[r]?.[c] ?? ''; if (typeof raw !== 'string' || raw[0] !== '=') return raw === '' ? '' : raw;
     if (busy.has(k)) return '#CYCLE'; busy.add(k); let out; try { out = calc(raw.slice(1)); } catch { out = raw; } busy.delete(k); memo.set(k, out); return out; };
+  // แปลงสูตรด้วยตัวแยกคำ + ลำดับความสำคัญแบบ Excel (ไม่ใช้ Function/eval: หน้าเว็บบังคับ CSP และสูตรมาจากไฟล์ที่ใครก็ทำได้)
+  const TOK = /\s*(?:([A-Z][A-Z0-9.]*)(?=\s*\()|(\$?[A-Z]{1,3}\$?\d+)(?::(\$?[A-Z]{1,3}\$?\d+))?(?![A-Za-z0-9_])|(\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+)|"((?:[^"]|"")*)"|(TRUE|FALSE)\b|(<=|>=|<>|[-+*/^&=<>(),%]))/y;
+  const cell = t => { const m = /^\$?([A-Z]{1,3})\$?(\d+)$/.exec(t); return [A(m[1]), m[2] - 1]; };
+  const range = (a, b) => { const [c1, r1] = cell(a), [c2, r2] = cell(b), o = []; for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) { const row = []; for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) row.push(V(c, r)); o.push(row); } return o; };
   const calc = f => {
-    const strs = []; let js = f.replace(/"([^"]*)"/g, (_, s) => { strs.push(s); return `S[${strs.length - 1}]`; });
-    js = js.replace(/\b([A-Z]+)\(/g, (_, n) => { if (!UF_FN[n]) throw 0; return `F.${n}(`; }).replace(/\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)/g, (_, a, b, c, d) => `R(${A(a)},${b - 1},${A(c)},${d - 1})`).replace(/\$?\b([A-Z]{1,3})\$?(\d+)\b/g, (_, a, b) => `V(${A(a)},${b - 1})`)
-      .replace(/<>/g, '!=').replace(/(^|[^<>!=])=(?!=)/g, '$1==').replace(/\^/g, '**').replace(/&/g, '+""+');
-    if (/[^\s\d.+\-*/()<>=!,"FVRS[\]A-Z]/.test(js) || /\b(?!F\b|V\b|R\b|S\b)[A-Za-z_]+\b(?!\()/.test(js.replace(/F\.[A-Z]+/g, ''))) throw 0;
-    return Function('F', 'V', 'R', 'S', '"use strict";return (' + js + ')')(UF_FN, V, (c1, r1, c2, r2) => { const o = []; for (let r = r1; r <= r2; r++) { const row = []; for (let c = c1; c <= c2; c++) row.push(V(c, r)); o.push(row); } return o; }, strs);
+    const toks = []; TOK.lastIndex = 0; let m;
+    while (TOK.lastIndex < f.length && (m = TOK.exec(f))) toks.push(m);
+    if (TOK.lastIndex < f.trimEnd().length) throw 0; // มีตัวอักษรที่ไม่รู้จัก: แสดงสูตรแทน
+    let k = 0; const peek = () => toks[k]?.[7], eat = op => { if (peek() !== op) throw 0; k++; };
+    const num = v => typeof v === 'number' ? v : typeof v === 'boolean' ? +v : v === '' ? 0 : isNaN(v) ? (() => { throw 0; })() : +v;
+    const bin = (next, ops, fn) => () => { let a = next(); while (ops.includes(peek())) { const op = toks[k++][7]; a = fn(op, a, next()); } return a; };
+    const primary = () => {
+      const t = toks[k++]; if (!t) throw 0;
+      if (t[1]) { const fn = UF_FN[t[1]]; if (!fn) throw 0; eat('('); const args = []; if (peek() !== ')') { args.push(expr()); while (peek() === ',') { k++; args.push(expr()); } } eat(')'); return fn(...args); }
+      if (t[2]) return t[3] ? range(t[2], t[3]) : V(...cell(t[2]));
+      if (t[4] != null) return +t[4];
+      if (t[5] != null) return t[5].replace(/""/g, '"');
+      if (t[6]) return t[6] === 'TRUE';
+      if (t[7] === '(') { const v = expr(); eat(')'); return v; }
+      throw 0;
+    };
+    const unary = () => { if (peek() === '-') { k++; return -num(unary()); } if (peek() === '+') { k++; return num(unary()); } let v = primary(); while (peek() === '%') { k++; v = num(v) / 100; } return v; };
+    const pow = bin(unary, ['^'], (_, a, b) => num(a) ** num(b));
+    const mul = bin(pow, ['*', '/'], (op, a, b) => op === '*' ? num(a) * num(b) : num(a) / num(b));
+    const add = bin(mul, ['+', '-'], (op, a, b) => op === '+' ? num(a) + num(b) : num(a) - num(b));
+    const cat = bin(add, ['&'], (_, a, b) => String(a) + String(b));
+    const CMP = { '=': (a, b) => a == b, '<>': (a, b) => a != b, '<': (a, b) => a < b, '>': (a, b) => a > b, '<=': (a, b) => a <= b, '>=': (a, b) => a >= b }; // eslint-disable-line eqeqeq
+    const expr = bin(cat, Object.keys(CMP), (op, a, b) => CMP[op](a, b));
+    const v = expr(); if (k !== toks.length) throw 0; return v;
   };
   return V;
 }

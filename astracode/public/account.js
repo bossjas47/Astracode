@@ -122,7 +122,7 @@ PAGES.account = async function account() {
       <div style="margin-top:20px"><div style="font-weight:600;margin-bottom:6px">อุปกรณ์ที่ล็อกอินอยู่</div><div id="devs" class="muted">กำลังโหลด...</div></div>
       <div style="margin-top:20px"><div style="font-weight:600;margin-bottom:6px">Passkey</div><p class="muted" style="margin:0 0 8px">ล็อกอินด้วยลายนิ้วมือ ใบหน้า หรือ PIN ของเครื่อง ไม่ต้องใช้รหัสผ่าน</p><div id="pks" class="muted">กำลังโหลด...</div><button type="button" class="btn out sm" id="pkadd" style="margin-top:8px">+ เพิ่ม Passkey ในเครื่องนี้</button></div>
       <div id="tfa" style="margin-top:20px"></div>
-      ${me.line ? '<p class="muted" style="margin:16px 0 0">เชื่อม LINE แล้ว</p>' : ''}</div>
+      ${me.line ? '<p class="muted" style="margin:16px 0 0">เชื่อม LINE แล้ว</p>' : site.line ? '<p style="margin:16px 0 0"><a class="btn out sm" href="/api/oauth/line">เชื่อม LINE</a></p>' : ''}</div>
 
     <div class="card acc-c" id="sec-api">${h3('API สำหรับนักพัฒนา')}<p class="muted">สร้าง API key แล้วเรียกโมเดลทั้งหมดแบบ OpenAI จ่ายจาก Wallet</p><a class="btn out sm" href="/developers">Manage API keys</a></div>
 

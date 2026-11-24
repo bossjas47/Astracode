@@ -6,6 +6,11 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const req = createRequire(import.meta.url); let pw; try { pw = req('playwright'); } catch { pw = req('playwright-core'); } // CI ใช้ playwright-core กับ Chrome ของเครื่อง (CHROME_PATH)
 const { chromium } = pw;
+// หน้าเว็บส่งพร้อม CSP ตัวจริงของ Worker (บังคับใช้): สคริปต์/handler inline ที่ CSP บล็อก = หน้าพัง
+const { CSP, sandboxed } = await import('../src/worker.js');
+const PREVIEW_CSP = sandboxed(new Response(''), '/preview.html').headers.get('content-security-policy'); // /preview, /node-runner: CSP แยกเหมือนบนโปรดักชัน
+const cspFor = f => /(preview|node-runner)\.html$/.test(f) ? PREVIEW_CSP : CSP;
+const cspErr = m => /Content Security Policy|Refused to (execute|load|apply|evaluate|connect|frame)/i.test(m);
 const pub = join(dirname(fileURLToPath(import.meta.url)), '../public');
 const usage = { pct4h: 12, pctWeek: 34, reset4h: Date.now() + 3600e3, resetWeek: Date.now() + 5 * 864e5, use4h: true };
 const models = [{ id: 1, name: 'Flash', provider: 'openai', multiplier: 1, vision: 1, effort: 'none', cap_pct: 0 }, { id: 2, name: 'Sonnet', provider: 'anthropic', multiplier: 5, vision: 1, effort: 'anthropic', effort_levels: 'low,high', cap_pct: 30 }];
@@ -28,13 +33,14 @@ const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath
 const ONLY = process.env.E2E_ONLY ? new RegExp(process.env.E2E_ONLY, 'i') : null;
 for (const [url, admin, loggedIn] of PAGES.filter(([u]) => !ONLY || ONLY.test(u))) {
   const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], api = API(admin, loggedIn);
+  page.on('console', m => { if (cspErr(m.text())) errs.push('CSP: ' + m.text().slice(0, 200)); });
   page.on('pageerror', e => errs.push(e.message + (process.env.STACK ? ' @ ' + String(e.stack).split('\n').slice(1, 4).join(' < ') : '')));
   await page.route('**/*', r => {
     const u = new URL(r.request().url());
     if (u.hostname !== 't.test') return r.abort();
     if (u.pathname.startsWith('/api/')) { const d = api[u.pathname]; return d === null ? r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"unauthorized"}' }) : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d ?? []) }); }
     const f = join(pub, u.pathname === '/' ? 'home.html' : u.pathname), hit = [f, f + '.html'].find(x => existsSync(x) && statSync(x).isFile());
-    return hit ? r.fulfill({ path: hit }) : r.fulfill({ status: 404, body: '' });
+    return hit ? r.fulfill({ path: hit, headers: /\.html$/.test(hit) ? { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': cspFor(hit) } : undefined }) : r.fulfill({ status: 404, body: '' });
   });
   await page.goto('http://t.test' + url); await page.waitForTimeout(900);
   if (process.env.SHOTP && process.env.SHOTP === url + (loggedIn ? '' : '#guest')) await page.screenshot({ path: process.env.SHOT }); // ภาพหน้าจอหน้าเดียว (ตรวจหน้าตา)
@@ -48,6 +54,7 @@ for (const [url, admin, loggedIn] of PAGES.filter(([u]) => !ONLY || ONLY.test(u)
 // ---------- เส้นทางหลัก: กดใช้งานจริงกับ API จำลอง แล้วตรวจว่าส่งคำขอถูกและหน้าแสดงผลถูก ----------
 async function open(url, extra = {}) {
   const page = await browser.newPage({ viewport: { width: 400, height: 800 } }), errs = [], calls = [], api = { ...API(0, 1), ...extra };
+  page.on('console', m => { if (cspErr(m.text())) errs.push('CSP: ' + m.text().slice(0, 200)); });
   page.on('pageerror', e => { if (process.env.E2E_STACK) console.log(e.stack); if (!/Transition was aborted/.test(e.message)) errs.push(e.message); }); // เบราว์เซอร์ยกเลิกเอฟเฟกต์เปลี่ยนหน้าเมื่อไปหน้าถัดไประหว่างเล่น: ไม่ใช่ error ของเว็บ
   await page.addInitScript(first => { try { localStorage.setItem('onb', '1'); localStorage.setItem('whatsnew:2026-11-code', '1'); if (!first) localStorage.setItem('codeRepoAsk', '1'); } catch {} }, !!extra.firstCode);
   if (extra.init) await page.addInitScript(extra.init); // เช่น จำลองแอป Desktop (window.astraDesktop)
@@ -62,7 +69,7 @@ async function open(url, extra = {}) {
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d ?? []) });
     }
     const f = join(pub, u.pathname === '/' ? 'home.html' : u.pathname), hit = [f, f + '.html'].find(x => existsSync(x) && statSync(x).isFile());
-    return hit ? r.fulfill({ path: hit }) : r.fulfill({ status: 404, body: '' });
+    return hit ? r.fulfill({ path: hit, headers: /\.html$/.test(hit) ? { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': cspFor(hit) } : undefined }) : r.fulfill({ status: 404, body: '' });
   });
   await page.goto('http://t.test' + url); await page.waitForTimeout(800);
   return { page, errs, calls };

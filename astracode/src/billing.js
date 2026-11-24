@@ -1,5 +1,5 @@
 import { grantClaudeCredit } from './credits.js';
-import { DAY, err, flat, hex, json, limited, rand, sha, slipPut, userErr, viaProxy } from './core.js';
+import { DAY, err, flat, hex, json, limited, rand, sha, slipPut, unlimit, userErr, viaProxy } from './core.js';
 import { b64 } from './projects.js';
 import { status } from './jobs.js';
 // ---------- slip ----------
@@ -165,7 +165,7 @@ export async function checkSlipCo(env, s, buf, type, amount, flex = false) {
 }
 
 // ตัดสินผลสลิป (รูปแบบ EasySlip: d.data = สลิป) · ใช้ร่วมกันทุกผู้ให้บริการที่แปลงผลมาเป็นรูปแบบนี้
-function judgeSlip(s, d, st, msg, amount, flex) {
+export function judgeSlip(s, d, st, msg, amount, flex) {
   const slip = d.data && typeof d.data === 'object' ? d.data : null;
   const out = (code, extra = {}) => ({ flex, result: JSON.stringify(d).slice(0, 4000), amount: slip ? slipAmount(slip) : null, ref: slip?.transRef || slip?.rawSlip?.transRef || null, code, ...extra });
   if (/duplicate/i.test(msg)) return out('200501');
@@ -179,7 +179,8 @@ function judgeSlip(s, d, st, msg, amount, flex) {
   const wantAcc = String(s.easyslip_receiver || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean); // ไม่ตั้ง = ใช้พร้อมเพย์ + เลขบัญชีธนาคารของร้านทั้งคู่ (สลิปโอนผ่านพร้อมเพย์โชว์เบอร์ ส่วนโอนเข้าบัญชีโชว์เลขบัญชี)
   const dg = receiverMatches(slip, [...wantAcc, s.promptpay_id, s.bank_account].filter(Boolean)) /* พร้อมเพย์และเลขบัญชีร้านนับเสมอ: ลูกค้าโอนเข้าเลขบัญชีตรงๆ ก็ต้องผ่าน */, nm = names.length ? receiverNameMatches(slip, names) : null;
   // มีรายชื่อผู้รับที่อนุญาต: ชื่อตรง (เต็มหรือเฉพาะชื่อต้นที่สำรองไว้) แล้วเลขบัญชีต้องไม่ขัดแย้ง · ชื่อไม่ตรง = ปฏิเสธ · ชื่อในสลิปเทียบไม่ได้ ใช้เลขบัญชีตัดสินแทน
-  if (names.length) { if (nm === false || dg === false) return out('200401'); if (nm === true) return out('200000'); return dg === true ? out('200000') : out('receiver_unverified'); }
+  // ชื่อตรงอย่างเดียวไม่พอ (เทียบแบบ "มีคำนี้ในชื่อ" · คนร้ายโอนเข้าบัญชีตัวเองที่ชื่อคล้ายร้านได้): อนุมัติเองเมื่อเลขบัญชี/พร้อมเพย์ตรงด้วยเท่านั้น · เลขเทียบไม่ได้ = ให้แอดมินตรวจ
+  if (names.length) { if (nm === false || dg === false) return out('200401'); return dg === true ? out('200000') : out('receiver_unverified'); }
   if (dg === false) return out('200401');
   if (dg === null) return out('receiver_unverified'); // ตั้งผู้รับไว้แต่สลิปไม่มีเลขที่เทียบได้ → ให้แอดมินตรวจ
   return out('200000');
@@ -283,7 +284,13 @@ export async function applyPayment(env, p) {
 }
 export const SEATS_MAX = 100;
 const setSeats = async (env, p, seats) => { if (p && seats) { await env.DB.prepare('UPDATE payments SET seats=? WHERE id=?').bind(seats, p.id).run(); p.seats = seats; } return p; };
+// ทำรายการชำระเงินทีละรายการต่อผู้ใช้: กดซ้ำ/ยิงพร้อมกันไม่ผ่านการตรวจ "แพลนซื้อได้ครั้งเดียว" และ "มีคำขอรออนุมัติอยู่แล้ว" ซ้อนกันได้ (ล็อกหมดอายุเองใน 2 นาที)
 export async function pay(req, env, u) {
+  const k = 'paylock:' + u.id, now = Date.now();
+  if (!await env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(k, now + 120e3, now).first()) return err('กำลังทำรายการก่อนหน้าอยู่ รอสักครู่แล้วลองใหม่', 429);
+  try { return await pay0(req, env, u); } finally { await unlimit(env, k).catch(() => {}); }
+}
+async function pay0(req, env, u) {
   // กันสลิปปลอม: อีเมลชั่วคราวส่งสลิปไม่ได้ · ปฏิเสธ 3 ครั้งใน 24 ชม. = พัก 24 ชม. · ปฏิเสธ 5 ครั้งและไม่เคยจ่ายผ่าน = ระงับบัญชี
   const { tempEmail } = await import('./core.js');
   if (await tempEmail(env, u.email)) return err('บัญชีที่ใช้อีเมลชั่วคราวชำระเงินไม่ได้ กรุณาสมัครด้วยอีเมลจริง', 403);
