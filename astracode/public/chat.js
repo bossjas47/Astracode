@@ -1309,7 +1309,7 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   catch (x) { chat.msgs.pop(); renderAll(); t.value = text0; return showErr('บันทึกแชตไม่ได้: ' + x.message); }
   const text = await agentExpand(text0);
   const ai = { role: 'assistant', content: '', thinking: '', model: m.name + ' · Agent', streaming: true, agent: true, mode, steps: [], todos: null, tin: 0, tout: 0 }; chat.msgs.push(ai); appendMsg(ai);
-  const sid = agSid(), t0 = Date.now(); let raf = 0;
+  const sid = agSid(), t0 = Date.now(), rid = Math.random().toString(36).slice(2, 10); let raf = 0, held = false; // rid = รหัสงานรอบนี้ · held = กำลังหยุดงานเดิมที่ค้าง (ไม่รับเหตุการณ์ของมัน)
   setBusy(true); chat.agentBusy = true; chat.ctrl = { abort: () => PCD.agent.stop(sid) }; // ปุ่มหยุดเดิม = หยุด Agent · Enter = พิมพ์แทรก
   // วาดข้อความ Agent ใหม่ทุกเหตุการณ์ (เครื่องมือ/ค่าใช้จ่าย/ข้อความ) · ช่อง "พิมพ์คำตอบ" ต้องคงข้อความ โฟกัส และตำแหน่งเคอร์เซอร์ไว้ (เดิมถูกสร้างใหม่ทุกครั้ง พิมพ์ไม่ติด)
   const paint = () => { if (raf) return; raf = requestAnimationFrame(() => {
@@ -1321,7 +1321,7 @@ async function agentSend(text0, { mode = agMode() } = {}) {
     if (stick) box.scrollTop = box.scrollHeight;
   }); };
   agSub?.(); agSub = PCD.agent.onEvent(d => {
-    if (d.sid !== sid) return;
+    if (d.sid !== sid || held || (d.rid && d.rid !== rid)) return; // เหตุการณ์ของงานเดิม (แอปรุ่นใหม่ส่ง rid มาด้วย)
     if (d.type === 'delta') { ai.content += d.text; if (d.text.includes('[[uf:')) ufLive(ai.content); }
     if (d.type === 'think') ai.thinking += d.text;
     if (d.type === 'tool') ai.steps.push({ id: d.id, name: d.name, args: d.args, step: d.step, st: 'run' });
@@ -1337,8 +1337,16 @@ async function agentSend(text0, { mode = agMode() } = {}) {
     if (d.type === 'done' || d.type === 'error') { ai.changed = d.changed; ai.outputs = d.outputs || []; ai.ask = null; if (d.type === 'error') ai.error = d.text; }
     paint();
   });
-  try { await PCD.agent.run({ sid, chatId: chat.id, text, images, style: localStorage.getItem('pcAgentStyle') === 'work' ? 'work' : 'code', model: vslug(m), subModel: cheap ? vslug(cheap) : null, mode, effort: m.effort !== 'none' ? $('#effort')?.value || null : null, budget: +localStorage.getItem('pcAgentBudget') || 0, remote: localStorage.getItem('pcAgentRemote') === '1', maxRounds: +localStorage.getItem('pcAgentMax') || 80, slot: 'chat', history }); }
-  catch (x) { ai.error = String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+  const run = () => PCD.agent.run({ sid, rid, chatId: chat.id, text, images, style: localStorage.getItem('pcAgentStyle') === 'work' ? 'work' : 'code', model: vslug(m), subModel: cheap ? vslug(cheap) : null, mode, effort: m.effort !== 'none' ? $('#effort')?.value || null : null, budget: +localStorage.getItem('pcAgentBudget') || 0, remote: localStorage.getItem('pcAgentRemote') === '1', maxRounds: +localStorage.getItem('pcAgentMax') || 80, slot: 'chat', history });
+  try { await run(); }
+  catch (x) {
+    // แอปรุ่นเก่า: งานเดิมยังวิ่งอยู่ในแอปแต่หน้าเว็บไม่รู้ (รีเฟรช/เปิดแชตใหม่/งานค้าง) → หยุดงานเดิมแล้วส่งใหม่ให้เอง 1 ครั้ง แทนการตอบ "กำลังทำงานอยู่" ทุกข้อความ
+    if (/กำลังทำงานอยู่ในแชตนี้/.test(x.message)) {
+      held = true; ai.steps.push({ name: 'info', text: 'หยุดงาน Agent เดิมที่ค้างอยู่ แล้วเริ่มงานนี้ใหม่…' }); paint();
+      await PCD.agent.stop(sid).catch(() => {}); await new Promise(r => setTimeout(r, 2500)); held = false;
+      try { await run(); } catch (y) { ai.error = /กำลังทำงานอยู่ในแชตนี้/.test(y.message) ? 'Agent งานเดิมยังค้างอยู่ในแอป: ปิดแอปจากไอคอนที่ถาด (ออกจากแอป) แล้วเปิดใหม่' : String(y.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+    } else ai.error = String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  }
   agSub?.(); agSub = null; cancelAnimationFrame(raf); ai.streaming = false; ai.content = ai.content.trim(); setBusy(false); chat.agentBusy = false; chat.ctrl = null;
   for (const s of ai.steps) if (s.st === 'run') s.st = 'bad';
   const did = ai.steps.filter(s => !['info', 'sub'].includes(s.name)), sum = did.length ? `> Agent ${did.length} ขั้นตอน: ${[...new Set(did.map(s => s.name))].join(', ')}${ai.changed?.length ? ' · แก้ ' + ai.changed.slice(0, 10).join(', ') : ''}\n\n` : '';

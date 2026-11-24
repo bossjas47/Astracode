@@ -234,6 +234,13 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       }
       return finalU;
     };
+    // นาฬิกาเฝ้าโมเดล (/v1): ไม่มี token แรกภายใน first_token_s หรือเงียบกลางทางเกิน idle_s (ตั้งต่อโมเดลในหลังบ้าน · ค่าเริ่มต้นของ API หลวมกว่าแชต เพราะ context ยาว) → ตัดแล้วสลับโมเดลสำรองได้ แทนที่ลูกค้าจะค้างจน timeout
+    const watch = (mod, outer = null) => {
+      const ac = new AbortController(), first = (mod.first_token_s > 0 ? mod.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 300 : 180) * 1000, idle = (mod.idle_s > 0 ? mod.idle_s : 120) * 1000;
+      let stalled = 0, t; const arm = ms => { clearTimeout(t); t = setTimeout(() => { stalled = ms; ac.abort(); }, ms); }, onOuter = () => ac.abort();
+      outer?.addEventListener('abort', onOuter, { once: true }); arm(first);
+      return { signal: ac.signal, tick: () => arm(idle), done: () => { clearTimeout(t); outer?.removeEventListener('abort', onOuter); }, err: e => stalled ? new Error(`no response from the model within ${Math.round(stalled / 1000)} s`) : e };
+    };
     const nextFallback = async cur => cur.fallback_id ? env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(cur.fallback_id).first() : null;
     if (isEmb) {
       const key = env[m.key_name];
@@ -251,8 +258,10 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       const job = (async () => {
       let content = '', reasoning = '', usage = null, finishReason = 'stop', tcs = new Map(), anthIdx = new Map();
       for (let attempt = 0; attempt < 2; attempt++) {
+        const wd = watch(activeModel);
         try {
-          for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl })) {
+          for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: wd.signal })) {
+            wd.tick();
             if (!lg.ttft && (e.t || e.th || e.tc_start || e.tc)) lg.ttft = Date.now() - lg.t0;
             if (e.t) content += e.t;
             if (e.th) reasoning += e.th;
@@ -266,8 +275,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
             if (e.stop_reason) finishReason = e.stop_reason;
             if (e.usage) usage = e.usage;
           }
-          break;
-        } catch (e) {
+          wd.done(); break;
+        } catch (e0) {
+          wd.done(); const e = wd.err(e0);
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
           if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
@@ -293,14 +303,19 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     // ลูกค้าตัดการเชื่อมต่อกลางคำตอบ (กดหยุด / timeout / ส่งซ้ำ): ผู้ให้บริการยังคิดเงินเรา → อ่านต่อเงียบๆ จนได้ token จริงแล้วคิดเงินตามจริง
     // อ่านต่อได้ไม่เกิน 25 วินาที (Cloudflare ให้งานเบื้องหลังหลังลูกค้าหลุดราว 30 วินาที) เกินนั้นตัดแล้วคิดตามประมาณ
     let gone = false; const upstream = new AbortController();
-    const chunk = async (delta, extra = {}, fin = null) => { if (gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { gone = true; setTimeout(() => upstream.abort(), 25e3); } };
+    const lost = () => { if (!gone) { gone = true; setTimeout(() => upstream.abort(), 25e3); } };
+    const chunk = async (delta, extra = {}, fin = null) => { if (gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { lost(); } };
+    // keepalive: comment ของ SSE ทุก 15 วินาทีระหว่างโมเดลคิด/อ่าน context ยาว · proxy/ตัวกลาง/SDK ของลูกค้าไม่ตัดเพราะเงียบนาน (client ทุกตัวข้ามบรรทัดที่ขึ้นต้นด้วย :) · SSE_PING_MS ใช้ในเทสต์เท่านั้น
+    const ka = setInterval(() => { if (!gone) w.write(enc.encode(': ping\n\n')).catch(lost); }, +env.SSE_PING_MS || 15e3);
     // โมเดล error ก่อนตอบ: ต้องคืนช่อง Wallet ด้วย (เดิมค้าง 3 นาที → OpenCode ลองซ้ำจนช่องเต็ม 8 ช่อง)
     ctx.waitUntil((async () => {
       let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0;
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
+          const wd = watch(activeModel, upstream.signal);
           try {
-            for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: upstream.signal })) {
+            for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: wd.signal })) {
+              wd.tick();
               if (!sentAny) { sentAny = true; if (!lg.ttft) lg.ttft = Date.now() - lg.t0; await chunk({ role: 'assistant', content: '' }, fbInfo() ? { astra_fallback: fbInfo() } : {}); } // สตรีม: header ส่งไปก่อนรู้ว่าสลับไหม จึงบอกใน chunk แรก
               if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
               if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }
@@ -310,8 +325,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
               if (e.stop_reason) finishReason = e.stop_reason;
               if (e.usage) usage = e.usage;
             }
-            break;
-          } catch (e) {
+            wd.done(); break;
+          } catch (e0) {
+            wd.done(); const e = wd.err(e0);
             if (gone) break;
             await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
             const fb = attempt === 0 && !sentAny ? await nextFallback(activeModel) : null;
@@ -323,8 +339,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars, gone ? 'gone' : null);
         if (!gone) await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
       } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2), 'part').catch(() => {}); else if (walletKey && !lg.logged) await unlimit(env, walletKey).catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
-      await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
-    })());
+      clearInterval(ka); await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
+    })().finally(() => clearInterval(ka)));
     return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors, ...rl } });
   } catch (e) { console.log('v1 error', e.stack); if (walletKey) await unlimit(env, walletKey).catch(() => {}); return fail(e.user ? e.message : 'เซิร์ฟเวอร์ผิดพลาด', e.user ? 400 : 500, 'api_error'); }
 }
