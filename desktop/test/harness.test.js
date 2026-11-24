@@ -141,7 +141,7 @@ test('harness: stats report tool calls, errors, cache hit and TTFT', async () =>
 // ---------- เครื่องมือ ----------
 test('tools: multi_edit is atomic — one bad edit writes nothing; a good batch is one undo step', async () => {
   const d = tmp(); fs.writeFileSync(path.join(d, 'a.js'), 'const a = 1;\r\nconst b = 2;\r\n');
-  const ws = new Workspace(d);
+  const ws = new Workspace(d); await ws.call('read_file', { path: 'a.js' });
   const bad = await ws.call('multi_edit', { path: 'a.js', edits: [{ old_string: 'const a', new_string: 'let a' }, { old_string: 'nope', new_string: 'x' }] });
   assert.match(bad, /edit 2\/2.*ไม่ได้แก้อะไร/); assert.equal(fs.readFileSync(path.join(d, 'a.js'), 'utf8'), 'const a = 1;\r\nconst b = 2;\r\n');
   ws.step = 1; ws.runFrom = 1;
@@ -155,7 +155,7 @@ test('tools: multi_edit is atomic — one bad edit writes nothing; a good batch 
 test('tools: a syntax error after an edit is reported in the tool result; valid edits stay quiet', async () => {
   const d = tmp(); fs.writeFileSync(path.join(d, 'a.js'), 'const a = 1;\n'); fs.writeFileSync(path.join(d, 'c.json'), '{"a":1}'); fs.writeFileSync(path.join(d, 'tsconfig.json'), '{"a":1}');
   fs.writeFileSync(path.join(d, 'App.js'), 'export default () => <div/>;\n');
-  const ws = new Workspace(d);
+  const ws = new Workspace(d); for (const f of ['a.js', 'c.json', 'tsconfig.json', 'App.js']) await ws.call('read_file', { path: f });
   assert.doesNotMatch(await ws.call('edit_file', { path: 'a.js', old_string: '1', new_string: '2' }), /syntax/);
   assert.match(await ws.call('edit_file', { path: 'a.js', old_string: '2;', new_string: '(;' }), /\[syntax error · node --check\] a\.js[\s\S]*SyntaxError/);
   assert.match(await ws.call('write_file', { path: 'c.json', content: '{"a":1,}' }), /\[syntax error · JSON\]/);
@@ -266,4 +266,78 @@ test('harness: keepalive pings reset the stall timer (slow but alive models are 
   const ev = [];
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: [{ role: 'user', content: 'go' }], tools, fetchImpl: slow, callTool: async () => '', onEvent: e => ev.push(e), firstByteMs: 100, stallMs: 100 });
   assert.equal(ev.filter(e => e.type === 'delta').map(e => e.text).join(''), 'ตอบแล้ว');
+});
+
+test('tools: a file must be read before it is edited or overwritten, and re-read after it changes elsewhere', async () => {
+  const d = tmp(); fs.writeFileSync(path.join(d, 'a.txt'), 'one\n'); const ws = new Workspace(d);
+  assert.match(await ws.call('edit_file', { path: 'a.txt', old_string: 'one', new_string: 'two' }), /read a\.txt with read_file before editing/);
+  assert.match(await ws.call('write_file', { path: 'a.txt', content: 'x' }), /before overwriting/);
+  assert.equal(fs.readFileSync(path.join(d, 'a.txt'), 'utf8'), 'one\n'); // ไม่ถูกแตะ
+  assert.match(await ws.call('write_file', { path: 'new.txt', content: 'x' }), /เขียน new\.txt/); // ไฟล์ใหม่เขียนได้เลย
+  await ws.call('read_file', { path: 'a.txt' });
+  assert.match(await ws.call('edit_file', { path: 'a.txt', old_string: 'one', new_string: 'two' }), /แก้ a\.txt แล้ว/);
+  assert.match(await ws.call('edit_file', { path: 'a.txt', old_string: 'two', new_string: 'three' }), /แก้ a\.txt แล้ว/); // แก้ต่อจากของตัวเองได้
+  await new Promise(r => setTimeout(r, 20)); fs.writeFileSync(path.join(d, 'a.txt'), 'changed by someone\n'); // เปลี่ยนจากที่อื่น (formatter/ผู้ใช้)
+  assert.match(await ws.call('edit_file', { path: 'a.txt', old_string: 'changed', new_string: 'x' }), /changed since you last read it/);
+  assert.match(await new Workspace(d, { requireRead: false }).call('edit_file', { path: 'a.txt', old_string: 'changed', new_string: 'x' }), /แก้ a\.txt แล้ว/);
+});
+
+test('harness: verify gate — code edits without a test/build run get one reminder before finishing; docs-only or verified work finishes directly', async () => {
+  const edit = p => ({ calls: [['edit_file', { path: p, old_string: 'a', new_string: 'b' }]] });
+  // แก้โค้ดแล้วจะจบเลย → ถูกเตือนครั้งเดียว (พร้อมคำสั่งตรวจของโปรเจกต์) → รันเทสต์ → จบ
+  const s1 = script([edit('src/a.js'), { text: 'เสร็จ' }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ ผ่านแล้ว' }]);
+  const r1 = await run(s1, { callTool: async n => n === 'bash' ? 'exit 0' : 'แก้แล้ว', checks: ['npm test'] });
+  const gate = r1.messages.find(m => m.role === 'user' && /\[Kyber Harness\]/.test(m.content));
+  assert.ok(gate && /`npm test`/.test(gate.content)); assert.equal(r1.stats.gated, 1); assert.equal(s1.seen.length, 4);
+  // แก้แค่เอกสาร: ไม่เตือน
+  const s2 = script([edit('README.md'), { text: 'เสร็จ' }]); const r2 = await run(s2, { callTool: async () => 'แก้แล้ว' });
+  assert.equal(s2.seen.length, 2); assert.equal(r2.stats.gated, undefined);
+  // แก้แล้วรันเทสต์ก่อนจบเอง: ไม่เตือน
+  const s3 = script([edit('a.py'), { calls: [['bash', { command: 'pytest -q' }]] }, { text: 'เสร็จ' }]); await run(s3, { callTool: async () => 'ok' });
+  assert.equal(s3.seen.length, 3);
+  // อ้างว่าผ่านทั้งที่ไม่ได้รันอะไร: เตือน · โมเดลยังไม่รันอีก ก็ไม่เตือนซ้ำ (ไม่วน)
+  const s4 = script([{ text: 'ทดสอบผ่านหมดแล้วครับ' }, { text: 'ไม่มีเทสต์ให้รันครับ' }]); const r4 = await run(s4, { callTool: async () => '' });
+  assert.equal(s4.seen.length, 2); assert.equal(r4.stats.gated, 1);
+  // ผู้ช่วย (depth 1) และปิดด้วย verifyGate:false: ไม่เตือน
+  const s5 = script([edit('a.js'), { text: 'เสร็จ' }]); await run(s5, { callTool: async () => 'ok', verifyGate: false }); assert.equal(s5.seen.length, 2);
+});
+
+test('harness: second-pass reviewer — flagged notes trigger one fix round; LGTM finishes', async () => {
+  const s = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }, { text: 'แก้ตามที่ตรวจแล้ว' }]);
+  const asked = [];
+  const r = await run(s, { callTool: async () => 'ok', review: async x => { asked.push(x.changed); return '- a.js: missing null check on line 3'; } });
+  assert.deepEqual(asked, [['a.js']]); assert.equal(s.seen.length, 4); assert.equal(r.stats.reviewed, 1);
+  assert.match(r.messages.find(m => /\[Kyber Harness · review\]/.test(m.content || '')).content, /missing null check/);
+  const s2 = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }]);
+  await run(s2, { callTool: async () => 'ok', review: async () => 'LGTM' }); assert.equal(s2.seen.length, 3);
+  const s3 = script([{ text: 'ตอบคำถามเฉย ๆ' }]); let called = 0; await run(s3, { callTool: async () => '', review: async () => { called++; return 'x'; } }); assert.equal(called, 0); // ไม่ได้แก้ไฟล์: ไม่ตรวจ
+});
+
+test('project map: tree, scripts, deps and the checks to run; nothing for the home folder', async () => {
+  const { projectMap, agentSystem } = require('../agenttools');
+  const d = tmp(); fs.mkdirSync(path.join(d, 'src')); fs.mkdirSync(path.join(d, 'node_modules/x'), { recursive: true }); fs.writeFileSync(path.join(d, 'src/index.ts'), '');
+  fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'shop', scripts: { test: 'vitest run', build: 'vite build', dev: 'vite' }, dependencies: { react: '^18.3.1' } }));
+  fs.writeFileSync(path.join(d, 'pnpm-lock.yaml'), '');
+  const m = await projectMap(d);
+  assert.match(m.text, /src\/\n  index\.ts/); assert.doesNotMatch(m.text, /node_modules/);
+  assert.match(m.text, /Node project "shop" · package manager: pnpm/); assert.match(m.text, /react@\^18\.3\.1/);
+  assert.deepEqual(m.checks, ['pnpm test', 'pnpm build']);
+  assert.match(agentSystem({ root: d, os: 'x', map: m.text }), /Project map \(generated when the task started/);
+  const py = tmp(); fs.writeFileSync(path.join(py, 'requirements.txt'), 'flask\npytest\n'); assert.deepEqual((await projectMap(py)).checks, ['pytest -q']);
+  assert.deepEqual(await projectMap(os.homedir()), { text: '', checks: [] });
+  const npmNoTest = tmp(); fs.writeFileSync(path.join(npmNoTest, 'package.json'), JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1', lint: 'eslint .' } }));
+  assert.deepEqual((await projectMap(npmNoTest)).checks, ['npm run lint']);
+});
+
+test('reviewer: reads only this task\'s diff, skips non-code work, returns the model notes', async () => {
+  const { makeReviewer } = require('../agenttools');
+  const d = tmp(); fs.writeFileSync(path.join(d, 'a.js'), 'let x = 1;\n'); fs.writeFileSync(path.join(d, 'notes.md'), 'hi\n');
+  const ws = new Workspace(d); ws.step = 1; ws.runFrom = 1;
+  await ws.call('read_file', { path: 'a.js' }); await ws.call('edit_file', { path: 'a.js', old_string: 'let x = 1;', new_string: 'let x = null.y;' });
+  await ws.call('write_file', { path: 'b.js', content: 'new file' });
+  let sent = null; const post = async body => { sent = body; return { ok: true, json: async () => ({ choices: [{ message: { content: '- a.js: null.y throws' } }] }) }; };
+  const notes = await makeReviewer({ ws, post, model: 'm', task: 'fix x' })({ changed: ['a.js', 'b.js'] });
+  assert.equal(notes, '- a.js: null.y throws'); assert.equal(sent.stream, false);
+  assert.match(sent.messages[1].content, /fix x[\s\S]*=== a\.js\n[\s\S]*- let x = 1;\n\+ let x = null\.y;[\s\S]*=== b\.js \(new file\)/);
+  assert.equal(await makeReviewer({ ws, post, model: 'm' })({ changed: ['notes.md'] }), null); // ไม่ใช่โค้ด: ไม่เรียก
 });

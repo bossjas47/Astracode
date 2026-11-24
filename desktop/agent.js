@@ -9,7 +9,11 @@ const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
 const READ_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax', 'web_search', 'web_fetch', 'task', 'read_document', 'screenshot_url']);
 const EDIT_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit', 'make_document']);
 const NO_SPILL = new Set(['read_file', 'read_document', 'task', 'ask_user']); // ผลที่โมเดลขอดูเต็ม ๆ (เนื้อไฟล์ที่จะแก้ / รายงานผู้ช่วย): ไม่เก็บลงไฟล์
-const STUCK_N = 3; // เรียกเครื่องมือเดิมด้วย argument เดิม / error เดิม ติดกันเท่านี้ = วนซ้ำ
+const STUCK_N = 3;
+// ตรวจงานก่อนจบ: ไฟล์โค้ด · คำสั่งที่นับว่า "ตรวจแล้ว" (เทสต์/บิลด์/lint/รันสคริปต์) · ข้อความที่อ้างว่าผ่าน
+const CODE_RE = /\.(m?[jt]sx?|cjs|py|go|rs|java|kt|cs|cpp|cc|c|h|rb|php|swift|vue|svelte|sh|sql)$/i;
+const VERIFY_RE = /\b(test|tests|pytest|jest|vitest|mocha|tsc|lint|eslint|build|compile|py_compile|cargo\s+(test|build|check)|go\s+(test|build|vet)|mvn|gradle|make|ruff|mypy|flake8)\b|\b(node|python3?|deno|bun|php|ruby)\s+[^|;&]*\.(m?js|py|ts|php|rb)\b|\b(node|python3?|deno|bun)\s+(-e|-c|--eval|-p)\s/i;
+const CLAIM_RE = /(tests?|เทสต์|ทดสอบ|build|บิลด์|รัน)[^.\n]{0,40}(pass|ผ่าน|สำเร็จ|succeed|green|เรียบร้อย)/i; // เรียกเครื่องมือเดิมด้วย argument เดิม / error เดิม ติดกันเท่านี้ = วนซ้ำ
 
 const sleep = (ms, signal) => new Promise((ok, no) => {
   if (signal?.aborted) return no(new Error('หยุดแล้ว'));
@@ -65,7 +69,8 @@ function repairHistory(messages) {
 // ตัวเลือกใหม่ (ไม่ส่ง = พฤติกรรมเดิม): maxDurationMs · maxTokens (token รวมทั้งงาน) · depth (ผู้ช่วย = 1: ห้าม task ซ้อน) · toolKind(name) → 'read'|อื่นๆ
 //   spill(text, info) → path ของไฟล์ที่เก็บผลเต็ม · onCheckpoint({ round, messages, state }) · retryWaits (ระบุเอง = ไม่สุ่ม ใช้ในเทสต์)
 async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {},
-  retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000 }) {
+  retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000,
+  verifyGate = true, checks = [], review = null }) {
   const url = base.replace(/\/$/, '') + '/chat/completions', t0 = Date.now();
   const post = (body, sig = signal) => fetchImpl(url, { method: 'POST', signal: sig, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
   // นาฬิกาเฝ้าคำขอ: ไม่ได้คำตอบเลยภายใน firstByteMs หรือสตรีมเงียบ (ไม่มีข้อมูลแม้แต่ ping) เกิน stallMs → ตัดการเชื่อมต่อ
@@ -81,14 +86,14 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
   const schemas = new Map(tools.map(t => [t.function?.name, t.function?.parameters]));
   const kindOf = name => toolKind?.(name) || (READ_TOOLS.has(name) ? 'read' : 'write');
   // สถานะที่ต้องคงไว้เสมอแม้ย่อบทสนทนา: รายการงานล่าสุด · ไฟล์ที่แก้แล้ว · error ที่ยังไม่หาย
-  const state = { todos: null, changed: new Set(), errors: new Map() };
+  const state = { todos: null, changed: new Set(), errors: new Map(), round: 0, codeEditRound: -1, verifyRound: -1, gated: false, reviewed: false };
   const stats = { rounds: 0, toolCalls: 0, toolErrors: 0, perTool: {}, ttft: [], promptTokens: 0, cachedTokens: 0, outTokens: 0, stuck: 0, retries: 0 };
   const recentSig = [], recentErr = [], hinted = new Set();
   const fixed = repairHistory(messages); if (fixed) onEvent({ type: 'info', text: `ทำต่อจากงานที่ค้าง (เครื่องมือ ${fixed} รายการถูกขัดจังหวะ)` });
   const stop = text => { onEvent({ type: 'delta', text: `\n\n(หยุด: ${text} สั่ง "ทำต่อ" ได้)` }); };
   const finish = () => { stats.ms = Date.now() - t0; stats.cacheHit = stats.promptTokens ? Math.round(stats.cachedTokens / stats.promptTokens * 1000) / 10 : 0; onEvent({ type: 'stats', stats }); return messages; };
   for (let round = 0; round < maxRounds; round++) {
-    if (signal?.aborted) throw new Error('หยุดแล้ว');
+    if (signal?.aborted) throw new Error('หยุดแล้ว'); state.round = round;
     if (maxDurationMs && Date.now() - t0 > maxDurationMs) { stop(`ทำงานครบเวลา ${Math.round(maxDurationMs / 60000)} นาทีแล้ว`); return finish(); }
     if (maxTokens && stats.promptTokens + stats.outTokens > maxTokens) { stop(`ใช้ token ครบเพดาน ${maxTokens.toLocaleString()} แล้ว`); return finish(); }
     for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
@@ -121,7 +126,27 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     stats.rounds++;
     messages.push({ role: 'assistant', content: msg.content || null, ...(msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
     if (msg.content) onEvent({ type: 'text_end' });
-    if (!msg.tool_calls.length) { onCheckpoint?.({ round, messages, state: snapshot(state) }); return finish(); }
+    if (!msg.tool_calls.length) {
+      // ตรวจงานก่อนจบ (ครั้งเดียว): แก้โค้ดแล้วยังไม่ได้รันเทสต์/บิลด์หลังแก้ครั้งล่าสุด หรืออ้างว่า "ผ่าน" ทั้งที่ไม่ได้รันอะไรเลย → ให้ตรวจจริงก่อน
+      const unverified = state.codeEditRound >= 0 && state.verifyRound < state.codeEditRound, claim = CLAIM_RE.test(msg.content || '') && state.verifyRound < 0;
+      if (verifyGate && depth === 0 && !state.gated && (unverified || claim) && round < maxRounds - 1) {
+        state.gated = true; stats.gated = (stats.gated || 0) + 1;
+        const how = checks.length ? `The project's checks: ${checks.slice(0, 4).map(c => '`' + c + '`').join(', ')}.` : 'Find the project\'s test/build command (package.json scripts, Makefile, pytest, etc.).';
+        messages.push({ role: 'user', content: `[Kyber Harness] ${claim && !unverified ? 'You said it passes, but you have not run any test or build in this task.' : 'You changed code but have not run any test or build since your last change.'} Before finishing, verify your work: ${how} Run the relevant check now with bash, fix real failures, then give the final summary. If there is genuinely nothing to run (no tests, no build step), say that plainly instead of claiming it passes.` });
+        onEvent({ type: 'info', text: 'ตรวจงานก่อนจบ: ให้ AI รันเทสต์/บิลด์ก่อนสรุป' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
+      }
+      // ผู้ตรวจรอบสอง (ครั้งเดียว): โมเดลอีกตัวอ่านสิ่งที่แก้หาบั๊ก/จุดที่ไม่ตรงคำสั่ง → ให้ Agent แก้ก่อนจบ
+      if (review && depth === 0 && !state.reviewed && state.changed.size && round < maxRounds - 1) {
+        state.reviewed = true; onEvent({ type: 'info', text: 'ผู้ตรวจรอบสองกำลังอ่านสิ่งที่แก้…' });
+        const notes = await Promise.resolve(review({ changed: [...state.changed], final: msg.content || '', messages })).catch(() => null);
+        if (notes && !/^\s*(LGTM|ไม่พบปัญหา)/i.test(notes)) {
+          stats.reviewed = (stats.reviewed || 0) + 1;
+          messages.push({ role: 'user', content: `[Kyber Harness · review] A second reviewer read your changes and flagged:\n${String(notes).slice(0, 4000)}\n\nCheck each point against the actual files. Fix the real problems (and re-run the checks); if a point is wrong, say why in one line. Then give the final summary.` });
+          onEvent({ type: 'info', text: 'ผู้ตรวจรอบสองพบจุดที่ควรแก้: ให้ AI แก้ก่อนจบ' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
+        }
+      }
+      onCheckpoint?.({ round, messages, state: snapshot(state) }); return finish();
+    }
     const images = [];
     const run1 = async tc => {
       if (signal?.aborted) throw new Error('หยุดแล้ว');
@@ -174,12 +199,13 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
   stop(`ทำงานครบ ${maxRounds} รอบแล้ว`);
   return finish();
 }
-const snapshot = s => ({ todos: s.todos, changed: [...s.changed], errors: [...s.errors.values()] });
+const snapshot = s => ({ todos: s.todos, changed: [...s.changed], errors: [...s.errors.values()], verified: s.verifyRound >= s.codeEditRound });
 // เก็บสถานะงานจากผลเครื่องมือ: todo ล่าสุด · ไฟล์ที่แก้สำเร็จ · error ที่ยังไม่หาย (หายเมื่อเครื่องมือเดียวกันกับไฟล์/คำสั่งเดียวกันสำเร็จ)
 function track(state, name, args, out, ok) {
   if (name === 'todo_write' && ok && Array.isArray(args.todos)) state.todos = args.todos.slice(0, 30).map(t => ({ content: String(t.content || '').slice(0, 200), status: t.status }));
   const target = String(args.path || args.command || args.url || '').slice(0, 200), k = name + ':' + target;
-  if (EDIT_TOOLS.has(name) && ok && args.path) state.changed.add(String(args.path));
+  if (EDIT_TOOLS.has(name) && ok && args.path) { state.changed.add(String(args.path)); if (CODE_RE.test(String(args.path))) state.codeEditRound = state.round; }
+  if (name === 'bash' && VERIFY_RE.test(String(args.command || ''))) state.verifyRound = state.round; // รันตรวจแล้ว (ผ่านหรือไม่ผ่านก็นับ: โมเดลเห็นผลจริงแล้ว)
   const failed = !ok || (name === 'bash' && /^exit [1-9]\d*/.test(out)); // คำสั่งที่ exit ไม่ใช่ 0 (เทสต์/บิลด์พัง) = error ที่ยังค้าง
   if (failed) state.errors.set(k, `${name} ${target}: ${out.slice(0, 300)}`); else state.errors.delete(k);
   if (state.errors.size > 8) state.errors.delete(state.errors.keys().next().value);

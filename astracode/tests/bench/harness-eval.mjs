@@ -59,10 +59,11 @@ export const CASES = [
     const src = 'const host = "a";\nconst port = 1;\nconst debug = true;\n'; let untouched = null;
     const r = await play({ files: { 'cfg.js': src }, prompt: 'เปลี่ยน host เป็น b, port เป็น 2, debug เป็น false',
       policy: (msgs, i) => {
-        if (i === 0) return { calls: [call('multi_edit', { path: 'cfg.js', edits: [{ old_string: '"a"', new_string: '"b"' }, { old_string: 'port = 9', new_string: 'port = 2' }, { old_string: 'true', new_string: 'false' }] })] };
-        if (i === 1) return /ไม่ได้แก้อะไร/.test(lastTools(msgs)[0]) ? { calls: [call('read_file', { path: 'cfg.js' })] } : { text: 'งง' };
-        if (i === 2) { const t = lastTools(msgs)[0]; untouched = /"a"/.test(t) && /port = 1/.test(t) && /debug = true/.test(t); } // edit แรกในชุดที่ล้มต้องไม่ถูกเขียนลงไฟล์
-        if (i === 2) return { calls: [call('multi_edit', { path: 'cfg.js', edits: [{ old_string: '"a"', new_string: '"b"' }, { old_string: 'port = 1', new_string: 'port = 2' }, { old_string: 'true', new_string: 'false' }] })] };
+        if (i === 0) return { calls: [call('read_file', { path: 'cfg.js' })] };
+        if (i === 1) return { calls: [call('multi_edit', { path: 'cfg.js', edits: [{ old_string: '"a"', new_string: '"b"' }, { old_string: 'port = 9', new_string: 'port = 2' }, { old_string: 'true', new_string: 'false' }] })] };
+        if (i === 2) return /ไม่ได้แก้อะไร/.test(lastTools(msgs)[0]) ? { calls: [call('read_file', { path: 'cfg.js' })] } : { text: 'งง' };
+        if (i === 3) { const t = lastTools(msgs)[0]; untouched = /"a"/.test(t) && /port = 1/.test(t) && /debug = true/.test(t); } // edit แรกในชุดที่ล้มต้องไม่ถูกเขียนลงไฟล์
+        if (i === 3) return { calls: [call('multi_edit', { path: 'cfg.js', edits: [{ old_string: '"a"', new_string: '"b"' }, { old_string: 'port = 1', new_string: 'port = 2' }, { old_string: 'true', new_string: 'false' }] })] };
         return { text: 'แก้ครบ 3 จุด' };
       } });
     return { pass: untouched === true && r.read('cfg.js') === 'const host = "b";\nconst port = 2;\nconst debug = false;\n', r };
@@ -70,9 +71,10 @@ export const CASES = [
   { name: 'syntax-guard-after-edit', about: 'เขียน JSON พัง → harness แจ้ง [syntax error] ทันที → โมเดลแก้จนถูก', run: async () => {
     const r = await play({ files: { 'package.json': '{"name":"x"}' }, prompt: 'เพิ่ม script test',
       policy: (msgs, i) => {
-        if (i === 0) return { calls: [call('write_file', { path: 'package.json', content: '{"name":"x","scripts":{"test":"node t.js",}}' })] };
-        if (i === 1) return /\[syntax error · JSON\]/.test(lastTools(msgs)[0]) ? { calls: [call('write_file', { path: 'package.json', content: '{"name":"x","scripts":{"test":"node t.js"}}' })] } : { text: 'เสร็จแล้ว (ไม่รู้ว่าไฟล์พัง)' };
-        return { text: /syntax error/.test(lastTools(msgs)[0]) ? 'ยังพัง' : 'เพิ่ม script แล้ว JSON ถูกต้อง' };
+        if (i === 0) return { calls: [call('read_file', { path: 'package.json' })] };
+        if (i === 1) return { calls: [call('write_file', { path: 'package.json', content: '{"name":"x","scripts":{"test":"node t.js",}}' })] };
+        if (i === 2) return /\[syntax error · JSON\]/.test(lastTools(msgs)[0]) ? { calls: [call('write_file', { path: 'package.json', content: '{"name":"x","scripts":{"test":"node t.js"}}' })] } : { text: 'เสร็จแล้ว (ไม่รู้ว่าไฟล์พัง)' };
+        return { text: /syntax error/.test(lastTools(msgs)[0] || '') ? 'ยังพัง' : 'เพิ่ม script แล้ว JSON ถูกต้อง' };
       } });
     let ok = false; try { ok = JSON.parse(r.read('package.json')).scripts.test === 'node t.js'; } catch { ok = false; }
     return { pass: ok && /ถูกต้อง/.test(r.final), r };
@@ -141,6 +143,32 @@ export const CASES = [
         return { text: /อ่านทุกไฟล์/.test(kept) && /notes\.txt/.test(kept) && /exit 3/.test(kept) ? 'สถานะครบหลังย่อ' : 'สถานะหาย' };
       } });
     return { pass: r.final === 'สถานะครบหลังย่อ' && r.ev.some(e => e.type === 'info' && /ย่อ/.test(e.text)), r };
+  } },
+  { name: 'blind-edit-blocked', about: 'แก้ไฟล์โดยไม่อ่านก่อน (เดาเนื้อหา) → harness ไม่ให้แก้ → อ่านแล้วแก้ถูกจุด', run: async () => {
+    const r = await play({ files: { 'app.js': 'const port = 3000;\nmodule.exports = { port };\n' }, prompt: 'เปลี่ยน port เป็น 8080',
+      policy: (msgs, i) => {
+        if (i === 0) return { calls: [call('edit_file', { path: 'app.js', old_string: 'const PORT = 3000;', new_string: 'const PORT = 8080;' })] }; // เดาชื่อตัวแปรผิด
+        if (i === 1) return /read app\.js with read_file before editing/.test(lastTools(msgs)[0]) ? { calls: [call('read_file', { path: 'app.js' })] } : { text: 'แก้ไม่ได้' };
+        if (i === 2) return { calls: [call('edit_file', { path: 'app.js', old_string: 'const port = 3000;', new_string: 'const port = 8080;' })] };
+        if (i === 3) return { calls: [call('bash', { command: 'node -e "console.log(require(\'./app\').port)"' })] };
+        return { text: /8080/.test(lastTools(msgs)[0] || '') ? 'เปลี่ยนเป็น 8080 แล้ว ตรวจแล้ว' : '?' };
+      } });
+    return { pass: r.read('app.js').includes('8080') && /ตรวจแล้ว/.test(r.final), r };
+  } },
+  { name: 'verify-before-finish', about: 'แก้โค้ดแล้วจะจบทันทีโดยอ้างว่า "ผ่าน" → harness ให้รันเทสต์ก่อน → เจอบั๊กจริงแล้วแก้', run: async () => {
+    const r = await play({ files: { 'sum.js': 'module.exports = (a, b) => a + b;\n', 'test.js': "const s = require('./sum'); if (s('2', 3) !== 5) { console.error('FAIL'); process.exit(1); } console.log('PASS');\n" }, prompt: 'ให้ sum รับเลขที่เป็นข้อความได้', opts: { checks: ['node test.js'] },
+      policy: (msgs, i) => {
+        if (i === 0) return { calls: [call('read_file', { path: 'sum.js' })] };
+        if (i === 1) return { calls: [call('edit_file', { path: 'sum.js', old_string: 'a + b', new_string: 'a + +b' })] }; // แก้ไม่ครบ ('2' + 3)
+        if (i === 2) return { text: 'แก้แล้ว ทดสอบผ่าน' }; // อ้างว่าผ่านโดยไม่ได้รัน
+        const last = msgs.at(-1);
+        if (last.role === 'user' && /\[Kyber Harness\]/.test(last.content)) return /node test\.js/.test(last.content) ? { calls: [call('bash', { command: 'node test.js' })] } : { text: 'ไม่รู้คำสั่ง' };
+        const out = lastTools(msgs)[0] || '';
+        if (/FAIL/.test(out)) return { calls: [call('edit_file', { path: 'sum.js', old_string: 'a + +b', new_string: '+a + +b' })] };
+        if (/แก้ sum\.js/.test(out)) return { calls: [call('bash', { command: 'node test.js' })] };
+        return { text: /PASS/.test(out) ? 'แก้แล้ว รัน node test.js ผ่านจริง' : '?' };
+      } });
+    return { pass: r.read('sum.js').includes('+a + +b') && /ผ่านจริง/.test(r.final) && r.stats.gated === 1, r };
   } },
 ];
 

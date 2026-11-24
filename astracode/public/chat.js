@@ -1317,11 +1317,11 @@ function agentSteer() {
 const agentWeak = m => /uncen|flash|lite|nano|mini\b/i.test(m?.name || '');
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* โหมดส่วนตัว */ } };
 // คืนโมเดลที่จะใช้ (null = ยกเลิก) · แนะนำ Sonnet Eco > Sonnet > Opus Eco ที่แพลนใช้ได้
-function agentWeakSheet(m, models) {
-  const rec = models.find(x => /sonnet.*eco/i.test(x.name)) || models.find(x => /sonnet/i.test(x.name)) || models.find(x => /opus.*eco/i.test(x.name));
+function agentWeakSheet(m, models, stat = null) {
+  const rec = [models.find(x => /sonnet.*eco/i.test(x.name)), models.find(x => /sonnet/i.test(x.name)), models.find(x => /opus.*eco/i.test(x.name))].find(x => x && x.id !== m.id && !chat.agQ?.some(q => q.model === vslug(x)));
   return new Promise(done => {
     let res = null;
-    sheet('โมเดลนี้ไม่เหมาะกับงาน Agent', `<p>${esc(m.name)} เป็นโมเดลรุ่นเล็ก/เร็ว ใช้ทำงาน Agent (หลายขั้นตอน ใช้เครื่องมือ) แล้วมักทำคำสั่งเดิมวนซ้ำ ตอบไม่จบ หรือแก้ไฟล์พลาด</p>
+    sheet('โมเดลนี้ไม่เหมาะกับงาน Agent', `<p>${stat ? `สถิติ 14 วันล่าสุดจากผู้ใช้ทุกคน: งาน Agent ด้วย ${esc(m.name)} ${esc(stat.reason)} (จาก ${stat.n} งาน)` : `${esc(m.name)} เป็นโมเดลรุ่นเล็ก/เร็ว ใช้ทำงาน Agent (หลายขั้นตอน ใช้เครื่องมือ) แล้วมักทำคำสั่งเดิมวนซ้ำ ตอบไม่จบ หรือแก้ไฟล์พลาด`}</p>
       ${rec ? `<p>แนะนำ <b>${esc(rec.name)}</b> สำหรับงาน Agent</p><button type="button" class="btn blue" data-w="rec">ใช้ ${esc(rec.name)} (แนะนำ)</button>` : '<p>แนะนำเปลี่ยนเป็นโมเดลรุ่นใหญ่ เช่น Claude Sonnet หรือ ChatGPT 6.2</p>'}
       <button type="button" class="btn" data-w="keep">ใช้ ${esc(m.name)} ต่อ</button>
       <label class="row" style="gap:8px;margin-top:6px;font-size:13px"><input type="checkbox" data-w="mute"> ไม่ต้องเตือนสำหรับโมเดลนี้อีก</label>`, (d, close) => {
@@ -1339,7 +1339,9 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   const chatModels = me.models.filter(x => !['image', 'embedding'].includes(x.provider) && !x.locked);
   let m = curModel()?.id === 'auto' ? chatModels.find(x => /sonnet.*eco|sonnet/i.test(x.name)) || chatModels[0] : curModel(); // อัตโนมัติ: Agent ใช้ Sonnet (ใช้ tool เก่ง ราคากลาง)
   if (!m || ['image', 'embedding'].includes(m.provider)) return showErr('เลือกโมเดลแชตก่อน (แนะนำ Claude Sonnet / Opus Eco หรือ ChatGPT 6.2)');
-  if (agentWeak(m) && !lsGet('agWeakOk:' + m.id)) { const pick = await agentWeakSheet(m, chatModels); if (!pick) return; m = pick; } // โมเดลเล็ก/Uncen มักวนซ้ำหรือใช้เครื่องมือพลาดในงาน Agent: เตือนก่อนเริ่ม
+  if (chat.agQ === undefined) chat.agQ = await api('/agent/quality').then(d => d.flagged || []).catch(() => []); // โมเดลที่สถิติงาน Agent แย่ (14 วัน จากผู้ใช้ทุกคน)
+  const stat = chat.agQ.find(x => x.model === vslug(m));
+  if ((agentWeak(m) || stat) && !lsGet('agWeakOk:' + m.id)) { const pick = await agentWeakSheet(m, chatModels, stat); if (!pick) return; m = pick; } // โมเดลเล็ก/Uncen มักวนซ้ำหรือใช้เครื่องมือพลาดในงาน Agent: เตือนก่อนเริ่ม
   const cheap = [...chatModels].sort((a, b) => a.multiplier - b.multiplier).find(x => !/uncen/i.test(x.name)); // ผู้ช่วยค้น (subagent) ใช้โมเดลถูกสุด
   try { if (await PCD.agent.needKey()) await PCD.agent.setKey((await api('/keys', { method: 'POST', body: { name: 'Desktop Agent' } })).key); } // ครั้งแรก: สร้าง API key ของบัญชีนี้ให้แอป (คิดเงินผ่าน /v1 ตามจริง)
   catch (x) { return showErr('สร้าง API key ให้แอปไม่ได้: ' + x.message); }

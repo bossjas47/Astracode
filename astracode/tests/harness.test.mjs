@@ -168,6 +168,22 @@ test('/v1 refuses a model the moment it is disabled or hidden (the 30 s model ca
   fm.close();
 });
 
+test('agent quality: per-model success / stuck stats; weak models are flagged for the web warning, admin sees all', async () => {
+  const t = await makeEnv({ K: 'k' }); const { raw, u } = await client(t);
+  const stat = (model, ok, stuck) => raw('/v1/agent/stat', { model, rounds: 5, tools: 8, ok, ms: 9000, harness: { retries: 0, stuck, toolErrors: 1, cacheHit: 80, ttftMs: 900, perTool: {} } });
+  for (let i = 0; i < 12; i++) { await stat('deepseek-4.1-flash-uncen', i < 5, i < 6 ? 1 : 0); await stat('claude-sonnet-5.5-eco', true, 0); }
+  for (let i = 0; i < 3; i++) await stat('rare-model', false, 1); // งานน้อยเกินไป: ไม่ติดธง
+  const r = await t.json('/api/agent/quality', { cookie: u.cookie });
+  assert.equal(r.status, 200); assert.deepEqual(r.data.flagged.map(x => x.model), ['deepseek-4.1-flash-uncen']);
+  assert.match(r.data.flagged[0].reason, /สำเร็จแค่ 42%[\s\S]*วนซ้ำใน 50%/); assert.equal(r.data.flagged[0].n, 12);
+  assert.equal((await t.json('/api/agent/quality')).status, 401);
+  const { agentQuality } = await import(new URL('../src/api.js', import.meta.url).href);
+  const all = await agentQuality(t.env, 14);
+  const sonnet = all.find(x => x.model === 'claude-sonnet-5.5-eco');
+  assert.equal(sonnet.ok_rate, 1); assert.equal(sonnet.stuck_rate, 0); assert.equal(sonnet.cache_hit, 80); assert.equal(sonnet.flagged, false);
+  assert.equal(all.find(x => x.model === 'rare-model').flagged, false);
+});
+
 test('syntax: every hand-written JS file parses (bundles skipped)', () => {
   const SKIP = new Set(['node-runner.js', 'cm.js', 'fb.js']); // ไฟล์ bundle/minified: ไม่แตะ
   const dirs = [['astracode/src', /\.js$/], ['astracode/public', /\.js$/], ['astracode/container', /\.js$/], ['desktop', /\.js$/], ['astracode/tools', /\.mjs$/]];

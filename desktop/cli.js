@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { runAgent } = require('./agent');
-const { AGENT_TOOLS, READ_ONLY, Workspace, agentSystem, projectRules, projectHooks } = require('./agenttools');
+const { AGENT_TOOLS, READ_ONLY, Workspace, agentSystem, projectRules, projectHooks, projectMap } = require('./agenttools');
 
 const SITE = process.env.ASTRA_SITE || 'https://astracode.panderx.xyz';
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i > 0 ? process.argv[i + 1] : d; };
@@ -37,7 +37,8 @@ const q = s => new Promise(ok => rl.question(s, ok));
   const ws = new Workspace(root, { ask, hooks: await projectHooks(root), onTodos: t => console.log(dim(t.map(x => (x.status === 'completed' ? '☑ ' : x.status === 'in_progress' ? '▶ ' : '☐ ') + x.content).join('\n'))),
     search: async query => { const r = await fetch(SITE + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify({ query }) }); return (await r.json()).results || []; } });
   if (ws.hooks) { const a = (await q(yellow(`โปรเจกต์นี้มี hook หลังแก้ไฟล์: ${ws.hooks.after_edit}\nอนุญาตให้รันเอง? [y/n]: `))).trim(); if (a !== 'y') ws.hooks = null; }
-  const messages = [{ role: 'system', content: agentSystem({ root, os: `${process.platform} ${os.release()}`, rules: await projectRules(root) }) }];
+  const pmap = await projectMap(root).catch(() => ({ text: '', checks: [] })); // แผนที่โปรเจกต์ + คำสั่งตรวจงาน
+  const messages = [{ role: 'system', content: agentSystem({ root, os: `${process.platform} ${os.release()}`, rules: await projectRules(root), map: pmap.text }) }];
   let ac = null; process.on('SIGINT', () => { if (ac) { ac.abort(); ws.stopAll(); console.log(red('\n(หยุดแล้ว)')); } else process.exit(0); });
   const run = async text => {
     if (/^\/mode\s+(ask|edits|auto|plan|yolo)$/.test(text)) { mode = text.split(/\s+/)[1]; return console.log(dim('โหมด: ' + mode)); }
@@ -45,7 +46,7 @@ const q = s => new Promise(ok => rl.question(s, ok));
     messages.push({ role: 'user', content: text + (mode === 'plan' ? '\n\n[โหมดวางแผน] ห้ามแก้ไฟล์หรือรันคำสั่ง เขียนแผนให้อนุมัติก่อน' : '') });
     ws.runFrom = ws.step + 1; ac = new AbortController(); ws.signal = ac.signal; let cost = 0;
     try {
-      await runAgent({ base: SITE + '/v1', key, model, messages, tools: mode === 'plan' ? AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)) : AGENT_TOOLS.filter(t => !['screenshot_url', 'task'].includes(t.function.name)), signal: ac.signal, onStep: () => ++ws.step, spill: (t, i) => ws.spill(t, i),
+      await runAgent({ base: SITE + '/v1', key, model, messages, tools: mode === 'plan' ? AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)) : AGENT_TOOLS.filter(t => !['screenshot_url', 'task'].includes(t.function.name)), signal: ac.signal, onStep: () => ++ws.step, spill: (t, i) => ws.spill(t, i), checks: pmap.checks, verifyGate: mode !== 'plan',
         callTool: (n, a) => ws.call(n, a),
         onEvent: e => {
           if (e.type === 'delta') process.stdout.write(e.text);

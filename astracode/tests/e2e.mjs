@@ -230,6 +230,19 @@ const FLOWS = [
     return [!errs.length || errs.join(' | '), /ไม่เหมาะกับงาน Agent/.test(warn) && /Sonnet/.test(warn) || 'no warning: ' + warn, log1.some(x => x[0] === 'run' && x[1] === 'sonnet') || 'not switched to Sonnet: ' + JSON.stringify(log1),
       saved === '2' || 'picker not switched: ' + saved, !log2.some(x => x[0] === 'run') || 'cancel still ran the agent'];
   }],
+  ['desktop app: a model flagged by real Agent stats gets the warning with the reason, even when its name looks strong', async () => {
+    const init = () => { try { localStorage.setItem('pc', '1'); localStorage.setItem('pcAgent', '1'); localStorage.setItem('pcAgentMode', 'edits'); localStorage.setItem('agTour', '1'); localStorage.setItem('model', '2'); } catch { return; } const subs = new Set(), log = window.__desk = [];
+      window.astraDesktop = { notify: async () => false, fs: { linked: async k => k === 'chat' ? { name: 'proj', path: 'C:/proj' } : null }, mcp: { tools: async () => [] }, screen: { state: async () => false },
+        agent: { needKey: async () => false, setKey: async () => true, onEvent: f => (subs.add(f), () => subs.delete(f)), stop: async () => true, run: async o => { log.push(['run', o.model]); subs.forEach(f => f({ sid: o.sid, type: 'done', changed: [] })); return true; } } }; };
+    const { page, errs } = await open('/chat', { init, '/api/chats/append': { chat_id: 57 }, '/api/agent/quality': { flagged: [{ model: 'sonnet', n: 40, reason: 'งานสำเร็จแค่ 41%' }] } });
+    await page.fill('#t', 'งาน'); await page.press('#t', 'Enter'); await page.waitForTimeout(500);
+    const warn = await page.locator('.sheet').innerText().catch(() => '');
+    await page.click('.sheet [data-w=mute]'); await page.click('.sheet [data-w=keep]'); await page.waitForTimeout(600);
+    await page.fill('#t', 'งานสอง'); await page.press('#t', 'Enter'); await page.waitForTimeout(600);
+    const log = await page.evaluate(() => window.__desk.slice()), again = await page.locator('.sheet').count();
+    return [!errs.length || errs.join(' | '), /สถิติ 14 วัน[\s\S]*สำเร็จแค่ 41%[\s\S]*40 งาน/.test(warn) || 'no stats reason: ' + warn,
+      log.filter(x => x[0] === 'run' && x[1] === 'sonnet').length === 2 || 'keep did not run with the chosen model: ' + JSON.stringify(log), again === 0 || 'warned again after "don\'t warn"'];
+  }],
   ['phone: a chat with an agent running on the computer shows progress and lets you approve and type', async () => {
     const remote = { events: [{ type: 'tool', name: 'edit_file', args: { path: 'src/a.js' } }, { type: 'info', text: 'กำลังทำ' }], ask: { id: 3, title: 'ขอรันคำสั่ง', detail: 'npm test', allowAll: true }, running: true, live: true, updated_at: Date.now() };
     const { page, errs, calls } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'งานบนคอม' }], '/api/chats/81': [{ id: 1, role: 'user', content: 'แก้บั๊ก' }], '/api/remote/81': remote, '/api/remote/81/answer': { ok: true }, '/api/remote/81/say': { ok: true } });

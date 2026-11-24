@@ -9,7 +9,7 @@ const { startMcp } = require('./mcp');
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { setupTool, SETUP_TOOLS } = require('./setuptools');
-const { AGENT_TOOLS, ASK_TOOL, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin, wantsAndroid, toolsFor } = require('./agenttools');
+const { projectMap, makeReviewer, AGENT_TOOLS, ASK_TOOL, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin, wantsAndroid, toolsFor } = require('./agenttools');
 
 const SITE = 'https://astracode.panderx.xyz';
 // โดเมนที่เชื่อถือ (ช่วงย้ายแบรนด์เป็น Kyber): หน้าจากโดเมนเหล่านี้เท่านั้นที่เรียกสะพานไฟล์/คำสั่งได้ · แอปยังเปิดโดเมนเดิม (SITE) เป็นหลัก
@@ -388,8 +388,9 @@ async function runTask(o = {}, sender) {
         await runAgent({ base: SITE + '/v1', key: settings.key, model: a.subModel || a.model, messages: sub, tools: AGENT_TOOLS.filter(t => SUB_TOOLS.has(t.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? a.ws.call(n, x) : 'Error: ผู้ช่วยใช้ได้แค่อ่าน/ค้น', onEvent: d => { if (d.type === 'tool') tell({ type: 'sub', title, name: d.name, args: d.args }); if (d.type === 'usage') tell(d); }, signal: a.ac?.signal, maxRounds: 25, depth: 1, spill: (t, i) => a.ws.spill(t, i) });
         return sub.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '(ผู้ช่วยไม่ได้รายงานอะไร)';
       } });
+    a.map = await projectMap(a.ws.root).catch(() => ({ text: '', checks: [] })); // แผนที่โปรเจกต์ + คำสั่งตรวจงาน (ใส่ใน system ตอนเริ่ม session)
     if (!a.messages.length) {
-      a.messages.push({ role: 'system', content: agentSystem({ root: a.ws.root, os: `${process.platform} ${require('os').release()}`, rules: [await projectRules(a.ws.root), ...Object.values(settings.plugins || {}).filter(p => p.rules).map(p => `(ปลั๊กอิน ${p.title})\n${p.rules}`)].filter(Boolean).join('\n\n') }) });
+      a.messages.push({ role: 'system', content: agentSystem({ root: a.ws.root, os: `${process.platform} ${require('os').release()}`, map: a.map.text, rules: [await projectRules(a.ws.root), ...Object.values(settings.plugins || {}).filter(p => p.rules).map(p => `(ปลั๊กอิน ${p.title})\n${p.rules}`)].filter(Boolean).join('\n\n') }) });
       for (const m of (Array.isArray(o.history) ? o.history : []).slice(-10)) if (['user', 'assistant'].includes(m?.role) && typeof m.content === 'string') a.messages.push({ role: m.role, content: m.content.slice(0, 8000) }); // แชตเดิมที่ยังไม่เคยมีไฟล์ session
     }
     agents.set(sid, a);
@@ -430,13 +431,16 @@ async function runTask(o = {}, sender) {
   const budget = +o.budget > 0 ? +o.budget : 0, t0 = Date.now(), stat = { rounds: 0, tools: 0 };
   const onEvent = d => {
     if (d.type === 'usage') stat.rounds++; if (d.type === 'tool') stat.tools++;
-    if (d.type === 'stats') { const x = d.stats, tt = [...x.ttft].sort((p, q) => p - q); stat.harness = { retries: x.retries, stuck: x.stuck, toolErrors: x.toolErrors, cacheHit: x.cacheHit, ttftMs: tt[tt.length >> 1] || 0, perTool: x.perTool }; return; } // สถิติตัวคุมรอบ: ส่งไปกับ agent/stat ไม่ส่งเข้าหน้าเว็บ
+    if (d.type === 'stats') { const x = d.stats, tt = [...x.ttft].sort((p, q) => p - q); stat.harness = { retries: x.retries, stuck: x.stuck, toolErrors: x.toolErrors, cacheHit: x.cacheHit, ttftMs: tt[tt.length >> 1] || 0, perTool: { ...x.perTool, _gated: { calls: x.gated || 0, errors: 0 }, _reviewed: { calls: x.reviewed || 0, errors: 0 } } }; return; } // สถิติตัวคุมรอบ: ส่งไปกับ agent/stat ไม่ส่งเข้าหน้าเว็บ
     if (d.type === 'usage' && d.usage?.astra) { a.cost.charge += d.usage.astra.charge_thb || 0; a.cost.pct += d.usage.astra.week_pct || 0; tell({ type: 'cost', ...a.cost }); if (budget && a.cost.charge >= budget && !ac.signal.aborted) { tell({ type: 'info', text: `ถึงเพดานงานนี้ ฿${budget} แล้ว หยุดให้ก่อน (สั่ง "ทำต่อ" ได้)` }); ac.abort(); } }
     tell(d);
   };
   try {
     await runAgent({ base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
       maxDurationMs: Math.min(600, Math.max(0, +o.maxMinutes || 0)) * 60e3, spill: (t, i) => a.ws.spill(t, i),
+      checks: (a.map ||= await projectMap(a.ws.root).catch(() => ({ checks: [] }))).checks || [], verifyGate: o.verifyGate !== false && mode !== 'plan',
+      review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)
+        post: body => fetch(SITE + '/v1/chat/completions', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) }) }),
       onCheckpoint: () => { if (Date.now() - (a.savedAt || 0) > 5000) { a.savedAt = Date.now(); agentSave(a); } } }); // บันทึกระหว่างทำ (ทุก ≥5 วินาที): แอปปิด/ค้างกลางงาน เปิดใหม่ทำต่อได้
     tell({ type: 'done', changed: a.ws.changed(), outputs: [...new Set([...a.outputs, ...a.ws.changed()])].filter(p => !/\.(js|ts|py|css|json|lock|map)$/i.test(p) || a.outputs.has(p)).slice(0, 20), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
   } catch (x) {

@@ -356,6 +356,21 @@ export async function v1core(req, env, ctx, path, lg = {}) {
 
 // ---------- ตัวช่วย /v1: บันทึกคำขอ, IP allowlist, ตัวห่อและตัวแปลง Anthropic Messages / OpenAI Responses ----------
 // ตารางสั่ง Agent จากมือถือ (สร้างเองครั้งแรก) · events = ความคืบหน้าล่าสุด 300 รายการ, ask = คำถามขออนุญาตที่รอ, answer/inbox = จากมือถือ รอแอปมารับ
+// คุณภาพงาน Agent ต่อโมเดล (สถิติที่แอป Desktop ส่งกลับ ไม่มีเนื้อหางาน): agent_runs + agent_harness
+// flagged = งาน ≥ 10 แล้วสำเร็จ < 60% หรือวนซ้ำ (stuck) ≥ 30% ของงาน → หน้าเว็บเตือนก่อนใช้โมเดลนั้นทำงาน Agent
+export async function agentQuality(env, days = 14) {
+  const since = Date.now() - days * DAY;
+  const [runs, h] = await Promise.all([
+    env.DB.prepare('SELECT model, COUNT(*) n, SUM(ok) ok, AVG(rounds) rounds, AVG(tools) tools, AVG(ms) ms, AVG(charge) charge FROM agent_runs WHERE created_at>? GROUP BY model').bind(since).all().then(r => r.results).catch(() => []),
+    env.DB.prepare('SELECT model, COUNT(*) n, SUM(stuck>0) stuck_runs, AVG(tool_errors) tool_err, AVG(retries) retries, AVG(cache_hit) cache_hit, AVG(ttft_ms) ttft_ms FROM agent_harness WHERE created_at>? GROUP BY model').bind(since).all().then(r => r.results).catch(() => [])]);
+  const hm = new Map(h.map(x => [x.model, x]));
+  return runs.map(r => {
+    const x = hm.get(r.model) || {}, okRate = r.n ? (r.ok || 0) / r.n : 0, stuckRate = x.n ? (x.stuck_runs || 0) / x.n : null, why = [];
+    if (r.n >= 10 && okRate < 0.6) why.push(`งานสำเร็จแค่ ${Math.round(okRate * 100)}%`);
+    if (x.n >= 10 && stuckRate >= 0.3) why.push(`ทำงานวนซ้ำใน ${Math.round(stuckRate * 100)}% ของงาน`);
+    return { model: r.model, n: r.n, ok_rate: okRate, rounds: r.rounds, tools: r.tools, ms: r.ms, charge: r.charge, harness_n: x.n || 0, stuck_rate: stuckRate, tool_err: x.tool_err ?? null, retries: x.retries ?? null, cache_hit: x.cache_hit ?? null, ttft_ms: x.ttft_ms ?? null, flagged: why.length > 0, reason: why.join(' · ') };
+  }).sort((a, b) => b.n - a.n);
+}
 export const ensureRemote = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_remote (chat_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, events TEXT, ask TEXT, answer TEXT, inbox TEXT, running INTEGER, updated_at INTEGER)').run();
 export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,req_model,status,tin,tout,tcr,ttft,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
   .bind(lg.kid, lg.uid, lg.path, lg.model || null, lg.req || null, status, lg.tin || 0, lg.tout || 0, lg.tcr || 0, lg.ttft || null, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});

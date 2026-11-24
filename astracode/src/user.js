@@ -4,7 +4,7 @@ import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putIm
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
-import { ensureRemote, monthKey } from './api.js';
+import { agentQuality, ensureRemote, monthKey } from './api.js';
 import { status } from './jobs.js';
 import { cloudApi } from './cloud.js';
 import { googleConnectFinish, googleConnectStart, googleDisconnect, googleStatus } from './google.js';
@@ -22,7 +22,12 @@ export async function autoJoinTeam(env, u) {
   return null;
 }
 export const teamLog = (env, teamId, uid, action, detail = '') => env.DB.prepare('INSERT INTO team_log (team_id,user_id,action,detail,created_at) VALUES (?,?,?,?,?)').bind(teamId, uid || null, action, String(detail || '').slice(0, 300), Date.now()).run().catch(() => {});
+let agentQCache = { exp: 0, v: [] };
 export async function userRoutes(req, env, ctx, url, path, M, u) {
+  if (path === '/api/agent/quality' && M === 'GET') { // โมเดลที่สถิติงาน Agent แย่ (หน้าเว็บเตือนก่อนเริ่ม Agent) · จำไว้ใน isolate 10 นาที
+    if (!(agentQCache.exp > Date.now())) agentQCache = { exp: Date.now() + 600e3, v: (await agentQuality(env, 14).catch(() => [])).filter(x => x.flagged).map(({ model, n, reason }) => ({ model, n, reason })) };
+    return json({ flagged: agentQCache.v });
+  }
   if (path.startsWith('/api/connectors')) { const cr = await connectorRoutes(req, env, url, path, M, u); if (cr) return cr; }
   if (path.startsWith('/api/plugins')) { const pr = await pluginRoutes(req, env, path, M, u); if (pr) return pr; }
   const DB = env.DB; let r;

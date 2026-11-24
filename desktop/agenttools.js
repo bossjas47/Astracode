@@ -75,10 +75,11 @@ function diffLines(a, b, ctx = 2, max = 160) {
 const globRe = g => new RegExp('^' + String(g).replace(/\\/g, '/').replace(/[.+^$()|[\]]/g, '\\$&').replace(/\{([^}]+)\}/g, (_, x) => '(' + x.split(',').join('|') + ')').replace(/\*\*\/?/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\u0000/g, '(?:.*/)?') + '$', 'i');
 
 class Workspace {
-  constructor(root, { ask = async () => true, fetchImpl = fetch, search = async () => [], onTodos = () => {}, shot = null, subagent = null, hooks = null } = {}) {
+  constructor(root, { ask = async () => true, fetchImpl = fetch, search = async () => [], onTodos = () => {}, shot = null, subagent = null, hooks = null, requireRead = true } = {}) {
     this.root = path.resolve(root); this.cwd = this.root; this.ask = ask; this.fetchImpl = fetchImpl; this.search = search; this.onTodos = onTodos;
     this.shot = shot; this.subagent = subagent; this.hooks = hooks; // hooks: { after_edit: "npx prettier --write {file}" } (ผู้ใช้ยืนยันแล้วใน main)
     this.hist = []; this.step = 0; this.runFrom = 0; this.bg = new Map(); this.n = 0; this.askQ = Promise.resolve();
+    this.seen = new Map(); this.requireRead = requireRead; // ไฟล์ที่อ่านแล้ว → mtime ตอนอ่าน: แก้ไฟล์เดิมได้เฉพาะไฟล์ที่อ่านแล้วและยังไม่ถูกเปลี่ยนจากที่อื่น (กันโมเดลเดาเนื้อหาไฟล์)
   }
   // อ่าน/ค้นหลายอันพร้อมกันได้ แต่หน้าต่างขออนุญาตต้องขึ้นทีละอัน
   askOne(req) { const p = this.askQ.then(() => this.ask(req)); this.askQ = p.catch(() => {}); return p; }
@@ -86,6 +87,19 @@ class Workspace {
   inside(a) { return a === this.root || a.startsWith(this.root + path.sep); }
   rel(a) { return this.inside(a) ? path.relative(this.root, a).split(path.sep).join('/') || '.' : a; }
   // ก่อนแก้ไฟล์ทุกครั้ง: เก็บเนื้อหาเดิมพร้อมเลขขั้นตอน (null = ไฟล์ใหม่ ย้อน = ลบทิ้ง) → ย้อนไปขั้นไหนก็ได้
+  // diff ของทุกไฟล์ที่แก้ตั้งแต่ขั้นตอน step (เทียบเนื้อหาก่อนแก้ครั้งแรกกับตอนนี้) · ใช้ให้ผู้ตรวจรอบสองอ่าน
+  async diffSince(step = this.runFrom, max = 30000) {
+    const first = new Map(); for (const h of this.hist) if (h.step >= step && !first.has(h.a)) first.set(h.a, h.buf);
+    let out = '';
+    for (const [a, buf] of first) {
+      const now = await fs.readFile(a, 'utf8').catch(() => null), before = buf === null ? '' : buf.toString('utf8');
+      if (now === before) continue;
+      out += `\n=== ${this.rel(a)}${buf === null ? ' (new file)' : now === null ? ' (deleted)' : ''}\n${diffLines(before, now ?? '', 3, 400)}\n`;
+      if (out.length > max) { out = out.slice(0, max) + '\n…(ตัด)'; break; }
+    }
+    return out.trim();
+  }
+  async mtime(f) { const st = await fs.stat(f).catch(() => null); return st && st.isFile() ? st.mtimeMs : null; }
   async keep(a) { this.hist.push({ step: this.step, a, buf: await fs.readFile(a).catch(() => null) }); }
   async undoTo(step = this.runFrom) {
     const done = new Set();
@@ -111,11 +125,17 @@ class Workspace {
       const r = applyEdits(t, a.edits.slice(0, 100)); if (r.error) return r.error; diff = diffLines(t, r.text);
     } else if (name === 'android_tools') args = { command: 'เตรียมเครื่องมือแก้ APK: apktool, jadx, uber-apk-signer (และ Java ถ้ายังไม่มี) ไว้ที่ ~/.astra/tools' };
     else if (name === 'check_syntax' && TS_EXT.test(String(a.path || ''))) { kind = 'bash'; args = { command: `ตรวจ syntax ${this.rel(target)} ด้วยแพ็กเกจ typescript ของโปรเจกต์` }; } // รันโค้ดในโปรเจกต์ → ขออนุญาตแบบคำสั่ง
+    if (this.requireRead && ['edit_file', 'multi_edit', 'write_file'].includes(name)) { // อ่านก่อนแก้: เขียนทับ/แก้ไฟล์เดิมโดยไม่ได้อ่าน = เดาเนื้อหา
+      const m = await this.mtime(target);
+      if (m != null && this.seen.get(target) !== m) return `Error: read ${this.rel(target)} with read_file before ${name === 'write_file' ? 'overwriting' : 'editing'} it${this.seen.has(target) ? ' (it changed since you last read it)' : ''}. Changes must be based on the file's current content, not on a guess.`;
+    }
     if (!await this.askOne({ name, kind, args, outside: target ? !this.inside(target) : false, danger: name === 'bash' && isDanger(a.command), cwd: this.cwd, diff })) return 'Error: ผู้ใช้ไม่อนุญาต';
     let out = await this[name](a, target);
+    if (name === 'read_file' && !String(out).startsWith('Error')) this.seen.set(target, await this.mtime(target));
     if (diff && !String(out).startsWith('Error')) {
       out += '\n' + diff;
       if (this.hooks?.after_edit) { const r = await runCmd(this.root, this.hooks.after_edit.replace(/\{file\}/g, JSON.stringify(target)), { timeout: 60e3, signal: this.signal }); out += `\n[hook after_edit exit ${r.code}]${(r.stdout + r.stderr).trim() ? '\n' + (r.stdout + r.stderr).trim().slice(-1500) : ''}`; }
+      this.seen.set(target, await this.mtime(target)); // หลัง hook จัดรูปแบบแล้ว: แก้ต่อได้โดยไม่ต้องอ่านซ้ำ
       const syn = await this.syntax(target, { auto: true }).catch(() => ''); // ตรวจ syntax หลังแก้ทุกครั้ง: โมเดลเห็นทันทีว่าทำไฟล์พัง
       if (syn) out += '\n' + syn;
     }
@@ -247,7 +267,61 @@ class Workspace {
   async todo_write(a) { const t = (Array.isArray(a.todos) ? a.todos : []).slice(0, 30).map(x => ({ content: String(x.content || '').slice(0, 200), status: ['pending', 'in_progress', 'completed'].includes(x.status) ? x.status : 'pending' })); this.onTodos(t); return 'บันทึกรายการงานแล้ว'; }
 }
 
-const agentSystem = ({ root, os, rules }) => `You are Kyber Agent (Kyber Harness by Hypatia), an autonomous coding and computer agent running on the user's computer through the Kyber Desktop app. Reply in the user's language. Never name the API provider that serves you.
+// แผนที่โปรเจกต์ตอนเริ่มงาน: โครงไฟล์ 2 ชั้น + คำสั่ง build/test + ไลบรารีหลัก → โมเดลเดาน้อยลงและเรียกเครื่องมือสำรวจน้อยลง
+// checks = คำสั่งตรวจงานของโปรเจกต์ (ใช้กับ "ตรวจงานก่อนจบ") · โฟลเดอร์ home ของผู้ใช้: ไม่ทำแผนที่ (ไฟล์ส่วนตัว/ไม่ใช่โปรเจกต์)
+async function projectMap(root) {
+  root = path.resolve(root); if (root === path.resolve(require('os').homedir())) return { text: '', checks: [] };
+  const has = async f => fs.access(path.join(root, f)).then(() => true, () => false), read = f => fs.readFile(path.join(root, f), 'utf8').catch(() => null);
+  const lines = [], checks = [], add = c => { if (!checks.includes(c)) checks.push(c); };
+  // โครงไฟล์ 2 ชั้น (ข้าม node_modules/dist/โฟลเดอร์ซ่อน) ไม่เกิน 60 บรรทัด
+  const tree = []; const ls = async (d, depth) => {
+    const items = (await fs.readdir(path.join(root, d), { withFileTypes: true }).catch(() => [])).filter(x => !x.name.startsWith('.') && !(x.isDirectory() && SKIP.test(x.name))).sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name));
+    const cap = depth ? 12 : 40; // ในโฟลเดอร์ย่อยแสดงไม่เกิน 12 รายการ (โฟลเดอร์ใหญ่ไม่กินที่ของโฟลเดอร์อื่น)
+    for (const [i, it] of items.entries()) {
+      if (i >= cap || tree.length >= 80) { tree.push('  '.repeat(depth) + `… (+${items.length - i} more)`); return; }
+      tree.push('  '.repeat(depth) + it.name + (it.isDirectory() ? '/' : ''));
+      if (it.isDirectory() && depth < 1) await ls(path.join(d, it.name), depth + 1);
+    }
+  };
+  await ls('.', 0); if (tree.length) lines.push('Files (2 levels):\n' + tree.join('\n'));
+  const pkgRaw = await read('package.json');
+  if (pkgRaw) {
+    let pkg = {}; try { pkg = JSON.parse(pkgRaw); } catch { /* JSON พัง: ข้าม */ }
+    const pm = await has('pnpm-lock.yaml') ? 'pnpm' : await has('yarn.lock') ? 'yarn' : await has('bun.lockb') || await has('bun.lock') ? 'bun' : 'npm';
+    const sc = pkg.scripts || {}, deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    lines.push(`Node project${pkg.name ? ' "' + pkg.name + '"' : ''}${pkg.type ? ' (type: ' + pkg.type + ')' : ''} · package manager: ${pm}`);
+    if (Object.keys(sc).length) lines.push('Scripts:\n' + Object.entries(sc).slice(0, 15).map(([k, v]) => `- ${pm === 'npm' && k !== 'test' && k !== 'start' ? 'npm run ' + k : pm + ' ' + k}: ${String(v).slice(0, 120)}`).join('\n'));
+    if (Object.keys(deps).length) lines.push('Dependencies: ' + Object.entries(deps).slice(0, 25).map(([k, v]) => `${k}@${v}`).join(', '));
+    const run = k => pm === 'npm' && k !== 'test' ? `npm run ${k}` : `${pm} ${k}`;
+    if (sc.test && !/no test specified/i.test(sc.test)) add(run('test'));
+    for (const k of ['typecheck', 'lint', 'build']) if (sc[k]) add(run(k));
+  }
+  const py = (await read('pyproject.toml')) || '', req = (await read('requirements.txt')) || '';
+  if (py || req || await has('setup.py')) { lines.push('Python project' + (req ? ' · requirements: ' + req.split(/\r?\n/).map(x => x.trim()).filter(x => x && !x.startsWith('#')).slice(0, 20).join(', ') : '')); if (/pytest/i.test(py + req) || await has('tests') || await has('pytest.ini')) add('pytest -q'); }
+  if (await has('go.mod')) { lines.push('Go module: ' + ((await read('go.mod')) || '').split('\n')[0].replace(/^module\s+/, '')); add('go build ./...'); add('go test ./...'); }
+  if (await has('Cargo.toml')) { lines.push('Rust crate (Cargo)'); add('cargo build'); add('cargo test'); }
+  const mk = await read('Makefile'); if (mk) { const t = [...mk.matchAll(/^([a-zA-Z][\w-]*):/gm)].map(m => m[1]).slice(0, 12); if (t.length) lines.push('Makefile targets: ' + t.join(', ')); for (const k of ['test', 'build']) if (t.includes(k)) add('make ' + k); }
+  for (const [f, what] of [['pom.xml', 'Maven (mvn test)'], ['build.gradle', 'Gradle'], ['composer.json', 'PHP Composer'], ['Gemfile', 'Ruby Bundler'], ['Dockerfile', 'Dockerfile'], ['docker-compose.yml', 'docker compose']]) if (await has(f)) lines.push(what);
+  if (await has('.git')) lines.push('Git repository (use git_inspect to see changes)');
+  if (checks.length) lines.push('Checks to run before finishing: ' + checks.join(' · '));
+  return { text: lines.join('\n\n').slice(0, 3500), checks };
+}
+
+// ผู้ตรวจรอบสอง: โมเดลอ่าน diff ของงานนี้เทียบกับคำสั่งผู้ใช้ รายงานเฉพาะบั๊กจริงที่ชี้จุดได้ · ไม่มีปัญหา = "LGTM"
+// ใช้เฉพาะงานที่แก้ไฟล์โค้ด · post(body) = เรียก /v1/chat/completions แบบไม่สตรีม (แอปและเครื่องเสมือนส่งมาเอง)
+const CODE_FILE = /\.(m?[jt]sx?|cjs|py|go|rs|java|kt|cs|cpp|cc|c|h|rb|php|swift|vue|svelte|sh|sql|css|html)$/i;
+function makeReviewer({ ws, post, model, task = '' }) {
+  return async ({ changed }) => {
+    if (!changed.some(p => CODE_FILE.test(p))) return null;
+    const diff = await ws.diffSince(ws.runFrom); if (!diff) return null;
+    const r = await post({ model, stream: false, max_tokens: 1500, messages: [
+      { role: 'system', content: 'You are a strict senior code reviewer. Review ONLY the diff below against the user request. Report real defects you can point to in the diff: bugs, crashes, wrong logic, missing pieces of the request, broken imports/names, security problems. Do not report style, naming or optional improvements. For each problem give the file, the line/snippet and why it is wrong, at most 5 items, as a short bullet list. If there is no real problem, reply exactly: LGTM' },
+      { role: 'user', content: `User request:\n${String(task).slice(0, 4000)}\n\nDiff of this task:\n${diff}` }] });
+    const d = await r.json().catch(() => ({})); return r.ok ? String(d.choices?.[0]?.message?.content || '').trim() || null : null;
+  };
+}
+
+const agentSystem = ({ root, os, rules, map = '' }) => `You are Kyber Agent (Kyber Harness by Hypatia), an autonomous coding and computer agent running on the user's computer through the Kyber Desktop app. Reply in the user's language. Never name the API provider that serves you.
 Working folder: ${root}
 OS: ${os}
 
@@ -263,7 +337,7 @@ How to work:
 - Before risky or destructive actions (deleting files, force push, system changes), explain and only proceed if the user asked for it.
 - Never claim a command ran or a file changed before you see the tool result.
 - Verify before you finish: re-read what you changed, fix any [syntax error] reported after an edit, and run the project's tests/build when it has them. Review your changes with git_inspect (op=diff) in a git repo.
-- When finished, give a short summary: what changed (file paths), how you verified it, anything left for the user.${rules ? `\n\nProject rules from the folder (follow them):\n${rules}` : ''}`;
+- When finished, give a short summary: what changed (file paths), how you verified it, anything left for the user.${map ? `\n\nProject map (generated when the task started; may be incomplete, verify with tools before relying on it):\n${map}` : ''}${rules ? `\n\nProject rules from the folder (follow them):\n${rules}` : ''}`;
 
 // android_tools: ใส่ให้โมเดลเฉพาะงาน Android (ลดเครื่องมือที่ไม่เกี่ยว = prompt สั้นลง เลือกเครื่องมือแม่นขึ้น) · ข้อความพูดถึง apk หรือโฟลเดอร์มี .apk/.aab/AndroidManifest.xml (ลึกไม่เกิน 4 ชั้น)
 async function wantsAndroid(root, text = '') {
@@ -302,4 +376,4 @@ function cleanPlugin(m) {
 const { validateArgs } = require('./agent');
 const toolRegistry = (ws, list = AGENT_TOOLS) => new Map(list.map(t => { const f = t.function; return [f.name, { name: f.name, kind: KIND[f.name] || 'none', schema: f.parameters, validate: args => validateArgs(f.parameters, args), execute: args => ws.call(f.name, args), formatPreview: args => `${f.name} ${String(args?.path || args?.command || args?.pattern || args?.url || args?.query || args?.op || '').slice(0, 120)}`.trim() }]; }));
 
-module.exports = { cleanPlugin, AGENT_TOOLS, ASK_TOOL, KIND, READ_ONLY, SUB_TOOLS, Workspace, globRe, diffLines, applyEdits, agentSystem, projectRules, projectHooks, projectCommands, wantsAndroid, toolsFor, toolRegistry };
+module.exports = { projectMap, makeReviewer, cleanPlugin, AGENT_TOOLS, ASK_TOOL, KIND, READ_ONLY, SUB_TOOLS, Workspace, globRe, diffLines, applyEdits, agentSystem, projectRules, projectHooks, projectCommands, wantsAndroid, toolsFor, toolRegistry };

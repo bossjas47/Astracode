@@ -87,6 +87,7 @@ test('workspace v2: diff shown with edits, undo back to a chosen step, hooks run
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'astra-ag2-'));
   fs.writeFileSync(path.join(root, 'a.txt'), 'one\ntwo\nthree\n');
   const ws = new Workspace(root, { hooks: { after_edit: process.platform === 'win32' ? 'echo hooked' : 'echo hooked {file}' } });
+  await ws.call('read_file', { path: 'a.txt' });
   ws.step = 1; const r1 = await ws.call('edit_file', { path: 'a.txt', old_string: 'two', new_string: 'TWO' });
   assert.match(r1, /- two\n\+ TWO/); assert.match(r1, /\[hook after_edit exit 0\]\nhooked/);
   ws.step = 2; await ws.call('edit_file', { path: 'a.txt', old_string: 'three', new_string: 'THREE' });

@@ -3,7 +3,7 @@ import { callModel, ensureFb, isSafeMcpUrl, logUsage, mcpSync } from './ai.js';
 import { applyPayment, audit, promoOn, supplyIssue, releaseCoupon, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, topupPromo, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { adminConnectors, adminPlugins } from './connectors.js';
-import { slug } from './api.js';
+import { agentQuality, slug } from './api.js';
 import { backup, lossModels, status, verifyBackup } from './jobs.js';
 import { ensureAgentTable, launch, workerModel } from './agent.js';
 // ---------- admin ----------
@@ -355,7 +355,8 @@ export async function admin(req, env, path, url, me) {
     const lose = losers.results.map(x => ({ ...x, profit: x.paid - x.cost })).filter(x => x.role !== 'admin').sort((a, b) => a.profit - b.profit).slice(0, 15);
     const agentRuns = await DB.prepare('SELECT model, COUNT(*) n, SUM(ok) ok, AVG(rounds) rounds, AVG(tools) tools, AVG(ms) ms, AVG(charge) charge, AVG(pct) pct FROM agent_runs WHERE created_at>? GROUP BY model ORDER BY n DESC').bind(now - 7 * DAY).all().then(r => r.results).catch(() => []);
     const deskErrs = await DB.prepare("SELECT detail, created_at t FROM events WHERE kind='client' AND detail LIKE 'desktop%' AND created_at>? ORDER BY id DESC LIMIT 30").bind(now - 7 * DAY).all().then(r => r.results).catch(() => []);
-    return json({ agentRuns, deskErrs, keys: keyRows, accounts, feed: feed.results, errs: errs.results, hot: hot.results, losers: lose, settings: await getSettings(env, ['alert_hour_cost', 'alert_user_hour', 'cost_alert_daily']) });
+    const agentQ = await agentQuality(env, 14).catch(() => []); // คุณภาพงาน Agent ต่อโมเดล 14 วัน (สำเร็จ, วนซ้ำ, error เครื่องมือ, cache)
+    return json({ agentRuns, agentQ, deskErrs, keys: keyRows, accounts, feed: feed.results, errs: errs.results, hot: hot.results, losers: lose, settings: await getSettings(env, ['alert_hour_cost', 'alert_user_hour', 'cost_alert_daily']) });
   }
   // ทดสอบโมเดลกับงาน Agent: 4 งานที่ต้องใช้เครื่องมือ (ค้น/อ่าน/แก้ไฟล์) ในโฟลเดอร์จำลอง ตรวจผลจากไฟล์จริง ไม่ใช่จากคำพูดโมเดล
   if (path === '/api/admin/agent-bench' && M === 'POST') {

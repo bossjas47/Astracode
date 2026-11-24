@@ -5,7 +5,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const lib = process.env.AGENT_LIB || path.join(__dirname, 'app');
 const { runAgent } = require(path.join(lib, 'agent'));
-const { AGENT_TOOLS, SUB_TOOLS, Workspace, agentSystem, projectRules, wantsAndroid, toolsFor } = require(path.join(lib, 'agenttools'));
+const { AGENT_TOOLS, SUB_TOOLS, Workspace, agentSystem, projectRules, wantsAndroid, toolsFor, projectMap, makeReviewer } = require(path.join(lib, 'agenttools'));
 const { scanFolder } = require(path.join(lib, 'localfs'));
 const COWORK_SYS = `\n\nCOWORK MODE: you are working for a non-programmer on an office task. First call todo_write with a short plan, then do the work yourself until it is done. Make deliverables as real files with make_document (.docx/.xlsx with live formulas/.pptx/.pdf) or with python (pandas, matplotlib → PNG). Use web_search / web_fetch / browser for information from the web. Use the user's connectors (tools named rmcp_..., e.g. Gmail, Google Drive/Sheets/Calendar) when the task involves their email, files or calendar; save_to_drive / email_files send finished files; look_at_image reads photos and scans; generate_image makes pictures for slides or posts. Explain progress in plain Thai when the user writes Thai; do not show code unless asked. Before deleting or overwriting the user's own uploaded files, ask with ask_user. For big research (many files or many web pages) hand parts to helpers with the task tool; several task calls in one reply run in parallel. Finish with a short summary listing the files you made.
 QUALITY BAR (the user judges you by the files):
@@ -68,8 +68,9 @@ async function turn(o, before) {
   const ws = session?.ws && o.follow ? session.ws : new Workspace(ROOT, { subagent, ask: async () => true, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
     search: async q => { const r = await fetch(o.site + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key }, body: JSON.stringify({ query: q }) }); return (await r.json()).results || []; } });
   ws.signal = ac.signal;
+  let pmap = { text: '', checks: [] }; // แผนที่โปรเจกต์ (โหมดโค้ด) + คำสั่งตรวจงาน
   const sys = o.cowork ? agentSystem({ root: ROOT, os: 'Linux cloud sandbox (node, npm, python3 + pip, git, Chromium). This is the user\'s Kyber Harness task folder: put every deliverable (reports, spreadsheets, slides, PDFs, charts) as real files in this folder; the user sees and downloads them from the Artifacts panel', rules: '' }) + COWORK_SYS + (o.skills ? '\n\nThe user\'s Skills (follow them whenever they apply):\n' + String(o.skills).slice(0, 30000) : '')
-    : agentSystem({ root: ROOT, os: 'Linux (cloud sandbox: node, npm, python3, pip, git available; changes to files under the working folder are saved back to the user\'s project)', rules: await projectRules(ROOT) });
+    : agentSystem({ root: ROOT, os: 'Linux (cloud sandbox: node, npm, python3, pip, git available; changes to files under the working folder are saved back to the user\'s project)', rules: await projectRules(ROOT), map: (pmap = await projectMap(ROOT).catch(() => ({ text: '', checks: [] }))).text });
   const messages = o.follow && session?.messages ? session.messages : (o.history?.length ? [{ role: 'system', content: sys }, ...o.history.slice(-40)] : [{ role: 'system', content: sys }]);
   messages.push({ role: 'user', content: String(o.prompt || '').slice(0, 100000) });
   const android = !!session?.android || await wantsAndroid(ROOT, o.prompt).catch(() => false); // android_tools เฉพาะงาน Android
@@ -131,7 +132,8 @@ async function turn(o, before) {
     if (o.cowork && BROWSER && n === 'browser') return BROWSER.browserTool(a, ROOT, rel => events.push({ type: 'shot', path: rel, t: Date.now() }));
     return ws.call(n, a);
   };
-  runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages, tools: [...toolsFor({ android }).filter(t => !['screenshot_url', ...(o.cowork ? [] : ['task'])].includes(t.function.name)), ...extra], callTool: call, onEvent, signal: ac.signal, maxRounds: Math.min(150, +o.maxRounds || 80), onStep: () => ++ws.step, effort: o.effort || null, spill: (t, i) => ws.spill(t, i) })
+  runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages, tools: [...toolsFor({ android }).filter(t => !['screenshot_url', ...(o.cowork ? [] : ['task'])].includes(t.function.name)), ...extra], callTool: call, onEvent, signal: ac.signal, maxRounds: Math.min(150, +o.maxRounds || 80), onStep: () => ++ws.step, effort: o.effort || null, spill: (t, i) => ws.spill(t, i),
+    checks: pmap.checks, review: o.cowork || o.review === false ? null : makeReviewer({ ws, model: o.model, task: String(o.prompt || '').slice(0, 4000), post: body => api('/v1/chat/completions', { method: 'POST', signal: ac.signal, body: JSON.stringify(body) }) }) })
     .then(() => { if (text) { events.push({ type: 'text', text: text.slice(0, 4000), t: Date.now() }); job.final = text; } job.status = 'done'; })
     .catch(e => { job.error = ac.signal.aborted ? 'หยุดแล้ว' : String(e.message).slice(0, 500); job.status = 'error'; })
     .finally(() => { if (!o.cowork) ws.stopAll(); });
