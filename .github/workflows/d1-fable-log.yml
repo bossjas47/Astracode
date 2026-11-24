@@ -37,7 +37,7 @@ jobs:
           const A = 1795453200000, B = 1795539600000; // 2026-11-24 เวลาไทย
           const T = c => "datetime((" + c + "+25200000)/1000,'unixepoch')";
           const Q = {
-            fable_calls: "SELECT " + T('l.created_at') + " bkk,l.user_id,u.email,u.name,p.name plan,k.name key_name,k.prefix key_prefix,l.model,l.status,l.tin,l.tout,ROUND(l.charge,4) charge FROM api_log l JOIN users u ON u.id=l.user_id LEFT JOIN plans p ON p.id=u.plan_id LEFT JOIN api_keys k ON k.id=l.key_id WHERE l.model LIKE '%fable%' AND l.created_at BETWEEN " + A + " AND " + B + " ORDER BY l.created_at",
+            fable_calls: "SELECT " + T('l.created_at') + " bkk,l.user_id,u.email,p.name plan,k.name key_name,k.prefix key_prefix,l.model,l.status,l.tin,l.tout,ROUND(l.charge,4) charge FROM api_log l JOIN users u ON u.id=l.user_id LEFT JOIN plans p ON p.id=u.plan_id LEFT JOIN api_keys k ON k.id=l.key_id WHERE l.model LIKE '%fable%' AND l.created_at BETWEEN " + A + " AND " + B + " ORDER BY l.created_at",
             usage_rows: "SELECT " + T('u.created_at') + " bkk,u.user_id,u.model_id,u.src,ROUND(u.cost,4) cost,ROUND(u.charge,4) charge,u.units,u.pack,u.flag FROM usage u WHERE u.model_id IN (16,34) AND u.created_at BETWEEN " + A + " AND " + B + " ORDER BY u.created_at",
           };
           const out = {};
