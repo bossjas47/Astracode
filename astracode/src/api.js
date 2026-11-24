@@ -313,7 +313,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const lost = () => { if (!gone) { gone = true; setTimeout(() => upstream.abort(), 25e3); } };
     const chunk = async (delta, extra = {}, fin = null) => { if (gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { lost(); } };
     // keepalive: comment ของ SSE ทุก 15 วินาทีระหว่างโมเดลคิด/อ่าน context ยาว · proxy/ตัวกลาง/SDK ของลูกค้าไม่ตัดเพราะเงียบนาน (client ทุกตัวข้ามบรรทัดที่ขึ้นต้นด้วย :)
-    const ka = setInterval(() => { if (!gone) w.write(enc.encode(': ping\n\n')).catch(lost); }, 15e3);
+    const ka = setInterval(() => { if (!gone) w.write(enc.encode(': ping\n\n')).catch(lost); }, +env.SSE_PING_MS || 15e3); // SSE_PING_MS: ใช้ในเทสต์เท่านั้น
     // โมเดล error ก่อนตอบ: ต้องคืนช่อง Wallet ด้วย (เดิมค้าง 3 นาที → OpenCode ลองซ้ำจนช่องเต็ม 8 ช่อง)
     ctx.waitUntil((async () => {
       let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0;
@@ -406,9 +406,9 @@ export async function* chatChunks(res) { // อ่าน SSE ของ chat/comp
   } finally { rd.cancel().catch(() => {}); } // ลูกค้าของ /v1/messages, /v1/responses ตัดกลางทาง: ยกเลิกสตรีมด้านใน ไม่งั้นด้านในค้างรอไม่จบและไม่คิดเงิน
 }
 // ping = keepalive ทุก 15 วินาที (Anthropic: event ping ตามสเปก · Responses: comment ของ SSE) · close() ล้างตัวจับเวลาเสมอ
-export const sseOut = (ping = ': ping\n\n') => {
+export const sseOut = (ping = ': ping\n\n', every = 15e3) => {
   const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder();
-  const ka = ping ? setInterval(() => { w.write(enc.encode(ping)).catch(() => clearInterval(ka)); }, 15e3) : null;
+  const ka = ping ? setInterval(() => { w.write(enc.encode(ping)).catch(() => clearInterval(ka)); }, every) : null;
   return { readable, w, send: (name, data) => w.write(enc.encode(`event: ${name}\ndata: ${JSON.stringify({ type: name, ...data })}\n\n`)), close: () => { clearInterval(ka); return w.close().catch(() => {}); } };
 };
 export const passHeaders = res => { const h = {}; for (const k of ['retry-after', 'x-request-id', 'x-ratelimit-limit-requests', 'x-ratelimit-remaining-requests', 'x-ratelimit-reset-requests', 'x-astracode-billing', 'x-kyber-billing', 'x-astracode-model', 'x-kyber-model']) { const v = res.headers.get(k); if (v) h[k] = v; } return { ...V1_CORS, ...h }; };
@@ -467,7 +467,7 @@ export async function anthropicApi(req, env, ctx, path, lg) {
     for (const t of msg.tool_calls || []) { let input = {}; try { input = JSON.parse(t.function.arguments || '{}'); } catch { /* ว่าง */ } content.push({ type: 'tool_use', id: t.id, name: t.function.name, input }); }
     return new Response(JSON.stringify({ id: 'msg_' + String(d.id || rand(12)).replace(/^chatcmpl-/, ''), type: 'message', role: 'assistant', model: d.model, content: content.length ? content : [{ type: 'text', text: '' }], stop_reason: aStop(c?.finish_reason), stop_sequence: null, usage: { input_tokens: u.input, output_tokens: u.output, cache_read_input_tokens: u.cached } }), { headers: { 'content-type': 'application/json', ...passHeaders(res) } });
   }
-  const o = sseOut('event: ping\ndata: {"type": "ping"}\n\n'), id = 'msg_' + rand(12);
+  const o = sseOut('event: ping\ndata: {"type": "ping"}\n\n', +env.SSE_PING_MS || 15e3), id = 'msg_' + rand(12);
   ctx.waitUntil((async () => {
     let idx = -1, open = false, started = false, stop = 'end_turn', usage = null, model = chat.model; const tools = new Map();
     const start = async () => { if (!started) { started = true; await o.send('message_start', { message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } }); } };
@@ -539,7 +539,7 @@ export async function responsesApi(req, env, ctx, lg) {
     for (const t of msg.tool_calls || []) output.push({ id: 'fc_' + rand(10), type: 'function_call', call_id: t.id, name: t.function.name, arguments: t.function.arguments || '{}', status: 'completed' });
     return new Response(JSON.stringify(respObj(id, created, d.model, output, 'completed', usageIn(d.usage))), { headers: { 'content-type': 'application/json', ...passHeaders(res) } });
   }
-  const o = sseOut();
+  const o = sseOut(': ping\n\n', +env.SSE_PING_MS || 15e3);
   ctx.waitUntil((async () => {
     // เครื่องมือหลายตัวพร้อมกัน (parallel tool calls): argument ของแต่ละตัวผูกกับ index ของมันเอง (ชิ้นอาจมาสลับกัน) · ปิดเครื่องมือทุกตัวตอนจบหรือก่อนข้อความถัดไป
     let seq = 0, oi = -1, cur = null, usage = null, model = chat.model; const output = [], tools = new Map();

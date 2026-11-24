@@ -161,7 +161,8 @@ function track(state, name, args, out, ok) {
   if (name === 'todo_write' && ok && Array.isArray(args.todos)) state.todos = args.todos.slice(0, 30).map(t => ({ content: String(t.content || '').slice(0, 200), status: t.status }));
   const target = String(args.path || args.command || args.url || '').slice(0, 200), k = name + ':' + target;
   if (EDIT_TOOLS.has(name) && ok && args.path) state.changed.add(String(args.path));
-  if (ok) state.errors.delete(k); else state.errors.set(k, `${name} ${target}: ${out.slice(0, 300)}`);
+  const failed = !ok || (name === 'bash' && /^exit [1-9]\d*/.test(out)); // คำสั่งที่ exit ไม่ใช่ 0 (เทสต์/บิลด์พัง) = error ที่ยังค้าง
+  if (failed) state.errors.set(k, `${name} ${target}: ${out.slice(0, 300)}`); else state.errors.delete(k);
   if (state.errors.size > 8) state.errors.delete(state.errors.keys().next().value);
 }
 
