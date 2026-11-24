@@ -391,3 +391,46 @@ test('wallet slots: streamed requests that fail before any answer free their slo
   const ok = await raw('/v1/chat/completions', { model: 'chat-one', stream: true, messages: [{ role: 'user', content: 'hi' }] });
   assert.match(ok.text, /hello/); bad.close(); fm.close();
 });
+
+test('/v1 refuses a model the moment it is disabled or hidden (the 30 s model cache is not trusted)', async () => {
+  const { t, fm, m, raw } = await setup(), ask = () => raw('/v1/chat/completions', { model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal((await ask()).status, 200); // โหลดรายการโมเดลเข้า cache แล้ว
+  const before = fm.hits.length;
+  t.DB.raw.prepare('UPDATE models SET active=0 WHERE id=?').run(m.id);
+  const off = await ask(); assert.equal(off.status, 404); assert.match(off.json().error.message, /does not exist|ไม่พบโมเดล/);
+  t.DB.raw.prepare('UPDATE models SET active=1, public=0 WHERE id=?').run(m.id);
+  assert.equal((await ask()).status, 404);
+  assert.equal((await raw('/v1/messages', { model: 'chat-one', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })).status, 404);
+  assert.equal(fm.hits.length, before); // หลังปิดไม่มีคำขอไปถึงผู้ให้บริการเลย
+  fm.close();
+});
+
+test('/v1 watchdog: a model that never answers is cut at first_token_s and the fallback answers (stream and non-stream)', async () => {
+  const hang = await fakeModel(() => { /* ไม่ตอบเลย */ });
+  const good = await fakeModel((q, res) => good.sse(res, 'from backup'));
+  const t = await makeEnv({ K: 'k' });
+  const backup = addModel(t.DB, { name: 'Backup', base_url: good.url });
+  const main = addModel(t.DB, { name: 'Main', base_url: hang.url, fallback_id: backup.id });
+  t.DB.raw.prepare('UPDATE models SET first_token_s=0.3 WHERE id=?').run(main.id);
+  const u = await t.user({ balance: 100 }), key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const raw = async body => { const r = await t.call('/v1/chat/completions', { method: 'POST', body, headers: { authorization: 'Bearer ' + key } }); const text = await r.text(); await Promise.all(t.ctx.pending); return { status: r.status, text }; };
+  const t0 = Date.now(), r = await raw({ model: 'main', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(r.status, 200); const j = JSON.parse(r.text); assert.equal(j.choices[0].message.content, 'from backup'); assert.deepEqual(j.astra_fallback, { requested: 'main', answered_by: 'backup' });
+  assert.ok(Date.now() - t0 < 5000);
+  const s = await raw({ model: 'main', stream: true, messages: [{ role: 'user', content: 'hi' }] });
+  const cs = s.text.split('\n').filter(l => l.startsWith('data: {')).map(l => JSON.parse(l.slice(6)));
+  assert.deepEqual(cs[0].astra_fallback, { requested: 'main', answered_by: 'backup' }); assert.equal(cs.map(x => x.choices?.[0]?.delta?.content || '').join(''), 'from backup');
+  hang.close(); good.close();
+});
+
+test('/v1 stream sends keepalive pings while the model is slow', async () => {
+  const fm = await fakeModel((q, res) => setTimeout(() => fm.sse(res, 'hello'), 250));
+  const t = await makeEnv({ K: 'k', SSE_PING_MS: '40' }); addModel(t.DB, { name: 'Slow One', base_url: fm.url });
+  const u = await t.user({ balance: 100 }), key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const r = await t.call('/v1/chat/completions', { method: 'POST', body: { model: 'slow-one', stream: true, messages: [{ role: 'user', content: 'hi' }] }, headers: { authorization: 'Bearer ' + key } });
+  const text = await r.text(); await Promise.all(t.ctx.pending);
+  assert.match(text, /^: ping$/m); assert.match(text, /hello/); assert.match(text, /data: \[DONE\]\s*$/);
+  fm.close();
+});
