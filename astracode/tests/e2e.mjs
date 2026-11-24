@@ -213,6 +213,23 @@ const FLOWS = [
       /ย้อนทั้งรอบ/.test(text) || 'undo button missing', calls.some(c => c.p === '/api/chats/append' && /แก้ src\/a.js เรียบร้อย/.test(c.body)) || 'answer not saved to chat', calls.some(c => c.p === '/api/chats/append' && /แก้บั๊กในโปรเจกต์/.test(c.body)) || 'prompt not saved first',
       log.some(x => x[0] === 'run' && x[4] === 'c55') || 'session not tied to the chat id'];
   }],
+  ['desktop app: a weak model (Flash/Uncen) for Agent shows a warning; "use recommended" switches to Sonnet, cancel sends nothing', async () => {
+    const init = () => { try { localStorage.setItem('pc', '1'); localStorage.setItem('pcAgent', '1'); localStorage.setItem('pcAgentMode', 'edits'); localStorage.setItem('agTour', '1'); localStorage.setItem('model', '1'); } catch { return; } const subs = new Set(), log = window.__desk = [];
+      window.astraDesktop = { notify: async () => false, fs: { linked: async k => k === 'chat' ? { name: 'proj', path: 'C:/proj' } : null }, mcp: { tools: async () => [] }, screen: { state: async () => false },
+        agent: { needKey: async () => false, setKey: async () => true, onEvent: f => (subs.add(f), () => subs.delete(f)), stop: async () => true,
+          run: async o => { log.push(['run', o.model]); subs.forEach(f => f({ sid: o.sid, rid: o.rid, type: 'delta', text: 'เสร็จ' })); subs.forEach(f => f({ sid: o.sid, rid: o.rid, type: 'done', changed: [] })); return true; } } }; };
+    const { page, errs } = await open('/chat', { init, '/api/chats/append': { chat_id: 56 } });
+    await page.fill('#t', 'งานแรก'); await page.press('#t', 'Enter'); await page.waitForTimeout(500);
+    const warn = await page.locator('.sheet').innerText().catch(() => '');
+    await page.click('.sheet [data-w=rec]'); await page.waitForTimeout(700);
+    const log1 = await page.evaluate(() => window.__desk.slice()), saved = await page.evaluate(() => localStorage.getItem('model'));
+    await page.evaluate(() => localStorage.setItem('model', '1')); await page.goto(page.url()); await page.waitForTimeout(600);
+    await page.fill('#t', 'งานสอง'); await page.press('#t', 'Enter'); await page.waitForTimeout(500);
+    await page.click('.sheet .x'); await page.waitForTimeout(500);
+    const log2 = await page.evaluate(() => window.__desk.slice());
+    return [!errs.length || errs.join(' | '), /ไม่เหมาะกับงาน Agent/.test(warn) && /Sonnet/.test(warn) || 'no warning: ' + warn, log1.some(x => x[0] === 'run' && x[1] === 'sonnet') || 'not switched to Sonnet: ' + JSON.stringify(log1),
+      saved === '2' || 'picker not switched: ' + saved, !log2.some(x => x[0] === 'run') || 'cancel still ran the agent'];
+  }],
   ['phone: a chat with an agent running on the computer shows progress and lets you approve and type', async () => {
     const remote = { events: [{ type: 'tool', name: 'edit_file', args: { path: 'src/a.js' } }, { type: 'info', text: 'กำลังทำ' }], ask: { id: 3, title: 'ขอรันคำสั่ง', detail: 'npm test', allowAll: true }, running: true, live: true, updated_at: Date.now() };
     const { page, errs, calls } = await open('/chat?id=81', { '/api/chats': [{ id: 81, title: 'งานบนคอม' }], '/api/chats/81': [{ id: 1, role: 'user', content: 'แก้บั๊ก' }], '/api/remote/81': remote, '/api/remote/81/answer': { ok: true }, '/api/remote/81/say': { ok: true } });
