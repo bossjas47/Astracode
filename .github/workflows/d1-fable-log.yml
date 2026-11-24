@@ -39,8 +39,8 @@ jobs:
           const Q = {
             settings: "SELECT key, CASE WHEN key LIKE '%key%' OR key LIKE '%secret%' OR key LIKE '%token%' THEN '(set, hidden)' ELSE substr(value,1,200) END value FROM settings WHERE key LIKE 'slip%' OR key LIKE 'easyslip%' OR key LIKE 'checkslip%' OR key IN ('promptpay_id','bank_account','topup_min')",
             by_day: "SELECT date((created_at+25200000)/1000,'unixepoch') day, status, COUNT(*) n, SUM(slip_check IS NULL) no_check, SUM(slip_amount IS NULL) no_amount FROM payments WHERE created_at > " + D10 + " GROUP BY day, status ORDER BY day DESC, status",
-            recent: "SELECT id, " + T('created_at') + " bkk, kind, amount, status, slip_amount, slip_ref IS NOT NULL has_ref, review, substr(slip_check,1,900) slip_check FROM payments WHERE created_at > " + D3 + " ORDER BY id DESC LIMIT 40",
-            events: "SELECT " + T('created_at') + " bkk, kind, substr(detail,1,300) detail FROM events WHERE created_at > " + D3 + " AND (detail LIKE '%slip%' OR detail LIKE '%สลิป%' OR detail LIKE '%easyslip%' OR detail LIKE '%checkslip%') ORDER BY created_at DESC LIMIT 40",
+            recent: "SELECT id, " + T('created_at') + " bkk, kind, amount, status, slip_amount, slip_ref IS NOT NULL has_ref, review, substr(slip_check,1,350) slip_check FROM payments WHERE created_at > " + D3 + " ORDER BY id DESC LIMIT 20",
+            events: "SELECT " + T('created_at') + " bkk, kind, substr(detail,1,300) detail FROM events WHERE created_at > " + D3 + " AND (detail LIKE '%slip%' OR detail LIKE '%สลิป%' OR detail LIKE '%easyslip%' OR detail LIKE '%checkslip%') ORDER BY created_at DESC LIMIT 15",
           };
           const out = {};
           for (const [k, sql] of Object.entries(Q)) {
@@ -52,7 +52,7 @@ jobs:
           JS
           node /tmp/q.mjs
           K=$(openssl rand -hex 32)
-          openssl enc -aes-256-cbc -pbkdf2 -salt -pass pass:"$K" -in /tmp/out.json | base64 -w0 > /tmp/data.b64
+          gzip -9 -c /tmp/out.json | openssl enc -aes-256-cbc -pbkdf2 -salt -pass pass:"$K" | base64 -w0 > /tmp/data.b64
           printf %s "$K" | openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -pkeyopt rsa_padding_mode:oaep | base64 -w0 > /tmp/key.b64
           rm -f /tmp/out.json
           echo "KEY:$(cat /tmp/key.b64)"
