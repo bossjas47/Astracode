@@ -54,7 +54,7 @@ async function codeHome() {
     const m = curM(), efs = modelEfforts(m);
     $('#nmdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
     $('#neff').hidden = !efs.length;
-    if (efs.length && !efs.includes($('#neffort').value)) $('#neffort').value = efs[0];
+    $('#neffort').value = effortFor(m, $('#neffort').value);
     $('#neff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#neffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
     $('#nflags').innerHTML = ''
       + (IDE.cloud ? `<button type="button" class="flag agent-on" data-nf="cloud">${ic('terminal', 'sm')}Agent บนคลาวด์${ic('x', 'sm')}</button>` : '')
@@ -920,7 +920,7 @@ function cUI() {
   $('#cmdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
   const efs = modelEfforts(m);
   $('#ceff').hidden = !efs.length;
-  if (efs.length && !efs.includes($('#ceffort').value)) $('#ceffort').value = efs[0];
+  $('#ceffort').value = effortFor(m, $('#ceffort').value);
   $('#ceff').innerHTML = `${ic('sparkles', 'sm')}<span>${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}</span>${ic('down', 'sm')}`;
   $('#bmdl').innerHTML = $('#cmdl').innerHTML; $('#beff').innerHTML = $('#ceff').innerHTML; $('#beff').hidden = !efs.length; // แถบสั่งเร็วใช้ค่าเดียวกับกล่อง AI
   $('#cflags').innerHTML = ''

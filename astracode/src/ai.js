@@ -915,15 +915,17 @@ export async function compact(env, u, cid, force = false, byCtx = false) { // by
   const rows = (await env.DB.prepare('SELECT id,role,content FROM messages WHERE chat_id=? AND id>? ORDER BY id').bind(cid, c?.summary_upto || 0).all()).results.map(r => ({ ...r, content: String(r.content || '').replace(/\u2063/g, '') }));
   if (rows.length <= (force ? 2 : COMPACT_KEEP + 2) || (!force && !byCtx && rows.reduce((a, r) => a + r.content.length, 0) < COMPACT_CHARS)) return false;
   const old = rows.slice(0, force ? -2 : -COMPACT_KEEP);
-  const want = +(await getSetting(env, 'summary_model'));
-  const m = (await env.DB.prepare('SELECT * FROM models WHERE active=1 ORDER BY cost_in+cost_out').all()).results.filter(x => env[x.key_name]).find(x => !want || x.id === want);
+  // ใครสรุป: โมเดลที่แอดมินตั้ง (summary_model) → โมเดลที่แชตนี้ใช้ตอบล่าสุด → ถูกสุด · เดิมใช้ตัวถูกสุดเสมอ = โมเดลเก่งๆ (เช่น Fable) เห็นแค่บทสรุปจากโมเดลราคาถูก รายละเอียดหาย
+  const want = +(await getSetting(env, 'summary_model')) || (await env.DB.prepare("SELECT model_id FROM messages WHERE chat_id=? AND role='assistant' AND model_id>0 ORDER BY id DESC LIMIT 1").bind(cid).first())?.model_id || 0;
+  const all = (await env.DB.prepare("SELECT * FROM models WHERE active=1 AND provider NOT IN ('image','embedding') ORDER BY cost_in+cost_out").all()).results.filter(x => env[x.key_name]);
+  const m = all.find(x => x.id === want) || all[0];
   if (!m) return false;
   const body = (c?.summary ? `Earlier summary:\n${c.summary}\n\n` : '') + old.map(r => `${r.role === 'user' ? 'User' : 'Assistant'}: ${r.content.slice(0, 6000)}`).join('\n\n');
   let summary = '', usage = null;
-  for await (const e of callModel(env, m, [{ role: 'user', content: body.slice(-80000) }], { effort: null, maxTokens: 1500,
+  for await (const e of callModel(env, m, [{ role: 'user', content: body.slice(-80000) }], { effort: null, maxTokens: 3000,
     system: 'Summarize this conversation so an assistant can continue it. Keep: the user\'s goals and preferences, decisions made, facts, names, numbers, file names, code identifiers and unfinished tasks. Drop small talk and long code (say what it does). Write in the same language as the conversation, at most 350 words, as bullet points.' })) { if (e.t) summary += e.t; if (e.usage) usage = e.usage; }
   if (usage) await logUsage(env, u.id, m, usage, { units: false, src: 'system' }); // ต้นทุนของเรา ไม่หักลิมิตผู้ใช้
-  if (summary.trim()) await env.DB.prepare('UPDATE chats SET summary=?, summary_upto=? WHERE id=?').bind(summary.trim().slice(0, 6000), old.at(-1).id, cid).run();
+  if (summary.trim()) await env.DB.prepare('UPDATE chats SET summary=?, summary_upto=? WHERE id=?').bind(summary.trim().slice(0, 12000), old.at(-1).id, cid).run();
   return !!summary.trim();
 }
 

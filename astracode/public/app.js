@@ -739,6 +739,14 @@ const EFFORT_INFO = {
   on: ['Thinking', 'เปิดโหมดคิดก่อนตอบ'],
 };
 const DEFAULT_EFFORTS = { openai: ['', 'low', 'medium', 'high', 'xhigh'], anthropic: ['', 'low', 'medium', 'high', 'max'], deepseek: ['', 'low', 'medium', 'high', 'max'], kimi: ['', 'on'], gemini: ['', 'minimal', 'low', 'medium', 'high'], auto: ['', 'low', 'medium', 'high', 'max'] };
+// ระดับการคิดที่ใช้กับโมเดลนี้: ผู้ใช้ที่ยังไม่เคยเลือกเอง (ไม่มี effort ในเครื่อง) เริ่มที่ Medium ถ้าโมเดลรองรับ
+// (เดิมเริ่มที่ Instant = Claude/Fable ไม่คิดก่อนตอบ งานยากออกมาด้อยกว่าเรียกโมเดลตรง) · คนที่เคยเลือก Instant เองยังได้ Instant
+function effortFor(m, cur) {
+  const efs = modelEfforts(m); if (!efs.length) return cur;
+  let saved = null; try { saved = localStorage.getItem('effort'); } catch { /* ไม่มีที่เก็บ */ }
+  if (saved == null) return efs.includes('medium') ? 'medium' : efs.includes('on') ? 'on' : efs.find(x => x) || efs[0];
+  return efs.includes(cur) ? cur : efs[0];
+}
 function modelEfforts(m) {
   if (!m || m.effort === 'none') return [];
   if (m.effort_levels && m.effort_levels.trim()) {

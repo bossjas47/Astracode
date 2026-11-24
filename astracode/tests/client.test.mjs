@@ -154,3 +154,15 @@ test('APK attach: binary AndroidManifest/layout decode to XML, dex lists the app
   assert.deepEqual(fns.dexClasses(get('classes.dex')), ['com.demo.app.MainActivity']);
   assert.equal(fns.axmlToText(new TextEncoder().encode('<a/>')), null);
 });
+
+test('effortFor: a user who never picked a level starts at Medium on thinking models; a saved choice (even Instant) is kept', () => {
+  const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/app.js'), 'utf8');
+  const a = app.indexOf('const EFFORT_INFO'), b = app.indexOf('\n}\n', app.indexOf('function modelEfforts')) + 3;
+  const code = app.slice(a, b) + '\nreturn effortFor;'; // EFFORT_INFO, DEFAULT_EFFORTS, effortFor, modelEfforts อยู่ติดกัน
+  const run = saved => new Function('localStorage', code)({ getItem: () => saved });
+  const claude = { effort: 'anthropic' }, flat = { effort: 'none' };
+  assert.equal(run(null)(claude, ''), 'medium', 'never chose: Medium');
+  assert.equal(run('')(claude, ''), '', 'chose Instant before: stays Instant');
+  assert.equal(run('high')(claude, 'high'), 'high');
+  assert.equal(run(null)(flat, ''), '', 'model without thinking: unchanged');
+});

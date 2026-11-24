@@ -183,3 +183,19 @@ test('web chat / Code: a fallback answer is recorded as a fallback event with it
   assert.equal(JSON.parse(fe.detail).src, 'chat'); assert.equal(JSON.parse(fe.detail).user, u.id);
   a.close(); b.close();
 });
+
+test('chat summary (compact) is written by the model the chat uses, not the cheapest one; Code-mode prompt asks for polished new work', async () => {
+  const cheap = await fakeModel((q, res) => cheap.sse(res, 'cheap summary')), good = await fakeModel((q, res) => good.sse(res, 'good summary'));
+  const t = await makeEnv({ K: 'k' });
+  addModel(t.DB, { name: 'Cheap', base_url: cheap.url, cost_in: 0.01, cost_out: 0.01 });
+  const g = addModel(t.DB, { name: 'Fable', base_url: good.url, cost_in: 50, cost_out: 200 });
+  const u = await t.user(), c = t.DB.raw.prepare('INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?) RETURNING id').get(u.id, 'x', Date.now()).id;
+  for (let i = 0; i < 6; i++) t.DB.raw.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at) VALUES (?,?,?,?,?)').run(c, i % 2 ? 'assistant' : 'user', 'msg ' + i, g.id, Date.now());
+  const r = await t.json(`/api/chats/${c}/compact`, { method: 'POST', cookie: u.cookie });
+  assert.equal(r.data.ok, true, JSON.stringify(r.data));
+  assert.equal(cheap.hits.length, 0); assert.equal(good.hits.length, 1);
+  assert.match(t.DB.raw.prepare('SELECT summary FROM chats WHERE id=?').get(c).summary, /good summary/);
+  const { SYSTEM_CODE, HISTORY_CODE } = await import('../src/core.js');
+  assert.match(SYSTEM_CODE, /polished, impressive result/); assert.equal(HISTORY_CODE, 20);
+  cheap.close(); good.close();
+});
