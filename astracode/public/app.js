@@ -391,20 +391,34 @@ const page = html => { const again = !!app.querySelector('.view'), y = scrollY; 
 // การ์ดแพลน: บอกแค่ใช้ได้กี่เท่าของ Free + ชื่อโมเดล (ตามลำดับที่ตั้งในหลังบ้าน ที่เหลือพับไว้) · ไม่โชว์จำนวนข้อความ
 const PLAN_TOP = 8, pmChip = (m, hide) => `<span class="pm-chip${m.free ? ' free' : ''}"${hide ? ' hidden' : ''}>${m.free ? '<b>ฟรีไม่จำกัด</b> ' : ''}${esc(m.name)}</span>`;
 document.addEventListener('click', e => { const b = e.target.closest?.('.pm-more'); if (!b) return; e.stopPropagation(); b.parentElement.querySelectorAll('.pm-chip[hidden]').forEach(c => c.hidden = false); b.remove(); }, true); // ก่อนตัวเลือกแพลนของการ์ด
-function planTiles(plans, sel, period) {
-  return `<div class="grid" tabindex="0" aria-label="แพลน (เลื่อนดูได้)">${plans.map(p => `<div class="tile plan ${sel === p.id ? 'sel' : ''} ${p.featured ? 'feat' : ''}" data-plan="${p.id}">
-    ${p.featured ? '<span class="badge">แนะนำ</span>' : ''}${p.price > 0 && !p.once && promoOn() ? `<div class="promo-pill">${ic('sparkles', 'sm')} โปรถึง ${promoEnd()}<small>รอบ 4 ชม. x${site.promo.x4h} · ลิมิตสัปดาห์ x${site.promo.xweek}</small></div>` : ''}
-    <div style="font:600 19px var(--display)">${esc(p.name)}</div>
-    <div class="price">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${p.price > 0 ? (period === 'year' ? ' / ปี' : p.days && p.days !== 30 ? ` / ${p.days} วัน` : ' / เดือน') + (p.seats > 1 ? ' ต่อทีม' : '') + (p.once ? ' · ซื้อได้ครั้งเดียว' : '') : ''}</small></div>
-    ${period === 'year' && p.price_year ? `<div class="ok" style="font-size:13px">ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
-    ${p.seats > 1 ? `<div style="font-size:12.5px;color:var(--link);font-weight:500">ทีม · สูงสุด ${p.seats} คน (${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'})</div>` : ''}${p.x_free > 1 ? `<div class="pm-x">ลิมิตสัปดาห์มากกว่า Free <b>${num(p.price > 0 && !p.once && promoOn() ? Math.round(p.x_free * site.promo.xweek) : p.x_free)} เท่า</b>${p.price > 0 && !p.once && promoOn() ? ` <small class="muted">(ช่วงโปร · ปกติ ${num(p.x_free)} เท่า)</small>` : ''}${p.seats > 1 ? ' (รวมทั้งทีม)' : ''}</div>` : ''}${p.price >= 1490 && !p.once && !(p.days > 0 && p.days <= 7) ? '<div class="cc-pill">🎁 แถม Claude Eco เทียบเท่า $100 ทุกเดือน <small>(ตามราคา API ทางการ · สมาชิกใหม่ · ใช้ได้ 25 วัน)</small></div>' : ''}<div class="muted pm-desc">${esc(p.description)}</div>
-    ${p.compare ? `<div class="pm-cmp">${ic('trend', 'sm')}<span>${esc(p.compare)}<sup>*</sup></span></div>` : ''}
-    <div class="pm-head">ใช้ได้ ${p.models.length} โมเดล</div>
-    <div class="pm-chips">${p.models.slice(0, PLAN_TOP).map(m => pmChip(m)).join('')}${p.models.length > PLAN_TOP ? `<button type="button" class="pm-more">+${p.models.length - PLAN_TOP} โมเดล</button>${p.models.slice(PLAN_TOP).map(m => pmChip(m, true)).join('')}` : ''}</div>
-    ${p.api_limit ? `<div class="pm-api">${ic('check', 'sm ok')} ใช้ API Key หักจากลิมิตแพลน</div>` : ''}</div>`).join('')}</div>
+function planTiles(plans, sel, period) { // UI 2.0: รายการแนวตั้ง · แพลนแนะนำ/ที่เลือกกางรายละเอียด แพลนอื่นแตะเพื่อกาง (หน้า /plans แตะ = เลือกแพลน)
+  const promo = p => p.price > 0 && !p.once && promoOn(), xf = p => promo(p) ? Math.round(p.x_free * site.promo.xweek) : p.x_free;
+  const maxX = Math.max(1, ...plans.map(p => xf(p) || 1)), shop = sel !== undefined;
+  const openId = sel || plans.find(p => p.featured)?.id || plans.find(p => p.price > 0)?.id;
+  const unit = p => p.price > 0 ? (period === 'year' ? '/ปี' : p.days && p.days !== 30 ? `/${p.days} วัน` : '/เดือน') : '';
+  return `${plans.some(promo) ? `<div class="pl-promo">${ic('sparkles', 'sm')}<span><b>โปรถึง ${promoEnd()}</b> · รอบ 4 ชม. x${site.promo.x4h} · ลิมิตสัปดาห์ x${site.promo.xweek} ทุกแพลนที่ชำระเงิน</span></div>` : ''}
+  <div class="pl" role="list">${plans.map(p => `<div role="listitem" class="tile plan${sel === p.id ? ' sel' : ''}${p.featured ? ' feat' : ''}${p.id === openId ? ' open' : ''}" data-plan="${p.id}" tabindex="0" aria-expanded="${p.id === openId}">
+    <div class="pl-h"><div class="pl-n"><b>${esc(p.name)}</b>${p.featured ? '<span class="pl-badge">แนะนำ</span>' : ''}${p.seats > 1 ? `<small>ทีม ${p.seats} คน</small>` : ''}</div>
+      <div class="pl-p">${p.price > 0 ? fmtPlanPrice(period === 'year' ? p.price_year : p.price) : 'ฟรี'}<small>${unit(p)}</small></div>${ic('down', 'sm pl-chev')}</div>
+    ${p.x_free > 1 ? `<div class="pl-x"><span>ลิมิตมากกว่า Free <b>${num(xf(p))} เท่า</b>${promo(p) ? ` <small class="muted">ช่วงโปร · ปกติ ${num(p.x_free)} เท่า</small>` : ''}${p.seats > 1 ? ' <small class="muted">รวมทั้งทีม</small>' : ''}</span><i class="pl-bar"><i style="width:${Math.max(4, Math.round(Math.sqrt(xf(p) / maxX) * 100))}%"></i></i></div>` : ''}
+    <div class="pl-more">
+      ${period === 'year' && p.price_year ? `<div class="ok pl-li">${ic('check', 'sm')} ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
+      ${p.description ? `<p class="pl-desc">${esc(p.description)}</p>` : ''}
+      ${p.compare ? `<div class="pl-li">${ic('trend', 'sm')}<span>${esc(p.compare)}<sup>*</sup></span></div>` : ''}
+      ${p.seats > 1 ? `<div class="pl-li">${ic('users', 'sm')}<span>สูงสุด ${p.seats} คน · ${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'}</span></div>` : ''}
+      ${p.price >= 1490 && !p.once && !(p.days > 0 && p.days <= 7) ? `<div class="pl-li">${ic('sparkles', 'sm')}<span>แถม Claude Eco เทียบเท่า $100 ทุกเดือน <small class="muted">(ตามราคา API ทางการ · สมาชิกใหม่ · ใช้ได้ 25 วัน)</small></span></div>` : ''}
+      ${p.api_limit ? `<div class="pl-li">${ic('check', 'sm')}<span>ใช้ API Key หักจากลิมิตแพลน</span></div>` : ''}
+      ${p.once ? `<div class="pl-li">${ic('clock', 'sm')}<span>ซื้อได้ครั้งเดียวต่อบัญชี</span></div>` : ''}
+      <div class="pm-head">ใช้ได้ ${p.models.length} โมเดล</div>
+      <div class="pm-chips">${p.models.slice(0, PLAN_TOP).map(m => pmChip(m)).join('')}${p.models.length > PLAN_TOP ? `<button type="button" class="pm-more">+${p.models.length - PLAN_TOP} โมเดล</button>${p.models.slice(PLAN_TOP).map(m => pmChip(m, true)).join('')}` : ''}</div>
+      ${shop ? (sel === p.id ? '' : `<button type="button" class="btn ${p.featured ? 'blue' : 'out'} pl-cta pl-pick">เลือก ${esc(p.name)}</button>`) : `<a class="btn ${p.featured ? 'blue' : 'out'} pl-cta" href="${!(p.price > 0) ? (me ? '/chat' : '/login') : me ? `/plans?plan=${p.id}` : '/login?next=' + encodeURIComponent('/plans?plan=' + p.id)}">${p.price > 0 ? 'เลือก ' + esc(p.name) : 'เริ่มใช้ฟรี'}</a>`}
+    </div></div>`).join('')}</div>
     ${plans.some(p => p.compare) ? `<p class="muted cmp-note">* เทียบจำนวนครั้งที่ใช้ได้ต่อ 5 ชม. กับแพลนของ Claude และ ChatGPT ระดับราคาเดียวกันรวมกัน · นับงานเขียนโค้ดด้วย Claude Opus 5.5 Eco · ค่าประมาณ ตัวเลขของคู่แข่งมาจากข้อมูลสาธารณะ ไม่ใช่ตัวเลขทางการ</p>` : ''}
-    <p class="muted" style="text-align:center;margin-top:16px">ทุกโมเดลในแพลนใช้ลิมิตก้อนเดียวกัน โมเดลที่เก่งกว่าใช้ลิมิตเร็วกว่า</p>`;
+    <p class="muted pl-foot">ทุกโมเดลในแพลนใช้ลิมิตก้อนเดียวกัน โมเดลที่เก่งกว่าใช้ลิมิตเร็วกว่า</p>`;
 }
+// แตะแถวแพลนเพื่อกาง/หุบ (หน้า /plans ผูก onclick เลือกแพลนเพิ่มเอง)
+document.addEventListener('click', e => { const t = e.target.closest?.('.pl .tile.plan'); if (!t || e.target.closest('a,button:not(.pl-pick)')) return; const on = !t.classList.contains('open') || t.classList.contains('sel'); t.classList.toggle('open', on); t.setAttribute('aria-expanded', on); });
+document.addEventListener('keydown', e => { const t = e.target.closest?.('.pl .tile.plan'); if (t && (e.key === 'Enter' || e.key === ' ') && e.target === t) { e.preventDefault(); t.click(); } });
 function compareTable(plans) {
   const names = [...new Set(plans.flatMap(p => p.models.map(m => m.name)))];
   return `<div class="tw"><table class="cmp"><tr><th></th>${plans.map(p => `<th scope="col">${esc(p.name)}</th>`).join('')}</tr>
@@ -474,23 +488,18 @@ async function landing() {
       </div>
     </div></section>
     <div class="wrap">
+    <div class="band" id="feat"><h2>ทำอะไรได้บ้าง</h2><div class="fg">${[
+      ['code', 'เขียนโค้ดบนเว็บ', 'ให้ AI แก้ไฟล์ รันผล แล้ว push ขึ้น GitHub ได้เลย', '/code'],
+      ['layers', 'Agent ทำงานจนเสร็จ', 'สั่งครั้งเดียวแล้วปิดแอปได้ ทำงานต่อบนเซิร์ฟเวอร์ เสร็จแล้วแจ้งเตือน'],
+      ['search', 'Deep research', 'ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมแหล่งอ้างอิง'],
+      ['filetext', 'ทำเอกสารให้เลย', 'สร้างและแก้ Excel, Word, PowerPoint, PDF จากไฟล์ของคุณ'],
+      ['braces', 'API สำหรับนักพัฒนา', 'ใช้ทุกโมเดลผ่าน API แบบ OpenAI และ Anthropic หักจากลิมิตแพลนได้', '/developers'],
+      ['wallet', `จ่ายง่าย เห็นลิมิตชัด`, `PromptPay${cheapest ? ` เริ่มต้น ${fmtPlanPrice(cheapest.price)}/เดือน` : ''} ไม่ต้องใช้บัตร · ลิมิตรีเซ็ตทุก 4 ชม.`],
+    ].map(([i, t, d, h]) => `<${h ? `a href="${h}"` : 'div'} class="fi">${ic(i)}<b>${t}</b><span>${d}</span></${h ? 'a' : 'div'}>`).join('')}</div></div>
     <div class="band" id="plans"><h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}</div>
+    <p class="pl-all"><a href="/plans">ดูรายละเอียดและเทียบทุกแพลน →</a></p>
     ${dlBand()}
     ${vs.length ? `<div class="band" id="vs"><h2>ถูกกว่าซื้อ API ทางการ</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">ราคาต่อ 1M token เทียบกับราคาทางการของเจ้าของโมเดล (คิดที่ $1 = ฿<b>${usdRate()}</b>)</p><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ราคาต่อ 1M token</th></tr>${vs.map(vsRow).join('')}</table></div><p style="text-align:center;margin-top:12px"><a href="/pricing">ดูราคาทุกโมเดล ›</a></p></div>` : ''}
-    <div class="band facts"><h2>ทำไมต้อง Kyber</h2><div class="grid">
-      <div class="tile"><div class="stat">Web</div><div class="muted">เปิดในเบราว์เซอร์ได้ทันที ไม่ต้องติดตั้ง เพิ่มลงหน้าจอหลักได้</div></div>
-      <div class="tile"><div class="stat">฿</div><div class="muted">จ่ายผ่าน PromptPay${cheapest ? ` เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''} ไม่ต้องใช้บัตร</div></div>
-      <div class="tile"><div class="stat">%</div><div class="muted">เห็นลิมิตชัดเจน รีเซ็ตทุก 4 ชั่วโมงและทุกสัปดาห์</div></div>
-      <div class="tile"><div class="stat">API</div><div class="muted">รองรับ API รูปแบบ OpenAI และ Anthropic ใช้โมเดลเดียวกันจากเครื่องมือโค้ดของคุณ หักจากลิมิตแพลนได้</div></div>
-      <div class="tile"><div class="stat">ไทย</div><div class="muted">หน้าเว็บ ราคา และการสนับสนุนเป็นภาษาไทย สลับเป็นอังกฤษได้</div></div>
-      <div class="tile"><div class="stat">All-in-one</div><div class="muted">แชต เขียนโค้ด สร้างรูป ค้นเว็บ และ API ในเว็บเดียว</div></div>
-    </div></div>
-    <div class="band"><h2>ทำได้มากกว่าแชต</h2><div class="grid">
-      <a class="tile link" href="/code"><div class="stat">${ic('code')}</div><div style="font:600 19px var(--display)">Code</div><div class="muted">เขียนโค้ดคล้าย VS Code บนเว็บ ให้ AI แก้ไฟล์ รันผล แล้ว push ขึ้น GitHub</div></a>
-      <div class="tile"><div class="stat">${ic('search')}</div><div style="font:600 19px var(--display)">Deep research</div><div class="muted">AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง</div></div>
-      <div class="tile"><div class="stat">${ic('globe')}</div><div style="font:600 19px var(--display)">ค้นเว็บ</div><div class="muted">ให้ AI ค้นข้อมูลล่าสุดพร้อมแหล่งอ้างอิง</div></div>
-      <a class="tile link" href="/developers"><div class="stat">${ic('braces')}</div><div style="font:600 19px var(--display)">API</div><div class="muted">ใช้โมเดลทั้งหมดผ่าน API แบบ OpenAI จ่ายตามจริงจาก Wallet</div></a>
-    </div></div>
     <div class="band"><h2>ทีม AI ทำงานแทนคุณ</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">สั่งครั้งเดียวแล้วปิดแอปได้ ทำงานต่อบนเซิร์ฟเวอร์ เสร็จแล้วแจ้งทางอีเมล</p><div class="grid demos" aria-hidden="true" inert>
       <div class="tile demo"><div class="dm-h">${ic('code', 'sm')} ทีม Agent · โหมด Code</div><div class="dm-q">ทำเว็บร้านกาแฟ หน้าแรก เมนู และฟอร์มติดต่อ</div>
         <div class="dm-row lead"><b>หัวหน้า</b><span>แบ่งงาน 3 ชิ้น</span></div>
@@ -500,7 +509,6 @@ async function landing() {
         ${[['ราคาและรุ่น', 6], ['สถานีชาร์จ', 4], ['ต้นทุนต่อเดือน', 5]].map(([t, n], i) => `<div class="dm-row w" style="--i:${i + 1}"><b>ค้น</b><span>${t} <small>${n} แหล่ง</small></span><i class="dm-bar"><i></i></i><em>✓</em></div>`).join('')}
         <div class="dm-rep"><i></i><i></i><i></i><small>รายงานพร้อมอ้างอิง [1]–[15]</small></div></div>
     </div></div>
-    <div class="band" id="cmp"><h2>เทียบแพลน</h2>${compareTable(plans)}</div>
     <div class="band"><h2>ติดตั้งลงมือถือ</h2>${installHTML()}</div>
     <div class="band"><h2>คำถามที่พบบ่อย</h2>${faqHTML()}</div>
     ${posts.length ? `<div class="band"><h2>บทความล่าสุด</h2><div class="grid">${posts.slice(0, 3).map(postTile).join('')}</div></div>` : ''}
@@ -517,7 +525,6 @@ async function landing() {
     localStorage.setItem('cur', b.dataset.cur);
     const y = scrollY;
     $('#plans').innerHTML = `<h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}`;
-    $('#cmp').innerHTML = `<h2>เทียบแพลน</h2>${compareTable(plans)}`;
     bindCur(); scrollTo(0, y);
   });
   bindCur();

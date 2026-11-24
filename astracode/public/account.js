@@ -45,16 +45,16 @@ PAGES.account = async function account() {
       <a class="btn out sm" href="/plans">${ic('layers', 'sm')} Plans / Top up</a>
       <button class="btn red sm" id="outTop">Log out</button>
     </div>
-    <nav class="acc-nav" aria-label="ส่วนในหน้านี้"><a href="#sec-usage">การใช้งาน</a><a href="#sec-team">ทีม</a><a href="#sec-wallet">Wallet</a><a href="#sec-look">การแสดงผล</a><a href="#sec-ai">AI ของคุณ</a><a href="#sec-security">ความปลอดภัย</a><a href="#sec-data">ข้อมูล</a></nav>
+    <nav class="acc-nav" aria-label="ส่วนในหน้านี้"><a href="#sec-limit">ลิมิต</a><a href="#sec-usage">การใช้งาน</a><a href="#sec-team">ทีม</a><a href="#sec-wallet">Wallet</a><a href="#sec-look">การแสดงผล</a><a href="#sec-ai">AI ของคุณ</a><a href="#sec-security">ความปลอดภัย</a><a href="#sec-data">ข้อมูล</a></nav>
 
+    <div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
+      ${u.use4h === false ? '' : meterRow('รอบ 4 ชม.', u.pct4h, u.reset4h ? 'รีเซ็ต ' + when(u.reset4h) : 'เริ่มนับเมื่อส่งข้อความแรก')}
+      ${meterRow('รอบสัปดาห์', u.pctWeek, 'รีเซ็ต ' + when(u.resetWeek))}</div>
     <div class="acc-ov">
       <div class="acc-big"><span class="muted">Wallet</span><b>฿${baht(w.balance)}</b><a class="btn blue sm" href="/plans?topup=1">Top up</a></div>
       <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span>${(me.model_credits || []).map(c => `<span class="cc-pill">เครดิตโมเดล ฿${c.left} · ใช้ได้กับ ${esc(c.names)} · ถึง ${when(c.expires_at)}</span>`).join('')}${me.claude_credit ? `<span class="cc-pill">🎁 แถม Claude Eco เหลือ ≈ $${me.claude_credit.usd} · ใช้ได้ถึง ${when(me.claude_credit.exp)}<label class="cc-sw"><input type="checkbox" id="ccfirst" ${me.claude_credit.first ? 'checked' : ''}> ใช้เครดิตแถมก่อนลิมิต <small>(ปิด = ใช้ลิมิตก่อน เครดิตไว้ใช้ตอนลิมิตเต็ม · ใช้กับ API ด้วย)</small></label></span>` : ''}</div>
     </div>
     ${me.upsell_year ? `<div class="card acc-c" style="border-color:var(--blue)"><b>เปลี่ยนเป็นรายปี ประหยัด ฿${me.upsell_year.save.toLocaleString()}</b><p class="muted" style="margin:4px 0 10px">คุณต่อ ${esc(me.plan.name)} รายเดือนมาแล้วหลายเดือน จ่ายรายปี ฿${me.upsell_year.price_year.toLocaleString()} ถูกกว่าจ่ายรายเดือน 12 ครั้ง</p><a class="btn blue sm" href="/plans?plan=${me.upsell_year.plan_id}&period=year">ดูแพลนรายปี</a></div>` : ''}
-    <div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
-      ${u.use4h === false ? '' : meterRow('รอบ 4 ชม.', u.pct4h, u.reset4h ? 'รีเซ็ต ' + when(u.reset4h) : 'เริ่มนับเมื่อส่งข้อความแรก')}
-      ${meterRow('รอบสัปดาห์', u.pctWeek, 'รีเซ็ต ' + when(u.resetWeek))}</div>
 
     <div class="card acc-c" id="sec-usage">${h3('การใช้งาน 30 วันล่าสุด')}${usageHTML(ud)}<div id="badges" style="margin-top:16px"></div></div>
 
@@ -134,6 +134,10 @@ PAGES.account = async function account() {
 
   const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
   $('#outTop').onclick = doOut;
+  { // เมนูหมวดด้านบน: ไฮไลต์หมวดที่กำลังดูอยู่
+    const links = [...app.querySelectorAll('.acc-nav a')], secs = links.map(a => $(a.getAttribute('href'))).filter(Boolean);
+    if ('IntersectionObserver' in window && secs.length) { const io = new IntersectionObserver(es => es.forEach(x => { if (!x.isIntersecting) return; links.forEach(a => { const on = a.getAttribute('href') === '#' + x.target.id; a.classList.toggle('on', on); if (on) a.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }); }), { rootMargin: '-120px 0px -60% 0px' }); secs.forEach(x => io.observe(x)); }
+  }
   $('#tbulkf')?.addEventListener('submit', async e => { e.preventDefault(); const list = [...new Set(String(new FormData(e.target).get('emails') || '').split(/[\s,;]+/).map(x => x.trim().toLowerCase()).filter(x => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x)))].slice(0, 20); if (!list.length) return toast('ไม่พบอีเมล', 'bad');
     const b = e.submitter; b.disabled = true; let ok = 0, fail = 0, last = ''; for (const em of list) { try { await api('/team/invite', { method: 'POST', body: { email: em } }); ok++; } catch (x) { fail++; last = x.message; } b.textContent = `กำลังส่ง ${ok + fail}/${list.length}`; }
     toast(`ส่งคำเชิญแล้ว ${ok} คน${fail ? ` · ไม่สำเร็จ ${fail} (${last})` : ''}`, fail ? 'bad' : 'ok'); b.disabled = false; b.textContent = 'ส่งคำเชิญทั้งหมด'; });

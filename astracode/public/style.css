@@ -2170,3 +2170,71 @@ h1, h2, h3, .display { font-family: var(--display); letter-spacing: -0.01em; }
 .sw span::before { box-shadow: 0 1px 3px rgba(14, 17, 22, .25); }
 .sw input:checked + span { background: var(--blue); }
 [data-theme=dark] .sw span { background: #3a4152; }
+/* UI 2.0 · แพลนแบบรายการแนวตั้ง */
+.pl-promo { display: flex; gap: 8px; align-items: flex-start; max-width: 720px; margin: 0 auto 14px; padding: 11px 14px; border-radius: 14px; background: var(--accent-tint, rgba(75,79,224,.08)); color: var(--porcelain); font-size: 14px; line-height: 1.5; }
+.pl-promo .ic { color: var(--blue); flex: none; margin-top: 3px; }
+.pl { display: flex; flex-direction: column; gap: 10px; max-width: 720px; margin: 0 auto; text-align: left; }
+.pl .tile.plan { padding: 16px 18px; border-radius: 18px; background: var(--carbon); border: 1px solid var(--steel); box-shadow: none; transform: none; }
+.pl .tile.plan:active { transform: none; }
+.pl .tile.plan:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.pl .tile.plan.feat { border: 2px solid var(--porcelain); padding: 15px 17px; box-shadow: var(--shadow-1); }
+.pl .tile.plan.sel { border: 2px solid var(--blue); padding: 15px 17px; box-shadow: 0 0 0 4px rgba(75, 79, 224, .12); }
+.pl-h { display: flex; align-items: center; gap: 10px; }
+.pl-n { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.pl-n b { font: 600 18px/1.3 var(--display); color: var(--porcelain); }
+.pl-n small { color: var(--ash); font-size: 12.5px; }
+.pl-badge { font: 600 11.5px var(--font); color: var(--ink-btn-fg, #fff); background: var(--ink-btn, #0e1116); padding: 2px 9px; border-radius: 9999px; }
+.pl-p { font: 700 22px/1.2 var(--display); color: var(--porcelain); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pl-p small { font: 500 13px var(--font); color: var(--ash); margin-left: 2px; }
+.pl-chev { color: var(--ash); transition: transform .2s; flex: none; }
+.pl .open .pl-chev { transform: rotate(180deg); }
+.pl-x { display: grid; gap: 6px; margin-top: 8px; font-size: 13.5px; color: var(--ash); }
+.pl-x b { color: var(--porcelain); }
+.pl-bar { display: block; height: 6px; border-radius: 9999px; background: var(--graphite); overflow: hidden; }
+.pl-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--spectrum); background-size: 680px 100%; }
+.pl-more { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--steel); }
+.pl .open .pl-more { display: block; }
+.pl-desc { margin: 0 0 10px; color: var(--ash); font-size: 14px; line-height: 1.6; }
+.pl-li { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; font-size: 14px; line-height: 1.55; color: var(--porcelain); }
+.pl-li .ic { flex: none; margin-top: 3px; color: var(--blue); }
+.pl-li.ok .ic, .pl-li.ok { color: var(--green); }
+.pl .pm-head { margin: 14px 0 6px; font-size: 12.5px; color: var(--ash); opacity: 1; }
+.pl-cta { width: 100%; margin-top: 16px; justify-content: center; }
+.pl-foot { text-align: center; margin: 14px auto 0; max-width: 720px; font-size: 13px; }
+/* กันหน้าเลื่อนแนวนอนบนมือถือ (ของที่ล้นต้องเลื่อนในกล่องตัวเอง) */
+html, body { overflow-x: clip; max-width: 100%; }
+/* UI 2.0 · หัวหน้า /plans */
+.shop-hero { max-width: 720px; margin: 0 auto; padding: 28px 0 18px; text-align: left; }
+.shop-hero h1 { font: 700 32px/1.25 var(--display); letter-spacing: -0.02em; margin: 0 0 12px; color: var(--porcelain); }
+@media (min-width: 768px) { .shop-hero { padding-top: 44px; } .shop-hero h1 { font-size: 40px; } }
+.shop-cur { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 12px 16px; border-radius: 14px; background: var(--carbon); border: 1px solid var(--steel); font-size: 14px; color: var(--ash); }
+.shop-cur b { color: var(--porcelain); }
+.shop-ctl { display: flex; gap: 8px; margin: 14px 0 0; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.shop-ctl::-webkit-scrollbar { display: none; }
+.shop-ctl .seg { margin: 0 !important; flex: none; }
+.shop-link { display: inline-flex; gap: 6px; align-items: center; margin-top: 12px; font-size: 13.5px; }
+.shop-quote { text-align: center; margin: 24px 0 8px; }
+.value-card { max-width: 720px; margin: 0 auto 14px; }
+/* UI 2.0 · หน้าแรก: ทำอะไรได้บ้าง */
+.fg { display: grid; grid-template-columns: 1fr; gap: 10px; max-width: 980px; margin: 0 auto; }
+@media (min-width: 640px) { .fg { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 980px) { .fg { grid-template-columns: repeat(3, 1fr); } }
+.fi { display: grid; grid-template-columns: 40px 1fr; grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px; padding: 16px; border-radius: 18px; background: var(--carbon); border: 1px solid var(--steel); color: inherit; text-decoration: none; text-align: left; }
+.fi > .ic { grid-row: 1 / 3; width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: var(--graphite); color: var(--blue); box-sizing: border-box; }
+.fi b { font: 600 16px/1.35 var(--display); color: var(--porcelain); }
+.fi span { font-size: 14px; line-height: 1.55; color: var(--ash); }
+a.fi:hover { border-color: var(--blue); }
+a.fi b::after { content: ' →'; color: var(--blue); }
+.pl-all { text-align: center; margin: -36px 0 48px; font-size: 14.5px; }
+[data-page=home] .band h2 { font-weight: 700; letter-spacing: -0.02em; }
+@media (max-width: 640px) { [data-page=home] .band h2 { font-size: 26px; margin-bottom: 18px; } [data-page=home] .band { margin-bottom: 36px; } }
+/* UI 2.0 · หน้าบัญชี */
+.acc-nav { background: var(--obsidian); -webkit-backdrop-filter: none; backdrop-filter: none; border-bottom: 1px solid var(--steel); }
+.acc-nav a { background: var(--carbon); border-color: var(--steel); }
+.acc-nav a.on { background: var(--ink-btn, #0e1116); border-color: transparent; color: var(--ink-btn-fg, #fff); }
+.acc-big { background: var(--carbon); background-image: none; border-color: var(--steel); border-radius: 18px; }
+.acc-c { border-radius: 18px; }
+.shop-sub { margin: 0; color: var(--ash); font-size: 15px; line-height: 1.6; }
+.shop-hero + .tok-help, .shop-hero ~ .pgrid { max-width: 980px; margin-left: auto; margin-right: auto; }
+.shop-hero .tok-help { margin-top: 14px; }
+@media (max-width: 640px) { .shop-ctl { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 28px; } }
