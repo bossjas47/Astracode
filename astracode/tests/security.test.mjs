@@ -199,3 +199,16 @@ test('chat summary (compact) is written by the model the chat uses, not the chea
   assert.match(SYSTEM_CODE, /polished, impressive result/); assert.equal(HISTORY_CODE, 20);
   cheap.close(); good.close();
 });
+
+test('http:// pages redirect to https:// (301); /v1 and /api are never redirected; robots.txt does not list internal pages', async () => {
+  const t = await makeEnv();
+  const call = (u, method = 'GET') => t.worker.default.fetch(new Request(u, { method }), t.env, t.ctx);
+  const r = await call('http://t.test/plans?x=1');
+  assert.equal(r.status, 301); assert.equal(r.headers.get('location'), 'https://t.test/plans?x=1');
+  assert.notEqual((await call('http://t.test/v1/models')).status, 301);
+  assert.notEqual((await call('http://t.test/api/version')).status, 301);
+  assert.notEqual((await call('http://t.test/login', 'POST')).status, 301);
+  assert.notEqual((await call('https://t.test/plans')).status, 301);
+  const rb = await (await call('https://t.test/robots.txt')).text();
+  assert.match(rb, /Disallow: \/api\//); assert.doesNotMatch(rb, /admin|account/);
+});

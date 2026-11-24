@@ -62,6 +62,8 @@ async function plansBody(env) {
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url), path = url.pathname, M = req.method; let r;
+    // เปิดหน้าเว็บผ่าน http:// → ส่งไป https:// ถาวร · ยกเว้น /v1/* และ /api/* (ห้าม redirect: POST จะกลายเป็น GET และโปรแกรมลูกค้า API พัง) · localhost ไว้ทดสอบ
+    if (url.protocol === 'http:' && (M === 'GET' || M === 'HEAD') && !/^\/(v1|api)\//.test(path) && !/^(localhost|127\.0\.0\.1)$/.test(url.hostname)) { url.protocol = 'https:'; return Response.redirect(url.toString(), 301); }
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
     // Cloudflare อาจ redirect /preview.html → /preview จึงรับทั้งสองแบบ
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
