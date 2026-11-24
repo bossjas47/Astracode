@@ -151,3 +151,35 @@ test('chat list: has_code comes from a trigger (no scan of every message); schem
   assert.equal(t.DB.raw.prepare("SELECT value FROM settings WHERE key='schema_ver'").get()?.value, SCHEMA_VER);
   assert.ok(t.DB.raw.prepare("SELECT 1 FROM sqlite_master WHERE name='usage_time'").get(), 'usage(created_at) index');
 });
+
+test('model fallback is never silent: logged in events, told to API clients (header/body/first chunk), requested model kept in api_log', async () => {
+  const a = await fakeModel((q, res) => { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":{"message":"invalid api key"}}'); });
+  const b = await fakeModel((q, res) => b.sse(res, 'from B'));
+  const t = await makeEnv({ K: 'k' }), mb = addModel(t.DB, { name: 'Backup', base_url: b.url }), ma = addModel(t.DB, { name: 'Premium', base_url: a.url, fallback_id: mb.id });
+  const u = await t.user({ balance: 100 }), { sha } = await import('./helpers.mjs'), key = 'sk-astra-' + 'cd'.repeat(24);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const call = stream => t.worker.default.fetch(new Request('https://t.test/v1/chat/completions', { method: 'POST', headers: { authorization: 'Bearer ' + key, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'premium', stream, messages: [{ role: 'user', content: 'hi' }] }) }), t.env, t.ctx);
+  const r = await call(false), d = await r.json();
+  assert.equal(r.status, 200, JSON.stringify(d)); assert.equal(r.headers.get('x-astracode-model'), 'backup');
+  assert.deepEqual(d.astra_fallback, { requested: 'premium', answered_by: 'backup' }); assert.equal(d.model, 'backup');
+  await Promise.all(t.ctx.pending);
+  const log = t.DB.raw.prepare('SELECT model, req_model FROM api_log ORDER BY id DESC').get();
+  assert.deepEqual({ ...log }, { model: 'backup', req_model: 'premium' });
+  const fe = t.DB.raw.prepare("SELECT model_id, detail FROM events WHERE kind='fallback'").all();
+  assert.equal(fe.length, 1); assert.equal(fe[0].model_id, ma.id); assert.equal(JSON.parse(fe[0].detail).to, 'Backup'); assert.equal(JSON.parse(fe[0].detail).src, 'api');
+  t.DB.raw.exec("DELETE FROM rate; DELETE FROM events WHERE kind='error'"); // ไม่ให้ตัวตัดวงจรมีผลกับรอบสตรีม
+  const s = await (await call(true)).text(), first = JSON.parse(s.split('\n').find(l => l.startsWith('data: {')).slice(6));
+  assert.deepEqual(first.astra_fallback, { requested: 'premium', answered_by: 'backup' });
+  a.close(); b.close();
+});
+
+test('web chat / Code: a fallback answer is recorded as a fallback event with its source', async () => {
+  const a = await fakeModel((q, res) => { res.writeHead(401); res.end('{"error":{"message":"invalid api key"}}'); }), b = await fakeModel((q, res) => b.sse(res, 'from B'));
+  const t = await makeEnv({ K: 'k' }), mb = addModel(t.DB, { name: 'Backup', base_url: b.url }), ma = addModel(t.DB, { name: 'Premium', base_url: a.url, fallback_id: mb.id });
+  const u = await t.user({ balance: 100 });
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: ma.id, text: 'hi' } }));
+  assert.ok(ev.some(e => e.fallback === 'Backup'), JSON.stringify(ev).slice(0, 300));
+  const fe = t.DB.raw.prepare("SELECT detail FROM events WHERE kind='fallback'").get();
+  assert.equal(JSON.parse(fe.detail).src, 'chat'); assert.equal(JSON.parse(fe.detail).user, u.id);
+  a.close(); b.close();
+});

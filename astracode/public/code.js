@@ -1515,7 +1515,7 @@ function aiMsgHTML(m, i) {
   let cleanBody = vidStrip(fenceBare(stripTools(ask.text)));
   if (!m.streaming && chatLayout()) cleanBody = cleanBody.replace(/```[^\n]*\bpath=[^\n]*\n[\s\S]*?```\n?/g, '').replace(/\n{3,}/g, '\n\n').trim(); // แบบ Claude Code: โค้ดที่แก้ไฟล์ดูได้จากการ์ดไฟล์ / แท็บ Code ไม่ต้องยาวในแชต
   const mcpH = toolSteps(m);
-  return `<div class="msg ai">${hasSegs(m) ? '' : thinkHTML(m)}${todoHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${hasSegs(m) ? segHTML(m, cleanBody) : cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : emptyHTML(m)}${vidCards(ask.text)}</div>${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
+  return `<div class="msg ai">${hasSegs(m) ? '' : thinkHTML(m)}${todoHTML(m)}${mcpH}${m.streaming ? '' : stepsBar(m, i)}<div class="b">${hasSegs(m) ? segHTML(m, cleanBody) : cleanBody ? md(cleanBody) : m.thinking || ask.asks.length ? '' : emptyHTML(m)}${vidCards(ask.text)}</div>${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}${m.streaming ? '' : askHTML(ask.asks, i === IDE.msgs.length - 1 && !IDE.busy) + changeCards(m, i) + runCard(m, i)
     + (m.perm === 'plan' && !m.streaming && i === IDE.msgs.length - 1 && !IDE.busy ? `<div class="plan-go"><button type="button" class="btn blue sm" data-build>${ic('play', 'sm')} Start building</button><span class="muted">เปลี่ยนเป็นโหมด Auto แล้วให้ AI ทำตามแผนนี้</span></div>` : '')
     + `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${m.tin || m.tout ? `<span class="tok" title="Input ${m.tin || 0} · Output ${m.tout || 0} token">↑${ktok(m.tin || 0)} ↓${ktok(m.tout || 0)}${m.rounds ? ` · ${m.rounds} รอบ` : ''}${m.ctx ? ` · <button type="button" class="ctxm ${m.ctx.used / m.ctx.max >= 0.9 ? 'bad' : m.ctx.used / m.ctx.max >= 0.7 ? 'warn' : ''}" data-ctx title="แตะเพื่อดูว่าอะไรกิน context อยู่เท่าไร">ctx ${ktok(m.ctx.used)}/${ktok(m.ctx.max)}</button>` : ''}${m.cost ? ` · ฿${m.cost}` : ''}</span>` : ''}<button data-copy="${i}">Copy</button></div>`}</div>`;
 }
@@ -1632,6 +1632,8 @@ async function codeSend(auto) {
         if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.t || d.th) { onStreamEvent(ai, d); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) { const stick = nearBottom(b); paintStreaming(last, ai); if (stick) b.scrollTop = b.scrollHeight; } }); }
         if (d.error) $('#ce').textContent = d.error;
+        if (d.model && !ai.model) ai.model = d.model;
+        if (d.fallback) { ai.model = d.fallback; ai.note = `โมเดลหลักขัดข้อง จึงตอบด้วย ${d.fallback}`; toast(ai.note, 'bad'); } // แจ้งชัดว่าโมเดลที่ตอบไม่ใช่ตัวที่เลือก (เดิมโหมด Code เงียบ)
         if (d.round) { setStatus(`AI กำลังทำงาน · รอบที่ ${d.round}/${d.of}`); ai.doingBase = `รอบที่ ${d.round}/${d.of}${d.doing ? ' · ' + d.doing : ''}`; ai.doingAt = Date.now(); ai.doing = ai.doingBase; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai);
           clearInterval(IDE.tick); IDE.tick = setInterval(() => { // นับวินาทีที่รอในรอบนี้ ให้เห็นว่ายังทำงานอยู่
             if (!ai.doing || !ai.streaming) { clearInterval(IDE.tick); return; }

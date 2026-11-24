@@ -1016,7 +1016,7 @@ async function stream(body, signal, onData) {
     }
   }
 }
-const noteOf = (m, d) => { if (d.wallet) m.note = 'โมเดลนอกแพลน: ตัดเงินจาก Wallet ตามราคาขาย'; if (d.fallback) m.note = `โมเดลหลักขัดข้อง จึงตอบด้วย ${d.fallback}`; if (d.overflow) m.note = 'ลิมิตเต็ม ใช้เงินใน Wallet'; if (d.sources) m.sources = d.sources; };
+const noteOf = (m, d) => { const add = t => { if (!(m.note || '').includes(t)) m.note = m.note ? m.note + ' · ' + t : t; }; if (d.wallet) add('โมเดลนอกแพลน: ตัดเงินจาก Wallet ตามราคาขาย'); if (d.overflow) add('ลิมิตเต็ม ใช้เงินใน Wallet'); if (d.fallback) add(`โมเดลหลักขัดข้อง จึงตอบด้วย ${d.fallback}`); if (d.sources) m.sources = d.sources; };
 async function editMsg(idx) {
   if (chat.busy) return;
   const m = chat.msgs[idx]; if (!m?.id) return;

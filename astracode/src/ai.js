@@ -463,6 +463,8 @@ export const longExtra = (m, L, r) => { // r = ราคา/ต้นทุน�
   return ((L.fresh * r.in + L.read * r.cache + L.write * r.write) * (li - 1) + L.out * r.out * (lo - 1)) / 1e6;
 };
 // บันทึกการใช้งาน + คิดเงิน wallet เมื่อจ่ายแบบตามใช้ (API / ลิมิตเต็มแล้วใช้ wallet)
+// บันทึกทุกครั้งที่ตอบด้วยโมเดลสำรองแทนตัวที่ผู้ใช้เลือก (events kind='fallback') · ตรวจย้อนหลังได้ว่าใคร เมื่อไร สลับจากอะไรเป็นอะไร เพราะอะไร
+export const logFallback = (env, from, to, why, src, uid) => event(env, 'fallback', from.id, JSON.stringify({ from: from.name, to: to.name, to_id: to.id, why: String(why).slice(0, 160), src, user: uid ?? null })).catch(() => {});
 export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null, flag = null, pack = false, prep = null } = {}) {
   const L = flat(m) ? null : longPart(m, usage);
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6 + longExtra(m, L, { in: m.cost_in, cache: m.cost_cache, write: m.cost_cache_write, out: m.cost_out }); // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
@@ -666,7 +668,7 @@ export async function runChat(env, J, send, st) {
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำ
   if (down) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
-    if (fb && !await modelDown(env, fb.id)) { model = fb; await send({ fallback: fb.name }); }
+    if (fb && !await modelDown(env, fb.id)) { await logFallback(env, model, fb, 'ล่ม (error ≥3 ครั้งใน 5 นาที)', pid ? 'code' : 'chat', u.id); model = fb; await send({ fallback: fb.name }); }
   }
   if (links.length) await send({ sources: [...sources, ...links].map(({ title, url }) => ({ title, url })) });
   const linkCtx = links.map(l => `[เนื้อหาจากลิงก์ ${l.url}${l.title ? ' · ' + l.title : ''}]\n${l.text}`).join('\n\n');
@@ -757,7 +759,7 @@ export async function runChat(env, J, send, st) {
         if (broke && !await limited(env, 'broke:' + (model.key_name || model.id), 1, 3600e3)) await notify(env, `🚨 เครดิตผู้ให้บริการหมด: ${model.name} (${model.key_name || model.base_url}) · ลูกค้าใช้โมเดลนี้ไม่ได้ เติมเงินที่ผู้ให้บริการ หรือตั้งโมเดลสำรองในหลังบ้าน\n${e.message.slice(0, 200)}`).catch(() => {});
         await event(env, refused ? 'refused' : 'error', model.id, e.message.slice(0, 300));
         const fb = !out.trim() && !think && !tcs.size && attempt === 0 && model.fallback_id && await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
-        if (fb) { model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
+        if (fb) { await logFallback(env, model, fb, 'error: ' + e.message.slice(0, 120), pid ? 'code' : 'chat', u.id); model = fb; await send({ fallback: fb.name }); continue; } // โมเดลหลักล่ม: สลับไปโมเดลสำรอง
         await send({ error: u.role === 'admin' ? (busy ? 'ผู้ให้บริการคนเยอะ ลองใหม่ให้ 3 ครั้งแล้วยังไม่ได้ · ' : '') + 'แอดมิน: ' + e.message + (rawT && e.message.startsWith('โมเดลส่งคำตอบว่าง') ? ' · ข้อมูลดิบท้ายสุด: ' + rawT.slice(0, 900) : '') : e.message.startsWith('โมเดลส่งคำตอบว่าง') ? e.message + ' · มักเกิดจากระบบกรองของผู้ให้บริการ ลองเปลี่ยนคำถามหรือโมเดล'
           : refused ? (model.provider === 'image' ? 'ผู้ให้บริการไม่สร้างรูปนี้ให้ (มักเป็นตัวละคร แบรนด์ หรือคนดังที่มีลิขสิทธิ์ หรือเนื้อหาที่ไม่อนุญาต) ลองบรรยายเป็นสไตล์ของคุณเองโดยไม่ระบุชื่อตัวละคร' : 'ผู้ให้บริการไม่ตอบคำขอนี้เพราะติดตัวกรองเนื้อหา ลองปรับคำถามหรือเลือกโมเดลอื่น')
           : broke ? `${model.name} ใช้ไม่ได้ชั่วคราว (ระบบผู้ให้บริการขัดข้อง) แจ้งแอดมินแล้ว · เลือกโมเดลอื่น หรือกด "สลับเป็น Auto" ได้เลย ไม่เสียลิมิต`

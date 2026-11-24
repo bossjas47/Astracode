@@ -1,6 +1,6 @@
 import { claudeCreditLeft, isClaudeEco, modelCreditIds, useClaudeCredit, useModelCredit } from './credits.js';
 import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
-import { SSE, callModel, chat, logUsage, webSearch } from './ai.js';
+import { SSE, callModel, chat, logFallback, logUsage, webSearch } from './ai.js';
 import { connCall, connTools } from './connectors.js';
 import { unseal } from './projects.js';
 import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl } from './billing.js';
@@ -211,7 +211,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       }
       if (!walletKey) return fail('Too many credit-billed requests at once (max 3). Wait for one to finish.', 429, 'rate_limit_error', { 'retry-after': '3' });
     }
-    let activeModel = m; lg.model = slug(m);
+    let activeModel = m; lg.model = slug(m); lg.req = String(b.model ?? '').slice(0, 80) || slug(m); // req = โมเดลที่ลูกค้าขอ · model = โมเดลที่ตอบจริง (ต่างกัน = สลับไปโมเดลสำรอง)
+    const fbInfo = () => activeModel.id !== m.id ? { requested: slug(m), answered_by: slug(activeModel) } : undefined; // บอกลูกค้าตรงๆ เมื่อโมเดลที่ขอล่มแล้วตอบด้วยโมเดลสำรอง
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read }, ...(u.astra ? { astra: u.astra } : {}) });
     const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2), flag: 'est' });
     const finish = async (u, outChars, flag = null) => { // flag: gone = ลูกค้าตัดกลางทาง · part = ผู้ให้บริการพังกลางคำตอบ (โชว์ในหลังบ้าน)
@@ -267,7 +268,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         } catch (e) {
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
-          if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { activeModel = fb; continue; }
+          if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
           if (content || reasoning || tcs.size) await finish(usage, content.length + reasoning.length + 2, 'part'); // พังกลางคำตอบ: ผู้ให้บริการคิดเงินส่วนที่ทำไปแล้ว
           else if (walletKey) await unlimit(env, walletKey);
           return fail('โมเดลตอบไม่ได้ตอนนี้', 502, 'api_error');
@@ -281,7 +282,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       }
       const toolCalls = [...tcs.values()]; if (toolCalls.length) finishReason = 'tool_calls';
       const used = await finish(usage, content.length + reasoning.length + JSON.stringify(toolCalls).length);
-      return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined }, 200, { 'x-astracode-billing': billingMode });
+      return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined, astra_fallback: fbInfo() }, 200, { 'x-astracode-billing': billingMode, 'x-astracode-model': slug(activeModel) });
       })();
       ctx.waitUntil(job.catch(() => {}));
       return await job;
@@ -298,7 +299,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: upstream.signal })) {
-              if (!sentAny) { sentAny = true; if (!lg.ttft) lg.ttft = Date.now() - lg.t0; await chunk({ role: 'assistant', content: '' }); }
+              if (!sentAny) { sentAny = true; if (!lg.ttft) lg.ttft = Date.now() - lg.t0; await chunk({ role: 'assistant', content: '' }, fbInfo() ? { astra_fallback: fbInfo() } : {}); } // สตรีม: header ส่งไปก่อนรู้ว่าสลับไหม จึงบอกใน chunk แรก
               if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
               if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }
               if (e.tc_start) { const idx = tcCount++; anthIdx.set(e.tc_start.index, idx); await chunk({ tool_calls: [{ index: idx, id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }] }); }
@@ -312,7 +313,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
             if (gone) break;
             await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
             const fb = attempt === 0 && !sentAny ? await nextFallback(activeModel) : null;
-            if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { activeModel = fb; continue; }
+            if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
             throw e;
           }
         }
@@ -329,8 +330,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
 // ---------- ตัวช่วย /v1: บันทึกคำขอ, IP allowlist, ตัวห่อและตัวแปลง Anthropic Messages / OpenAI Responses ----------
 // ตารางสั่ง Agent จากมือถือ (สร้างเองครั้งแรก) · events = ความคืบหน้าล่าสุด 300 รายการ, ask = คำถามขออนุญาตที่รอ, answer/inbox = จากมือถือ รอแอปมารับ
 export const ensureRemote = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_remote (chat_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, events TEXT, ask TEXT, answer TEXT, inbox TEXT, running INTEGER, updated_at INTEGER)').run();
-export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,status,tin,tout,tcr,ttft,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-  .bind(lg.kid, lg.uid, lg.path, lg.model || null, status, lg.tin || 0, lg.tout || 0, lg.tcr || 0, lg.ttft || null, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
+export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,req_model,status,tin,tout,tcr,ttft,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  .bind(lg.kid, lg.uid, lg.path, lg.model || null, lg.req || null, status, lg.tin || 0, lg.tout || 0, lg.tcr || 0, lg.ttft || null, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
 export const v4 = x => { const p = String(x).split('.'); return p.length === 4 && p.every(n => /^\d{1,3}$/.test(n) && +n < 256) ? p.reduce((a, n) => a * 256 + +n, 0) : null; };
 // IPv6 เป็น BigInt 128 บิต (รองรับ :: ย่อ) · null = ไม่ใช่ IPv6
 export const v6 = x => {
