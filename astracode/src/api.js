@@ -79,6 +79,13 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       await env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, model TEXT, mode TEXT, rounds INTEGER, tools INTEGER, ok INTEGER, ms INTEGER, charge REAL, pct REAL, error TEXT, version TEXT, os TEXT, created_at INTEGER)').run();
       if (await limited(env, 'astat:' + k.id, 200, 3600e3)) return out({ ok: false });
       await env.DB.prepare('INSERT INTO agent_runs (user_id,model,mode,rounds,tools,ok,ms,charge,pct,error,version,os,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(k.id, String(b.model || '').slice(0, 80), String(b.mode || '').slice(0, 10), n(b.rounds, 1000), n(b.tools, 5000), b.ok ? 1 : 0, n(b.ms, 864e5), n(b.charge, 1e4), n(b.pct, 1e4), b.error ? String(b.error).slice(0, 300) : null, String(b.version || '').slice(0, 20), String(b.os || '').slice(0, 30), Date.now()).run();
+      // Kyber Harness telemetry (แอป 0.10+): ลองใหม่กี่ครั้ง วนซ้ำกี่ครั้ง cache hit % TTFT และสถิติต่อเครื่องมือ (ไม่มีเนื้อหางาน) · ตารางแยก ไม่แตะ agent_runs
+      const h = b.harness && typeof b.harness === 'object' ? b.harness : null;
+      if (h) {
+        const tools = Object.fromEntries(Object.entries(h.perTool || {}).slice(0, 40).map(([t, v]) => [String(t).slice(0, 60), { calls: n(v?.calls, 5000), errors: n(v?.errors, 5000) }]));
+        await env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_harness (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, model TEXT, retries INTEGER, stuck INTEGER, tool_errors INTEGER, cache_hit REAL, ttft_ms INTEGER, tools TEXT, created_at INTEGER)').run();
+        await env.DB.prepare('INSERT INTO agent_harness (user_id,model,retries,stuck,tool_errors,cache_hit,ttft_ms,tools,created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(k.id, String(b.model || '').slice(0, 80), n(h.retries, 1000), n(h.stuck, 1000), n(h.toolErrors, 5000), n(h.cacheHit, 100), n(h.ttftMs, 6e5), JSON.stringify(tools).slice(0, 4000), Date.now()).run().catch(() => {});
+      }
       return out({ ok: true });
     }
     // Connector (Remote MCP ที่ลูกค้าเชื่อมไว้บนเว็บ เช่น Gmail/Notion ผ่าน Zapier/Composio): Agent ในแอปเรียกผ่านเซิร์ฟเวอร์ token ไม่ออกจากเซิร์ฟเวอร์
@@ -234,6 +241,13 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       }
       return finalU;
     };
+    // นาฬิกาเฝ้าโมเดล (/v1): ไม่มี token แรกภายใน first_token_s หรือเงียบกลางทางเกิน idle_s (ตั้งต่อโมเดลในหลังบ้าน · ค่าเริ่มต้นของ API หลวมกว่าแชต เพราะ context ยาว) → ตัดแล้วสลับโมเดลสำรองได้ แทนที่ลูกค้าจะค้างจน timeout
+    const watch = (mod, outer = null) => {
+      const ac = new AbortController(), first = (mod.first_token_s > 0 ? mod.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 300 : 180) * 1000, idle = (mod.idle_s > 0 ? mod.idle_s : 120) * 1000;
+      let stalled = 0, t; const arm = ms => { clearTimeout(t); t = setTimeout(() => { stalled = ms; ac.abort(); }, ms); }, onOuter = () => ac.abort();
+      outer?.addEventListener('abort', onOuter, { once: true }); arm(first);
+      return { signal: ac.signal, tick: () => arm(idle), done: () => { clearTimeout(t); outer?.removeEventListener('abort', onOuter); }, err: e => stalled ? new Error(`no response from the model within ${Math.round(stalled / 1000)} s`) : e };
+    };
     const nextFallback = async cur => cur.fallback_id ? env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(cur.fallback_id).first() : null;
     if (isEmb) {
       const key = env[m.key_name];
@@ -251,8 +265,10 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       const job = (async () => {
       let content = '', reasoning = '', usage = null, finishReason = 'stop', tcs = new Map(), anthIdx = new Map();
       for (let attempt = 0; attempt < 2; attempt++) {
+        const wd = watch(activeModel);
         try {
-          for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl })) {
+          for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: wd.signal })) {
+            wd.tick();
             if (!lg.ttft && (e.t || e.th || e.tc_start || e.tc)) lg.ttft = Date.now() - lg.t0;
             if (e.t) content += e.t;
             if (e.th) reasoning += e.th;
@@ -266,8 +282,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
             if (e.stop_reason) finishReason = e.stop_reason;
             if (e.usage) usage = e.usage;
           }
-          break;
-        } catch (e) {
+          wd.done(); break;
+        } catch (e0) {
+          wd.done(); const e = wd.err(e0);
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
           if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
@@ -293,14 +310,19 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     // ลูกค้าตัดการเชื่อมต่อกลางคำตอบ (กดหยุด / timeout / ส่งซ้ำ): ผู้ให้บริการยังคิดเงินเรา → อ่านต่อเงียบๆ จนได้ token จริงแล้วคิดเงินตามจริง
     // อ่านต่อได้ไม่เกิน 25 วินาที (Cloudflare ให้งานเบื้องหลังหลังลูกค้าหลุดราว 30 วินาที) เกินนั้นตัดแล้วคิดตามประมาณ
     let gone = false; const upstream = new AbortController();
-    const chunk = async (delta, extra = {}, fin = null) => { if (gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { gone = true; setTimeout(() => upstream.abort(), 25e3); } };
+    const lost = () => { if (!gone) { gone = true; setTimeout(() => upstream.abort(), 25e3); } };
+    const chunk = async (delta, extra = {}, fin = null) => { if (gone) return; try { await w.write(enc.encode('data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', created, model: slug(activeModel), choices: [{ index: 0, delta, finish_reason: fin }], ...extra }) + '\n\n')); } catch { lost(); } };
+    // keepalive: comment ของ SSE ทุก 15 วินาทีระหว่างโมเดลคิด/อ่าน context ยาว · proxy/ตัวกลาง/SDK ของลูกค้าไม่ตัดเพราะเงียบนาน (client ทุกตัวข้ามบรรทัดที่ขึ้นต้นด้วย :)
+    const ka = setInterval(() => { if (!gone) w.write(enc.encode(': ping\n\n')).catch(lost); }, 15e3);
     // โมเดล error ก่อนตอบ: ต้องคืนช่อง Wallet ด้วย (เดิมค้าง 3 นาที → OpenCode ลองซ้ำจนช่องเต็ม 8 ช่อง)
     ctx.waitUntil((async () => {
       let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0;
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
+          const wd = watch(activeModel, upstream.signal);
           try {
-            for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: upstream.signal })) {
+            for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: wd.signal })) {
+              wd.tick();
               if (!sentAny) { sentAny = true; if (!lg.ttft) lg.ttft = Date.now() - lg.t0; await chunk({ role: 'assistant', content: '' }, fbInfo() ? { astra_fallback: fbInfo() } : {}); } // สตรีม: header ส่งไปก่อนรู้ว่าสลับไหม จึงบอกใน chunk แรก
               if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
               if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }
@@ -310,8 +332,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
               if (e.stop_reason) finishReason = e.stop_reason;
               if (e.usage) usage = e.usage;
             }
-            break;
-          } catch (e) {
+            wd.done(); break;
+          } catch (e0) {
+            wd.done(); const e = wd.err(e0);
             if (gone) break;
             await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
             const fb = attempt === 0 && !sentAny ? await nextFallback(activeModel) : null;
@@ -323,8 +346,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars, gone ? 'gone' : null);
         if (!gone) await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
       } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2), 'part').catch(() => {}); else if (walletKey && !lg.logged) await unlimit(env, walletKey).catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
-      await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
-    })());
+      clearInterval(ka); await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
+    })().finally(() => clearInterval(ka)));
     return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, 'x-kyber-billing': billingMode, ...cors, ...rl } });
   } catch (e) { console.log('v1 error', e.stack); if (walletKey) await unlimit(env, walletKey).catch(() => {}); return fail(e.user ? e.message : 'เซิร์ฟเวอร์ผิดพลาด', e.user ? 400 : 500, 'api_error'); }
 }
@@ -379,9 +402,15 @@ export async function* chatChunks(res) { // อ่าน SSE ของ chat/comp
       buf += dec.decode(value, { stream: true });
       let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (line.startsWith('data:') && !line.includes('[DONE]')) { try { yield JSON.parse(line.slice(5)); } catch { /* ข้าม */ } } }
     }
+    buf = (buf + dec.decode()).trim(); if (buf.startsWith('data:') && !buf.includes('[DONE]')) { try { yield JSON.parse(buf.slice(5)); } catch { /* ข้าม */ } } // ก้อนสุดท้ายที่ไม่มี \n
   } finally { rd.cancel().catch(() => {}); } // ลูกค้าของ /v1/messages, /v1/responses ตัดกลางทาง: ยกเลิกสตรีมด้านใน ไม่งั้นด้านในค้างรอไม่จบและไม่คิดเงิน
 }
-export const sseOut = res => { const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder(); return { readable, w, send: (name, data) => w.write(enc.encode(`event: ${name}\ndata: ${JSON.stringify({ type: name, ...data })}\n\n`)), close: () => w.close().catch(() => {}) }; };
+// ping = keepalive ทุก 15 วินาที (Anthropic: event ping ตามสเปก · Responses: comment ของ SSE) · close() ล้างตัวจับเวลาเสมอ
+export const sseOut = (ping = ': ping\n\n') => {
+  const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder();
+  const ka = ping ? setInterval(() => { w.write(enc.encode(ping)).catch(() => clearInterval(ka)); }, 15e3) : null;
+  return { readable, w, send: (name, data) => w.write(enc.encode(`event: ${name}\ndata: ${JSON.stringify({ type: name, ...data })}\n\n`)), close: () => { clearInterval(ka); return w.close().catch(() => {}); } };
+};
 export const passHeaders = res => { const h = {}; for (const k of ['retry-after', 'x-request-id', 'x-ratelimit-limit-requests', 'x-ratelimit-remaining-requests', 'x-ratelimit-reset-requests', 'x-astracode-billing', 'x-kyber-billing', 'x-astracode-model', 'x-kyber-model']) { const v = res.headers.get(k); if (v) h[k] = v; } return { ...V1_CORS, ...h }; };
 export const usageIn = u => ({ cached: u?.prompt_tokens_details?.cached_tokens || 0, input: (u?.prompt_tokens || 0) - (u?.prompt_tokens_details?.cached_tokens || 0), output: u?.completion_tokens || 0 });
 
@@ -430,13 +459,15 @@ export async function anthropicApi(req, env, ctx, path, lg) {
   }
   const res = await innerChat(req, env, ctx, lg, chat);
   if (!res.ok) return anthropicErr(res);
+  const wantThink = ['enabled', 'adaptive'].includes(b.thinking?.type); // ลูกค้าเปิด extended thinking: ส่งความคิดของโมเดล (reasoning_content) เป็นบล็อก thinking
   if (!chat.stream) {
     const d = await res.json(), c = d.choices?.[0], msg = c?.message || {}, content = [], u = usageIn(d.usage);
+    if (wantThink && msg.reasoning_content) content.push({ type: 'thinking', thinking: msg.reasoning_content, signature: '' });
     if (msg.content) content.push({ type: 'text', text: msg.content });
     for (const t of msg.tool_calls || []) { let input = {}; try { input = JSON.parse(t.function.arguments || '{}'); } catch { /* ว่าง */ } content.push({ type: 'tool_use', id: t.id, name: t.function.name, input }); }
     return new Response(JSON.stringify({ id: 'msg_' + String(d.id || rand(12)).replace(/^chatcmpl-/, ''), type: 'message', role: 'assistant', model: d.model, content: content.length ? content : [{ type: 'text', text: '' }], stop_reason: aStop(c?.finish_reason), stop_sequence: null, usage: { input_tokens: u.input, output_tokens: u.output, cache_read_input_tokens: u.cached } }), { headers: { 'content-type': 'application/json', ...passHeaders(res) } });
   }
-  const o = sseOut(), id = 'msg_' + rand(12);
+  const o = sseOut('event: ping\ndata: {"type": "ping"}\n\n'), id = 'msg_' + rand(12);
   ctx.waitUntil((async () => {
     let idx = -1, open = false, started = false, stop = 'end_turn', usage = null, model = chat.model; const tools = new Map();
     const start = async () => { if (!started) { started = true; await o.send('message_start', { message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } }); } };
@@ -446,6 +477,10 @@ export async function anthropicApi(req, env, ctx, path, lg) {
         if (j.error) { await o.send('error', { error: { type: 'api_error', message: j.error.message } }); return; }
         model = j.model || model; if (j.usage) usage = j.usage;
         const ch = j.choices?.[0], dl = ch?.delta || {};
+        if (wantThink && typeof dl.reasoning_content === 'string' && dl.reasoning_content) {
+          await start(); if (open !== 'thinking') { await close(); idx++; open = 'thinking'; await o.send('content_block_start', { index: idx, content_block: { type: 'thinking', thinking: '', signature: '' } }); }
+          await o.send('content_block_delta', { index: idx, delta: { type: 'thinking_delta', thinking: dl.reasoning_content } });
+        }
         if (typeof dl.content === 'string' && dl.content) {
           await start(); if (!open || open !== 'text') { await close(); idx++; open = 'text'; await o.send('content_block_start', { index: idx, content_block: { type: 'text', text: '' } }); }
           await o.send('content_block_delta', { index: idx, delta: { type: 'text_delta', text: dl.content } });
@@ -461,8 +496,7 @@ export async function anthropicApi(req, env, ctx, path, lg) {
       await o.send('message_delta', { delta: { stop_reason: stop, stop_sequence: null }, usage: { input_tokens: u.input, output_tokens: u.output, cache_read_input_tokens: u.cached } });
       await o.send('message_stop', {});
     } catch { await o.send('error', { error: { type: 'api_error', message: 'stream failed' } }).catch(() => {}); }
-    await o.close();
-  })());
+  })().finally(() => o.close())); // ทุกทางออก (รวม error ระหว่างทาง) ปิดสตรีมและหยุด keepalive
   return new Response(o.readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...passHeaders(res) } });
 }
 
@@ -507,13 +541,15 @@ export async function responsesApi(req, env, ctx, lg) {
   }
   const o = sseOut();
   ctx.waitUntil((async () => {
+    // เครื่องมือหลายตัวพร้อมกัน (parallel tool calls): argument ของแต่ละตัวผูกกับ index ของมันเอง (ชิ้นอาจมาสลับกัน) · ปิดเครื่องมือทุกตัวตอนจบหรือก่อนข้อความถัดไป
     let seq = 0, oi = -1, cur = null, usage = null, model = chat.model; const output = [], tools = new Map();
     const send = (name, data) => o.send(name, { sequence_number: seq++, ...data });
+    const closeTools = async () => {
+      for (const [k, t] of [...tools].sort((a, b) => a[1].oi - b[1].oi)) { const item = { ...t.item, arguments: t.args, status: 'completed' }; await send('response.function_call_arguments.done', { item_id: t.item.id, output_index: t.oi, arguments: t.args }); output[t.oi] = item; await send('response.output_item.done', { output_index: t.oi, item }); tools.delete(k); }
+    };
     const close = async () => {
-      if (!cur) return;
-      if (cur.kind === 'text') { const item = { ...cur.item, status: 'completed', content: [{ type: 'output_text', text: cur.text, annotations: [] }] }; await send('response.output_text.done', { item_id: cur.item.id, output_index: oi, content_index: 0, text: cur.text }); await send('response.content_part.done', { item_id: cur.item.id, output_index: oi, content_index: 0, part: item.content[0] }); output[oi] = item; await send('response.output_item.done', { output_index: oi, item }); }
-      else { const item = { ...cur.item, arguments: cur.args, status: 'completed' }; await send('response.function_call_arguments.done', { item_id: cur.item.id, output_index: oi, arguments: cur.args }); output[oi] = item; await send('response.output_item.done', { output_index: oi, item }); }
-      cur = null;
+      if (cur?.kind === 'text') { const item = { ...cur.item, status: 'completed', content: [{ type: 'output_text', text: cur.text, annotations: [] }] }; await send('response.output_text.done', { item_id: cur.item.id, output_index: cur.oi, content_index: 0, text: cur.text }); await send('response.content_part.done', { item_id: cur.item.id, output_index: cur.oi, content_index: 0, part: item.content[0] }); output[cur.oi] = item; await send('response.output_item.done', { output_index: cur.oi, item }); }
+      cur = null; await closeTools();
     };
     try {
       await send('response.created', { response: respObj(id, created, model, [], 'in_progress') });
@@ -522,18 +558,19 @@ export async function responsesApi(req, env, ctx, lg) {
         model = j.model || model; if (j.usage) usage = j.usage;
         const dl = j.choices?.[0]?.delta || {};
         if (typeof dl.content === 'string' && dl.content) {
-          if (cur?.kind !== 'text') { await close(); oi++; const item = { id: 'msg_' + rand(10), type: 'message', role: 'assistant', status: 'in_progress', content: [] }; cur = { kind: 'text', item, text: '' }; await send('response.output_item.added', { output_index: oi, item }); await send('response.content_part.added', { item_id: item.id, output_index: oi, content_index: 0, part: { type: 'output_text', text: '', annotations: [] } }); }
+          if (cur?.kind !== 'text') { await close(); oi++; const item = { id: 'msg_' + rand(10), type: 'message', role: 'assistant', status: 'in_progress', content: [] }; cur = { kind: 'text', item, text: '', oi }; await send('response.output_item.added', { output_index: oi, item }); await send('response.content_part.added', { item_id: item.id, output_index: oi, content_index: 0, part: { type: 'output_text', text: '', annotations: [] } }); }
           cur.text += dl.content; await send('response.output_text.delta', { item_id: cur.item.id, output_index: oi, content_index: 0, delta: dl.content });
         }
         for (const t of dl.tool_calls || []) {
-          if (t.id) { await close(); oi++; const item = { id: 'fc_' + rand(10), type: 'function_call', call_id: t.id, name: t.function?.name || '', arguments: '', status: 'in_progress' }; cur = { kind: 'tool', item, args: '' }; tools.set(t.index ?? 0, cur); await send('response.output_item.added', { output_index: oi, item }); }
-          if (t.function?.arguments && cur?.kind === 'tool') { cur.args += t.function.arguments; await send('response.function_call_arguments.delta', { item_id: cur.item.id, output_index: oi, delta: t.function.arguments }); }
+          const k = t.index ?? 0;
+          if (t.id && !(tools.get(k)?.item.call_id === t.id)) { if (cur?.kind === 'text') await close(); if (tools.has(k)) await closeTools(); oi++; const item = { id: 'fc_' + rand(10), type: 'function_call', call_id: t.id, name: t.function?.name || '', arguments: '', status: 'in_progress' }; tools.set(k, { item, args: '', oi }); await send('response.output_item.added', { output_index: oi, item }); }
+          const tl = tools.get(k);
+          if (t.function?.arguments && tl) { tl.args += t.function.arguments; await send('response.function_call_arguments.delta', { item_id: tl.item.id, output_index: tl.oi, delta: t.function.arguments }); }
         }
       }
       await close(); await send('response.completed', { response: respObj(id, created, model, output, 'completed', usageIn(usage)) });
     } catch { await send('error', { message: 'stream failed', code: 'api_error' }).catch(() => {}); }
-    await o.close();
-  })());
+  })().finally(() => o.close())); // ทุกทางออก (รวม error ระหว่างทาง) ปิดสตรีมและหยุด keepalive
   return new Response(o.readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...passHeaders(res) } });
 }
 

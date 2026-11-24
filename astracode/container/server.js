@@ -5,7 +5,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const lib = process.env.AGENT_LIB || path.join(__dirname, 'app');
 const { runAgent } = require(path.join(lib, 'agent'));
-const { AGENT_TOOLS, SUB_TOOLS, Workspace, agentSystem, projectRules } = require(path.join(lib, 'agenttools'));
+const { AGENT_TOOLS, SUB_TOOLS, Workspace, agentSystem, projectRules, wantsAndroid, toolsFor } = require(path.join(lib, 'agenttools'));
 const { scanFolder } = require(path.join(lib, 'localfs'));
 const COWORK_SYS = `\n\nCOWORK MODE: you are working for a non-programmer on an office task. First call todo_write with a short plan, then do the work yourself until it is done. Make deliverables as real files with make_document (.docx/.xlsx with live formulas/.pptx/.pdf) or with python (pandas, matplotlib → PNG). Use web_search / web_fetch / browser for information from the web. Use the user's connectors (tools named rmcp_..., e.g. Gmail, Google Drive/Sheets/Calendar) when the task involves their email, files or calendar; save_to_drive / email_files send finished files; look_at_image reads photos and scans; generate_image makes pictures for slides or posts. Explain progress in plain Thai when the user writes Thai; do not show code unless asked. Before deleting or overwriting the user's own uploaded files, ask with ask_user. For big research (many files or many web pages) hand parts to helpers with the task tool; several task calls in one reply run in parallel. Finish with a short summary listing the files you made.
 QUALITY BAR (the user judges you by the files):
@@ -62,7 +62,7 @@ async function turn(o, before) {
     events.push({ type: 'info', text: 'ผู้ช่วย: ' + title, t: Date.now() });
     const sub = [{ role: 'system', content: agentSystem({ root: ROOT, os: 'Linux cloud sandbox', rules: '' }) + '\n\nYou are a helper agent doing ONE research sub-task for the main agent. You can only read and search. Finish with a concise report of what you found (facts, numbers, file paths, links).' }, { role: 'user', content: prompt.slice(0, 20000) }];
     const sws = new Workspace(ROOT, { ask: async () => true, search: async q => { const r = await fetch(o.site + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key }, body: JSON.stringify({ query: q }) }); return (await r.json()).results || []; } });
-    await runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages: sub, tools: AGENT_TOOLS.filter(x => SUB_TOOLS.has(x.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? sws.call(n, x) : 'Error: read-only helper', signal: ac.signal, maxRounds: 25 }).catch(e => sub.push({ role: 'assistant', content: 'ผู้ช่วยหยุด: ' + e.message }));
+    await runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages: sub, tools: AGENT_TOOLS.filter(x => SUB_TOOLS.has(x.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? sws.call(n, x) : 'Error: read-only helper', signal: ac.signal, maxRounds: 25, depth: 1, spill: (t, i) => sws.spill(t, i) }).catch(e => sub.push({ role: 'assistant', content: 'ผู้ช่วยหยุด: ' + e.message }));
     return sub.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '(ผู้ช่วยไม่ได้รายงานอะไร)';
   } : null;
   const ws = session?.ws && o.follow ? session.ws : new Workspace(ROOT, { subagent, ask: async () => true, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
@@ -72,7 +72,8 @@ async function turn(o, before) {
     : agentSystem({ root: ROOT, os: 'Linux (cloud sandbox: node, npm, python3, pip, git available; changes to files under the working folder are saved back to the user\'s project)', rules: await projectRules(ROOT) });
   const messages = o.follow && session?.messages ? session.messages : (o.history?.length ? [{ role: 'system', content: sys }, ...o.history.slice(-40)] : [{ role: 'system', content: sys }]);
   messages.push({ role: 'user', content: String(o.prompt || '').slice(0, 100000) });
-  if (o.cowork) session = { messages, ws };
+  const android = !!session?.android || await wantsAndroid(ROOT, o.prompt).catch(() => false); // android_tools เฉพาะงาน Android
+  if (o.cowork) session = { messages, ws, android };
   const api = (p, init = {}) => fetch(o.site + p, { ...init, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key, ...(init.headers || {}) } });
   let conn = []; // Connectors ที่ลูกค้าเชื่อมไว้บนเว็บ (Gmail, Drive, Sheets, Calendar, MCP อื่น ๆ) ผ่าน /v1/mcp · token อยู่ที่เซิร์ฟเวอร์ ไม่ลงเครื่องนี้
   if (o.cowork) try { const d = await (await api('/v1/mcp/tools')).json(); conn = (d.tools || []).slice(0, 60).map(x => ({ type: 'function', function: { name: x.name, description: x.description, parameters: x.parameters || { type: 'object', properties: {} } } })); } catch { conn = []; }
@@ -130,14 +131,14 @@ async function turn(o, before) {
     if (o.cowork && BROWSER && n === 'browser') return BROWSER.browserTool(a, ROOT, rel => events.push({ type: 'shot', path: rel, t: Date.now() }));
     return ws.call(n, a);
   };
-  runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages, tools: [...AGENT_TOOLS.filter(t => !['screenshot_url', ...(o.cowork ? [] : ['task'])].includes(t.function.name)), ...extra], callTool: call, onEvent, signal: ac.signal, maxRounds: Math.min(150, +o.maxRounds || 80), onStep: () => ++ws.step, effort: o.effort || null })
+  runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages, tools: [...toolsFor({ android }).filter(t => !['screenshot_url', ...(o.cowork ? [] : ['task'])].includes(t.function.name)), ...extra], callTool: call, onEvent, signal: ac.signal, maxRounds: Math.min(150, +o.maxRounds || 80), onStep: () => ++ws.step, effort: o.effort || null, spill: (t, i) => ws.spill(t, i) })
     .then(() => { if (text) { events.push({ type: 'text', text: text.slice(0, 4000), t: Date.now() }); job.final = text; } job.status = 'done'; })
     .catch(e => { job.error = ac.signal.aborted ? 'หยุดแล้ว' : String(e.message).slice(0, 500); job.status = 'error'; })
     .finally(() => { if (!o.cowork) ws.stopAll(); });
 }
 
 // ไฟล์ที่เปลี่ยน: สแกนโฟลเดอร์ (กฎเดียวกับแอป: ข้าม node_modules/dist/ไบนารี) แล้วเทียบกับตอนเริ่ม
-const SKIPDIR = /^(node_modules|\.git|__pycache__|\.venv|venv|\.cache)$/;
+const SKIPDIR = /^(node_modules|\.git|__pycache__|\.venv|venv|\.cache|\.kyber-tmp)$/; // .kyber-tmp = ผลเครื่องมือยาวที่ตัวคุมรอบเก็บไว้ ไม่ใช่ไฟล์งาน
 async function allFiles(dir = ROOT, out = []) { // Kyber Harness: ทุกไฟล์ในโฟลเดอร์งาน (ไฟล์ไบนารีเป็น base64) ไม่เกิน 300 ไฟล์ / ไฟล์ละ 15MB
   for (const it of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
     if (out.length >= 300) break; const a = path.join(dir, it.name);

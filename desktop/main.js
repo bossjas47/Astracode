@@ -9,7 +9,7 @@ const { startMcp } = require('./mcp');
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { setupTool, SETUP_TOOLS } = require('./setuptools');
-const { AGENT_TOOLS, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin } = require('./agenttools');
+const { AGENT_TOOLS, ASK_TOOL, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin, wantsAndroid, toolsFor } = require('./agenttools');
 
 const SITE = 'https://astracode.panderx.xyz';
 // โดเมนที่เชื่อถือ (ช่วงย้ายแบรนด์เป็น Kyber): หน้าจากโดเมนเหล่านี้เท่านั้นที่เรียกสะพานไฟล์/คำสั่งได้ · แอปยังเปิดโดเมนเดิม (SITE) เป็นหลัก
@@ -283,7 +283,7 @@ h('desk:agentUndo', async (_, sid, step) => { const a = agents.get(String(sid));
 h('desk:agentAnswer', (_, sid, id, text) => { const a = agents.get(String(sid)), f = a?.asks?.get(String(id)); if (!f) return false; a.asks.delete(String(id)); f(String(text ?? '').slice(0, 4000)); return true; });
 // เปิดไฟล์ผลลัพธ์ที่ Agent ทำ (เฉพาะในโฟลเดอร์งาน) ด้วยโปรแกรมของเครื่อง
 h('desk:agentOpen', async (_, k, p) => { const r = rootOf(k || 'chat'), f = path.resolve(r, String(p || '.')); if (f !== r && !f.startsWith(r + path.sep)) throw new Error('ไฟล์อยู่นอกโฟลเดอร์งาน'); const e = await shell.openPath(f); if (e) throw new Error(e); return true; });
-h('desk:agentReset', (_, sid) => { const a = agents.get(String(sid)); a?.ws?.stopAll(); agents.delete(String(sid)); try { fs.rmSync(agentFile(String(sid)), { force: true }); } catch { /* ไม่มีไฟล์ */ } return true; });
+h('desk:agentReset', (_, sid) => { const a = agents.get(String(sid)); a?.ac?.abort(); a?.ws?.stopAll(); a?.remote?.stop(); agents.delete(String(sid)); try { fs.rmSync(agentFile(String(sid)), { force: true }); } catch { /* ไม่มีไฟล์ */ } return true; });
 h('desk:agentCommands', async (_, k) => [...await projectCommands(rootOf(k || 'chat')), ...Object.values(settings.plugins || {}).flatMap(p => p.commands || [])]);
 // ---------- ปลั๊กอิน (แบบ Claude Code): ชุด MCP server + คำสั่งลัด + กติกา + hook ติดตั้งจากแคตตาล็อกของเว็บหรือลิงก์ manifest ----------
 h('desk:plugins', () => Object.values(settings.plugins || {}).map(p => ({ name: p.name, title: p.title, description: p.description, version: p.version, mcp: Object.keys(p.mcpServers), commands: p.commands.map(c => c.name), hasRules: !!p.rules, hook: p.hooks?.after_edit || null })));
@@ -343,7 +343,6 @@ async function remoteTools() {
   rmcpCache = { at: Date.now(), tools: (d.tools || []).slice(0, 60).map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) }; return rmcpCache.tools;
 }
 const remoteCall = async (name, args) => { const r = await fetch(SITE + '/v1/mcp/call', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ name, args }) }); const d = await r.json().catch(() => ({})); return d.text ?? ('Error: ' + (d.error?.message_th || d.error?.message || 'HTTP ' + r.status)); };
-const ASK_TOOL = { type: 'function', function: { name: 'ask_user', description: 'Ask the user ONE question when the task is unclear or a decision is theirs (which file, which option, missing info). Prefer 2-4 short options. Waits for the answer. Do not ask about things you can find out yourself.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'] } } };
 // จับภาพหน้าเว็บ (เช่น dev server) ในหน้าต่างซ่อน ให้ Agent ตรวจ UI ด้วยตา
 async function shotUrl(url, width) {
   const w = new BrowserWindow({ show: false, width, height: 900, webPreferences: { partition: 'preview', sandbox: true, contextIsolation: true, offscreen: true } });
@@ -378,7 +377,7 @@ async function runTask(o = {}, sender) {
       // ผู้ช่วยค้น: บทสนทนาแยก เครื่องมืออ่านอย่างเดียว ใช้โมเดลประหยัดถ้าหน้าเว็บส่งมา
       subagent: async (title, prompt) => {
         const sub = [{ role: 'system', content: agentSystem({ root: a.ws.root, os: process.platform, rules: '' }) + '\n\nYou are a helper agent doing ONE research sub-task for the main agent. You can only read and search. Finish with a concise report of findings (file paths, line numbers, facts).' }, { role: 'user', content: prompt }];
-        await runAgent({ base: SITE + '/v1', key: settings.key, model: a.subModel || a.model, messages: sub, tools: AGENT_TOOLS.filter(t => SUB_TOOLS.has(t.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? a.ws.call(n, x) : 'Error: ผู้ช่วยใช้ได้แค่อ่าน/ค้น', onEvent: d => { if (d.type === 'tool') tell({ type: 'sub', title, name: d.name, args: d.args }); if (d.type === 'usage') tell(d); }, signal: a.ac?.signal, maxRounds: 25 });
+        await runAgent({ base: SITE + '/v1', key: settings.key, model: a.subModel || a.model, messages: sub, tools: AGENT_TOOLS.filter(t => SUB_TOOLS.has(t.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? a.ws.call(n, x) : 'Error: ผู้ช่วยใช้ได้แค่อ่าน/ค้น', onEvent: d => { if (d.type === 'tool') tell({ type: 'sub', title, name: d.name, args: d.args }); if (d.type === 'usage') tell(d); }, signal: a.ac?.signal, maxRounds: 25, depth: 1, spill: (t, i) => a.ws.spill(t, i) });
         return sub.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '(ผู้ช่วยไม่ได้รายงานอะไร)';
       } });
     if (!a.messages.length) {
@@ -400,10 +399,13 @@ async function runTask(o = {}, sender) {
   const ac = a.ac = new AbortController(); a.ws.signal = ac.signal;
   if (o.remote && !a.remote) a.remote = await remoteStart(a, o.chatId).catch(x => { tell({ type: 'info', text: 'สั่งจากมือถือ: ' + x.message }); return null; });
   const rtools = await remoteTools().catch(() => []);
-  let tools = mode === 'plan' ? [...AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)), OFFICE_TOOLS[1], ASK_TOOL] : [...AGENT_TOOLS, ...OFFICE_TOOLS, ASK_TOOL, ...rtools, ...(process.platform === 'win32' && settings.screenNever !== true ? [COMPUTER_TOOL] : [])];
-  if (hasMcp() && mode !== 'plan') { try { await mcpUp(); tools = [...tools, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
+  // ชุดเครื่องมือเดียวกันทุกโหมด (โหมดวางแผนกันไว้ใน callTool แทน) → สลับ วางแผน ↔ ลงมือ แล้ว prompt cache ยังใช้ต่อได้ · android_tools ใส่เมื่องานเกี่ยวกับ Android (เปิดแล้วคงไว้ทั้ง session)
+  a.android ||= await wantsAndroid(a.ws.root, text).catch(() => false);
+  let tools = [...toolsFor({ android: a.android }), ...OFFICE_TOOLS, ASK_TOOL, ...rtools, ...(process.platform === 'win32' && settings.screenNever !== true ? [COMPUTER_TOOL] : [])];
+  if (hasMcp()) { try { await mcpUp(); tools = [...tools, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
   a.asks = new Map(); a.outputs = new Set();
   const callTool = async (name, args) => {
+    if (mode === 'plan' && !READ_ONLY.has(name) && !['ask_user', 'read_document'].includes(name)) return 'Error: โหมดวางแผน: ใช้ได้เฉพาะเครื่องมืออ่าน/ค้น (ห้ามแก้ไฟล์ รันคำสั่ง หรือเรียกเครื่องมือภายนอก) เขียนแผนให้ผู้ใช้อนุมัติก่อน';
     if (name === 'computer') return computerTool(args);
     if (name === 'ask_user') { const id = 'q' + Date.now(); tell({ type: 'ask', id, question: String(args.question || '').slice(0, 1000), options: (Array.isArray(args.options) ? args.options : []).map(String).slice(0, 6) }); const ans = await new Promise((ok, no) => { a.asks.set(id, ok); ac.signal.addEventListener('abort', () => no(new Error('หยุดแล้ว'))); }); tell({ type: 'answered', id, text: ans }); return 'คำตอบของผู้ใช้: ' + ans; }
     if (name === 'make_document' || name === 'read_document') {
@@ -415,17 +417,19 @@ async function runTask(o = {}, sender) {
     }
     if (name.startsWith('rmcp_')) return remoteCall(name, args);
     if (mcp?.has(name)) return mcp.call(name, args);
-    if (mode === 'plan' && !READ_ONLY.has(name)) return 'Error: โหมดวางแผน แก้ไฟล์/รันคำสั่งไม่ได้';
     return a.ws.call(name, args);
   };
   const budget = +o.budget > 0 ? +o.budget : 0, t0 = Date.now(), stat = { rounds: 0, tools: 0 };
   const onEvent = d => {
     if (d.type === 'usage') stat.rounds++; if (d.type === 'tool') stat.tools++;
+    if (d.type === 'stats') { const x = d.stats, tt = [...x.ttft].sort((p, q) => p - q); stat.harness = { retries: x.retries, stuck: x.stuck, toolErrors: x.toolErrors, cacheHit: x.cacheHit, ttftMs: tt[tt.length >> 1] || 0, perTool: x.perTool }; return; } // สถิติตัวคุมรอบ: ส่งไปกับ agent/stat ไม่ส่งเข้าหน้าเว็บ
     if (d.type === 'usage' && d.usage?.astra) { a.cost.charge += d.usage.astra.charge_thb || 0; a.cost.pct += d.usage.astra.week_pct || 0; tell({ type: 'cost', ...a.cost }); if (budget && a.cost.charge >= budget && !ac.signal.aborted) { tell({ type: 'info', text: `ถึงเพดานงานนี้ ฿${budget} แล้ว หยุดให้ก่อน (สั่ง "ทำต่อ" ได้)` }); ac.abort(); } }
     tell(d);
   };
   try {
-    await runAgent({ base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step });
+    await runAgent({ base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
+      maxDurationMs: Math.min(600, Math.max(0, +o.maxMinutes || 0)) * 60e3, spill: (t, i) => a.ws.spill(t, i),
+      onCheckpoint: () => { if (Date.now() - (a.savedAt || 0) > 5000) { a.savedAt = Date.now(); agentSave(a); } } }); // บันทึกระหว่างทำ (ทุก ≥5 วินาที): แอปปิด/ค้างกลางงาน เปิดใหม่ทำต่อได้
     tell({ type: 'done', changed: a.ws.changed(), outputs: [...new Set([...a.outputs, ...a.ws.changed()])].filter(p => !/\.(js|ts|py|css|json|lock|map)$/i.test(p) || a.outputs.has(p)).slice(0, 20), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
   } catch (x) {
     tell({ type: 'error', text: ac.signal.aborted ? 'หยุดแล้ว' : x.message, changed: a.ws.changed(), runFrom: a.ws.runFrom });
@@ -434,7 +438,7 @@ async function runTask(o = {}, sender) {
   } finally {
     a.ac = null; agentSave(a); a.remote?.flush();
     const err = stat.error; // สถิติไม่มีเนื้อหางาน: ใช้ดูว่าโมเดลไหนทำงาน Agent ได้ดี
-    fetch(SITE + '/v1/agent/stat', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ model, mode, rounds: stat.rounds, tools: stat.tools, ok: !err, ms: Date.now() - t0, charge: a.cost.charge, pct: a.cost.pct, error: err, version: app.getVersion(), os: process.platform }) }).catch(() => {});
+    fetch(SITE + '/v1/agent/stat', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ model, mode, rounds: stat.rounds, tools: stat.tools, ok: !err, ms: Date.now() - t0, charge: a.cost.charge, pct: a.cost.pct, error: err, version: app.getVersion(), os: process.platform, harness: stat.harness || null }) }).catch(() => {});
   }
   return true;
 }
@@ -471,6 +475,7 @@ async function remoteStart(a, chatId) {
   const poll = setInterval(() => { if (a.ac || waiting) flush(); }, 3000); // ระหว่างทำงาน: ดึงคำตอบ/ข้อความจากมือถือทุก 3 วินาที
   app.on('before-quit', () => clearInterval(poll));
   return {
+    stop: () => { clearInterval(poll); clearTimeout(t); }, // ล้างแชต Agent: เลิกดึงข้อมูลจากมือถือ
     push: d => { if (['delta', 'think'].includes(d.type)) return; buf.push({ ...d, preview: d.preview?.slice(0, 1500), t: Date.now() }); if (!t) t = setTimeout(flush, 1200); },
     ask: q => new Promise(ok => { waiting = { q: { id: ++askId, ...q }, ok: v => ok(['yes', 'all', 'no'].includes(v) ? v : 'no') }; flush(); }),
     cancelAsk: () => { if (waiting) { waiting = null; flush(); } },
@@ -506,10 +511,11 @@ else {
   app.on('open-url', (e, u) => { e.preventDefault(); const p = deepPath([u]); if (web && p) { web.loadURL(SITE + p); show(); } else settings.openPath = p; }); // macOS
   app.whenReady().then(() => {
     settings = { ...load(), openPath: deepPath(process.argv) }; screenOk = process.platform === 'win32' && settings.screenAlways === true;
-    if (!settings.links?.chat) { settings.links = { ...settings.links, chat: app.getPath('home') }; save(); } // แชตในแอปทำงานในเครื่องได้ทันที (โฟลเดอร์ผู้ใช้ เหมือนเปิด terminal) · เปลี่ยนโฟลเดอร์ได้ในหน้า ใช้คอมเครื่องนี้ // เคยกด "จำไว้" แล้ว: ไม่ต้องขอสิทธิ์คุมจอซ้ำทุกครั้งที่เปิดแอป
+    if (!settings.links?.chat) { const w = path.join(app.getPath('home'), 'KyberWorkspace'); try { fs.mkdirSync(w, { recursive: true }); } catch { /* สร้างไม่ได้: ใช้โฟลเดอร์ผู้ใช้ */ } settings.links = { ...settings.links, chat: fs.existsSync(w) ? w : app.getPath('home') }; save(); } // ผู้ใช้ใหม่: โฟลเดอร์งานแยก ~/KyberWorkspace (ผู้ใช้เดิมที่ตั้งไว้แล้วไม่เปลี่ยน) // แชตในแอปทำงานในเครื่องได้ทันที (โฟลเดอร์ผู้ใช้ เหมือนเปิด terminal) · เปลี่ยนโฟลเดอร์ได้ในหน้า ใช้คอมเครื่องนี้ // เคยกด "จำไว้" แล้ว: ไม่ต้องขอสิทธิ์คุมจอซ้ำทุกครั้งที่เปิดแอป
     appMenu(); makeTray(); openWeb(); if (process.argv.includes('--hidden') && tray) web.hide(); autoUpdate();
-    globalShortcut.register('CommandOrControl+Alt+Escape', () => { if (screenOk) { screenOk = false; new Notification({ title: 'Kyber', body: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ดแล้ว' }).show(); } }); // ปุ่มฉุกเฉิน
+    globalShortcut.register('CommandOrControl+Alt+Escape', () => { const was = screenOk || settings.screenAlways; screenOk = false; if (settings.screenAlways) { settings.screenAlways = false; save(); } if (was) new Notification({ title: 'Kyber', body: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ดแล้ว (ครั้งหน้าจะถามก่อน)' }).show(); }); // ปุ่มฉุกเฉิน: ปิด "จำไว้" ด้วย
   });
 }
 app.on('before-quit', () => { quitting = true; for (const s of servers.values()) s.kill(); });
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch { /* ยังไม่พร้อม */ } });
 app.on('window-all-closed', async () => { await mcp?.close(); app.quit(); });

@@ -266,7 +266,8 @@ async function chatView(id) {
   });
   pcInit(); setTimeout(remoteWatch, 400);
   const t = $('#t');
-  t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
+  t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; clearTimeout(chat.draftT); chat.draftT = setTimeout(() => draft.set(t.value), 400); };
+  const dft = draft.get(); if (dft && !t.value) { t.value = dft; setTimeout(() => t.oninput(), 0); } // ร่างที่พิมพ์ค้างไว้ (รีเฟรช/สลับแชต/แอปรีโหลด) ไม่หาย
   const skTok = qs().get('skill'); // เปิดจากลิงก์แชร์ Skill: นำเข้าแล้วเปิดใช้ทันที
   if (skTok) api('/skills/import', { method: 'POST', body: { token: skTok } }).then(async s => { await loadSkills(true); if (!chat.skills.includes(s.id) && chat.skills.length < 3) chat.skills.push(s.id); localStorage.setItem('skills', JSON.stringify(chat.skills)); skillModel(s); modelUI(); toast(`เพิ่ม Skill "${s.name}" แล้ว`, 'ok'); }).catch(x => toast(x.message, 'bad'));
   const shared = [qs().get('title'), qs().get('text'), qs().get('url')].filter(Boolean).join('\n'); // ข้อความที่แชร์มาจากแอปอื่น (manifest share_target)
@@ -1036,7 +1037,24 @@ async function imgWake() {
   if (list && list.length > chat.msgs.length) { chat.msgs = list; renderAll(); loadSide(); return; }
   if (chat.msgs.at(-1)?.role === 'user') send({ resume: true });
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') imgWake(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { imgWake(); textWake(); } });
+addEventListener('online', () => textWake());
+// กลับมาที่หน้า / เน็ตกลับมา: คำถามล่าสุดยังไม่มีคำตอบ (สตรีมหลุดตอนพับจอหรือเน็ตหลุด) → ดึงคำตอบที่เซิร์ฟเวอร์ทำต่อไว้ ถ้ายังไม่มีก็ต่อสตรีม · ลองครั้งเดียวต่อคำถาม
+async function textWake() {
+  if (document.body.dataset.page !== 'chat' || document.visibilityState !== 'visible' || !navigator.onLine || !chat.id || chat.busy || chat.agentBusy || chat.imgWake || chat.msgs.at(-1)?.role !== 'user') return;
+  const k = chat.id + ':' + chat.msgs.length; if (chat.wokeFor === k) return; chat.wokeFor = k;
+  const list = await api('/chats/' + chat.id).catch(() => null);
+  if (chat.busy || chat.wokeFor !== k) return;
+  if (list && list.length > chat.msgs.length) { for (const r of list) if (typeof r.sources === 'string') try { r.sources = JSON.parse(r.sources); } catch { r.sources = null; } chat.msgs = list; $('#e').textContent = ''; renderAll(); loadSide(); return; }
+  if (chat.msgs.at(-1)?.role === 'user') send({ resume: true });
+}
+// ร่างข้อความในช่องพิมพ์ ต่อแชต (sessionStorage: อยู่ถึงปิดแท็บ ไม่ค้างในเครื่องถาวร) · ลบเมื่อส่งสำเร็จ
+const draft = {
+  key: () => 'draft:' + (chat.id || 'new'),
+  get() { try { return sessionStorage.getItem(this.key()) || ''; } catch { return ''; } },
+  set(v) { try { if (v && v.trim()) sessionStorage.setItem(this.key(), v.slice(0, 50000)); else sessionStorage.removeItem(this.key()); } catch { /* โหมดส่วนตัว/เต็ม: ข้าม */ } },
+  del() { clearTimeout(chat.draftT); try { sessionStorage.removeItem(this.key()); } catch { /* ข้าม */ } },
+};
 async function send({ regenerate = false, resume = false, edit_id = null, edit_text = '' } = {}) {
   if (chat.busy) { if (chat.agentBusy && !regenerate && !resume && !edit_id) agentSteer(); return; } // Agent กำลังทำ: Enter = พิมพ์แทรก (ปุ่มส่ง = หยุด)
   if (!regenerate && !resume && !edit_id && isImgMode() && $('#t').value.trim() !== chat.enhanced && (chat.images.length || localStorage.getItem('imgAuto') !== '0')) { // โหมดสร้างภาพ: ปรับ prompt ก่อนส่ง (แนบรูป = ต้องปรับ เพราะใช้รูปเป็นแรงบันดาลใจ)
@@ -1064,7 +1082,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   else if (regenerate) { if (chat.msgs.at(-1)?.role === 'assistant') chat.msgs.pop(); }
   else {
     autoRetry = 0; if (!chat.pcAuto) chat.pcRound = 0; chat.pcAuto = false; if (!chat.pyAuto) chat.pyRound = 0; chat.pyAuto = false;
-    t.value = ''; t.style.height = 'auto'; chat.images = []; chat.files = []; drawThumbs();
+    draft.del(); t.value = ''; t.style.height = 'auto'; chat.images = []; chat.files = []; drawThumbs();
     chat.msgs.push({ role: 'user', content: withFiles(text || (files.length ? 'อ่านไฟล์นี้' : 'อธิบายรูปนี้'), files), imgs: imgs.length ? imgs : null });
     appendMsg(chat.msgs.at(-1));
   }

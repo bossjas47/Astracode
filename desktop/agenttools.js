@@ -2,6 +2,7 @@
 // สิทธิ์: อ่านในโฟลเดอร์งานได้เลย · แก้ไฟล์/รันคำสั่งตามโหมดที่ผู้ใช้เลือก · แตะนอกโฟลเดอร์งานต้องถามทุกครั้ง · คำสั่งอันตรายถามเสมอ (ตัดสินใน main.js)
 const fs = require('fs/promises');
 const path = require('path');
+const { execFile } = require('child_process');
 const { runCmd, isDanger } = require('./tools');
 const { androidTools } = require('./android');
 
@@ -24,11 +25,36 @@ const AGENT_TOOLS = [
   fn('screenshot_url', 'Open a web page (e.g. your dev server http://localhost:5173) in a hidden browser and look at a screenshot of it, to check the UI visually.', { url: S('http(s) URL'), width: N('Viewport width, default 1280') }, ['url']),
   fn('task', 'Hand a self-contained research sub-task to a helper agent that can only read files and search (no edits, no commands). Several task calls in one reply run in parallel. Returns the helper\'s report.', { description: S('3-6 word title'), prompt: S('Full instructions: what to find and what to report back') }, ['description', 'prompt']),
   fn('android_tools', 'Prepare tools for Android APK work (apktool to decode/rebuild, jadx to read Java, a signer) and get the exact commands. Downloads/installs what is missing the first time. Call this before working on any .apk file.', {}),
+  fn('multi_edit', 'Make several exact replacements in ONE file atomically: every edit must match or nothing is written. Edits apply in order, each on the result of the previous one. Prefer this over many edit_file calls on the same file.', { path: S('File path'), edits: { type: 'array', description: 'Replacements, applied in order', items: { type: 'object', properties: { old_string: S('Exact existing text'), new_string: S('Replacement text'), replace_all: B('Replace every occurrence') }, required: ['old_string', 'new_string'] } } }, ['path', 'edits']),
+  fn('git_inspect', 'Read-only git information for the working folder (never changes the repo): status, diff (working tree, or staged=true), log, or show a commit. Use it to review your own changes before you finish.', { op: { type: 'string', enum: ['status', 'diff', 'log', 'show'], description: 'What to show' }, path: S('Limit to this file or folder'), staged: B('diff: show staged changes'), ref: S('Commit/branch, e.g. HEAD~1 (show, log, or diff against it)'), limit: N('log: number of commits, default 20') }, ['op']),
+  fn('check_syntax', 'Check one file for syntax errors without running it: JavaScript (node --check), JSON, Python (ast). TypeScript/JSX use the project\'s own typescript package when installed. Files you edit are checked automatically; use this for other files.', { path: S('File path') }, ['path']),
   fn('todo_write', 'Keep a short task list for multi-step work; the user sees it live. Send the whole list each time.', { todos: { type: 'array', items: { type: 'object', properties: { content: S('Task'), status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] } }, required: ['content', 'status'] } } }, ['todos']),
 ];
-const KIND = { read_file: 'read', list_dir: 'read', glob: 'read', grep: 'read', web_fetch: 'net', web_search: 'net', screenshot_url: 'net', task: 'none', todo_write: 'none', android_tools: 'bash', bash_output: 'none', kill_bash: 'none', write_file: 'edit', edit_file: 'edit', bash: 'bash' };
-const READ_ONLY = new Set(['read_file', 'list_dir', 'glob', 'grep', 'web_fetch', 'web_search', 'screenshot_url', 'todo_write', 'task']); // โหมดวางแผน
-const SUB_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'web_fetch', 'web_search']); // ผู้ช่วยค้น (subagent)
+const KIND = { read_file: 'read', list_dir: 'read', glob: 'read', grep: 'read', web_fetch: 'net', web_search: 'net', screenshot_url: 'net', task: 'none', todo_write: 'none', android_tools: 'bash', bash_output: 'none', kill_bash: 'none', write_file: 'edit', edit_file: 'edit', multi_edit: 'edit', bash: 'bash', git_inspect: 'read', check_syntax: 'read' };
+const READ_ONLY = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax', 'web_fetch', 'web_search', 'screenshot_url', 'todo_write', 'task']); // โหมดวางแผน
+const SUB_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax', 'web_fetch', 'web_search']); // ผู้ช่วยค้น (subagent)
+// ถามผู้ใช้ (ใช้ร่วมกันในแอป: main.js จัดการคำตอบเอง · เครื่องเสมือนบนคลาวด์มีของตัวเองใน COWORK_TOOLS)
+const ASK_TOOL = fn('ask_user', 'Ask the user ONE question when the task is unclear or a decision is theirs (which file, which option, missing info). Prefer 2-4 short options. Waits for the answer. Do not ask about things you can find out yourself.', { question: S('The question, in the user\'s language'), options: { type: 'array', items: { type: 'string' }, description: '2-4 short choices (optional)' } }, ['question']);
+const TS_EXT = /\.(tsx?|mts|cts|jsx)$/i, JS_EXT = /\.(c|m)?js$/i;
+// ไฟล์ .js ที่มี JSX (React แบบเก่า): node --check จะฟ้องผิดทั้งที่ถูก → ไม่ตรวจอัตโนมัติ
+const looksJsx = t => /(return|=>|=)\s*\(?\s*<[A-Za-z>]|<\/[A-Za-z][\w.]*>|\/>\s*[)\n;,]/.test(t);
+// รันโปรแกรมแบบไม่ผ่าน shell (argument ไม่ถูกตีความ) · missing = ไม่มีโปรแกรมนี้ในเครื่อง
+const execRun = (cmd, args, opt = {}) => new Promise(ok => execFile(cmd, args, { timeout: 20e3, maxBuffer: 8e6, windowsHide: true, ...opt }, (e, stdout, stderr) => ok({ code: e ? (typeof e.code === 'number' ? e.code : -1) : 0, stdout: String(stdout || ''), stderr: String(stderr || ''), missing: e?.code === 'ENOENT' })));
+const nodeEnv = () => ({ ...process.env, ELECTRON_RUN_AS_NODE: '1' }); // ในแอป Electron: process.execPath = Electron → สั่งให้ทำตัวเป็น node
+let pyBin = null; // หา python ครั้งเดียวต่อโปรเซส
+const findPython = () => pyBin ||= (async () => { for (const c of process.platform === 'win32' ? ['py', 'python', 'python3'] : ['python3', 'python']) { const r = await execRun(c, ['--version'], { timeout: 8e3 }); if (!r.missing && r.code === 0) return c; } return ''; })();
+// แก้ข้อความหลายจุดในเนื้อไฟล์ (ใช้ทั้ง edit_file และ multi_edit) · คืน { text, count } หรือ { error } โดยไม่แตะไฟล์
+function applyEdits(t, edits) {
+  const crlf = t.includes('\r\n'), fix = s => crlf ? String(s ?? '').replace(/\r?\n/g, '\r\n') : String(s ?? ''); let count = 0;
+  for (let i = 0; i < edits.length; i++) {
+    const e = edits[i] || {}, o = fix(e.old_string), n = o ? t.split(o).length - 1 : 0, at = edits.length > 1 ? `edit ${i + 1}/${edits.length}: ` : '', none = edits.length > 1 ? ' (ไม่ได้แก้อะไร ไฟล์คงเดิม)' : '';
+    if (!o) return { error: `Error: ${at}old_string ว่าง${none}` };
+    if (!n) return { error: `Error: ${at}ไม่เจอ old_string ในไฟล์ (อ่านไฟล์อีกครั้งแล้วคัดลอกให้ตรงทุกตัวอักษร รวมช่องว่าง)${i ? ' · ระวัง: edit ก่อนหน้าในชุดเดียวกันอาจเปลี่ยนข้อความนี้ไปแล้ว' : ''}${none}` };
+    if (n > 1 && !e.replace_all) return { error: `Error: ${at}เจอ old_string ${n} จุด ใส่บรรทัดรอบๆ เพิ่มให้เหลือจุดเดียว หรือใช้ replace_all${none}` };
+    t = e.replace_all ? t.split(o).join(fix(e.new_string)) : t.replace(o, () => fix(e.new_string)); count += e.replace_all ? n : 1;
+  }
+  return { text: t, count };
+}
 
 // diff บรรทัด (LCS) สำหรับแสดงก่อนอนุญาต/ในแชต: บรรทัดขึ้นต้น "- " = ลบ, "+ " = เพิ่ม, "  " = บรรทัดรอบๆ (ไฟล์ใหญ่มาก: สรุปจำนวนบรรทัดแทน)
 function diffLines(a, b, ctx = 2, max = 160) {
@@ -52,8 +78,10 @@ class Workspace {
   constructor(root, { ask = async () => true, fetchImpl = fetch, search = async () => [], onTodos = () => {}, shot = null, subagent = null, hooks = null } = {}) {
     this.root = path.resolve(root); this.cwd = this.root; this.ask = ask; this.fetchImpl = fetchImpl; this.search = search; this.onTodos = onTodos;
     this.shot = shot; this.subagent = subagent; this.hooks = hooks; // hooks: { after_edit: "npx prettier --write {file}" } (ผู้ใช้ยืนยันแล้วใน main)
-    this.hist = []; this.step = 0; this.runFrom = 0; this.bg = new Map(); this.n = 0;
+    this.hist = []; this.step = 0; this.runFrom = 0; this.bg = new Map(); this.n = 0; this.askQ = Promise.resolve();
   }
+  // อ่าน/ค้นหลายอันพร้อมกันได้ แต่หน้าต่างขออนุญาตต้องขึ้นทีละอัน
+  askOne(req) { const p = this.askQ.then(() => this.ask(req)); this.askQ = p.catch(() => {}); return p; }
   abs(p) { return path.resolve(this.cwd, String(p ?? '.')); }
   inside(a) { return a === this.root || a.startsWith(this.root + path.sep); }
   rel(a) { return this.inside(a) ? path.relative(this.root, a).split(path.sep).join('/') || '.' : a; }
@@ -72,16 +100,60 @@ class Workspace {
   }
 
   async call(name, a = {}) {
-    const kind = KIND[name]; if (!kind) throw new Error('ไม่รู้จักเครื่องมือ ' + name);
-    const target = ['read_file', 'write_file', 'edit_file', 'list_dir', 'glob', 'grep'].includes(name) ? this.abs(a.path ?? '.') : null;
-    const diff = name === 'edit_file' ? diffLines(a.old_string, a.new_string) : name === 'write_file' ? diffLines(await fs.readFile(target, 'utf8').catch(() => ''), a.content) : null;
-    if (!await this.ask({ name, kind, args: name === 'android_tools' ? { command: 'เตรียมเครื่องมือแก้ APK: apktool, jadx, uber-apk-signer (และ Java ถ้ายังไม่มี) ไว้ที่ ~/.astra/tools' } : a, outside: target ? !this.inside(target) : false, danger: name === 'bash' && isDanger(a.command), cwd: this.cwd, diff })) return 'Error: ผู้ใช้ไม่อนุญาต';
+    let kind = KIND[name]; if (!kind) throw new Error('ไม่รู้จักเครื่องมือ ' + name);
+    const target = ['read_file', 'write_file', 'edit_file', 'multi_edit', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax'].includes(name) ? this.abs(a.path ?? '.') : null;
+    let diff = null, args = a;
+    if (name === 'edit_file') diff = diffLines(a.old_string, a.new_string);
+    else if (name === 'write_file') diff = diffLines(await fs.readFile(target, 'utf8').catch(() => ''), a.content);
+    else if (name === 'multi_edit') { // ตรวจทุกจุดก่อนขออนุญาต: ไม่ผ่านจุดเดียว = ไม่แก้เลย
+      if (!Array.isArray(a.edits) || !a.edits.length) return 'Error: edits ต้องเป็นรายการที่มีอย่างน้อย 1 รายการ';
+      const t = await fs.readFile(target, 'utf8').catch(() => null); if (t === null) return `Error: ไม่พบไฟล์ ${this.rel(target)} (ใช้ write_file สำหรับไฟล์ใหม่)`;
+      const r = applyEdits(t, a.edits.slice(0, 100)); if (r.error) return r.error; diff = diffLines(t, r.text);
+    } else if (name === 'android_tools') args = { command: 'เตรียมเครื่องมือแก้ APK: apktool, jadx, uber-apk-signer (และ Java ถ้ายังไม่มี) ไว้ที่ ~/.astra/tools' };
+    else if (name === 'check_syntax' && TS_EXT.test(String(a.path || ''))) { kind = 'bash'; args = { command: `ตรวจ syntax ${this.rel(target)} ด้วยแพ็กเกจ typescript ของโปรเจกต์` }; } // รันโค้ดในโปรเจกต์ → ขออนุญาตแบบคำสั่ง
+    if (!await this.askOne({ name, kind, args, outside: target ? !this.inside(target) : false, danger: name === 'bash' && isDanger(a.command), cwd: this.cwd, diff })) return 'Error: ผู้ใช้ไม่อนุญาต';
     let out = await this[name](a, target);
     if (diff && !String(out).startsWith('Error')) {
       out += '\n' + diff;
       if (this.hooks?.after_edit) { const r = await runCmd(this.root, this.hooks.after_edit.replace(/\{file\}/g, JSON.stringify(target)), { timeout: 60e3, signal: this.signal }); out += `\n[hook after_edit exit ${r.code}]${(r.stdout + r.stderr).trim() ? '\n' + (r.stdout + r.stderr).trim().slice(-1500) : ''}`; }
+      const syn = await this.syntax(target, { auto: true }).catch(() => ''); // ตรวจ syntax หลังแก้ทุกครั้ง: โมเดลเห็นทันทีว่าทำไฟล์พัง
+      if (syn) out += '\n' + syn;
     }
     return out;
+  }
+  // ตรวจ syntax โดยไม่รันโค้ด · auto = หลังแก้ไฟล์: รายงานเฉพาะตอนพัง และข้ามชนิดที่ตรวจแล้วอาจฟ้องผิด (JSX ใน .js, tsconfig ที่มีคอมเมนต์, TypeScript)
+  async syntax(f, { auto = false } = {}) {
+    const rel = this.rel(f), name = path.basename(f).toLowerCase();
+    const t = await fs.readFile(f, 'utf8').catch(() => null); if (t === null) return auto ? '' : `Error: ไม่พบไฟล์ ${rel}`;
+    const bad = (how, msg) => `[syntax error · ${how}] ${rel}\n${String(msg).trim().split('\n').slice(0, 12).join('\n').slice(0, 2000)}`;
+    if (name.endsWith('.json')) {
+      try { JSON.parse(t.replace(/^\uFEFF/, '')); return auto ? '' : `${rel}: JSON ถูกต้อง`; } catch (e) {
+        if (/^(tsconfig|jsconfig|devcontainer)|\.(code-workspace)$/.test(name) || /[\\/]\.vscode[\\/]/.test(f)) return auto ? '' : `${rel}: ไฟล์นี้เป็น JSON แบบมีคอมเมนต์ (JSONC) ตรวจด้วย JSON ธรรมดาไม่ได้: ${e.message}`;
+        return bad('JSON', e.message);
+      }
+    }
+    if (JS_EXT.test(name) && !(auto && looksJsx(t))) {
+      const r = await execRun(process.execPath, ['--check', f], { env: nodeEnv() });
+      if (r.code === 0) return auto ? '' : `${rel}: JavaScript ไม่มี syntax error`;
+      if (looksJsx(t) && !auto) return this.tsCheck(f, rel, bad); // .js ที่มี JSX: ลองด้วย typescript ของโปรเจกต์
+      return bad('node --check', (r.stderr || r.stdout).split('\n').filter(l => !/^\s+at |^Node\.js v/.test(l)).join('\n'));
+    }
+    if (name.endsWith('.py')) {
+      const py = await findPython(); if (!py) return auto ? '' : 'Error: ไม่พบ python ในเครื่อง';
+      const r = await execRun(py, ['-c', 'import ast,sys\nast.parse(open(sys.argv[1],"rb").read(),sys.argv[1])', f]);
+      const lines = (r.stderr || r.stdout).split('\n'), at = lines.findIndex(l => l.includes(`File "${f}"`)); // ตัด traceback ภายในของ ast ออก เหลือบรรทัดที่ผิดในไฟล์
+      return r.code === 0 ? (auto ? '' : `${rel}: Python ไม่มี syntax error`) : bad('python ast', (at >= 0 ? lines.slice(at) : lines).join('\n'));
+    }
+    if (TS_EXT.test(name)) return auto ? '' : this.tsCheck(f, rel, bad);
+    return auto ? '' : `${rel}: ยังไม่รองรับการตรวจไฟล์ชนิดนี้ (รองรับ .js .mjs .cjs .json .py และ .ts .tsx .jsx เมื่อโปรเจกต์ติดตั้ง typescript)`;
+  }
+  // TypeScript/JSX: ใช้แพ็กเกจ typescript ในโปรเจกต์ (ตรวจเฉพาะ syntax ไม่ตรวจชนิด) · ไม่มี = บอกวิธีตรวจด้วย bash
+  async tsCheck(f, rel, bad) {
+    let ts = null; for (let d = path.dirname(f); ; d = path.dirname(d)) { const c = path.join(d, 'node_modules', 'typescript', 'lib', 'typescript.js'); if (await fs.access(c).then(() => true, () => false)) { ts = c; break; } if (d === this.root || path.dirname(d) === d || !this.inside(d)) break; }
+    if (!ts) return `${rel}: โปรเจกต์ไม่มีแพ็กเกจ typescript จึงตรวจเองไม่ได้ ใช้ bash รันตัวตรวจของโปรเจกต์ (เช่น npx tsc --noEmit หรือ npm run lint)`;
+    const code = 'const ts=require(process.argv[1]),f=process.argv[2],s=require("fs").readFileSync(f,"utf8");const r=ts.transpileModule(s,{fileName:f,reportDiagnostics:true,compilerOptions:{jsx:ts.JsxEmit.Preserve,allowJs:true}});for(const d of r.diagnostics||[]){const p=d.file&&d.start!=null?d.file.getLineAndCharacterOfPosition(d.start):null;console.log((p?(p.line+1)+":"+(p.character+1)+" ":"")+ts.flattenDiagnosticMessageText(d.messageText,"\\n"))}process.exitCode=(r.diagnostics||[]).length?1:0';
+    const r = await execRun(process.execPath, ['-e', code, ts, f], { env: nodeEnv(), cwd: this.root });
+    return r.code === 0 ? `${rel}: ไม่มี syntax error (typescript)` : bad('typescript', r.stdout || r.stderr);
   }
   async android_tools() { return androidTools({ log: t => this.onLog?.(t) }); }
   async read_file(a, f) {
@@ -94,13 +166,32 @@ class Workspace {
   }
   async write_file(a, f) { await this.keep(f); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.writeFile(f, String(a.content ?? ''), 'utf8'); return `เขียน ${this.rel(f)} แล้ว (${String(a.content ?? '').split('\n').length} บรรทัด)`; }
   async edit_file(a, f) {
-    let t = await fs.readFile(f, 'utf8'); const crlf = t.includes('\r\n'), fix = s => crlf ? String(s ?? '').replace(/\r?\n/g, '\r\n') : String(s ?? '');
-    const o = fix(a.old_string), n = o ? t.split(o).length - 1 : 0;
-    if (!o) return 'Error: old_string ว่าง';
-    if (!n) return 'Error: ไม่เจอ old_string ในไฟล์ (อ่านไฟล์อีกครั้งแล้วคัดลอกให้ตรงทุกตัวอักษร รวมช่องว่าง)';
-    if (n > 1 && !a.replace_all) return `Error: เจอ old_string ${n} จุด ใส่บรรทัดรอบๆ เพิ่มให้เหลือจุดเดียว หรือใช้ replace_all`;
-    await this.keep(f); t = a.replace_all ? t.split(o).join(fix(a.new_string)) : t.replace(o, () => fix(a.new_string));
-    await fs.writeFile(f, t, 'utf8'); return `แก้ ${this.rel(f)} แล้ว ${a.replace_all ? n : 1} จุด`;
+    const r = applyEdits(await fs.readFile(f, 'utf8'), [a]); if (r.error) return r.error;
+    await this.keep(f); await fs.writeFile(f, r.text, 'utf8'); return `แก้ ${this.rel(f)} แล้ว ${r.count} จุด`;
+  }
+  async multi_edit(a, f) { // อ่านใหม่ตอนเขียน (ไฟล์อาจเปลี่ยนระหว่างรออนุญาต) แล้วเขียนครั้งเดียว
+    const r = applyEdits(await fs.readFile(f, 'utf8'), a.edits.slice(0, 100)); if (r.error) return r.error;
+    await this.keep(f); await fs.writeFile(f, r.text, 'utf8'); return `แก้ ${this.rel(f)} แล้ว ${r.count} จุด (${Math.min(100, a.edits.length)} edits ในครั้งเดียว)`;
+  }
+  async check_syntax(a, f) { return this.syntax(f); }
+  // git แบบอ่านอย่างเดียว: execFile ไม่ผ่าน shell · ปิด fsmonitor/ext-diff/textconv/pager (คำสั่งภายนอกจาก config) · ref ห้ามขึ้นต้นด้วย - (กันใส่ option)
+  async git_inspect(a, f) {
+    const ref = a.ref == null || a.ref === '' ? '' : String(a.ref); if (ref && !/^[\w][\w./~^@{}:-]{0,120}$/.test(ref)) return 'Error: ref ไม่ถูกต้อง (เช่น HEAD~1, main, a1b2c3d)';
+    const only = a.path ? ['--', f] : [], n = String(Math.min(200, Math.max(1, +a.limit || 20)));
+    const ops = { status: ['status', '--short', '--branch', ...only], diff: ['diff', '--no-ext-diff', '--no-textconv', '--stat', '--patch', ...(a.staged ? ['--cached'] : []), ...(ref ? [ref] : []), ...only], log: ['log', '--oneline', '--decorate', '-n', n, ...(ref ? [ref] : []), ...only], show: ['show', '--no-ext-diff', '--no-textconv', '--stat', '--patch', ref || 'HEAD', ...only] };
+    if (!ops[a.op]) return 'Error: op ต้องเป็น status, diff, log หรือ show';
+    const r = await execRun('git', ['--no-pager', '-c', 'core.fsmonitor=false', '-c', 'core.pager=cat', '-c', 'color.ui=never', ...ops[a.op]], { cwd: this.cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' }, timeout: 30e3 });
+    if (r.missing) return 'Error: ไม่พบ git ในเครื่อง';
+    if (r.code) return 'Error: ' + (/not a git repository/i.test(r.stderr) ? 'โฟลเดอร์นี้ไม่ใช่ git repo' : r.stderr.trim().slice(0, 1500) || 'git exit ' + r.code);
+    return r.stdout.trim() || (a.op === 'diff' ? '(ไม่มีความเปลี่ยนแปลง)' : '(ว่าง)');
+  }
+  // ผลเครื่องมือที่ยาวมาก: เก็บเต็มไว้ใน .kyber-tmp ของโฟลเดอร์งาน (มี .gitignore ไม่ให้หลุดเข้า git · โฟลเดอร์ขึ้นต้นด้วยจุดจึงไม่ถูกสแกน/อัปโหลด) · ไฟล์เก่ากว่า 1 วันลบทิ้ง
+  async spill(text, { id = '' } = {}) {
+    const dir = path.join(this.root, '.kyber-tmp'); await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, '.gitignore'), '*\n', { flag: 'wx' }).catch(() => {});
+    if (!this.spillClean) { this.spillClean = true; for (const x of await fs.readdir(dir).catch(() => [])) { if (!x.startsWith('out-')) continue; const st = await fs.stat(path.join(dir, x)).catch(() => null); if (st && Date.now() - st.mtimeMs > 864e5) await fs.rm(path.join(dir, x), { force: true }); } }
+    const f = path.join(dir, `out-${String(id).replace(/[^\w-]/g, '').slice(-24) || Date.now().toString(36)}.txt`);
+    await fs.writeFile(f, String(text), 'utf8'); return this.rel(f);
   }
   async list_dir(a, d) { const items = await fs.readdir(d, { withFileTypes: true }); return items.filter(x => !['node_modules', '.git'].includes(x.name)).slice(0, 500).map(x => (x.isDirectory() ? '[dir] ' : '') + x.name).join('\n') || '(ว่าง)'; }
   async glob(a, d) {
@@ -163,13 +254,29 @@ OS: ${os}
 How to work:
 - Use the tools to look before you change anything: list_dir/glob/grep/read_file. Never guess file contents.
 - For multi-step work keep a todo list with todo_write and update it as you go.
-- Change existing files with edit_file (exact old_string copied from read_file output without the line-number prefix); use write_file only for new files or full rewrites.
+- Change existing files with edit_file (exact old_string copied from read_file output without the line-number prefix), or multi_edit for several changes in one file; use write_file only for new files or full rewrites.
+- Independent reads/searches can go in one reply (they run in parallel); edits and commands run one at a time in order.
+- Very long tool output is saved to a file under .kyber-tmp/ and you get the head and tail plus its path: read only the part you need with read_file offset/limit or grep.
 - Android .apk/.aab work: call android_tools first, then decode with apktool, edit, rebuild and sign; tell the user where the signed APK is. Only modify apps the user owns or is allowed to modify.
 - Run builds, tests and scripts with bash to verify your work; read real error output and fix the root cause. Use background=true for servers and watchers.
 - Make the smallest change that fully does the task; follow the project's existing style. No features nobody asked for.
 - Before risky or destructive actions (deleting files, force push, system changes), explain and only proceed if the user asked for it.
 - Never claim a command ran or a file changed before you see the tool result.
+- Verify before you finish: re-read what you changed, fix any [syntax error] reported after an edit, and run the project's tests/build when it has them. Review your changes with git_inspect (op=diff) in a git repo.
 - When finished, give a short summary: what changed (file paths), how you verified it, anything left for the user.${rules ? `\n\nProject rules from the folder (follow them):\n${rules}` : ''}`;
+
+// android_tools: ใส่ให้โมเดลเฉพาะงาน Android (ลดเครื่องมือที่ไม่เกี่ยว = prompt สั้นลง เลือกเครื่องมือแม่นขึ้น) · ข้อความพูดถึง apk หรือโฟลเดอร์มี .apk/.aab/AndroidManifest.xml (ลึกไม่เกิน 4 ชั้น)
+async function wantsAndroid(root, text = '') {
+  if (/\b(apk|aab|apktool|jadx|android)\b|แอนดรอยด์/i.test(String(text))) return true;
+  let seen = 0, hit = false;
+  const scan = async (d, depth) => {
+    if (hit || depth > 4 || seen > 3000) return; let items; try { items = await fs.readdir(d, { withFileTypes: true }); } catch { return; }
+    for (const it of items) { if (hit || ++seen > 3000) return; if (it.isFile() && (/\.(apk|aab)$/i.test(it.name) || it.name === 'AndroidManifest.xml')) { hit = true; return; } if (it.isDirectory() && !SKIP.test(it.name) && !it.name.startsWith('.')) await scan(path.join(d, it.name), depth + 1); }
+  };
+  await scan(path.resolve(root), 0); return hit;
+}
+// ชุดเครื่องมือของงาน: ล็อกไว้ทั้ง session (ไม่เปลี่ยนตามโหมด) เพื่อให้ prompt cache ใช้ต่อได้ · android = เปิดแล้วเปิดตลอด
+const toolsFor = ({ android = false } = {}) => AGENT_TOOLS.filter(t => android || t.function.name !== 'android_tools');
 
 async function projectRules(root) {
   // กติกาโปรเจกต์: ชื่อใหม่ KYBER.md ก่อน แล้วชื่อเดิม ASTRA.md / CLAUDE.md / AGENTS.md
@@ -191,4 +298,8 @@ function cleanPlugin(m) {
     rules: String(m.rules || '').slice(0, 4000), hooks: typeof m.hooks?.after_edit === 'string' ? { after_edit: m.hooks.after_edit.slice(0, 300) } : null, envAsk: (Array.isArray(m.envAsk) ? m.envAsk : []).filter(x => /^[A-Z][A-Z0-9_]{1,60}$/.test(x)).slice(0, 5) };
 }
 
-module.exports = { cleanPlugin, AGENT_TOOLS, KIND, READ_ONLY, SUB_TOOLS, Workspace, globRe, diffLines, agentSystem, projectRules, projectHooks, projectCommands };
+// ทะเบียนเครื่องมือแบบมาตรฐาน: { name, kind, schema, validate, execute, formatPreview } (ตัวตรวจ argument เดียวกับที่ตัวคุมรอบใช้)
+const { validateArgs } = require('./agent');
+const toolRegistry = (ws, list = AGENT_TOOLS) => new Map(list.map(t => { const f = t.function; return [f.name, { name: f.name, kind: KIND[f.name] || 'none', schema: f.parameters, validate: args => validateArgs(f.parameters, args), execute: args => ws.call(f.name, args), formatPreview: args => `${f.name} ${String(args?.path || args?.command || args?.pattern || args?.url || args?.query || args?.op || '').slice(0, 120)}`.trim() }]; }));
+
+module.exports = { cleanPlugin, AGENT_TOOLS, ASK_TOOL, KIND, READ_ONLY, SUB_TOOLS, Workspace, globRe, diffLines, applyEdits, agentSystem, projectRules, projectHooks, projectCommands, wantsAndroid, toolsFor, toolRegistry };

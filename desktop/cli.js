@@ -45,7 +45,7 @@ const q = s => new Promise(ok => rl.question(s, ok));
     messages.push({ role: 'user', content: text + (mode === 'plan' ? '\n\n[โหมดวางแผน] ห้ามแก้ไฟล์หรือรันคำสั่ง เขียนแผนให้อนุมัติก่อน' : '') });
     ws.runFrom = ws.step + 1; ac = new AbortController(); ws.signal = ac.signal; let cost = 0;
     try {
-      await runAgent({ base: SITE + '/v1', key, model, messages, tools: mode === 'plan' ? AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)) : AGENT_TOOLS.filter(t => !['screenshot_url', 'task'].includes(t.function.name)), signal: ac.signal, onStep: () => ++ws.step,
+      await runAgent({ base: SITE + '/v1', key, model, messages, tools: mode === 'plan' ? AGENT_TOOLS.filter(t => READ_ONLY.has(t.function.name)) : AGENT_TOOLS.filter(t => !['screenshot_url', 'task'].includes(t.function.name)), signal: ac.signal, onStep: () => ++ws.step, spill: (t, i) => ws.spill(t, i),
         callTool: (n, a) => ws.call(n, a),
         onEvent: e => {
           if (e.type === 'delta') process.stdout.write(e.text);

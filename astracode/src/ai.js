@@ -15,14 +15,15 @@ import { cron, status } from './jobs.js';
 // คืน async generator: {t:text} ระหว่างทาง, {usage:{fresh,read,write,out}} ตอนจบ
 export async function* sse(res) {
   const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
-  try { for (;;) {
-    const { done, value } = await rd.read(); if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let i; while ((i = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-      if (line.startsWith('data:')) { const d = line.slice(5).trim(); if (d && d !== '[DONE]') try { yield JSON.parse(d); } catch {} }
+  const parse = line => { if (!line.startsWith('data:')) return null; const d = line.slice(5).trim(); if (!d || d === '[DONE]') return null; try { return JSON.parse(d); } catch { return null; } };
+  try {
+    for (;;) {
+      const { done, value } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n')) >= 0) { const e = parse(buf.slice(0, i).trim()); buf = buf.slice(i + 1); if (e) yield e; }
     }
-  } } finally { rd.cancel().catch(() => {}); } // ผู้ใช้กดหยุด: ตัดการเชื่อมต่อ AI ทันที
+    buf += dec.decode(); const e = parse(buf.trim()); if (e) yield e; // บรรทัดสุดท้ายที่ไม่มี \n ปิดท้าย (usage / stop ของผู้ให้บริการบางราย) ไม่หล่นหาย
+  } finally { rd.cancel().catch(() => {}); } // ผู้ใช้กดหยุด: ตัดการเชื่อมต่อ AI ทันที
 }
 export const toAnthropicPart = p => {
   if (typeof p === 'string') return { type: 'text', text: p };
@@ -79,6 +80,9 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       const content = Array.isArray(x.content) ? x.content.map(toAnthropicPart).filter(Boolean) : x.content;
       messages.push({ role: x.role, content });
     }
+    // Anthropic ต้องสลับ user/assistant: ข้อความบทบาทเดียวกันที่ติดกัน (ผลเครื่องมือ + ข้อความผู้ใช้ / ลูกค้า API ส่งมาแยก) รวมเป็นข้อความเดียว · บล็อกข้อความว่างถูกปฏิเสธ จึงตัดทิ้ง
+    const blocksOf = c => (Array.isArray(c) ? c : [{ type: 'text', text: String(c ?? '') }]).filter(p => p && !(p.type === 'text' && !String(p.text || '').trim()));
+    for (let i = messages.length - 1; i > 0; i--) if (messages[i].role === messages[i - 1].role) { messages[i - 1].content = [...blocksOf(messages[i - 1].content), ...blocksOf(messages[i].content)]; messages.splice(i, 1); }
     // แชตเว็บและ /v1 context ยาว: cache 1 ชม. · วาง breakpoint ได้สูงสุด 4 จุด (tools สุดท้าย, system, ข้อความก่อนล่าสุด, ข้อความล่าสุด)
     let cc = cacheTtl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
     let ccUsed = 0;
@@ -199,7 +203,7 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
       else if (toolChoice?.function?.name) body.tool_choice = { type: 'function', name: toolChoice.function.name };
     }
     const post = () => fetch(m.base_url + '/responses', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
-    let res = await post();
+    let res = await busyRetry(post); // คนแน่น/ล่มชั่วคราว: ลองใหม่เหมือนผู้ให้บริการอื่น
     if (res.status === 400 && body.reasoning) { const t = await res.text(), ne = nearEffort(t, body.reasoning.effort); if (!ne) throw new Error(`upstream 400: ${t.slice(0, 300)}`); body.reasoning.effort = ne; res = await post(); }
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
     let usage = null;
