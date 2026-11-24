@@ -218,7 +218,8 @@ export async function status(env) {
 }
 
 // ---------- SEO: robots, sitemap, meta ของบทความ ----------
-export function robots(req, env) { return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nDisallow: /account\n\nSitemap: ${origin(req, env)}/sitemap.xml\n`, { headers: { 'content-type': 'text/plain' } }); }
+// /admin, /account ไม่ใส่ใน robots.txt: หน้าเหล่านี้มี meta noindex และข้อมูลจริงอยู่หลัง /api ที่ตรวจสิทธิ์ฝั่งเซิร์ฟเวอร์ (robots.txt บอกที่อยู่หน้าภายในให้คนนอกเห็นเปล่า ๆ)
+export function robots(req, env) { return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${origin(req, env)}/sitemap.xml\n`, { headers: { 'content-type': 'text/plain' } }); }
 export async function sitemap(req, env) {
   const base = origin(req, env), posts = (await env.DB.prepare('SELECT slug,created_at FROM posts WHERE published=1').all()).results;
   const urls = ['/', '/pricing', '/plans', '/developers', '/gallery', '/security', '/blog', '/status', '/terms'].map(p => `<url><loc>${base}${p}</loc></url>`)
