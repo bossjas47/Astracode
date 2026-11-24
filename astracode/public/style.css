@@ -2110,16 +2110,6 @@ h1, h2, h3, .display { font-family: var(--display); letter-spacing: -0.01em; }
 .cb.pick { font-weight: 600; }
 .cb:hover { background: var(--accent-tint); }
 .compose .send { background: var(--ink-btn); color: var(--ink-btn-fg); }
-/* แถบเมนูล่าง: เฉพาะมือถือ ซ่อนตอนกำลังพิมพ์ (เว้นที่ให้แป้นพิมพ์) */
-.tabbar { display: none; }
-@media (max-width: 760px) {
-  .tabbar { display: flex; justify-content: space-around; align-items: stretch; flex: none; height: calc(58px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--steel); background: var(--carbon); }
-  .tabbar > * { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; background: none; color: var(--ash); font: 500 11.5px var(--font); cursor: pointer; min-height: 44px; }
-  .tabbar > .on { color: var(--accent); font-weight: 700; }
-  .tabbar svg { width: 21px; height: 21px; }
-  @media (max-height: 520px) { .tabbar { display: none; } }
-  .compose { padding-bottom: 8px; }
-}
 /* แถบข้าง: ปุ่มโหมด 3 ปุ่มต้องอยู่ในกรอบเสมอ (เดิม "Kyber Harness" ล้นออกนอกแถบ) */
 .side .mode-seg button { min-width: 0; padding: 0 8px; font-size: 13.5px; }
 .side .mode-seg button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2238,3 +2228,51 @@ a.fi b::after { content: ' →'; color: var(--blue); }
 .shop-hero + .tok-help, .shop-hero ~ .pgrid { max-width: 980px; margin-left: auto; margin-right: auto; }
 .shop-hero .tok-help { margin-top: 14px; }
 @media (max-width: 640px) { .shop-ctl { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 28px; } }
+/* หน้าราคา: ตัวเลขราคาต้องเข้มอ่านชัด */
+.pc-v b { color: var(--porcelain); font-weight: 700; }
+.pc-v b s { color: var(--ash); font-weight: 500; }
+:root:not([data-theme=dark]) .pc-v .oc { color: #4a5060; }
+:root:not([data-theme=dark]) .vc-r s { color: #4a5060; }
+/* เมนู ☰ หน้าอื่น: หน้าตาเดียวกับแถบข้างหน้าแชต */
+.nav-panel .mode-seg .ic { display: none; }
+.nav-panel .mode-seg a { justify-content: center; font-size: 13.5px; }
+.nav-panel .mode-seg a.on { background: var(--carbon); color: var(--porcelain); box-shadow: var(--shadow-1); }
+.nav-panel .work-tiles .wtile { text-decoration: none; color: inherit; }
+.nav-panel .side-nav a { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; border-radius: 12px; color: var(--porcelain); text-decoration: none; font-size: 14.5px; }
+.nav-panel .side-nav a .ic { color: var(--ash); }
+@media (hover: hover) { .nav-panel .side-nav a:hover { background: var(--graphite); } }
+/* Canvas · พรีวิวตามขนาดอุปกรณ์ */
+.cv-dev { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--steel); background: var(--carbon); overflow-x: auto; scrollbar-width: none; }
+.cv-dev::-webkit-scrollbar { display: none; }
+.cv-dev .seg { margin: 0; flex: none; }
+.cv-dev .seg button { display: inline-flex; align-items: center; gap: 6px; }
+.cv-dev select { width: auto; min-height: 32px; padding: 0 28px 0 10px; font-size: 12.5px; border-radius: 9999px; flex: none; }
+.cv-dev small { flex: none; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) { .cv-dev .seg button span { display: none; } }
+.canvas.is-file .cv-dev { display: none; }
+.cv-stage { flex: 1; min-height: 0; display: flex; }
+.cv-stage[hidden] { display: none; }
+.cv-frame { flex: 1; display: flex; min-width: 0; }
+.cv-frame iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+.cv-stage:not([data-dev=full]) { align-items: center; justify-content: center; overflow: hidden; background: var(--graphite); background-image: radial-gradient(rgba(var(--ov), .07) 1px, transparent 1px); background-size: 18px 18px; }
+.cv-stage:not([data-dev=full]) .cv-frame { flex: none; position: relative; display: block; overflow: hidden; background: #fff; }
+.cv-stage:not([data-dev=full]) .cv-frame iframe { position: absolute; top: 0; left: 0; flex: none; }
+.cv-stage[data-dev=phone] .cv-frame { border-radius: 34px; box-shadow: 0 0 0 9px #0e1116, 0 0 0 10px #3a4152, 0 24px 60px rgba(14, 17, 22, .35); }
+.cv-stage[data-dev=phone] .cv-frame::before { content: ''; position: absolute; z-index: 1; top: 8px; left: 50%; transform: translateX(-50%); width: 30%; max-width: 110px; height: 22px; border-radius: 9999px; background: #0e1116; pointer-events: none; }
+.cv-stage[data-dev=tablet] .cv-frame { border-radius: 22px; box-shadow: 0 0 0 12px #0e1116, 0 0 0 13px #3a4152, 0 24px 60px rgba(14, 17, 22, .3); }
+.cv-stage[data-dev=desktop] .cv-frame { border-radius: 10px; box-shadow: 0 0 0 1px var(--steel), 0 18px 50px rgba(14, 17, 22, .22); border-top: 26px solid #e3e6ee; }
+.cv-stage[data-dev=desktop] .cv-frame { box-sizing: content-box; }
+/* Canvas หัวแถบ: ธีมสว่างตาม UI 2.0 (เดิมพื้นดำ ตัวหนังสือมองไม่เห็น) */
+.cv-h { background: var(--carbon); color: var(--porcelain); border-bottom: 1px solid var(--steel); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.cv-h select { color: inherit; background: var(--carbon); }
+.cv-h .icon-btn { color: var(--porcelain); }
+.canvas { background: var(--carbon); }
+@media (max-width: 600px) {
+  .cv-h { flex-wrap: wrap; row-gap: 6px; }
+  .cv-h b#cv-t { flex: 1 1 calc(100% - 60px); max-width: none; order: 0; }
+  .cv-h #cv-x { order: 1; }
+  .cv-h > .seg, .cv-h > select { order: 2; }
+  .cv-h > .sp { order: 2; }
+  .cv-h > .btn, .cv-h > #cv-dl { order: 3; }
+}
+@media (max-width: 600px) { .cv-h > .sp { display: none; } }

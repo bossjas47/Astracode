@@ -172,3 +172,16 @@ test('CheckSlip shows only the last digits of the receiving account: name + last
   assert.equal(judgeSlip({ ...s, easyslip_receiver_names: '' }, slip('8835'), 200, '', 69, false).code, 'receiver_unverified'); // ไม่ได้ตั้งชื่อร้าน: หลักท้ายอย่างเดียวไม่พอ
   assert.equal(receiverTailMatches(slip('835'), ['0629708835']), false); // สั้นเกิน
 });
+
+test('top-up: a slip waiting for the admin keeps the slip amount (not the typed one); no typed amount still works from the slip', async () => {
+  // ผู้รับเทียบไม่ได้ → รอแอดมิน · กรอก 100 แต่สลิป 30 → รายการที่รอต้องเป็น 30 (ไม่งั้นแอดมินกดอนุมัติแล้วเติม 100)
+  const a = await setup(() => slipData({ amount: { amount: 30 }, receiver: { account: { name: { th: 'นาย ก' } } } }), { topup_min: '1' });
+  const r = await a.topup(100); assert.equal(r.status, 200, JSON.stringify(r.d)); assert.notEqual(r.d.approved, true);
+  assert.equal(a.pay().status, 'pending'); assert.equal(a.t.DB.raw.prepare('SELECT amount FROM payments ORDER BY id DESC').get().amount, 30); assert.equal(a.bal(), 0); a.fm.close();
+  // ไม่ได้กรอกยอด (0 / ว่าง): เติมตามสลิป
+  const b = await setup(() => slipData({ amount: { amount: 45 } }), { topup_min: '1' });
+  const rb = await b.topup(''); assert.equal(rb.d.approved, true, JSON.stringify(rb.d)); assert.equal(b.bal(), 45); b.fm.close();
+  // ไม่ได้กรอกยอดและอ่านยอดในสลิปไม่ได้: บอกให้กรอก ไม่สร้างรายการ
+  const c = await setup(() => ({ status: 404, message: 'NOT_FOUND' }), { topup_min: '1' });
+  const rc = await c.topup(0); assert.equal(rc.status, 400); assert.match(rc.d.error, /กรอกจำนวนเงิน/); assert.equal(c.pay(), undefined); c.fm.close();
+});

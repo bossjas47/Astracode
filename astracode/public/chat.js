@@ -173,10 +173,11 @@ async function chatView(id) {
             <button type="button" class="cb pick" id="eff" aria-haspopup="dialog"></button>
             
             <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div>
-      <nav class="tabbar" aria-label="เมนูหลัก"><button type="button" class="on" data-tb="chat">${ic('newchat')}<span>แชต</span></button><button type="button" data-tb="code">${ic('code')}<span>โค้ด</span></button><button type="button" data-tb="usage">${ic('pie')}<span>การใช้งาน</span></button><a href="/account" data-tb="acct">${ic('user')}<span>บัญชี</span></a></nav></div>
+      </div>
     <aside class="canvas" id="canvas" hidden>
       <div class="cv-h"><b id="cv-t">Canvas</b><select id="cv-v" class="cv-v" hidden aria-label="เวอร์ชัน"></select><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">Preview</button><button type="button" data-cv="code">Code</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-sh" hidden>แชร์</button><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="icon-btn sm ghost" id="cv-dl" aria-label="ดาวน์โหลด .html">${ic('download')}</button><button type="button" class="btn out sm" id="cv-tc">ส่งไป Code</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
-      <div class="cv-b"><iframe id="cv-f" sandbox="allow-scripts allow-modals allow-forms allow-popups" title="Canvas Preview"></iframe><pre id="cv-c" hidden><code></code></pre></div>
+      <div class="cv-dev" id="cv-dev"><div class="seg" role="group" aria-label="ขนาดหน้าจอพรีวิว">${[['full', 'expand', 'เต็มพื้นที่'], ['phone', 'smartphone', 'มือถือ'], ['tablet', 'tablet', 'แท็บเล็ต'], ['desktop', 'monitor', 'คอม']].map(([k, i, t]) => `<button type="button" data-dev="${k}" title="${t}" aria-label="${t}">${ic(i, 'sm')}<span>${t}</span></button>`).join('')}</div><select id="cv-dsz" aria-label="รุ่นอุปกรณ์" hidden></select><button type="button" class="icon-btn sm ghost" id="cv-rot" aria-label="หมุนจอ" title="หมุนจอ" hidden>${ic('rotate', 'sm')}</button><small class="muted" id="cv-zoom"></small></div>
+      <div class="cv-b"><div class="cv-stage" id="cv-stage"><div class="cv-frame" id="cv-fr"><iframe id="cv-f" sandbox="allow-scripts allow-modals allow-forms allow-popups" title="Canvas Preview"></iframe></div></div><pre id="cv-c" hidden><code></code></pre></div>
     </aside></div>`;
   const host = keep || Object.assign(document.createElement('div'), { id: 'cmain', className: 'cmain' });
   if (!keep && !window.DEMO) setTimeout(() => { if (typeof codeDispatch !== 'function') prefetch('/code.js'); }, 3000); // สลับไป Code ได้ทันที
@@ -189,7 +190,7 @@ async function chatView(id) {
   if (sideMode === 'code') drawProjects();
   $('#sclose').onclick = closeSide;
   $('#acct').onclick = e => { e.stopPropagation(); acctMenu($('#acct'), side); };
-  { const op = qs().get('open'), cn = qs().get('connectors'); if (op === 'bin') binSheet(); else if (op === 'saved') bookmarksSheet(); else if (op === 'arts') artsSheet(); else if (op === 'connectors' || cn) { openConnectors('connectors', 'mine'); if (cn === 'ok') toast('เชื่อมต่อแล้ว · AI ใช้ได้ทุกแชต', 'ok'); else if (cn === 'err') toast('เชื่อมต่อไม่สำเร็จ ลองอีกครั้ง', 'bad'); if (cn) history.replaceState(null, '', location.pathname + (chat.id ? '?id=' + chat.id : '')); } } // ลิงก์จากตั้งค่าของหน้าอื่น / กลับจากหน้าล็อกอิน connector
+  { const op = qs().get('open'), cn = qs().get('connectors'); if (op === 'bin') binSheet(); else if (op === 'saved') bookmarksSheet(); else if (op === 'arts') artsSheet(); else if (op === 'spaces') spacesSheet(); else if (op === 'files') filesSheet(); else if (op === 'video') videoSheet(); else if (op === 'sched' && me?.plan?.artifacts) schedSheet(); else if (op === 'connectors' || cn) { openConnectors('connectors', 'mine'); if (cn === 'ok') toast('เชื่อมต่อแล้ว · AI ใช้ได้ทุกแชต', 'ok'); else if (cn === 'err') toast('เชื่อมต่อไม่สำเร็จ ลองอีกครั้ง', 'bad'); if (cn) history.replaceState(null, '', location.pathname + (chat.id ? '?id=' + chat.id : '')); } } // ลิงก์จากตั้งค่าของหน้าอื่น / กลับจากหน้าล็อกอิน connector
   $('#menu').onclick = openSide; // เงาใส่ในกล่องเดียวกับเมนู ไม่งั้นเงาจะทับเมนู
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
   if (!window.DEMO && !id && sideMode === 'chat') try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
@@ -231,8 +232,7 @@ async function chatView(id) {
   });
   $('#lim').onclick = limitSheet;
   // แถบเมนูล่าง (มือถือ): แชต = รายการแชต · โค้ด = สลับไปโหมดโค้ด · การใช้งาน = ลิมิต/Wallet
-  app.querySelector('.tabbar').onclick = e => { const b = e.target.closest('button[data-tb]'); if (!b) return; ({ chat: openSide, code: () => switchMode('code'), usage: limitSheet })[b.dataset.tb]?.(); };
-  $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
+    $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
   $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; $('#vidgen').onclick = () => { $('#sclose')?.click(); videoSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
@@ -265,7 +265,7 @@ async function chatView(id) {
   app.querySelectorAll('[data-cv]').forEach(b => b.onclick = () => {
     app.querySelectorAll('[data-cv]').forEach(x => x.classList.toggle('on', x === b));
     const isCode = b.dataset.cv === 'code';
-    if (chat.uf) return; $('#cv-f').hidden = isCode; $('#cv-c').hidden = !isCode;
+    if (chat.uf) return; $('#cv-f').hidden = isCode; $('#cv-c').hidden = !isCode; $('#cv-stage').hidden = isCode; $('#cv-dev').hidden = isCode; if (!isCode) devWatch();
   });
   pcInit(); setTimeout(remoteWatch, 400);
   const t = $('#t');
@@ -381,7 +381,7 @@ function openCanvas(code) {
   const html = /^\s*<svg/i.test(code) ? `<!doctype html><body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#fff">${code}</body>` : code;
   cv.hidden = false;
   app.querySelectorAll('[data-cv]').forEach(x => x.classList.toggle('on', x.dataset.cv === 'prev'));
-  $('#cv-f').hidden = false; $('#cv-c').hidden = true;
+  $('#cv-f').hidden = false; $('#cv-c').hidden = true; $('#cv-stage').hidden = false; $('#cv-dev').hidden = false; devWatch();
   $('#cv-c code').innerHTML = hlCode(code);
   const f = $('#cv-f');
   if (window.DEMO) f.srcdoc = html;
@@ -1651,7 +1651,7 @@ async function openArtifact(id, v) {
   $('#cv-v').innerHTML = a.versions.map(x => `<option value="${x.ver}" ${x.ver === chat.artV ? 'selected' : ''}>v${x.ver}</option>`).join(''); $('#cv-v').hidden = a.versions.length < 2;
   $('#cv-sh').hidden = false; $('#cv-sh').classList.toggle('on', !!a.share_token);
   app.querySelectorAll('[data-cv]').forEach(x => x.classList.toggle('on', x.dataset.cv === 'prev'));
-  $('#cv-f').hidden = false; $('#cv-c').hidden = true; $('#cv-c code').innerHTML = hlCode(a.html);
+  $('#cv-f').hidden = false; $('#cv-c').hidden = true; $('#cv-c code').innerHTML = hlCode(a.html); $('#cv-stage').hidden = false; $('#cv-dev').hidden = false; devWatch();
   $('#cv-f').src = window.DEMO ? 'about:blank' : `/api/artifacts/${id}/raw?v=${chat.artV}`; if (window.DEMO) $('#cv-f').srcdoc = a.html;
 }
 function artShare() {
@@ -1678,7 +1678,7 @@ document.addEventListener('click', async e => {
   try { await api('/memories/' + b.dataset.unmem, { method: 'DELETE' }); b.closest('.mem-saved').innerHTML = `${ic('x', 'sm')}<span>ยกเลิกความจำนี้แล้ว</span>`; toast('ลบความจำแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); }
 });
 // ---------- ไฟล์ในบัญชี (แบบ Kyber Harness): Excel/Word ที่ AI สร้างหรือแก้ เปิดข้างแชตและอัปเดตสดทุกครั้งที่ AI แก้ [[uf:id|ver|ชื่อ]] ----------
-ICONS.sheet = '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/>';
+ICONS.sheet ||= '';
 const UF_RE = /\[\[uf:(\d+)\|(\d+)\|([^\]\n]{0,120})\]\]/g;
 const ufKind = n => /\.(xlsx|xlsm|xls|ods|csv)$/i.test(n) ? 'sheet' : 'doc';
 const ufType = n => (/\.(\w+)$/.exec(n)?.[1] || '').toLowerCase(), ufLabel = n => ({ xlsx: 'Excel', xls: 'Excel', csv: 'Excel', pptx: 'PowerPoint', pdf: 'PDF' })[ufType(n)] || 'Word';
@@ -1976,3 +1976,34 @@ function videoSheet() {
     draw();
   });
 }
+
+// ---------- พรีวิวตามขนาดอุปกรณ์ (มือถือ / แท็บเล็ต / คอม) ใน Canvas · Artifact ----------
+const DEVICES = {
+  phone: [['iPhone 15 Pro', 393, 852], ['iPhone 15 Pro Max', 430, 932], ['iPhone SE', 375, 667], ['Galaxy S24', 360, 780]],
+  tablet: [['iPad', 820, 1180], ['iPad mini', 744, 1133], ['iPad Pro 12.9"', 1024, 1366]],
+  desktop: [['Laptop', 1280, 800], ['Desktop', 1440, 900], ['Full HD', 1920, 1080]],
+};
+const devState = (() => { try { return { dev: 'full', i: 0, rot: false, ...JSON.parse(localStorage.getItem('cvDev') || '{}') }; } catch { return { dev: 'full', i: 0, rot: false }; } })();
+function fitDevice() {
+  const st = $('#cv-stage'), fr = $('#cv-fr'), f = $('#cv-f'); if (!st || !fr || !f) return;
+  const list = DEVICES[devState.dev], d = list?.[devState.i] || list?.[0];
+  st.dataset.dev = devState.dev;
+  app.querySelectorAll('[data-dev]').forEach(b => b.classList.toggle('on', b.dataset.dev === devState.dev));
+  const sz = $('#cv-dsz'), rot = $('#cv-rot'), zoom = $('#cv-zoom');
+  if (!d) { fr.style.cssText = ''; f.style.cssText = ''; sz.hidden = rot.hidden = true; zoom.textContent = ''; return; }
+  sz.hidden = false; rot.hidden = devState.dev === 'desktop';
+  sz.innerHTML = list.map(([n, w, h], i) => `<option value="${i}" ${i === devState.i ? 'selected' : ''}>${esc(n)} · ${w}×${h}</option>`).join('');
+  const [w, h] = devState.rot && devState.dev !== 'desktop' ? [d[2], d[1]] : [d[1], d[2]];
+  const pad = devState.dev === 'desktop' ? 64 : 48, s = Math.min(1, (st.clientWidth - pad) / w, (st.clientHeight - pad) / h);
+  fr.style.cssText = `width:${Math.round(w * s)}px;height:${Math.round(h * s)}px`;
+  f.style.cssText = `width:${w}px;height:${h}px;transform:scale(${s});transform-origin:0 0`;
+  zoom.textContent = Math.round(s * 100) + '%';
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-dev]'); if (b) { devState.dev = b.dataset.dev; devState.i = 0; devState.rot = false; }
+  else if (e.target.closest?.('#cv-rot')) devState.rot = !devState.rot; else return;
+  try { localStorage.setItem('cvDev', JSON.stringify(devState)); } catch { /* ไม่มีที่เก็บ */ } fitDevice();
+});
+document.addEventListener('change', e => { if (e.target.id !== 'cv-dsz') return; devState.i = +e.target.value; try { localStorage.setItem('cvDev', JSON.stringify(devState)); } catch { /* ไม่มีที่เก็บ */ } fitDevice(); });
+const devRO = 'ResizeObserver' in window ? new ResizeObserver(() => fitDevice()) : null;
+function devWatch() { const st = $('#cv-stage'); if (st && devRO && !st.dataset.obs) { st.dataset.obs = '1'; devRO.observe(st); } requestAnimationFrame(fitDevice); }

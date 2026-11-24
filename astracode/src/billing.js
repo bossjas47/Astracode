@@ -339,7 +339,7 @@ async function pay0(req, env, u) {
   } else {
     amount = Math.round(+fd.get('amount') * 100) / 100;
     const min = +(await getSetting(env, 'topup_min')) || 10;
-    if (!(amount >= min && amount <= 50000)) return err(`เติมเงินได้ ฿${min} ถึง ฿50,000`);
+    if (!(amount >= min && amount <= 50000)) amount = null; // ไม่กรอก/กรอกผิด: เติมตามยอดที่อ่านได้จากสลิป (หน้าเว็บบอกว่าโอนเท่าไหร่ก็ได้)
   }
   if (await limited(env, 'pay:' + u.id, 5, 3600e3)) return err('ส่งสลิปบ่อยเกินไป รอ 1 ชั่วโมง', 429);
   if (kind === 'plan' && fd.get('wallet') === '1' && amount > 0) { // จ่ายด้วยเงินใน Wallet: เปิดแพลนทันที
@@ -363,7 +363,7 @@ async function pay0(req, env, u) {
     return json({ ok: true, approved: true, id: p.id });
   }
   if (await env.DB.prepare("SELECT 1 FROM payments WHERE user_id=? AND status='pending'").bind(u.id).first()) return err('มีคำขอที่รออนุมัติอยู่แล้ว');
-  if (amount <= 0) { // คูปองลด 100%: เปิดแพลนทันที ไม่ต้องใช้สลิป
+  if (kind === 'plan' && amount <= 0) { // คูปองลด 100%: เปิดแพลนทันที ไม่ต้องใช้สลิป
     if (!await claimCoupon(env, coupon?.code, u.id)) return err('คูปองใช้ไม่ได้หรือหมดอายุ');
     const p = await env.DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,coupon,discount,created_at,approved_at) VALUES (?,?,0,'coupon','approved',?,?,?,?,?,?) RETURNING *")
       .bind(u.id, plan.id, kind, period, coupon?.code || null, discount, Date.now(), Date.now()).first();
@@ -381,11 +381,15 @@ async function pay0(req, env, u) {
   // จองสิทธิ์คูปองก่อนส่งสลิปไปตรวจ (กันคูปองจำกัดจำนวนถูกใช้เกินด้วยสลิปที่รอตรวจพร้อมกัน) · สลิปไม่ผ่าน/บันทึกไม่ได้ = คืนสิทธิ์
   if (coupon && !await claimCoupon(env, coupon.code, u.id)) return err('คูปองใช้ไม่ได้หรือหมดอายุ');
   await slipPut(env, key, buf, type).catch(async e => { await releaseCoupon(env, coupon?.code, u.id); throw e; });
-  const c = await checkSlip(env, buf, type, amount, kind === 'topup');
+  const c = await checkSlip(env, buf, type, amount ?? 0, kind === 'topup');
   if (c.ref && await env.DB.prepare('SELECT 1 FROM payments WHERE slip_ref=?').bind(c.ref).first()) c.code = '200501'; // สลิปที่เคยสแกนแล้วใช้ซ้ำไม่ได้ แม้ครั้งก่อนถูกปฏิเสธ // เลขอ้างอิงธนาคารซ้ำในระบบเรา
-  if (kind === 'topup' && c.flex && c.code === '200000') { // เติมเงินด้วย EasySlip: ได้ยอดตามสลิป (ไม่ต้องตรงกับที่กรอก) ขั้นต่ำตามที่ตั้ง
+  if (kind === 'topup' && c.amount != null && !SLIP_FAIL[c.code]) { // เติมเงิน: ใช้ยอดตามสลิปเสมอ (ไม่ต้องตรงกับที่กรอก) ทั้งที่อนุมัติเองและที่รอแอดมิน ไม่งั้นรายการค้างเก็บยอดที่กรอกผิดไว้
     const min = +(await getSetting(env, 'topup_min')) || 10;
     if (!(c.amount >= min)) c.code = '200404'; else if (c.amount > 50000) c.code = 'over_limit'; else amount = Math.round(c.amount * 100) / 100;
+  }
+  if (kind === 'topup' && amount == null) { // ไม่ได้กรอกยอดและอ่านยอดจากสลิปไม่ได้
+    if (!SLIP_FAIL[c.code]) return err('อ่านยอดเงินในสลิปไม่ได้ กรอกจำนวนเงินที่โอนแล้วส่งสลิปอีกครั้ง');
+    amount = Math.round((c.amount || 0) * 100) / 100; // สลิปไม่ผ่านอยู่แล้ว: บันทึกไว้เป็นรายการปฏิเสธ
   }
   const fail = SLIP_FAIL[c.code];
   if (c.code != null) { // ระบบตรวจสลิปอัตโนมัติพัง (คีย์/URL/รูปแบบคำขอผิด) ติดกัน 3 ครั้ง = เตือนแอดมินชัดๆ ไม่ใช่ปล่อยค้างรอเงียบๆ
