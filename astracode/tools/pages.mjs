@@ -18,8 +18,9 @@ const SEO = {
   plans: `<main class="seo-static"><h1>แพลนและราคา ${BRAND}</h1><p>แพลนรายเดือนและรายปี ใช้ Claude, ChatGPT, Gemini และ DeepSeek ได้ในแพลนเดียว ลิมิตแสดงเป็น % ทุก 4 ชั่วโมงและรายสัปดาห์ จ่ายผ่าน PromptPay มีทดลองใช้ฟรี</p>${back}</main>`,
   pricing: `<main class="seo-static"><h1>ราคาต่อ token ของทุกโมเดล AI</h1><p>ตารางราคา input, output และ cache ของ Claude, GPT, Gemini และ DeepSeek ใน ${BRAND} พร้อมเครื่องคำนวณค่าใช้จ่ายเป็นเงินบาท</p>${back}</main>`,
 };
-const FONT = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&display=swap';
-const FONT_CODE = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; // หน้า Code ใช้ฟอนต์โค้ดเพิ่ม
+// ฟอนต์ Anuphan (ไทย + ละติน) ของ UI 2.0 แนว Prism
+const FONT = 'https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&display=swap';
+const FONT_CODE = 'https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap'; // หน้า Code ใช้ฟอนต์โค้ดเพิ่ม
 // [ชื่อหน้า, title, สคริปต์ของหน้า, description, index ได้ไหม]
 const PAGES = {
   home: ['home', `${BRAND} (เดิมคือ ${OLD}) — AI ทุกตัวในที่เดียว · สร้างโดย ${MAKER}`, [], DESC, true], // หน้าแรก: เปิดที่ / (ไฟล์ชื่อ home.html)
@@ -54,7 +55,7 @@ for (const [file, [page, title, scripts, desc, index]] of Object.entries(PAGES))
 <meta charset="utf-8">
 <meta name="google" content="notranslate">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta name="theme-color" content="#faf7f2">
+<meta name="theme-color" content="#f6f7fb">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="${BRAND}">

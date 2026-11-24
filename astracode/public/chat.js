@@ -132,7 +132,7 @@ async function chatView(id) {
       <div class="mode-seg" role="group" aria-label="Mode">
         <button type="button" data-mode="chat" class="${sideMode === 'chat' ? 'on' : ''}" aria-pressed="${sideMode === 'chat'}">${ic('msg', 'sm')}<span>Chat</span></button>
         <button type="button" data-mode="code" class="${sideMode === 'code' ? 'on' : ''}" aria-pressed="${sideMode === 'code'}">${ic('code', 'sm')}<span>Code</span></button>
-        <button type="button" data-mode="cowork" class="${sideMode === 'cowork' ? 'on' : ''}" aria-pressed="${sideMode === 'cowork'}">${ic('layers', 'sm')}<span>Kyber Harness</span></button>
+        <button type="button" data-mode="cowork" class="${sideMode === 'cowork' ? 'on' : ''}" aria-pressed="${sideMode === 'cowork'}" title="Kyber Harness">${ic('layers', 'sm')}<span>Harness</span></button>
       </div>
       <div class="side-pane" id="paneChat" ${sideMode === 'chat' ? '' : 'hidden'}>
         <div class="work-tiles${me?.plan?.artifacts ? '' : ' one'}">
@@ -172,7 +172,8 @@ async function chatView(id) {
             <button type="button" class="cb pick" id="mdl" aria-haspopup="dialog"></button>
             <button type="button" class="cb pick" id="eff" aria-haspopup="dialog"></button>
             
-            <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div></div>
+            <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div>
+      <nav class="tabbar" aria-label="เมนูหลัก"><button type="button" class="on" data-tb="chat">${ic('newchat')}<span>แชต</span></button><button type="button" data-tb="code">${ic('code')}<span>โค้ด</span></button><button type="button" data-tb="usage">${ic('pie')}<span>การใช้งาน</span></button><a href="/account" data-tb="acct">${ic('user')}<span>บัญชี</span></a></nav></div>
     <aside class="canvas" id="canvas" hidden>
       <div class="cv-h"><b id="cv-t">Canvas</b><select id="cv-v" class="cv-v" hidden aria-label="เวอร์ชัน"></select><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">Preview</button><button type="button" data-cv="code">Code</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-sh" hidden>แชร์</button><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="icon-btn sm ghost" id="cv-dl" aria-label="ดาวน์โหลด .html">${ic('download')}</button><button type="button" class="btn out sm" id="cv-tc">ส่งไป Code</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
       <div class="cv-b"><iframe id="cv-f" sandbox="allow-scripts allow-modals allow-forms allow-popups" title="Canvas Preview"></iframe><pre id="cv-c" hidden><code></code></pre></div>
@@ -229,6 +230,8 @@ async function chatView(id) {
     try { rec.start(); } catch { chat.rec = null; btn.classList.remove('rec'); toast('เริ่มพิมพ์ด้วยเสียงไม่ได้ ลองใหม่อีกครั้ง', 'err'); }
   });
   $('#lim').onclick = limitSheet;
+  // แถบเมนูล่าง (มือถือ): แชต = รายการแชต · โค้ด = สลับไปโหมดโค้ด · การใช้งาน = ลิมิต/Wallet
+  app.querySelector('.tabbar').onclick = e => { const b = e.target.closest('button[data-tb]'); if (!b) return; ({ chat: openSide, code: () => switchMode('code'), usage: limitSheet })[b.dataset.tb]?.(); };
   $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
@@ -960,7 +963,7 @@ function renderAll() {
   const box = $('#msgs'); if (!box) return;
   box.innerHTML = chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
     : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>${chat.spaceId ? `New chat in <b>${esc(chat.spaceName)}</b> · <button type="button" class="linkish" data-nospace>no workspace</button>` : 'Pick a model below and start typing'}</div>
-       <div class="mode-seg sm" role="group" aria-label="Mode"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a><a href="/chat?mode=cowork">${ic('layers', 'sm')}Kyber Harness</a></div>
+       <div class="mode-seg sm" role="group" aria-label="Mode"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a><a href="/chat?mode=cowork" title="Kyber Harness">${ic('layers', 'sm')}Harness</a></div>
        <div class="chips">${SUGGEST.map(([icon, s], i) => `<button data-s="${i}">${ic(icon, 'sm')} ${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight; head(); renderRich(box);
 }

@@ -38,7 +38,7 @@ async function plansPage() {
     <div class="err" id="e"></div><button class="btn blue" style="width:100%">${label}</button><p class="muted" style="margin:12px 0 0">การชำระเงินถือว่ายอมรับ<a href="/terms">เงื่อนไขการคืนเงิน</a></p></form>`;
   const draw = () => {
     const p = plans.find(x => x.id === sel), total = p ? Math.max(0, priceOf(p) - (coupon?.discount || 0)) : 0;
-    page(nav() + `<div class="wrap"><section class="hero" style="padding:48px 0 24px"><h1>${tab === 'topup' ? 'เติมเงิน Wallet' : 'เลือกแพลน'}</h1><p style="margin:4px 0 0"><a href="/pricing">${ic('tag', 'sm')} ดูราคาต่อ token ของแต่ละโมเดล (Pricing) →</a></p>
+    page(nav() + `<div class="wrap"><section class="hero" style="padding:48px 0 24px"><h1>${tab === 'topup' ? 'เติมเงิน Wallet' : 'เลือกแพลน'}</h1><p style="margin:4px auto 0"><a href="/pricing">${ic('tag', 'sm')} ดูราคาต่อ token ของแต่ละโมเดล (Pricing) →</a></p>
       <p>แพลนปัจจุบัน: ${esc(me.plan.name)}${me.plan.expires ? ' · หมดอายุ ' + when(me.plan.expires) : ''} · Wallet ฿${baht(me.balance)}</p>
       <div class="row" style="justify-content:center;margin-top:12px"><div class="seg" style="margin:0"><button data-tab="plan" class="${tab === 'plan' ? 'on' : ''}">Buy plan</button><button data-tab="topup" class="${tab === 'topup' ? 'on' : ''}">Top up Wallet</button></div>${curSegHTML()}</div></section>
       ${tab === 'plan' ? `

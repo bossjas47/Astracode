@@ -459,13 +459,13 @@ async function landing() {
   // ถูกกว่าซื้อ API ทางการ: เฉพาะโมเดลที่ตั้งราคาทางการไว้และเราถูกกว่า (เรียงตามลำดับโมเดลในระบบ) · ทางการแปลงเป็นบาทด้วยอัตราเดียวกับหน้าราคา
   const vs = pr.models.filter(m => m.official?.in > 0 && m.official?.out > 0 && m.out > 0).map(m => ({ m, pct: Math.round((1 - m.out / (m.official.out * usdRate())) * 100) })).filter(x => x.pct > 0).slice(0, 6);
   const vsRow = ({ m, pct }) => `<tr><td><b>${esc(m.name)}</b><div><span class="pill sale">ถูกกว่า <b>${pct}%</b></span></div></td><td class="vsp"><div>Input ${curSign()}${money(toCur(m.in))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.in * usdRate()))}</small></div><div>Output ${curSign()}${money(toCur(m.out))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.out * usdRate()))}</small></div></td></tr>`;
-  page(nav() + `<section class="hero"><div class="name">Kyber</div><p class="muted" style="margin:-6px 0 10px">สร้างโดย Hypatia · เดิมคือ AstraCode</p>
+  page(nav() + `<section class="hero"><div class="name">Kyber</div><p class="muted" style="margin:-6px auto 10px">สร้างโดย Hypatia · เดิมคือ AstraCode</p>
     <h1>AI ทุกตัว<br>ที่ทำงานแทนคุณได้จริง</h1>
     <p>Claude, ChatGPT, Gemini และ DeepSeek ในที่เดียว ใช้ได้ทั้งมือถือ เว็บ และแอปบนคอมที่ให้ Agent คุมเครื่องทำงานจนเสร็จ${cheapest ? ` · เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''}</p>
     ${me ? `<div class="row" style="justify-content:center"><a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>${window.astraDesktop ? '' : `<a class="btn out" href="#download" data-dlgo>${ic('download', 'sm')} ดาวน์โหลดแอปคอม</a>`}</div>` : '<div id="homeAuth" class="home-auth"></div>'}
     <a class="statusb" href="/status" id="stb" hidden></a>
     <div class="showcase" aria-hidden="true" inert>
-      <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="ring" style="--p:24"></i>24%</span></div>
+      <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="lmini" style="--p:24"><b></b></i>24%</span></div>
       <div class="sc-chat">
         <div class="sc-u">เขียนฟังก์ชัน Python เช็กเลขเฉพาะ พร้อมตัวอย่างทดสอบ</div>
         <div class="sc-a"><span class="sc-pill" style="margin-bottom:8px;display:inline-flex;gap:6px;align-items:center">${ic('sparkles', 'sm')} Thinking · 2 วินาที</span>
@@ -731,7 +731,8 @@ document.addEventListener('click', async e => {
 document.addEventListener('click', e => { const b = e.target.closest('.dl-code'); if (b) downloadCode(b).catch(x => toast('ดาวน์โหลดไม่ได้: ' + x.message, 'bad')); });
 
 // ---------- ส่วนเลือกแบบแอปมือถือ (แชต + โหมด Code) ----------
-const limHTML = u => { const p = Math.max(u.pct4h, u.pctWeek); return `<i class="ring ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"></i>${Math.round(p)}%${me?.reset_credits > 0 ? '<i class="gdot" title="มีสิทธิ์รีเซ็ตลิมิต"></i>' : ''}`; };
+// ลิมิตที่หัวจอ: แถบแสงสเปกตรัมขนาดเล็ก (ยิ่งใช้มากยิ่งเลื่อนไปปลายชมพู) + % ของรอบที่ใช้ไปมากกว่า
+const limHTML = u => { const p = Math.max(u.pct4h, u.pctWeek); return `<i class="lmini ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"><b></b></i>${Math.round(p)}%${me?.reset_credits > 0 ? '<i class="gdot" title="มีสิทธิ์รีเซ็ตลิมิต"></i>' : ''}`; };
 const EFFORT_INFO = {
   '': ['Instant', 'ตอบทันที ไม่คิดก่อน · เร็วและประหยัดลิมิตที่สุด'],
   minimal: ['Minimal', 'คิดเล็กน้อย · เร็วมาก ใช้ลิมิตเพิ่มนิดเดียว'],

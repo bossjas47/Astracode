@@ -4,11 +4,11 @@
   const apply = () => {
     const pref = get('theme') || 'light', t = pref === 'auto' ? (mq.matches ? 'light' : 'dark') : pref;
     root.dataset.theme = t;
-    const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'light' ? '#faf7f2' : '#12100e';
+    const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'light' ? '#f6f7fb' : '#0e1116';
     // เอฟเฟกต์กระจก: auto = ปิดเบลอบนเครื่องสเปกต่ำ (RAM ≤ 4GB หรือ ≤ 4 คอร์) หรือเมื่อระบบขอลดความโปร่งใส
     const fx = get('fx') || 'auto', weak = navigator.deviceMemory <= 4 || navigator.hardwareConcurrency <= 4 || matchMedia('(prefers-reduced-transparency: reduce)').matches;
     root.toggleAttribute('data-lite', fx === 'off' || (fx === 'auto' && weak));
-    root.style.setProperty('--msgfs', ({ s: '13.5px', m: '15px', l: '17px' })[get('fsize') || 'm'] || '15px');
+    root.style.setProperty('--msgfs', ({ s: '14.5px', m: '16.5px', l: '18px' })[get('fsize') || 'm'] || '16.5px');
   };
   // ขอข้อมูลที่หน้าแรกต้องใช้ตั้งแต่หัวหน้า ขนานไปกับการโหลด CSS/JS (เดิมรอ app.js โหลดเสร็จก่อนค่อยเริ่มขอ) · app.js api() ใช้ผลนี้ครั้งเดียว
   try {
