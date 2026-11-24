@@ -325,6 +325,7 @@ async function approve(a, req) {
 // ถามผู้ใช้: หน้าต่างของ Windows · ถ้าเปิดสั่งจากมือถือไว้ ส่งคำถามไปให้กดจากมือถือได้ด้วย (ใครตอบก่อนใช้คำตอบนั้น)
 async function askUser(a, { title, detail, warn, allowAllLabel }) {
   const ac = new AbortController(), buttons = ['อนุญาต', ...(allowAllLabel ? [allowAllLabel] : []), 'ไม่อนุญาต'];
+  a.ac?.signal.addEventListener('abort', () => ac.abort(), { once: true }); // กดหยุด/งานถูกแทนที่: ปิดหน้าต่างขออนุญาตที่ค้าง (ถือว่าไม่อนุญาต) ไม่ให้งานค้างรอ
   const local = dialog.showMessageBox(web, { type: warn ? 'warning' : 'question', title: 'Kyber Agent', message: title, detail, buttons, defaultId: 0, cancelId: buttons.length - 1, noLink: true, signal: ac.signal })
     .then(r => r.response === 0 ? 'yes' : allowAllLabel && r.response === 1 ? 'all' : 'no');
   const remote = a.remote ? a.remote.ask({ title, detail: detail.slice(0, 3000), allowAll: !!allowAllLabel }) : new Promise(() => {});
@@ -356,13 +357,20 @@ async function runTask(o = {}, sender) {
   const sid = String(o.sid || '').slice(0, 80), mode = MODES.includes(o.mode) ? o.mode : 'ask', model = String(o.model || '').slice(0, 120), root = rootOf(o.slot || 'chat');
   if (!sid || !model) throw new Error('ข้อมูลไม่ครบ');
   let a = agents.get(sid);
-  if (a && a.ac) throw new Error('Agent กำลังทำงานอยู่ในแชตนี้');
+  // หน้าเว็บส่งงานใหม่ทั้งที่งานเดิมยังวิ่ง = หน้าเว็บไม่รู้ว่างานเดิมยังทำอยู่ (รีเฟรช/เปิดแชตใหม่/งานค้าง) เพราะถ้ารู้ หน้าเว็บจะส่งเป็นข้อความแทรกแทน
+  // → หยุดงานเดิมแล้วรอให้จบจริง (ประวัติไม่ชนกัน) แล้วทำงานใหม่ · เดิมตอบ "Agent กำลังทำงานอยู่ในแชตนี้" ทุกข้อความจนต้องปิดแอป
+  if (a && a.ac) {
+    a.ac.abort(); a.ws?.stopAll();
+    await Promise.race([a.running, new Promise(ok => setTimeout(ok, 15e3))]);
+    if (a.ac) throw new Error('Agent งานเดิมยังหยุดไม่ได้ กดปุ่มหยุด หรือปิดแอปจากถาดแล้วเปิดใหม่');
+  }
   // เปิดโหมดทำเองครั้งแรกของงาน: ยืนยันด้วยหน้าต่าง Windows (หน้าเว็บสั่งเองไม่ได้)
   if (['edits', 'auto', 'yolo'].includes(mode) && a?.okMode !== mode && !o.preApproved) {
     const r = await dialog.showMessageBox(web, { type: 'warning', title: 'เปิดโหมดทำงานเอง?', message: mode === 'yolo' ? '⚠ Agent จะทำทุกอย่างโดยไม่ถามเลย' : mode === 'auto' ? 'Agent จะแก้ไฟล์และรันคำสั่งได้เองโดยไม่ถาม' : 'Agent จะแก้ไฟล์ได้เองโดยไม่ถาม (ยังถามก่อนรันคำสั่ง)', detail: mode === 'yolo' ? `รวมคำสั่งลบไฟล์ ติดตั้งโปรแกรม git push และไฟล์นอกโฟลเดอร์ ${root} (ทั้งเครื่อง)\nถ้า AI เข้าใจผิด ข้อมูลอาจหายถาวรและย้อนไม่ได้ ควรใช้กับโฟลเดอร์ที่สำรองไว้แล้ว · หยุดได้ทุกเมื่อด้วยปุ่มหยุด` : `เฉพาะในโฟลเดอร์ ${root}\nคำสั่งอันตรายและไฟล์นอกโฟลเดอร์ยังถามทุกครั้ง · ย้อนไฟล์ที่ Agent แก้ได้จากปุ่มในแชต`, buttons: ['เปิดโหมดนี้', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
     if (r.response !== 0) throw new Error('ยกเลิกแล้ว');
   }
-  const tell = d => { if (sender && !sender.isDestroyed()) sender.send('desk:agentEv', { sid, ...d }); a?.remote?.push({ sid, ...d }); };
+  const rid = String(o.rid || Math.random().toString(36).slice(2, 10)).slice(0, 40); // รหัสงานรอบนี้: หน้าเว็บกรองเหตุการณ์ของงานเดิมที่เพิ่งถูกหยุดออก
+  const tell = d => { if (sender && !sender.isDestroyed()) sender.send('desk:agentEv', { sid, rid, ...d }); a?.remote?.push({ sid, ...d }); };
   if (!a || a.ws.root !== path.resolve(root)) {
     const saved = agentLoad(sid);
     a = { sid, messages: saved && path.resolve(saved.root) === path.resolve(root) ? saved.messages : [], mode, inbox: [] };
@@ -396,7 +404,7 @@ async function runTask(o = {}, sender) {
   if (mode === 'plan') text += '\n\n[โหมดวางแผน] ห้ามแก้ไฟล์หรือรันคำสั่ง: สำรวจโค้ดด้วยเครื่องมืออ่าน แล้วเขียนแผนเป็นขั้นตอนชัดเจน (ไฟล์ที่จะแก้ แก้อะไร ตรวจผลอย่างไร) ให้ผู้ใช้อนุมัติก่อนลงมือ';
   const imgs = (Array.isArray(o.images) ? o.images : []).filter(x => typeof x === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(x) && x.length < 4e6).slice(0, 4);
   a.messages.push({ role: 'user', content: imgs.length ? [{ type: 'text', text }, ...imgs.map(url => ({ type: 'image_url', image_url: { url } }))] : text });
-  const ac = a.ac = new AbortController(); a.ws.signal = ac.signal;
+  const ac = a.ac = new AbortController(); a.ws.signal = ac.signal; let ended; a.running = new Promise(ok => { ended = ok; });
   if (o.remote && !a.remote) a.remote = await remoteStart(a, o.chatId).catch(x => { tell({ type: 'info', text: 'สั่งจากมือถือ: ' + x.message }); return null; });
   const rtools = await remoteTools().catch(() => []);
   // ชุดเครื่องมือเดียวกันทุกโหมด (โหมดวางแผนกันไว้ใน callTool แทน) → สลับ วางแผน ↔ ลงมือ แล้ว prompt cache ยังใช้ต่อได้ · android_tools ใส่เมื่องานเกี่ยวกับ Android (เปิดแล้วคงไว้ทั้ง session)
@@ -436,7 +444,7 @@ async function runTask(o = {}, sender) {
     if (!ac.signal.aborted) { stat.error = String(x.message).slice(0, 300); if (!/HTTP 4\d\d|ยอดเงิน|ลิมิต|API key/i.test(x.message)) report('agent', x); }
     if (/API key/i.test(x.message) && /ไม่ถูกต้อง|invalid/i.test(x.message)) { settings.key = ''; save(); } // key ถูกลบที่เว็บ: ให้สร้างใหม่รอบหน้า
   } finally {
-    a.ac = null; agentSave(a); a.remote?.flush();
+    if (a.ac === ac) a.ac = null; agentSave(a); a.remote?.flush(); ended();
     const err = stat.error; // สถิติไม่มีเนื้อหางาน: ใช้ดูว่าโมเดลไหนทำงาน Agent ได้ดี
     fetch(SITE + '/v1/agent/stat', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ model, mode, rounds: stat.rounds, tools: stat.tools, ok: !err, ms: Date.now() - t0, charge: a.cost.charge, pct: a.cost.pct, error: err, version: app.getVersion(), os: process.platform, harness: stat.harness || null }) }).catch(() => {});
   }

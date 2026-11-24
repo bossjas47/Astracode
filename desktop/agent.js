@@ -65,9 +65,19 @@ function repairHistory(messages) {
 // ตัวเลือกใหม่ (ไม่ส่ง = พฤติกรรมเดิม): maxDurationMs · maxTokens (token รวมทั้งงาน) · depth (ผู้ช่วย = 1: ห้าม task ซ้อน) · toolKind(name) → 'read'|อื่นๆ
 //   spill(text, info) → path ของไฟล์ที่เก็บผลเต็ม · onCheckpoint({ round, messages, state }) · retryWaits (ระบุเอง = ไม่สุ่ม ใช้ในเทสต์)
 async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {},
-  retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null }) {
+  retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000 }) {
   const url = base.replace(/\/$/, '') + '/chat/completions', t0 = Date.now();
-  const post = body => fetchImpl(url, { method: 'POST', signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
+  const post = (body, sig = signal) => fetchImpl(url, { method: 'POST', signal: sig, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
+  // นาฬิกาเฝ้าคำขอ: ไม่ได้คำตอบเลยภายใน firstByteMs หรือสตรีมเงียบ (ไม่มีข้อมูลแม้แต่ ping) เกิน stallMs → ตัดการเชื่อมต่อ
+  // เดิมรอไม่มีวันจบ: งานค้าง "Agent กำลังทำงานอยู่" ตลอดจนต้องปิดแอป · ตัดก่อนได้ข้อความ = ลองใหม่ได้ · ตัดกลางคำตอบ = จบงานพร้อมบอกผู้ใช้
+  const watch = () => {
+    const ac = new AbortController(), w = { signal: ac.signal, stalled: 0, t: null }, out = () => ac.abort(), sec = ms => Math.round(ms / 1000);
+    signal?.addEventListener('abort', out, { once: true });
+    w.arm = ms => { clearTimeout(w.t); w.t = setTimeout(() => { w.stalled = ms; ac.abort(); }, ms); };
+    w.stop = () => { clearTimeout(w.t); signal?.removeEventListener('abort', out); };
+    w.err = () => new Error(`โมเดลไม่ตอบภายใน ${sec(w.stalled)} วินาที`);
+    w.arm(firstByteMs); return w;
+  };
   const schemas = new Map(tools.map(t => [t.function?.name, t.function?.parameters]));
   const kindOf = name => toolKind?.(name) || (READ_TOOLS.has(name) ? 'read' : 'write');
   // สถานะที่ต้องคงไว้เสมอแม้ย่อบทสนทนา: รายการงานล่าสุด · ไฟล์ที่แก้แล้ว · error ที่ยังไม่หาย
@@ -84,21 +94,30 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
     if (JSON.stringify(messages).length > compactAt) await compact({ post, model, messages, onEvent, state });
     const body = { model, messages, stream: true, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) };
-    const tReq = Date.now(); let r, attempt = 0;
-    for (;;) { // ผู้ให้บริการล่ม/คนเยอะชั่วคราว: รอแล้วลองรอบเดิมใหม่ ไม่ทิ้งงานที่ทำมาแล้ว · เคารพ Retry-After
-      let netErr = null;
-      try { r = await post(body); } catch (e) { if (signal?.aborted) throw new Error('หยุดแล้ว'); netErr = e; }
+    const tReq = Date.now(); let r, attempt = 0, msg = null, stalls = 0;
+    const onEv = e => { if (e.type === 'usage') { const u = e.usage || {}; stats.promptTokens += u.prompt_tokens || 0; stats.outTokens += u.completion_tokens || 0; stats.cachedTokens += u.prompt_tokens_details?.cached_tokens || 0; } onEvent(e); };
+    for (;;) { // ผู้ให้บริการล่ม/คนเยอะชั่วคราว/โมเดลเงียบ: รอแล้วลองรอบเดิมใหม่ ไม่ทิ้งงานที่ทำมาแล้ว · เคารพ Retry-After
+      let netErr = null, got = false; const wd = watch();
+      try { r = await post(body, wd.signal); } catch (e) { wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว'); netErr = wd.stalled ? wd.err() : e; }
+      if (!netErr && r.ok) {
+        try { msg = await readStream(r, onEv, () => { got = true; stats.ttft.push(Date.now() - tReq); }, () => wd.arm(stallMs)); wd.stop(); break; }
+        catch (e) {
+          wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว'); if (!wd.stalled) throw e;
+          if (got) throw new Error(`${wd.err().message} (หยุดกลางคำตอบ สั่ง "ทำต่อ" ได้)`); // ส่งข้อความไปแล้วบางส่วน: ลองใหม่จะซ้ำ จึงจบงานแทนการค้าง
+          netErr = wd.err(); r = null;
+        }
+      } else if (!netErr) wd.stop();
       const n = retryWaits ? retryWaits.length : 4;
       if (!netErr && !RETRY_STATUS.has(r.status)) break;
-      if (attempt >= n) { if (netErr) throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้: ' + netErr.message); break; }
+      const stall = netErr && /ไม่ตอบภายใน/.test(netErr.message); if (stall) stalls++;
+      if (attempt >= n || stalls > 1) { if (netErr) throw new Error(stall ? netErr.message + ' (ลองแล้ว 2 ครั้ง ลองสลับโมเดล หรือสั่ง "ทำต่อ")' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้: ' + netErr.message); break; } // โมเดลเงียบ: ลองใหม่แค่ครั้งเดียว ไม่รอเป็นสิบนาที
       const ra = netErr ? null : retryAfterMs(r), w = ra != null ? Math.min(ra, 60000) : retryWaits ? retryWaits[attempt] : backoffMs(attempt);
-      onEvent({ type: 'info', text: `โมเดลไม่ว่างชั่วคราว (${netErr ? 'เครือข่าย' : r.status}) ลองใหม่ใน ${Math.max(1, Math.round(w / 1000))} วินาที…` });
+      onEvent({ type: 'info', text: `${stall ? netErr.message : `โมเดลไม่ว่างชั่วคราว (${netErr ? 'เครือข่าย' : r.status})`} ลองใหม่ใน ${Math.max(1, Math.round(w / 1000))} วินาที…` });
       stats.retries++; attempt++;
       try { await r?.body?.cancel?.(); } catch { /* ไม่มี body */ }
       await sleep(w, signal);
     }
-    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error?.message_th || d.error?.message || 'HTTP ' + r.status); }
-    const msg = await readStream(r, e => { if (e.type === 'usage') { const u = e.usage || {}; stats.promptTokens += u.prompt_tokens || 0; stats.outTokens += u.completion_tokens || 0; stats.cachedTokens += u.prompt_tokens_details?.cached_tokens || 0; } onEvent(e); }, () => stats.ttft.push(Date.now() - tReq));
+    if (!msg) { const d = await r.json().catch(() => ({})); throw new Error(d.error?.message_th || d.error?.message || 'HTTP ' + r.status); }
     stats.rounds++;
     messages.push({ role: 'assistant', content: msg.content || null, ...(msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
     if (msg.content) onEvent({ type: 'text_end' });
@@ -185,7 +204,7 @@ async function compact({ post, model, messages, onEvent, state = null }) {
 }
 
 // อ่าน SSE แบบ OpenAI: ต่อข้อความและ tool_calls ที่มาเป็นชิ้น ๆ (ชิ้นแรกมี id/name ชิ้นต่อไปมีแต่ arguments) · onFirst = ได้ token/เครื่องมือแรก (วัด TTFT)
-async function readStream(r, onEvent, onFirst = () => {}) {
+async function readStream(r, onEvent, onFirst = () => {}, onChunk = () => {}) { // onChunk: ได้ข้อมูลทุกครั้ง (รวม ping) ใช้รีเซ็ตนาฬิกาเฝ้าสตรีม
   const out = { content: '', tool_calls: [] }, dec = new TextDecoder(); let buf = '', first = false;
   const hit = () => { if (!first) { first = true; onFirst(); } };
   const take = line => {
@@ -201,7 +220,7 @@ async function readStream(r, onEvent, onFirst = () => {}) {
       if (tc.id) c.id = tc.id; if (tc.function?.name) c.function.name += tc.function.name; if (tc.function?.arguments) c.function.arguments += tc.function.arguments;
     }
   };
-  for await (const chunk of r.body) { buf += dec.decode(chunk, { stream: true }); let i; while ((i = buf.indexOf('\n')) >= 0) { take(buf.slice(0, i).trim()); buf = buf.slice(i + 1); } }
+  for await (const chunk of r.body) { onChunk(); buf += dec.decode(chunk, { stream: true }); let i; while ((i = buf.indexOf('\n')) >= 0) { take(buf.slice(0, i).trim()); buf = buf.slice(i + 1); } }
   buf += dec.decode(); take(buf.trim()); // บรรทัดสุดท้ายที่ไม่มี \n ปิดท้าย (usage / stop) ไม่หล่นหาย
   out.tool_calls = out.tool_calls.filter(Boolean).map(c => ({ ...c, id: c.id || 'call_' + Math.random().toString(36).slice(2, 10) }));
   return out;

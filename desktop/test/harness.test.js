@@ -238,3 +238,32 @@ test('tools: android_tools is offered only for Android work; tool registry and s
   assert.match(await reg.get('list_dir').execute({ path: '.' }), /\[dir\] app/);
   assert.match(agentSystem({ root: d, os: "x" }), /Verify before you finish[\s\S]*git_inspect/);
 });
+
+test('harness: a model that sends nothing is cut after firstByteMs and retried once, then the run ends instead of hanging', async () => {
+  let calls = 0;
+  const silent = (url, init) => new Promise((ok, no) => { calls++; init.signal.addEventListener('abort', () => no(new Error('aborted')), { once: true }); }); // ไม่ตอบเลย
+  const ev = [], t0 = Date.now();
+  await assert.rejects(runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: [{ role: 'user', content: 'go' }], tools, fetchImpl: silent, callTool: async () => '', onEvent: e => ev.push(e), retryWaits: [1, 1, 1], firstByteMs: 60 }), /ไม่ตอบภายใน[\s\S]*ลองแล้ว 2 ครั้ง/);
+  assert.equal(calls, 2); assert.ok(Date.now() - t0 < 2000);
+  assert.ok(ev.some(e => e.type === 'info' && /ไม่ตอบภายใน/.test(e.text)));
+});
+
+test('harness: a stream that goes silent mid-answer ends the run with a clear error (no hang, no duplicate text)', async () => {
+  const half = (url, init) => Promise.resolve({ ok: true, status: 200, body: (async function* () {
+    yield enc('data: ' + JSON.stringify({ choices: [{ delta: { content: 'ครึ่งแรก' } }] }) + '\n\n');
+    await new Promise((_, no) => init.signal.addEventListener('abort', () => no(new Error('aborted')), { once: true })); // เงียบจนถูกตัด
+  })() });
+  const ev = [];
+  await assert.rejects(runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: [{ role: 'user', content: 'go' }], tools, fetchImpl: half, callTool: async () => '', onEvent: e => ev.push(e), stallMs: 60 }), /ไม่ตอบภายใน[\s\S]*หยุดกลางคำตอบ/);
+  assert.equal(ev.filter(e => e.type === 'delta').map(e => e.text).join(''), 'ครึ่งแรก'); // ไม่ลองใหม่ซ้ำข้อความ
+});
+
+test('harness: keepalive pings reset the stall timer (slow but alive models are not cut)', async () => {
+  const slow = () => Promise.resolve({ ok: true, status: 200, body: (async function* () {
+    for (let i = 0; i < 4; i++) { await new Promise(r => setTimeout(r, 40)); yield enc(': ping\n\n'); }
+    yield enc('data: ' + JSON.stringify({ choices: [{ delta: { content: 'ตอบแล้ว' } }] }) + '\n\ndata: [DONE]\n\n');
+  })() });
+  const ev = [];
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: [{ role: 'user', content: 'go' }], tools, fetchImpl: slow, callTool: async () => '', onEvent: e => ev.push(e), firstByteMs: 100, stallMs: 100 });
+  assert.equal(ev.filter(e => e.type === 'delta').map(e => e.text).join(''), 'ตอบแล้ว');
+});
