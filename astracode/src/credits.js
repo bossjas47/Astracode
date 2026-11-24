@@ -19,7 +19,7 @@ export async function grantClaudeCredit(env, u, pl, p, now = Date.now()) {
   if (!r.meta?.changes) return 0;
   const usd = Math.round(CC.amount * CC.usdPerBaht);
   await sendPush(env, u.id, { title: '🎁 แถม Claude Eco เทียบเท่า $' + usd, body: `ใช้ Claude Opus / Sonnet / Fable (Eco) ได้ถึง ${new Date(now + CC.days * 864e5 + 7 * 3600e3).toISOString().slice(0, 10)} · ใช้เมื่อลิมิตเต็ม หรือตั้งให้ใช้ก่อนได้ที่หน้าบัญชี`, url: '/account' }).catch(() => {});
-  await mail(env, u.email, 'AstraCode: แถม Claude Eco เทียบเท่า $' + usd, mailBox('แถม Claude Eco ให้แล้ว 🎁', `ใช้ Claude Opus / Sonnet / Fable (Eco) ได้เทียบเท่า $${usd} ตามราคา API ทางการ ภายใน ${CC.days} วัน<br>ค่าเริ่มต้นจะใช้ลิมิตแพลนก่อน แล้วใช้เครดิตนี้เมื่อลิมิตเต็ม · เปลี่ยนให้ใช้เครดิตก่อนได้ที่ <a href="${siteUrl(env)}/account">หน้าบัญชี</a> · ใช้กับ API ได้ด้วย`)).catch(() => {});
+  await mail(env, u.email, 'Kyber: แถม Claude Eco เทียบเท่า $' + usd, mailBox('แถม Claude Eco ให้แล้ว 🎁', `ใช้ Claude Opus / Sonnet / Fable (Eco) ได้เทียบเท่า $${usd} ตามราคา API ทางการ ภายใน ${CC.days} วัน<br>ค่าเริ่มต้นจะใช้ลิมิตแพลนก่อน แล้วใช้เครดิตนี้เมื่อลิมิตเต็ม · เปลี่ยนให้ใช้เครดิตก่อนได้ที่ <a href="${siteUrl(env)}/account">หน้าบัญชี</a> · ใช้กับ API ได้ด้วย`)).catch(() => {});
   return CC.amount;
 }
 // cron: เครดิตเหลือ ≥ ฿5 และจะหมดใน 5 วัน → เตือนครั้งเดียว
@@ -30,7 +30,7 @@ export async function remindClaudeCredits(env, now = Date.now()) {
     if (!(await env.DB.prepare('UPDATE claude_credits SET reminded=? WHERE id=? AND reminded IS NULL').bind(now, r.id).run()).meta?.changes) continue;
     const usd = Math.round(r.rem * CC.usdPerBaht), day = new Date(r.expires_at + 7 * 3600e3).toISOString().slice(0, 10);
     await sendPush(env, r.user_id, { title: `⏳ Claude Eco ที่แถมเหลือ ≈$${usd}`, body: `ใช้ได้ถึง ${day} · ตั้งให้ใช้เครดิตก่อนได้ที่หน้าบัญชี`, url: '/account' }).catch(() => {});
-    await mail(env, r.email, `AstraCode: Claude Eco ที่แถมเหลือ ≈$${usd} ใช้ได้ถึง ${day}`, mailBox('เครดิต Claude ใกล้หมดอายุ', `เหลือเทียบเท่า $${usd} ใช้ได้ถึง ${day}<br>อยากใช้ให้คุ้ม: เปิด "ใช้เครดิตแถมก่อนลิมิต" ที่ <a href="${siteUrl(env)}/account">หน้าบัญชี</a>`)).catch(() => {});
+    await mail(env, r.email, `Kyber: Claude Eco ที่แถมเหลือ ≈$${usd} ใช้ได้ถึง ${day}`, mailBox('เครดิต Claude ใกล้หมดอายุ', `เหลือเทียบเท่า $${usd} ใช้ได้ถึง ${day}<br>อยากใช้ให้คุ้ม: เปิด "ใช้เครดิตแถมก่อนลิมิต" ที่ <a href="${siteUrl(env)}/account">หน้าบัญชี</a>`)).catch(() => {});
   }
   return rows.length;
 }

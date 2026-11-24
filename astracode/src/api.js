@@ -9,11 +9,13 @@ import { status } from './jobs.js';
 export const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 7); // เดือนตามเวลาไทย เช่น 2026-11
 export const WALLET_SLOTS = 8;
 export const slug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
-export const V1_CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-api-key, anthropic-version, anthropic-beta', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-expose-headers': 'retry-after, x-request-id, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-astracode-billing' };
+export const V1_CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-api-key, anthropic-version, anthropic-beta', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-expose-headers': 'retry-after, x-request-id, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-astracode-billing, x-kyber-billing, x-astracode-model, x-kyber-model' };
 export async function v1core(req, env, ctx, path, lg = {}) {
   const cors = V1_CORS, rid = 'req_' + rand(12);
   let rl = {}; // x-ratelimit-* ของคำขอนี้ (ใส่ในทุกคำตอบหลังผ่านการตรวจ key)
-  const out = (d, s = 200, h = {}) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json', 'x-request-id': rid, ...cors, ...rl, ...h } });
+  // รีแบรนด์เป็น Kyber: ส่ง header ชื่อเดิม (x-astracode-*) คู่กับชื่อใหม่ (x-kyber-*) เสมอ ลูกค้าที่อ่าน header เดิมไม่พัง
+  const dual = (h = {}) => { const o = { ...h }; for (const k of ['billing', 'model']) if (o['x-astracode-' + k] != null) o['x-kyber-' + k] = o['x-astracode-' + k]; return o; };
+  const out = (d, s = 200, h = {}) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json', 'x-request-id': rid, ...cors, ...rl, ...dual(h) } });
   const EN = [ // ข้อความ error เป็นอังกฤษ (SDK ต่างชาติแสดงให้ผู้ใช้เห็น) เก็บข้อความไทยไว้ใน message_th
     [/^API key ไม่ถูกต้อง/, () => 'Invalid API key.'],
     [/^ส่งคำขอเร็วเกินไป/, () => 'Rate limit reached: 60 requests per minute per key.'],
@@ -80,7 +82,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       return out({ ok: true });
     }
     // Connector (Remote MCP ที่ลูกค้าเชื่อมไว้บนเว็บ เช่น Gmail/Notion ผ่าน Zapier/Composio): Agent ในแอปเรียกผ่านเซิร์ฟเวอร์ token ไม่ออกจากเซิร์ฟเวอร์
-    if (path.startsWith('/v1/videos')) { const { videoV1 } = await import('./video.js'); const r = await videoV1(req, env, k, path); if (r) return r; } // สร้างวิดีโอผ่าน API (Cowork บนคลาวด์ / ลูกค้า API)
+    if (path.startsWith('/v1/videos')) { const { videoV1 } = await import('./video.js'); const r = await videoV1(req, env, k, path); if (r) return r; } // สร้างวิดีโอผ่าน API (Kyber Harness บนคลาวด์ / ลูกค้า API)
     if (path === '/v1/mcp/tools' || (path === '/v1/mcp/call' && req.method === 'POST')) {
       const ct = await connTools(env, k.id, { ids: (await env.DB.prepare('SELECT id FROM mcp_servers WHERE user_id=0 AND enabled=1').all().catch(() => ({ results: [] }))).results.map(x => x.id), prefix: 'rmcp_' });
       const tools = ct.tools.map(t => { const x = ct.map.get(t.function.name); return { name: t.function.name, description: t.function.description, parameters: t.function.parameters, sv: x.sv, tool: x.name }; }); // ไม่รวมเครื่องมือที่ผู้ใช้ตั้ง "ห้ามใช้" · แอปถามผู้ใช้เองก่อนใช้
@@ -228,7 +230,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (k.budget > 0) for (const [pct, label] of [[1, 'ใช้ครบงบแล้ว'], [0.8, 'ใช้ไป 80% ของงบแล้ว']]) { // เตือนครั้งเดียวตอนข้ามเส้น (งบรีเซ็ตทุกเดือน)
         if (spent < k.budget * pct && spent + charge >= k.budget * pct) {
           if (k.webhook_url) await fetch(k.webhook_url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'api_key_budget', threshold: pct, key: k.kname || 'key', spent: +(spent + charge).toFixed(4), budget: k.budget, month }), signal: AbortSignal.timeout(4000), redirect: 'manual' }).catch(() => {}); // ปลายทางที่ผู้ใช้ตั้งเอง: https เท่านั้น ไม่ตามรีไดเรกต์
-          await mail(env, k.email, `AstraCode: API key "${k.kname || 'key'}" ${label}`, mailBox('งบ API key ' + label, `ใช้ไปแล้ว ฿${(spent + charge).toFixed(2)} จากงบ ฿${k.budget} ของเดือนนี้`, 'จัดการ key', siteUrl(env) + '/developers')).catch(() => {}); break; }
+          await mail(env, k.email, `Kyber: API key "${k.kname || 'key'}" ${label}`, mailBox('งบ API key ' + label, `ใช้ไปแล้ว ฿${(spent + charge).toFixed(2)} จากงบ ฿${k.budget} ของเดือนนี้`, 'จัดการ key', siteUrl(env) + '/developers')).catch(() => {}); break; }
       }
       return finalU;
     };
@@ -323,7 +325,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2), 'part').catch(() => {}); else if (walletKey && !lg.logged) await unlimit(env, walletKey).catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
     })());
-    return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, ...cors, ...rl } });
+    return new Response(readable, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-astracode-billing': billingMode, 'x-kyber-billing': billingMode, ...cors, ...rl } });
   } catch (e) { console.log('v1 error', e.stack); if (walletKey) await unlimit(env, walletKey).catch(() => {}); return fail(e.user ? e.message : 'เซิร์ฟเวอร์ผิดพลาด', e.user ? 400 : 500, 'api_error'); }
 }
 
@@ -380,7 +382,7 @@ export async function* chatChunks(res) { // อ่าน SSE ของ chat/comp
   } finally { rd.cancel().catch(() => {}); } // ลูกค้าของ /v1/messages, /v1/responses ตัดกลางทาง: ยกเลิกสตรีมด้านใน ไม่งั้นด้านในค้างรอไม่จบและไม่คิดเงิน
 }
 export const sseOut = res => { const { readable, writable } = new TransformStream(), w = writable.getWriter(), enc = new TextEncoder(); return { readable, w, send: (name, data) => w.write(enc.encode(`event: ${name}\ndata: ${JSON.stringify({ type: name, ...data })}\n\n`)), close: () => w.close().catch(() => {}) }; };
-export const passHeaders = res => { const h = {}; for (const k of ['retry-after', 'x-request-id', 'x-ratelimit-limit-requests', 'x-ratelimit-remaining-requests', 'x-ratelimit-reset-requests', 'x-astracode-billing']) { const v = res.headers.get(k); if (v) h[k] = v; } return { ...V1_CORS, ...h }; };
+export const passHeaders = res => { const h = {}; for (const k of ['retry-after', 'x-request-id', 'x-ratelimit-limit-requests', 'x-ratelimit-remaining-requests', 'x-ratelimit-reset-requests', 'x-astracode-billing', 'x-kyber-billing', 'x-astracode-model', 'x-kyber-model']) { const v = res.headers.get(k); if (v) h[k] = v; } return { ...V1_CORS, ...h }; };
 export const usageIn = u => ({ cached: u?.prompt_tokens_details?.cached_tokens || 0, input: (u?.prompt_tokens || 0) - (u?.prompt_tokens_details?.cached_tokens || 0), output: u?.completion_tokens || 0 });
 
 // --- Anthropic Messages API: POST /v1/messages, /v1/messages/count_tokens ---

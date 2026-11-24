@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "AstraCode",
-  "short_name": "AstraCode",
-  "description": "AI หลายโมเดลในที่เดียว แชต เขียนโค้ด สร้างภาพ จ่ายเป็นบาท",
+  "name": "Kyber",
+  "short_name": "Kyber",
+  "description": "Kyber (เดิมคือ AstraCode) สร้างโดย Hypatia: AI หลายโมเดลในที่เดียว แชต เขียนโค้ด สร้างภาพ จ่ายเป็นบาท",
   "lang": "th",
   "start_url": "/chat",
   "scope": "/",
@@ -48,7 +48,7 @@
       ]
     },
     {
-      "name": "โหมด Code",
+      "name": "Kyber Code",
       "short_name": "Code",
       "url": "/code",
       "icons": [

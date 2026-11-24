@@ -1,4 +1,4 @@
-// AstraCode: โหมด Code ใช้ตัวแปรกลางจาก app.js
+// Kyber: โหมด Code ใช้ตัวแปรกลางจาก app.js
 // เปิดในหน้าเดียวกับแชต (chat.js: switchMode) · วาดลงฝั่งขวา #cmain ข้างแถบข้าง
 function codeDispatch() { return qs().get('p') ? codeView(qs().get('p')) : codeHome(); }
 const codeHost = () => $('#cmain') || app;
@@ -28,7 +28,7 @@ const nameFor = t => { // ชื่อโปรเจกต์จากบรร
 };
 async function codeHome() {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
-  document.title = 'Code · ASTRACODE';
+  document.title = 'Kyber Code';
   const host = codeHost(); host.innerHTML = `<div class="cs-wrap"><div class="bar cs-bar"><button class="menu-btn" type="button" data-side aria-label="เมนู">${ic('menu')}</button><div class="ctitle"><b>Code</b></div><button class="lim" data-lim aria-label="ลิมิตการใช้งาน">${limHTML(me.usage || {})}</button></div><div class="cstart"><div class="cs-in">
     <h1 class="cs-h">What should we build?</h1>
     <div class="repo-row"><button type="button" class="repo-chip" id="nrepo"></button></div>
@@ -798,7 +798,7 @@ async function nodeRun(cmd) {
   if (changed.length) { await writeFiles(changed); termOut(`บันทึกไฟล์ที่เปลี่ยน: ${changed.map(f => f.path).join(', ')}\n`, 'muted'); }
   return d;
 }
-// ---------- โฟลเดอร์ในเครื่อง (เปิดในแอป AstraCode Desktop): ไฟล์ในโปรเจกต์ = ไฟล์จริงในโฟลเดอร์ · RUN รันใน terminal ของเครื่อง ----------
+// ---------- โฟลเดอร์ในเครื่อง (เปิดในแอป Kyber Desktop): ไฟล์ในโปรเจกต์ = ไฟล์จริงในโฟลเดอร์ · RUN รันใน terminal ของเครื่อง ----------
 // โปรเจกต์ยังอยู่บนเซิร์ฟเวอร์ครบ (ประวัติ เวอร์ชัน แชต เปิดจากมือถือได้) แอปเขียนตามลงเครื่อง และดึงไฟล์ที่แก้ด้วยโปรแกรมอื่นกลับขึ้นมาเมื่อกลับมาที่หน้าต่าง
 const DESK = window.astraDesktop?.fs;
 const lkey = () => 'p:' + IDE.pid;
@@ -1168,7 +1168,7 @@ function codeTools() {
         });
       }
       if (v === 'prm') promptLibSheet(p => { const ct = $('#ct'); ct.value = p + ct.value; ct.oninput(); ct.focus(); });
-      if (v === 'exphtml') { const hp = has('index.html') ? 'index.html' : (/\.html?$/i.test(IDE.active || '') ? IDE.active : null); const jp = !hp && /\.m?js$/i.test(IDE.active || '') ? IDE.active : null; if (!hp && !jp) return toast('ต้องมี index.html หรือไฟล์ .html/.js', 'bad'); const out = buildHtml(hp, jp, true); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out], { type: 'text/html;charset=utf-8' })); a.download = (IDE.name || 'astracode').replace(/[^\wก-๙-]+/g, '_') + '.html'; a.click(); toast('ส่งออกไฟล์ HTML แล้ว', 'ok'); }
+      if (v === 'exphtml') { const hp = has('index.html') ? 'index.html' : (/\.html?$/i.test(IDE.active || '') ? IDE.active : null); const jp = !hp && /\.m?js$/i.test(IDE.active || '') ? IDE.active : null; if (!hp && !jp) return toast('ต้องมี index.html หรือไฟล์ .html/.js', 'bad'); const out = buildHtml(hp, jp, true); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out], { type: 'text/html;charset=utf-8' })); a.download = (IDE.name || 'kyber').replace(/[^\wก-๙-]+/g, '_') + '.html'; a.click(); toast('ส่งออกไฟล์ HTML แล้ว', 'ok'); }
       if (v === 'local') return linkLocal().catch(x => toast(x.message, 'bad'));
       if (v === 'term') { showRun(true); runTab('term'); setTimeout(() => $('#term-i')?.focus(), 50); }
     }));
@@ -1464,15 +1464,15 @@ function pushHTML(m) {
   return `<div class="pushnote st-${p.state}">${body}</div>`;
 }
 const commitMsg = (prompt, files) => {
-  let sub = String(prompt || '').split('\n').map(x => x.trim()).find(Boolean) || 'อัปเดตจาก AstraCode';
+  let sub = String(prompt || '').split('\n').map(x => x.trim()).find(Boolean) || 'อัปเดตจาก Kyber';
   if (sub.length > 72) sub = sub.slice(0, 70) + '…';
-  return `${sub}\n\n${files.slice(0, 20).map(f => '- ' + f).join('\n')}${files.length > 20 ? `\n- และอีก ${files.length - 20} ไฟล์` : ''}\n\nCommitted by AstraCode AI`;
+  return `${sub}\n\n${files.slice(0, 20).map(f => '- ' + f).join('\n')}${files.length > 20 ? `\n- และอีก ${files.length - 20} ไฟล์` : ''}\n\nCommitted by Kyber AI`;
 };
 async function createPR(note, btn) {
   if (!note?.push) return; btn.disabled = true;
   const [sub, ...rest] = String(note.push.message || '').split('\n');
   try {
-    const r = await api(`/projects/${IDE.pid}/github/pr`, { method: 'POST', body: { title: sub, body: rest.join('\n').trim() + '\n\nสร้างจาก AstraCode', base: IDE.ghDefault } });
+    const r = await api(`/projects/${IDE.pid}/github/pr`, { method: 'POST', body: { title: sub, body: rest.join('\n').trim() + '\n\nสร้างจาก Kyber', base: IDE.ghDefault } });
     (IDE.prs ||= {})[note.push.branch] = r; note.push.pr = r; drawAI(); toast(`สร้าง Pull Request #${r.number} แล้ว`, 'ok');
   } catch (x) { btn.disabled = false; toast(x.message, 'bad'); }
 }
@@ -1643,7 +1643,7 @@ async function codeSend(auto) {
         if (d.t?.trim() && ai.doing) ai.doing = '';
         if (d.compacted) toast(`ย่อแชตอัตโนมัติแล้ว (${d.why})`, 'ok');
         if (d.trimmed) toast('context เต็ม: ตัดข้อความเก่าบางส่วนออกจากที่ส่งให้ AI', 'bad');
-        if (d.done && IDE.agent && document.hidden && 'Notification' in window && Notification.permission === 'granted') try { new Notification('AstraCode', { body: 'AI ทำงานเสร็จแล้ว แตะเพื่อดูผล' }); } catch { /* บางเบราว์เซอร์ต้องใช้ service worker */ }
+        if (d.done && IDE.agent && document.hidden && 'Notification' in window && Notification.permission === 'granted') try { new Notification('Kyber', { body: 'AI ทำงานเสร็จแล้ว แตะเพื่อดูผล' }); } catch { /* บางเบราว์เซอร์ต้องใช้ service worker */ }
         if (d.done) { me.usage = d; if ($('#clim')) $('#clim').innerHTML = limHTML(d); lowWarn(d); IDE.resumeTries = 0; if (d.tok) { ai.tin = d.tok.in; ai.tout = d.tok.out; } if (d.ctx) ai.ctx = d.ctx; ctxMeter(); if (d.cost) ai.cost = d.cost; if (d.rounds > 1) ai.rounds = d.rounds; setStatus('บันทึกแล้ว ✓'); }
       }
       if (done || ended) { if (!done) rd.cancel().catch(() => {}); break; } // ได้ done แล้วจบทันที ไม่รอให้เซิร์ฟเวอร์ปิดการเชื่อมต่อ

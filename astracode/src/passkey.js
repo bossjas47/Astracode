@@ -83,7 +83,7 @@ export async function passkeyApi(req, env, u, path) {
   if (path === '/api/passkey/register-options' && M === 'POST') {
     const have = (await env.DB.prepare('SELECT cred_id FROM passkeys WHERE user_id=?').bind(u.id).all()).results;
     if (have.length >= 10) return err('เพิ่ม Passkey ได้สูงสุด 10 อัน');
-    return json({ challenge: await newChallenge(env, u.id), rp: { id: new URL(origin(req, env)).hostname, name: 'AstraCode' }, user: { id: b64u(te.encode('u' + u.id)), name: u.email, displayName: u.email },
+    return json({ challenge: await newChallenge(env, u.id), rp: { id: new URL(origin(req, env)).hostname, name: 'Kyber' }, user: { id: b64u(te.encode('u' + u.id)), name: u.email, displayName: u.email },
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }], authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' }, attestation: 'none', timeout: 60000,
       excludeCredentials: have.map(x => ({ type: 'public-key', id: x.cred_id })) });
   }

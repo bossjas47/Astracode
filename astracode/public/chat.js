@@ -1,5 +1,5 @@
 const WHATS_NEW = 'whatsnew:2026-11-code'; // เปลี่ยนเลขเมื่อมีฟีเจอร์ใหม่ที่อยากบอกผู้ใช้เดิม
-// AstraCode: หน้าแชต
+// Kyber: หน้าแชต
 let chat = { id: null, msgs: [], busy: false, ctrl: null, images: [], files: [], chats: [], folders: [], skills: JSON.parse(localStorage.getItem('skills') || '[]'), mcps: JSON.parse(localStorage.getItem('mcps') || '[]') };
 { // กลับจากหน้ายินยอมของ Google: เปิด MCP ของ Google ในแชตให้เลย
   const q = new URLSearchParams(location.search), g = q.get('google');
@@ -36,7 +36,7 @@ if (typeof globalThis.parseAsk !== 'function') {
 }
 // ฟังก์ชันที่ต้องมาจาก app.js — ถ้าขาด ให้ขึ้นใน console ว่าลงไฟล์ไม่ครบคู่ (ไม่ใช่พังเงียบ)
 for (const k of ['setUrl', 'go', 'qs', 'here', 'pageName', 'limHTML', 'askHTML', 'askAnswer', 'withFiles', 'nearBottom', 'showPreview'])
-  if (typeof globalThis[k] !== 'function') console.warn('[AstraCode] app.js ไม่มี ' + k + '() — deploy app.js ให้ตรงกับ chat.js');
+  if (typeof globalThis[k] !== 'function') console.warn('[Kyber] app.js ไม่มี ' + k + '() — deploy app.js ให้ตรงกับ chat.js');
 let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ครั้งเดียว กันวนไม่จบ
 // กดหยุด = สั่งเซิร์ฟเวอร์หยุดตอบจริง (แค่ปิดจอหรือหลุดเน็ต AI จะตอบต่อเบื้องหลัง)
 function stopRun() { if (chat.enhancing) return chat.enhancing.abort(); fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id || null }) }).catch(() => {}); chat.ctrl?.abort(); }
@@ -65,14 +65,14 @@ async function switchMode(mode, path, pop) {
   $('#paneChat').hidden = mode !== 'chat'; $('#paneCode').hidden = mode !== 'code'; $('#paneCowork').hidden = mode !== 'cowork';
   app.querySelector('.chat > .main').hidden = mode !== 'chat'; host.hidden = mode !== 'code'; $('#cwmain').hidden = mode !== 'cowork';
   if (mode !== 'chat') $('#canvas').hidden = true;
-  if (mode === 'cowork') { // โหมด Cowork: งานที่ AI ทำเองจนจบ (cowork.js โหลดเมื่อเปิดครั้งแรก)
+  if (mode === 'cowork') { // โหมด Kyber Harness: งานที่ AI ทำเองจนจบ (cowork.js โหลดเมื่อเปิดครั้งแรก)
     const target = path || '/chat?mode=cowork'; if (!pop && target !== location.pathname + location.search) setUrl(target);
     try { await loadCowork(); } catch (x) { $('#cwmain').innerHTML = `<div class="cs-load"><p class="muted">${esc(x.message)}</p></div>`; return; }
-    $('#paneCowork').innerHTML = coworkSide(); document.title = 'Cowork · ASTRACODE';
+    $('#paneCowork').innerHTML = coworkSide(); document.title = 'Kyber Harness · Kyber';
     return coworkView(new URL(target, location.href).searchParams.get('task'));
   }
   if (mode === 'chat') {
-    document.title = (chat.id && $('#ctl')?.textContent) || 'Chat · ASTRACODE';
+    document.title = (chat.id && $('#ctl')?.textContent) || 'Chat · Kyber';
     const want = path ? new URL(path, location.href).searchParams.get('id') : null;
     if (path && (+want || null) !== chat.id) { if (!pop) setUrl(path); return chatView(want); }
     if (!pop && was !== 'chat' && !path) return setUrl(chat.id ? '/chat?id=' + chat.id : '/chat');
@@ -121,7 +121,7 @@ async function chatView(id) {
   const sideMode = curMode();
   app.innerHTML = `<div class="chat view"><aside class="side" id="side">
       <div class="side-top">
-        <a class="logo" href="/">AstraCode</a>
+        <a class="logo" href="/">Kyber</a>
         <span class="side-top-acts">
           <a class="icon-btn sm ghost" href="/chat" data-chat="" aria-label="New chat" title="New chat">${ic('newchat')}</a>
           <button type="button" class="icon-btn sm ghost" id="sbtn" aria-label="Search chats">${ic('search')}</button>
@@ -132,7 +132,7 @@ async function chatView(id) {
       <div class="mode-seg" role="group" aria-label="Mode">
         <button type="button" data-mode="chat" class="${sideMode === 'chat' ? 'on' : ''}" aria-pressed="${sideMode === 'chat'}">${ic('msg', 'sm')}<span>Chat</span></button>
         <button type="button" data-mode="code" class="${sideMode === 'code' ? 'on' : ''}" aria-pressed="${sideMode === 'code'}">${ic('code', 'sm')}<span>Code</span></button>
-        <button type="button" data-mode="cowork" class="${sideMode === 'cowork' ? 'on' : ''}" aria-pressed="${sideMode === 'cowork'}">${ic('layers', 'sm')}<span>Cowork</span></button>
+        <button type="button" data-mode="cowork" class="${sideMode === 'cowork' ? 'on' : ''}" aria-pressed="${sideMode === 'cowork'}">${ic('layers', 'sm')}<span>Kyber Harness</span></button>
       </div>
       <div class="side-pane" id="paneChat" ${sideMode === 'chat' ? '' : 'hidden'}>
         <div class="work-tiles${me?.plan?.artifacts ? '' : ' one'}">
@@ -193,10 +193,10 @@ async function chatView(id) {
   $('#model').onchange = e => { localStorage.setItem('model', e.target.value); modelUI(); };
   if (!window.DEMO && !id && sideMode === 'chat') try { // แนะนำครั้งแรก 3 ข้อ (ครั้งเดียวต่อเครื่อง)
     if (!localStorage.getItem('onb')) { localStorage.setItem('onb', '1');
-      sheet('เริ่มใช้ AstraCode', `<div class="sheet-form"><p class="sheet-msg"><b>1. เลือกโมเดลหรือปล่อย Auto</b><br>Auto เลือกโมเดลที่คุ้มสุดให้ตามความยากของคำถาม เปลี่ยนเองได้ที่ปุ่มชื่อโมเดล</p>
+      sheet('เริ่มใช้ Kyber', `<div class="sheet-form"><p class="sheet-msg"><b>1. เลือกโมเดลหรือปล่อย Auto</b><br>Auto เลือกโมเดลที่คุ้มสุดให้ตามความยากของคำถาม เปลี่ยนเองได้ที่ปุ่มชื่อโมเดล</p>
         <p class="sheet-msg"><b>2. พิมพ์ / เพื่อใช้ Skill</b><br>เช่น /translator /summarizer /code-reviewer ให้ AI ทำงานตามบทบาทนั้น</p>
         <p class="sheet-msg"><b>3. โหมด Code</b><br>ให้ AI สร้างและแก้ไฟล์จริง รันดูผลได้ทันที เปิดจากเมนู Code</p>
-        <p class="sheet-msg"><b>คุณใช้ AstraCode เพื่ออะไร?</b><br><small class="muted">เลือกแล้วเราเปิด Skill ที่เหมาะให้ (ปิดได้ทีหลังที่ปุ่ม +)</small></p>
+        <p class="sheet-msg"><b>คุณใช้ Kyber เพื่ออะไร?</b><br><small class="muted">เลือกแล้วเราเปิด Skill ที่เหมาะให้ (ปิดได้ทีหลังที่ปุ่ม +)</small></p>
         <div class="sheet-acts" style="flex-wrap:wrap"><button type="button" class="btn out" data-goal="code">เขียนโค้ด</button><button type="button" class="btn out" data-goal="work">งานเอกสาร/อีเมล</button><button type="button" class="btn out" data-goal="study">เรียน/หาความรู้</button><button type="button" class="btn blue x">ข้ามไปก่อน</button></div></div>`, d => d.querySelectorAll('[data-goal]').forEach(b => b.onclick = async () => {
         const want = { code: ['code-reviewer', 'refactor-clean', 'sql-helper'], work: ['email-writer', 'summarizer', 'thai-pro-writer'], study: ['study-tutor', 'explain-simple', 'translator'] }[b.dataset.goal], all = await loadSkills();
         chat.skills = want.map(n => all.find(s => s.name === n)?.id).filter(Boolean); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI();
@@ -722,7 +722,7 @@ async function remember(m, btn) {
   try { await api('/memories', { method: 'POST', body: { text } }); btn.textContent = 'จำแล้ว ✓'; toast('บันทึกความจำแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); }
 }
 function exportMenu() {
-  const title = chat.chats.find(c => c.id === chat.id)?.title || 'แชต AstraCode';
+  const title = chat.chats.find(c => c.id === chat.id)?.title || 'แชต Kyber';
   if (!chat.msgs.length) return toast('ยังไม่มีข้อความให้ส่งออก');
   sheet('ส่งออกแชต', optHTML('md', ic('filetext') + 'Markdown (.md)', 'บันทึกเป็นไฟล์ข้อความพร้อมจัดรูปแบบ')
     + optHTML('doc', ic('filetext') + 'Word (.doc)', 'เปิดแก้ต่อใน Word / Google Docs ได้ พร้อมหัวข้อ ตาราง และโค้ด')
@@ -825,7 +825,7 @@ async function readFile(f) {
     if (!text.replace(/--- หน้า \d+ ---/g, '').trim()) throw new Error('PDF นี้เป็นภาพสแกน ไม่มีข้อความให้อ่าน ลองแคปหน้าจอแล้วแนบเป็นรูปแทน');
   } else if (/\.(apk|aab|xapk|apks)$/.test(n)) { // APK: แปลง Manifest/layout/dex ให้อ่านได้ แล้วเก็บแบบ zip ให้ AI เปิดทีละไฟล์ (ไม่ส่งตัว APK ขึ้นเซิร์ฟเวอร์)
     const { files, bin } = await apkFiles(f), list = Object.keys(files);
-    const head = `[apk: ${f.name} · ${list.length} ไฟล์ที่อ่านได้ (Manifest/resource แปลงจากไบนารีแล้ว, dex เป็นรายชื่อคลาส)${bin.length ? `, ไฟล์ไบนารีอื่น ${bin.length} ไฟล์: ${bin.slice(0, 40).join(', ')}${bin.length > 40 ? '…' : ''}` : ''}] · แก้แล้วแพ็กกลับ/เซ็น APK ต้องทำในแอป AstraCode บนคอม (Agent มีเครื่องมือ android_tools)`;
+    const head = `[apk: ${f.name} · ${list.length} ไฟล์ที่อ่านได้ (Manifest/resource แปลงจากไบนารีแล้ว, dex เป็นรายชื่อคลาส)${bin.length ? `, ไฟล์ไบนารีอื่น ${bin.length} ไฟล์: ${bin.slice(0, 40).join(', ')}${bin.length > 40 ? '…' : ''}` : ''}] · แก้แล้วแพ็กกลับ/เซ็น APK ต้องทำในแอป Kyber บนคอม (Agent มีเครื่องมือ android_tools)`;
     let id = null;
     try { const zz = new JSZip(); for (const p of list) zz.file(p, files[p]); const fd = new FormData(); fd.append('zip', new File([await zz.generateAsync({ type: 'blob', compression: 'DEFLATE' })], f.name + '.zip')); fd.append('files', JSON.stringify(files)); id = (await api('/zipref', { method: 'POST', body: fd })).id; }
     catch (x) { if (!/R2|501/.test(x.message)) throw x; }
@@ -919,7 +919,7 @@ async function zipFiles(i, btn) {
     all.set(hit || f.path, f.text);
   }
   for (const [p, t] of all) if (t != null) z.file(p, t);
-  const roots = new Set([...all.keys()].map(p => p.split('/')[0])), name = base ? base.name.replace(/\.zip$/i, '') + '_edited.zip' : (roots.size === 1 && [...all.keys()][0].includes('/') ? [...roots][0] : 'astracode-files') + '.zip';
+  const roots = new Set([...all.keys()].map(p => p.split('/')[0])), name = base ? base.name.replace(/\.zip$/i, '') + '_edited.zip' : (roots.size === 1 && [...all.keys()][0].includes('/') ? [...roots][0] : 'kyber-files') + '.zip';
   const a = document.createElement('a'); a.href = URL.createObjectURL(await z.generateAsync({ type: 'blob' })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   const o = btn.innerHTML; btn.innerHTML = ic('check', 'sm') + ' ดาวน์โหลดแล้ว'; setTimeout(() => btn.innerHTML = o, 1500);
   if (base?.cut || base?.bin) toast((base.cut ? 'zip เดิมใหญ่เกินที่แนบได้ บางไฟล์ไม่อยู่ใน zip นี้ · ' : '') + (base.bin ? 'รูปและไฟล์ที่ไม่ใช่ข้อความไม่อยู่ใน zip นี้ คัดลอกจาก zip เดิมมาใส่' : ''), 'warn');
@@ -959,7 +959,7 @@ function renderAll() {
   const box = $('#msgs'); if (!box) return;
   box.innerHTML = chat.msgs.length ? chat.msgs.map((m, i) => msgHTML(m, i)).join('')
     : `<div class="empty"><div class="stat">${esc(HELLO[Math.floor(Math.random() * HELLO.length)])}</div><div>${chat.spaceId ? `New chat in <b>${esc(chat.spaceName)}</b> · <button type="button" class="linkish" data-nospace>no workspace</button>` : 'Pick a model below and start typing'}</div>
-       <div class="mode-seg sm" role="group" aria-label="Mode"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a><a href="/chat?mode=cowork">${ic('layers', 'sm')}Cowork</a></div>
+       <div class="mode-seg sm" role="group" aria-label="Mode"><span class="on" aria-current="page">${ic('msg', 'sm')}Chat</span><a href="/code">${ic('code', 'sm')}Code</a><a href="/chat?mode=cowork">${ic('layers', 'sm')}Kyber Harness</a></div>
        <div class="chips">${SUGGEST.map(([icon, s], i) => `<button data-s="${i}">${ic(icon, 'sm')} ${s}</button>`).join('')}</div></div>`;
   box.scrollTop = box.scrollHeight; head(); renderRich(box);
 }
@@ -1144,10 +1144,10 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   loadSide();
   if (!streamErr && !aborted && !empty && pcOn() && (pcCalls(ai.content).length || fileBlocks(ai.content).length)) return pcAct(ai);
   if (!streamErr && !aborted && !empty && parseTools(ai.content).py.length) return pyRun(ai); // AI เรียก run_python: รันในเบราว์เซอร์แล้วส่งผลกลับให้ทำต่อ
-  if (!streamErr && !aborted && Date.now() - t0 > 15000) PCD?.notify('AstraCode ตอบเสร็จแล้ว', ai.content.replace(/[#*`>\[\]]/g, '').slice(0, 140)); // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่นระหว่างรอ
+  if (!streamErr && !aborted && Date.now() - t0 > 15000) PCD?.notify('Kyber ตอบเสร็จแล้ว', ai.content.replace(/[#*`>\[\]]/g, '').slice(0, 140)); // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่นระหว่างรอ
 }
 
-// ---------- ใช้คอมเครื่องนี้ (แอป AstraCode Desktop) ----------
+// ---------- ใช้คอมเครื่องนี้ (แอป Kyber Desktop) ----------
 // AI เขียนบรรทัด LIST / READ / RUN / MCP หรือบล็อก file=… → หน้าเว็บในแอปทำในเครื่อง (เฉพาะโฟลเดอร์ที่ผู้ใช้เลือก) แล้วส่งผลกลับเป็นข้อความถัดไปให้ AI ทำต่อ
 // RUN และการตั้งค่า MCP ถามอนุญาตด้วยหน้าต่างของ Windows (แอปเป็นคนถาม หน้าเว็บกดแทนไม่ได้) · เขียนไฟล์ถามในหน้านี้ก่อน
 const PCD = window.astraDesktop?.fs ? window.astraDesktop : null;
@@ -1361,7 +1361,7 @@ document.addEventListener('click', async e => {
   if (b.dataset.aggit != null) {
     const show = async (action, title) => { const r = await PCD.agent.git('chat', action).catch(x => ({ code: 1, out: x.message })); sheet(title, `<pre class="gitout">${diffPre(r.out.replace(/^\+(?!\+)/gm, '+ ').replace(/^-(?!-)/gm, '- ') || '(ไม่มีอะไร)')}</pre><div class="row"><button class="btn out sm" data-g="diff">ดู diff</button><button class="btn blue sm" data-g="commit">Commit ทั้งหมด</button></div>`, (d, close) => d.querySelectorAll('[data-g]').forEach(x => x.onclick = async () => {
       if (x.dataset.g === 'diff') { close(); return show('diff', 'git diff'); }
-      const msg = await promptSheet('ข้อความ commit', (chat.msgs.findLast(m => m.role === 'user')?.content || 'AstraCode Agent').split('\n')[0].slice(0, 70), { title: 'Commit', ok: 'Commit' }); if (!msg) return;
+      const msg = await promptSheet('ข้อความ commit', (chat.msgs.findLast(m => m.role === 'user')?.content || 'Kyber Agent').split('\n')[0].slice(0, 70), { title: 'Commit', ok: 'Commit' }); if (!msg) return;
       const r2 = await PCD.agent.git('chat', 'commit', msg); toast(r2.code ? 'commit ไม่สำเร็จ: ' + r2.out.slice(0, 120) : 'commit แล้ว', r2.code ? 'bad' : 'ok'); close();
     })); };
     return show('status', 'Git ของโฟลเดอร์');
@@ -1623,7 +1623,7 @@ document.addEventListener('click', async e => {
   const b = e.target.closest?.('[data-unmem]'); if (!b) return;
   try { await api('/memories/' + b.dataset.unmem, { method: 'DELETE' }); b.closest('.mem-saved').innerHTML = `${ic('x', 'sm')}<span>ยกเลิกความจำนี้แล้ว</span>`; toast('ลบความจำแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); }
 });
-// ---------- ไฟล์ในบัญชี (แบบ Cowork): Excel/Word ที่ AI สร้างหรือแก้ เปิดข้างแชตและอัปเดตสดทุกครั้งที่ AI แก้ [[uf:id|ver|ชื่อ]] ----------
+// ---------- ไฟล์ในบัญชี (แบบ Kyber Harness): Excel/Word ที่ AI สร้างหรือแก้ เปิดข้างแชตและอัปเดตสดทุกครั้งที่ AI แก้ [[uf:id|ver|ชื่อ]] ----------
 ICONS.sheet = '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/>';
 const UF_RE = /\[\[uf:(\d+)\|(\d+)\|([^\]\n]{0,120})\]\]/g;
 const ufKind = n => /\.(xlsx|xlsm|xls|ods|csv)$/i.test(n) ? 'sheet' : 'doc';
@@ -1834,7 +1834,7 @@ async function mdPdf(src, name, raw = false) {
   return raw ? job.outputPdf('arraybuffer') : job.save();
 }
 
-// ---------- โหมดงาน (แบบ Cowork): สั่งงานใหญ่ครั้งเดียว AI วางแผน (checklist) แล้วทำเองจนจบบนเซิร์ฟเวอร์ แม้ปิดหน้าเว็บ · ผลงานอยู่ใน "โฟลเดอร์งาน" ----------
+// ---------- โหมดงาน (แบบ Kyber Harness): สั่งงานใหญ่ครั้งเดียว AI วางแผน (checklist) แล้วทำเองจนจบบนเซิร์ฟเวอร์ แม้ปิดหน้าเว็บ · ผลงานอยู่ใน "โฟลเดอร์งาน" ----------
 const isTask = () => !!(chat.taskNew && !chat.id) || !!chat.chats?.find(c => c.id === chat.id)?.task || chat.taskId === chat.id && !!chat.id;
 const taskTodoHTML = m => m.todos?.length ? `<div class="task-todo"><b>${ic('check', 'sm')} แผนงาน · ${m.todos.filter(x => x.status === 'completed').length}/${m.todos.length}</b>${m.todos.map(x => `<div class="tt ${x.status}">${x.status === 'completed' ? '✓' : x.status === 'in_progress' ? '●' : '○'} ${esc(x.content)}</div>`).join('')}</div>` : '';
 const TASK_TPL = [
@@ -1890,7 +1890,7 @@ function videoSheet() {
     const box = d.querySelector('#vsf'), stop = () => clearTimeout(timer);
     const card = v => `<div class="vid-item">${v.url ? `<video src="${v.url}" controls playsinline preload="metadata" class="${v.aspect === '9:16' ? 'tall' : ''}"></video>` : `<div class="vid-wait ${v.status}">${v.status === 'failed' ? ic('x') + ' สร้างไม่สำเร็จ (คืนเงินแล้ว)' : '<span class="cw-spin"></span> กำลังสร้าง… ประมาณ 1–5 นาที ปิดหน้านี้ได้'}</div>`}
       <small class="muted">${esc(v.prompt.slice(0, 140))} · ${v.duration} วินาที · ${v.aspect} · ฿${v.charged} · ${when(v.created_at)}</small>
-      <div class="row">${v.url ? `<a class="btn out sm" href="${v.url}" download="astracode-video-${v.id}.mp4">${ic('download', 'sm')} ดาวน์โหลด</a>` : ''}${v.status === 'done' || v.status === 'failed' ? `<button type="button" class="btn out sm" data-vdel="${v.id}">${ic('trash', 'sm')}</button>` : ''}</div></div>`;
+      <div class="row">${v.url ? `<a class="btn out sm" href="${v.url}" download="kyber-video-${v.id}.mp4">${ic('download', 'sm')} ดาวน์โหลด</a>` : ''}${v.status === 'done' || v.status === 'failed' ? `<button type="button" class="btn out sm" data-vdel="${v.id}">${ic('trash', 'sm')}</button>` : ''}</div></div>`;
     const draw = async () => {
       if (!box.isConnected) return stop();
       const r = await api('/videos').catch(x => ({ error: x.message }));

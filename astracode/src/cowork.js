@@ -1,4 +1,4 @@
-// ---------- Cowork (แบบ Claude Cowork): งานออฟฟิศที่ AI ทำเองจนจบในเครื่องเสมือนบนคลาวด์ ----------
+// ---------- Kyber Harness (แบบ Claude Cowork): งานออฟฟิศที่ AI ทำเองจนจบในเครื่องเสมือนบนคลาวด์ ----------
 // งาน 1 งาน = Durable Object AgentBox 'cw:<id>' + เครื่องเสมือน 1 เครื่อง (Chromium, Python, ไฟล์ออฟฟิศ) · คุยต่อได้หลายข้อความ
 // ไฟล์งานเก็บใน R2 (SLIPS) cowork/<user>/<task>/<path> · โมเดลล็อก Claude Sonnet 5.5 Eco · ใช้ได้เฉพาะแพลนที่เปิด cowork (Pro ขึ้นไป)
 // ค่าโมเดล: เครื่องเรียก /v1 ด้วย key ชั่วคราว "Cloud Agent" ของลูกค้า (หักลิมิตแพลน) · key ถูกเพิกถอนเมื่อจบแต่ละรอบ
@@ -48,7 +48,7 @@ export async function finishCowork(env, id, res) {
     env.DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=?').bind(t.key_id || 0),
   ]);
   await appendEvents(env, id, [{ type: 'end', status: res.status, error: res.error || null, t: Date.now() }]);
-  try { const { sendPush } = await import('./push.js'); await sendPush(env, t.user_id, { title: 'Cowork ' + (res.status === 'done' ? 'เสร็จแล้ว' : 'หยุดแล้ว') + ' · ' + t.title.slice(0, 40), body: String(res.final || res.error || '').slice(0, 140), url: '/chat?mode=cowork&task=' + id }); } catch { /* ไม่ได้เปิดแจ้งเตือน */ }
+  try { const { sendPush } = await import('./push.js'); await sendPush(env, t.user_id, { title: 'Kyber Harness ' + (res.status === 'done' ? 'เสร็จแล้ว' : 'หยุดแล้ว') + ' · ' + t.title.slice(0, 40), body: String(res.final || res.error || '').slice(0, 140), url: '/chat?mode=cowork&task=' + id }); } catch { /* ไม่ได้เปิดแจ้งเตือน */ }
 }
 
 // เริ่มรอบใหม่ (งานใหม่ หรือข้อความต่อ) ในเครื่องของงานนั้น
@@ -62,7 +62,7 @@ async function startTurn(env, u, t, prompt, m, follow) {
   const files = [];
   let total = 0; // ส่งไฟล์ไปวางใหม่ได้ไม่เกิน ~25MB ต่อรอบ (เกินนี้ใช้ไฟล์ที่ยังอยู่ในเครื่อง)
   if (env.SLIPS) for (const f of JSON.parse(t.files || '[]').slice(0, CW_FILES)) { if ((total += f.size || 0) > CW_IN_MAX) break; const o = await env.SLIPS.get(r2key(t, f.path)); if (!o) continue; const buf = await o.arrayBuffer(); files.push({ path: f.path, content: /^(text|application\/json)/.test(mimeOf(f.path)) ? new TextDecoder().decode(buf) : 'data:application/octet-stream;base64,' + toB64(buf) }); }
-  const skills = (await env.DB.prepare('SELECT name, content FROM skills WHERE user_id=? AND enabled=1 ORDER BY id LIMIT 20').bind(u.id).all().catch(() => ({ results: [] }))).results.map(s => `## ${s.name}\n${s.content}`).join('\n\n').slice(0, 30000); // Skills ของลูกค้าใช้ใน Cowork ด้วย
+  const skills = (await env.DB.prepare('SELECT name, content FROM skills WHERE user_id=? AND enabled=1 ORDER BY id LIMIT 20').bind(u.id).all().catch(() => ({ results: [] }))).results.map(s => `## ${s.name}\n${s.content}`).join('\n\n').slice(0, 30000); // Skills ของลูกค้าใช้ใน Kyber Harness ด้วย
   const stub = env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id));
   const r = await stub.fetch('https://box/start', { method: 'POST', body: JSON.stringify({ id: t.id, kind: 'cowork', run: { cowork: true, follow, site: siteUrl(env), key, model: slug(m), prompt, files, skills, history: hist.slice(-30), maxRounds: 120, effort: null } }) });
   if (!r.ok) throw new Error((await r.text()).slice(0, 300));
@@ -74,11 +74,11 @@ export async function coworkApi(req, env, u, path, M, url) {
   if (path === '/api/cowork' && M === 'GET') return json((await DB.prepare('SELECT id, title, status, updated_at FROM cowork_tasks WHERE user_id=? ORDER BY updated_at DESC LIMIT 60').bind(u.id).all()).results);
   const gate = async () => {
     const plan = await planOf(env, u);
-    if (!plan?.cowork) return err('Cowork ใช้ได้กับแพลน Pro ขึ้นไป', 402);
-    if (!env.AGENTBOX) return err('Cowork บนคลาวด์ยังไม่เปิดในระบบ (รอเครื่องเสมือน) · ใช้ในแอป Desktop ได้', 503);
+    if (!plan?.cowork) return err('Kyber Harness ใช้ได้กับแพลน Pro ขึ้นไป', 402);
+    if (!env.AGENTBOX) return err('Kyber Harness บนคลาวด์ยังไม่เปิดในระบบ (รอเครื่องเสมือน) · ใช้ในแอป Desktop ได้', 503);
     if (!env.SLIPS) return err('ระบบเก็บไฟล์ (R2) ยังไม่เปิด', 503);
-    if ((await DB.prepare("SELECT COUNT(*) n FROM cowork_tasks WHERE user_id=? AND status='running'").bind(u.id).first()).n) return err('มีงาน Cowork ทำอยู่แล้ว รอให้เสร็จหรือกดหยุดก่อน', 429);
-    if ((await DB.prepare("SELECT COUNT(*) n FROM cowork_tasks WHERE status='running' AND updated_at>?").bind(Date.now() - CW_MAX_MS - 120e3).first()).n >= CW_RUNNING) return err('เครื่อง Cowork เต็ม ลองใหม่ในไม่กี่นาที', 503);
+    if ((await DB.prepare("SELECT COUNT(*) n FROM cowork_tasks WHERE user_id=? AND status='running'").bind(u.id).first()).n) return err('มีงาน Kyber Harness ทำอยู่แล้ว รอให้เสร็จหรือกดหยุดก่อน', 429);
+    if ((await DB.prepare("SELECT COUNT(*) n FROM cowork_tasks WHERE status='running' AND updated_at>?").bind(Date.now() - CW_MAX_MS - 120e3).first()).n >= CW_RUNNING) return err('เครื่อง Kyber Harness เต็ม ลองใหม่ในไม่กี่นาที', 503);
     const m = await coworkModel(env); if (!m) return err('ไม่พบโมเดล ' + COWORK_MODEL, 503);
     return m;
   };
@@ -134,12 +134,12 @@ export async function coworkApi(req, env, u, path, M, url) {
   }
   return err('not found', 404);
 }
-// เปิดงาน Cowork จากระบบ (งานตามเวลา) · ตรวจสิทธิ์แบบเดียวกับกดเอง
+// เปิดงาน Kyber Harness จากระบบ (งานตามเวลา) · ตรวจสิทธิ์แบบเดียวกับกดเอง
 export async function coworkStart(env, u, prompt) {
   await ensureCowork(env);
-  const plan = await planOf(env, u); if (!plan?.cowork) throw new Error('แพลนไม่รองรับ Cowork');
-  if (!env.AGENTBOX || !env.SLIPS) throw new Error('Cowork บนคลาวด์ยังไม่เปิดในระบบ');
-  if ((await env.DB.prepare("SELECT COUNT(*) n FROM cowork_tasks WHERE user_id=? AND status='running'").bind(u.id).first()).n) throw new Error('มีงาน Cowork ทำอยู่แล้ว');
+  const plan = await planOf(env, u); if (!plan?.cowork) throw new Error('แพลนไม่รองรับ Kyber Harness');
+  if (!env.AGENTBOX || !env.SLIPS) throw new Error('Kyber Harness บนคลาวด์ยังไม่เปิดในระบบ');
+  if ((await env.DB.prepare("SELECT COUNT(*) n FROM cowork_tasks WHERE user_id=? AND status='running'").bind(u.id).first()).n) throw new Error('มีงาน Kyber Harness ทำอยู่แล้ว');
   const m = await coworkModel(env); if (!m) throw new Error('ไม่พบโมเดล ' + COWORK_MODEL);
   const now = Date.now(), t = await env.DB.prepare("INSERT INTO cowork_tasks (user_id,title,status,events,files,history,created_at,updated_at) VALUES (?,?,'idle','[]','[]','[]',?,?) RETURNING *").bind(u.id, prompt.replace(/\s+/g, ' ').slice(0, 80), now, now).first();
   try { await startTurn(env, u, t, prompt.slice(0, 20000), m, false); return t.id; }

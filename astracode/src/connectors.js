@@ -84,7 +84,7 @@ const wellKnown = (base, name) => { const u = new URL(base), p = u.pathname.repl
 export async function discover(url) {
   // 1) ถามเซิร์ฟเวอร์ตรงๆ: 401 + WWW-Authenticate บอกที่อยู่ข้อมูล protected resource
   let meta = null, hint = null;
-  const probe = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'AstraCode', version: '1.0.0' } } }), redirect: 'error', signal: AbortSignal.timeout(10000) }).catch(() => null);
+  const probe = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'Kyber', version: '1.0.0' } } }), redirect: 'error', signal: AbortSignal.timeout(10000) }).catch(() => null);
   if (probe && probe.ok) return { open: true }; // ไม่ต้องล็อกอิน
   const wa = probe?.headers.get('www-authenticate') || '';
   hint = wa.match(/resource_metadata="([^"]+)"/i)?.[1] || null;
@@ -103,7 +103,7 @@ async function clientFor(env, d, redirect, conn) {
   const key = d.issuer || d.as.token_endpoint, hit = await env.DB.prepare('SELECT * FROM oauth_clients WHERE issuer=? AND redirect=?').bind(key, redirect).first();
   if (hit) return { id: hit.client_id, secret: hit.client_secret_enc ? await unseal(env, hit.client_secret_enc) : null };
   if (!d.as.registration_endpoint) throw userErr('ผู้ให้บริการนี้ไม่เปิดให้แอปลงทะเบียนเอง ให้แอดมินใส่ Client ID ในหลังบ้าน หรือวาง token แทน');
-  const r = await fetch(d.as.registration_endpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ client_name: 'AstraCode', redirect_uris: [redirect], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none', client_uri: new URL(redirect).origin }), redirect: 'error', signal: AbortSignal.timeout(10000) }).catch(() => null);
+  const r = await fetch(d.as.registration_endpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ client_name: 'Kyber', redirect_uris: [redirect], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none', client_uri: new URL(redirect).origin }), redirect: 'error', signal: AbortSignal.timeout(10000) }).catch(() => null);
   const c = r?.ok ? await r.json().catch(() => null) : null;
   if (!c?.client_id) throw userErr(`ลงทะเบียนแอปกับผู้ให้บริการไม่สำเร็จ${r ? ` (HTTP ${r.status})` : ''} ลองใหม่ภายหลัง หรือวาง token แทน`, 502);
   await env.DB.prepare('INSERT OR REPLACE INTO oauth_clients (issuer,redirect,client_id,client_secret_enc,created_at) VALUES (?,?,?,?,?)').bind(key, redirect, c.client_id, c.client_secret ? await seal(env, c.client_secret) : null, Date.now()).run();

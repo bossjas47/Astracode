@@ -1,4 +1,4 @@
-// เบราว์เซอร์ของ Cowork บนคลาวด์ (Chromium ในเครื่องเสมือน): AI เปิดเว็บ อ่าน กด พิมพ์ และจับภาพหน้าจอได้
+// เบราว์เซอร์ของ Kyber Harness บนคลาวด์ (Chromium ในเครื่องเสมือน): AI เปิดเว็บ อ่าน กด พิมพ์ และจับภาพหน้าจอได้
 // เครื่องแยกต่องาน ทิ้งหลังจบ · ไม่มีคุกกี้/รหัสผ่านของลูกค้า (ล็อกอินเว็บที่ต้องใช้บัญชีลูกค้าไม่ได้ ต้องให้ลูกค้าบอกข้อมูลเอง)
 const fs = require('fs/promises');
 const path = require('path');
@@ -13,7 +13,7 @@ async function ensure() {
   if (page && !page.isClosed()) return page;
   const { chromium } = require('playwright-core');
   br ||= await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-  const ctx = await br.newContext({ viewport: { width: 1280, height: 860 }, locale: 'th-TH', userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36 AstraCodeCowork' });
+  const ctx = await br.newContext({ viewport: { width: 1280, height: 860 }, locale: 'th-TH', userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36 KyberCowork' });
   await ctx.route('**/*', route => {
     const u = route.request().url();
     if (/^(data:|blob:|about:)/.test(u)) return route.request().isNavigationRequest() ? route.abort('blockedbyclient') : route.continue();

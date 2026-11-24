@@ -8,7 +8,7 @@ import { sendPush } from './push.js';
 export const SCHED_MAX = 3, SCHED_FRESH = 20; // ข้อความในแชตเกิน 20 = เริ่มแชตใหม่ (context ไม่โตไม่สิ้นสุด)
 export const SCHED_TABLE = 'CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, prompt TEXT NOT NULL, model_id INTEGER NOT NULL, hour INTEGER NOT NULL, days TEXT NOT NULL DEFAULT \'daily\', email INTEGER NOT NULL DEFAULT 0, search INTEGER NOT NULL DEFAULT 1, chat_id INTEGER, last_run INTEGER, last_status TEXT, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL)';
 let tableDone = null;
-const ensureTable = env => tableDone ||= env.DB.prepare(SCHED_TABLE).run().then(() => env.DB.prepare('ALTER TABLE schedules ADD COLUMN cowork INTEGER').run().catch(() => {})).catch(e => { tableDone = null; throw e; }); // cowork = 1: เปิดงาน Cowork ใหม่ตามเวลา
+const ensureTable = env => tableDone ||= env.DB.prepare(SCHED_TABLE).run().then(() => env.DB.prepare('ALTER TABLE schedules ADD COLUMN cowork INTEGER').run().catch(() => {})).catch(e => { tableDone = null; throw e; }); // cowork = 1: เปิดงาน Kyber Harness ใหม่ตามเวลา
 const DAYS = ['daily', 'weekdays', 'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const schedPaid = plan => plan?.price > 0 && !plan.once;
 // ถึงรอบหรือยัง (เวลาไทย): ชั่วโมงตรง + วันตรง + ยังไม่รันใน 20 ชม.
@@ -27,11 +27,11 @@ function clean(b) {
 
 // รันหนึ่งงาน: ส่งคำสั่งเข้าแชตเหมือนผู้ใช้พิมพ์ แล้วรออ่านสตรีมจนจบ
 export async function runSchedule(env, s, u) {
-  if (s.cowork) { // งาน Cowork ตามเวลา: เปิดงานใหม่ในเครื่องเสมือน (แจ้งเตือนเมื่อเสร็จจาก finishCowork)
+  if (s.cowork) { // งาน Kyber Harness ตามเวลา: เปิดงานใหม่ในเครื่องเสมือน (แจ้งเตือนเมื่อเสร็จจาก finishCowork)
     const { coworkStart } = await import('./cowork.js'); let status = 'ok', id = null;
-    try { id = await coworkStart(env, u, `[งาน Cowork ตามเวลา: ${s.title}]\n${s.prompt}`); } catch (e) { status = String(e.message).slice(0, 200); }
+    try { id = await coworkStart(env, u, `[งาน Kyber Harness ตามเวลา: ${s.title}]\n${s.prompt}`); } catch (e) { status = String(e.message).slice(0, 200); }
     await env.DB.prepare('UPDATE schedules SET last_run=?, last_status=? WHERE id=?').bind(Date.now(), status, s.id).run();
-    if (status !== 'ok') await sendPush(env, u.id, { title: '⏰ ' + s.title, body: 'เริ่มงาน Cowork ไม่สำเร็จ: ' + status, url: '/chat?mode=cowork' });
+    if (status !== 'ok') await sendPush(env, u.id, { title: '⏰ ' + s.title, body: 'เริ่มงาน Kyber Harness ไม่สำเร็จ: ' + status, url: '/chat?mode=cowork' });
     return { status, task_id: id };
   }
   let cid = s.chat_id;
@@ -61,7 +61,7 @@ export async function runSchedule(env, s, u) {
   const url = cid ? '/chat?id=' + cid : '/chat';
   if (status === 'ok') {
     await sendPush(env, u.id, { title: '⏰ ' + s.title, body: text.replace(/\[\[[^\]]*\]\]/g, '').replace(/[#*`>]/g, '').trim().slice(0, 200) || 'เสร็จแล้ว', url });
-    if (s.email) await mail(env, u.email, 'AstraCode: ' + s.title, mailBox(s.title, esc(text.replace(/\[\[[^\]]*\]\]/g, '').trim().slice(0, 20000)).replace(/\n/g, '<br>') + `<br><br><a href="${siteUrl(env)}${url}">เปิดในแชต</a>`));
+    if (s.email) await mail(env, u.email, 'Kyber: ' + s.title, mailBox(s.title, esc(text.replace(/\[\[[^\]]*\]\]/g, '').trim().slice(0, 20000)).replace(/\n/g, '<br>') + `<br><br><a href="${siteUrl(env)}${url}">เปิดในแชต</a>`));
   }
   return { status, chat_id: cid };
 }
@@ -87,7 +87,7 @@ export async function schedApi(req, env, u, path, M) {
   if (!schedPaid(plan)) return err('งานตามเวลาใช้ได้กับแพลนที่ชำระเงิน', 403);
   if (path === '/api/schedules' && M === 'POST') {
     let v; try { v = clean(await req.json()); } catch (e) { return err(e.message); }
-    if (v.cowork && !plan?.cowork) return err('งาน Cowork ตามเวลาใช้ได้กับแพลน Pro ขึ้นไป', 403);
+    if (v.cowork && !plan?.cowork) return err('งาน Kyber Harness ตามเวลาใช้ได้กับแพลน Pro ขึ้นไป', 403);
     if ((await mine()).length >= SCHED_MAX) return err(`ตั้งได้สูงสุด ${SCHED_MAX} งาน`, 403);
     const row = await DB.prepare('INSERT INTO schedules (user_id,title,prompt,model_id,hour,days,email,search,created_at,cowork) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING *').bind(u.id, v.title, v.prompt, v.model_id, v.hour, v.days, v.email, v.search, Date.now(), v.cowork).first();
     return json(row);
@@ -102,7 +102,7 @@ export async function schedApi(req, env, u, path, M) {
   if (M === 'PUT') {
     const b = await req.json(); if (Object.keys(b).length === 1 && 'active' in b) { await DB.prepare('UPDATE schedules SET active=? WHERE id=?').bind(b.active ? 1 : 0, s.id).run(); return json({ ok: true }); }
     let v; try { v = clean({ ...s, ...b }); } catch (e) { return err(e.message); }
-    if (v.cowork && !plan?.cowork) return err('งาน Cowork ตามเวลาใช้ได้กับแพลน Pro ขึ้นไป', 403);
+    if (v.cowork && !plan?.cowork) return err('งาน Kyber Harness ตามเวลาใช้ได้กับแพลน Pro ขึ้นไป', 403);
     await DB.prepare('UPDATE schedules SET title=?,prompt=?,model_id=?,hour=?,days=?,email=?,search=?,cowork=? WHERE id=?').bind(v.title, v.prompt, v.model_id, v.hour, v.days, v.email, v.search, v.cowork, s.id).run();
     return json({ ok: true });
   }

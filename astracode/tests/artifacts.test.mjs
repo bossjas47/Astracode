@@ -47,7 +47,7 @@ test('artifact: paid plan creates v1, update makes v2, share link is sandboxed +
   assert.match(sh0, /iframe src="\/a\/[A-Za-z0-9]+\/raw"/); assert.match(sh0, /รายงาน/); assert.match(sh0, /ทำแบบนี้ให้ฉัน/); assert.match(shell.headers.get('x-robots-tag'), /noindex/);
   const pub = await t.call('/a/' + sh.data.share_token + '/raw');
   const body = await pub.text();
-  assert.match(body, /v1/, 'locked to v1'); assert.match(body, /สร้างด้วย AstraCode/);
+  assert.match(body, /v1/, 'locked to v1'); assert.match(body, /สร้างด้วย Kyber/); // รีแบรนด์ AstraCode → Kyber
   assert.match(pub.headers.get('x-robots-tag'), /noindex/); assert.match(pub.headers.get('content-security-policy'), /sandbox/);
   assert.equal((await t.json('/api/gallery')).data.length, 0, 'not in the gallery unless chosen');
   await t.json('/api/artifacts/1/share', { method: 'POST', cookie: u.cookie, body: { on: true, gallery: true } });

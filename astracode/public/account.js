@@ -1,4 +1,4 @@
-// AstraCode: หน้าบัญชี (แพลน, Wallet, ชวนเพื่อน, ความจำ, ความปลอดภัย, ข้อมูลส่วนตัว)
+// Kyber: หน้าบัญชี (แพลน, Wallet, ชวนเพื่อน, ความจำ, ความปลอดภัย, ข้อมูลส่วนตัว)
 LIBS.qr = [CDN + 'qrcode-generator@1.4.4/qrcode.js', 'sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k'];
 const TX_KIND = { topup: 'เติมเงิน', coupon: 'คูปอง', referral: 'ชวนเพื่อน', plan: 'ซื้อแพลน', renew: 'ต่ออายุอัตโนมัติ', overflow: 'ใช้เกินลิมิต', api: 'API', admin: 'ปรับโดยแอดมิน' };
 const h3 = t => `<div class="acc-t">${t}</div>`;

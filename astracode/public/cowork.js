@@ -1,6 +1,6 @@
-// ---------- โหมด Cowork (แบบ Claude Cowork): สั่งงานออฟฟิศ AI ทำเองจนจบ ----------
+// ---------- โหมด Kyber Harness (แบบ Claude Cowork): สั่งงานออฟฟิศ AI ทำเองจนจบ ----------
 // เว็บ: รันในเครื่องเสมือนบนคลาวด์ (/api/cowork) · แอป Desktop: รันในเครื่องลูกค้า ในโฟลเดอร์ที่เลือก (astraDesktop.agent)
-// โมเดลล็อก Claude Sonnet 5.5 Eco ทั้งสองแบบ · ใช้ได้เฉพาะแพลนที่เปิด Cowork (Pro ขึ้นไป)
+// โมเดลล็อก Claude Sonnet 5.5 Eco ทั้งสองแบบ · ใช้ได้เฉพาะแพลนที่เปิด Kyber Harness (Pro ขึ้นไป)
 const CW_MODEL = 'Claude Sonnet 5.5 Eco';
 const CW = { id: null, tasks: [], ev: [], files: [], status: 'idle', title: '', total: 0, poll: 0, pending: [], local: !!(window.astraDesktop?.agent), folder: null, busy: false };
 const CW_TPL = [
@@ -31,13 +31,13 @@ function coworkSide() {
     <p class="muted cw-note">${ic('lock', 'sm')} ${CW.local ? 'งานรันในเครื่องนี้ ในโฟลเดอร์ที่คุณเลือก' : 'งานรันในเครื่องเสมือนส่วนตัวบนคลาวด์ ปิดเว็บได้ เสร็จแล้วแจ้งเตือน'}</p>`;
 }
 
-// ---------- หน้า Cowork ----------
+// ---------- หน้า Kyber Harness ----------
 async function coworkView(id) {
   const host = $('#cwmain'); if (!host) return;
   clearTimeout(CW.poll); CW.id = id ? (CW.local ? String(id) : +id) : null; CW.ev = []; CW.files = []; CW.total = 0; CW.status = 'idle'; CW.title = '';
   host.innerHTML = `<div class="cw ${CW.id ? '' : 'cw-empty'}">
     <section class="cw-conv">
-      <div class="bar cw-bar"><button class="menu-btn" id="cwmenu" aria-label="เมนู">${ic('menu')}</button><b id="cwtitle">${CW.id ? '' : 'Cowork'}</b><span class="cw-model">${ic('sparkles', 'sm')} ${CW_MODEL.replace('Claude ', '')}</span>${CW.local ? '' : `<button type="button" class="icon-btn sm ghost" id="cwsched" aria-label="ตั้งเวลาให้ทำซ้ำ" title="ตั้งเวลาให้ทำซ้ำ">${ic('clock', 'sm')}</button>`}<button type="button" class="icon-btn sm ghost cw-paneb" id="cwpane" aria-label="Progress และไฟล์">${ic('layers', 'sm')}</button></div>
+      <div class="bar cw-bar"><button class="menu-btn" id="cwmenu" aria-label="เมนู">${ic('menu')}</button><b id="cwtitle">${CW.id ? '' : 'Kyber Harness'}</b><span class="cw-model">${ic('sparkles', 'sm')} ${CW_MODEL.replace('Claude ', '')}</span>${CW.local ? '' : `<button type="button" class="icon-btn sm ghost" id="cwsched" aria-label="ตั้งเวลาให้ทำซ้ำ" title="ตั้งเวลาให้ทำซ้ำ">${ic('clock', 'sm')}</button>`}<button type="button" class="icon-btn sm ghost cw-paneb" id="cwpane" aria-label="Progress และไฟล์">${ic('layers', 'sm')}</button></div>
       <div class="cw-msgs" id="cwmsgs"></div>
       <form class="cw-box" id="cwform">
         <div class="cw-chips" id="cwchips"></div>
@@ -64,13 +64,13 @@ async function coworkView(id) {
   host.ondragover = e => { if (!CW.local) e.preventDefault(); }; host.ondrop = e => { if (CW.local) return; e.preventDefault(); cwAttach([...e.dataTransfer.files]); };
   cwLoadTasks();
   if (!cwOk()) return cwLocked();
-  if (!cwModel()) { $('#cwmsgs').innerHTML = `<div class="cw-hello"><h2>Cowork</h2><p class="muted">ยังไม่มีโมเดล ${CW_MODEL} ในแพลนของคุณ ติดต่อแอดมิน</p></div>`; return; }
+  if (!cwModel()) { $('#cwmsgs').innerHTML = `<div class="cw-hello"><h2>Kyber Harness</h2><p class="muted">ยังไม่มีโมเดล ${CW_MODEL} ในแพลนของคุณ ติดต่อแอดมิน</p></div>`; return; }
   if (!CW.id) return cwHello();
   if (CW.local) { const L = cwLocalTasks().find(x => x.id === CW.id); if (!L) return cwHello(); CW.ev = L.events || []; CW.files = L.files || []; CW.title = L.title; CW.status = L.status === 'running' ? 'error' : L.status; cwPaint(); return; }
   await cwFetch(true);
 }
 function cwLocked() {
-  $('#cwmsgs').innerHTML = `<div class="cw-hello"><div class="cw-logo">${ic('layers')}</div><h2>Cowork</h2><p>มอบงานให้ AI ทำเองจนจบ: อ่านไฟล์ ค้นเว็บ ใช้เบราว์เซอร์ รันโค้ด แล้วส่งผลเป็นไฟล์ Excel / Word / PowerPoint / PDF</p><p class="muted">ใช้ได้กับแพลน Pro ขึ้นไป</p><a class="btn blue" href="/plans">${ic('sparkles', 'sm')} อัปเกรดเพื่อใช้ Cowork</a></div>`;
+  $('#cwmsgs').innerHTML = `<div class="cw-hello"><div class="cw-logo">${ic('layers')}</div><h2>Kyber Harness</h2><p>มอบงานให้ AI ทำเองจนจบ: อ่านไฟล์ ค้นเว็บ ใช้เบราว์เซอร์ รันโค้ด แล้วส่งผลเป็นไฟล์ Excel / Word / PowerPoint / PDF</p><p class="muted">ใช้ได้กับแพลน Pro ขึ้นไป</p><a class="btn blue" href="/plans">${ic('sparkles', 'sm')} อัปเกรดเพื่อใช้ Kyber Harness</a></div>`;
   $('#cwform').hidden = true;
 }
 function cwHello() {
@@ -119,7 +119,7 @@ function cwBusy(on) { CW.busy = on; const b = $('#cwgo'); if (b) { b.innerHTML =
 // ---------- วาดบทสนทนา + แผงขวา ----------
 function cwPaint() {
   const box = $('#cwmsgs'); if (!box) return; const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
-  $('#cwtitle').textContent = CW.title || 'Cowork'; document.title = (CW.title || 'Cowork') + ' · ASTRACODE';
+  $('#cwtitle').textContent = CW.title || 'Kyber Harness'; document.title = (CW.title || 'Kyber Harness') + ' · Kyber';
   const res = new Map(CW.ev.filter(e => e.type === 'tool_result').map(e => [e.id, e])); let h = '';
   for (const e of CW.ev) {
     if (e.type === 'user') h += `<div class="msg user"><div class="b">${esc(e.text)}</div></div>`;
@@ -195,14 +195,14 @@ async function cwLocalSend(text) {
   catch (x) { flush(); L.events.push({ type: 'end', status: 'error', error: String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }); }
   cwSub?.(); cwSub = null; const last = L.events.at(-1); if (last?.live) delete last.live;
   L.status = L.events.at(-1)?.type === 'end' ? 'error' : 'done'; L.updated_at = Date.now(); L.events = L.events.slice(-400); cwSaveLocal(list);
-  CW.status = L.status; cwBusy(false); cwPaint(); cwLoadTasks(); D.notify?.('Cowork เสร็จแล้ว', L.title);
+  CW.status = L.status; cwBusy(false); cwPaint(); cwLoadTasks(); D.notify?.('Kyber Harness เสร็จแล้ว', L.title);
 }
 
-// ตั้งเวลาให้ Cowork ทำงานนี้ซ้ำ (เช่น ทุกวันจันทร์ 8 โมง ดึงยอดขายทำรายงานส่งอีเมล) · ใช้ระบบงานตามเวลาเดิม (cowork=1)
+// ตั้งเวลาให้ Kyber Harness ทำงานนี้ซ้ำ (เช่น ทุกวันจันทร์ 8 โมง ดึงยอดขายทำรายงานส่งอีเมล) · ใช้ระบบงานตามเวลาเดิม (cowork=1)
 function cwSchedule() {
   const first = CW.ev.find(e => e.type === 'user')?.text || $('#cwt').value.trim();
   const hours = Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === 8 ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('');
-  sheet('ตั้งเวลาให้ Cowork ทำซ้ำ', `<form class="sheet-form" id="cwsf">
+  sheet('ตั้งเวลาให้ Kyber Harness ทำซ้ำ', `<form class="sheet-form" id="cwsf">
     <label>ชื่องาน<input name="title" maxlength="60" required value="${esc((CW.title || first).slice(0, 60))}"></label>
     <label>คำสั่ง (AI ทำในเครื่องเสมือนใหม่ทุกรอบ)<textarea name="prompt" rows="5" maxlength="4000" required>${esc(first)}</textarea></label>
     <div class="row"><label style="flex:1">เวลา (ไทย)<select name="hour">${hours}</select></label>
@@ -222,7 +222,7 @@ async function cwAnswer(askId, text) {
 }
 document.addEventListener('submit', e => { const f = e.target.closest?.('[data-cwansf]'); if (!f) return; e.preventDefault(); cwAnswer(f.closest('[data-askid]')?.dataset.askid, f.querySelector('input').value.trim()); });
 
-// แอป Desktop (Windows): ให้ AI ควบคุมเมาส์/คีย์บอร์ด/ดูหน้าจอได้ในงาน Cowork (แอปถามยืนยันทุกครั้งที่เปิด)
+// แอป Desktop (Windows): ให้ AI ควบคุมเมาส์/คีย์บอร์ด/ดูหน้าจอได้ในงาน Kyber Harness (แอปถามยืนยันทุกครั้งที่เปิด)
 async function cwScreen() {
   const S = window.astraDesktop?.screen; if (!S) return;
   try { if (CW.screen) await S.off(); else await S.on(); CW.screen = !!await S.state(); toast(CW.screen ? 'เปิดให้ AI ควบคุมหน้าจอแล้ว (ใช้ได้เฉพาะ Windows)' : 'ปิดการควบคุมหน้าจอแล้ว', 'ok'); }

@@ -43,7 +43,7 @@ export async function sendPush(env, userId, msg) {
   try {
     await ensure(env);
     const subs = (await env.DB.prepare('SELECT * FROM push_subs WHERE user_id=?').bind(userId).all()).results; if (!subs.length) return 0;
-    const v = await vapid(env), body = JSON.stringify({ title: String(msg.title || 'AstraCode').slice(0, 80), body: String(msg.body || '').slice(0, 300), url: msg.url || '/' });
+    const v = await vapid(env), body = JSON.stringify({ title: String(msg.title || 'Kyber').slice(0, 80), body: String(msg.body || '').slice(0, 300), url: msg.url || '/' });
     let n = 0;
     await Promise.all(subs.map(async s => {
       const u = new URL(s.endpoint), now = Math.floor(Date.now() / 1000);
@@ -60,7 +60,7 @@ export async function sendPush(env, userId, msg) {
 export async function pushApi(req, env, u, path) {
   await ensure(env);
   if (path === '/api/push/key') return json({ key: (await vapid(env)).pub });
-  if (path === '/api/push/test' && req.method === 'POST') { const n = await sendPush(env, u.id, { title: 'AstraCode', body: 'ทดสอบแจ้งเตือน: ใช้ได้แล้ว', url: '/account' }); return n ? json({ ok: true, n }) : err('ส่งไม่ถึงอุปกรณ์ไหนเลย ลองปิดแล้วเปิดแจ้งเตือนใหม่', 502); }
+  if (path === '/api/push/test' && req.method === 'POST') { const n = await sendPush(env, u.id, { title: 'Kyber', body: 'ทดสอบแจ้งเตือน: ใช้ได้แล้ว', url: '/account' }); return n ? json({ ok: true, n }) : err('ส่งไม่ถึงอุปกรณ์ไหนเลย ลองปิดแล้วเปิดแจ้งเตือนใหม่', 502); }
   if (path !== '/api/push/sub') return err('not found', 404);
   const b = await req.json().catch(() => ({})), ep = String(b.endpoint || '');
   if (req.method === 'DELETE') { await env.DB.prepare('DELETE FROM push_subs WHERE user_id=? AND endpoint=?').bind(u.id, ep).run(); return json({ ok: true }); }

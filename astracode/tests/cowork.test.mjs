@@ -41,5 +41,5 @@ test('cowork: plan gate, Sonnet Eco only, files to R2, start in the sandbox, fin
   assert.equal(sc.status, 200, JSON.stringify(sc.data)); assert.equal(sc.data.cowork, 1);
   const run = await t.json(`/api/schedules/${sc.data.id}/run`, { method: 'POST', cookie: u.cookie });
   assert.equal(run.data.status, 'ok'); assert.ok(run.data.task_id > id);
-  assert.match(starts.at(-1).body.run.prompt, /งาน Cowork ตามเวลา: รายงานจันทร์/);
+  assert.match(starts.at(-1).body.run.prompt, /งาน Kyber Harness ตามเวลา: รายงานจันทร์/);
 });

@@ -23,19 +23,19 @@ export class AgentBox {
   async fetch(req) {
     const u = new URL(req.url);
     if (u.pathname === '/start') {
-      const j = await req.json(); await this.s.storage.delete('idle'); await this.s.storage.put('job', { id: j.id, kind: j.kind || 'project', t0: Date.now(), from: 0, err: 0 }); // kind: project = Agent บนคลาวด์ · cowork = งาน Cowork (คุยต่อได้)
+      const j = await req.json(); await this.s.storage.delete('idle'); await this.s.storage.put('job', { id: j.id, kind: j.kind || 'project', t0: Date.now(), from: 0, err: 0 }); // kind: project = Agent บนคลาวด์ · cowork = งาน Kyber Harness (คุยต่อได้)
       const r = await this.box('/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(j.run) });
       if (!r.ok) throw new Error('เริ่มงานในเครื่องไม่สำเร็จ: ' + (await r.text()).slice(0, 200));
       await this.s.storage.setAlarm(Date.now() + 3000); return new Response('ok');
     }
     if (u.pathname === '/stop') { await this.box('/stop', { method: 'POST' }).catch(() => {}); return new Response('ok'); }
-    if (u.pathname === '/answer') { const r = await this.box('/answer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await req.text() }).catch(() => null); return new Response(r?.ok ? 'ok' : 'gone', { status: r?.ok ? 200 : 404 }); } // Cowork: ลูกค้าตอบคำถามของ AI
+    if (u.pathname === '/answer') { const r = await this.box('/answer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await req.text() }).catch(() => null); return new Response(r?.ok ? 'ok' : 'gone', { status: r?.ok ? 200 : 404 }); } // Kyber Harness: ลูกค้าตอบคำถามของ AI
     return new Response('not found', { status: 404 });
   }
   // ทุก 4 วินาที: ดึงความคืบหน้าเข้า D1 (หน้าเว็บ/มือถือดูสด) · จบ/เกิน 30 นาที → เอาผลเขียนเข้าโปรเจกต์ แล้วปิดเครื่อง
   async alarm() {
     const job = await this.s.storage.get('job');
-    if (!job) { const idle = await this.s.storage.get('idle'); if (idle && Date.now() >= idle) { await this.s.storage.delete('idle'); try { this.s.container?.destroy?.(); } catch { /* ปิดอยู่แล้ว */ } } return; } // Cowork ว่างครบ 15 นาที: ปิดเครื่อง (ข้อความถัดไปเปิดใหม่จากไฟล์ใน R2)
+    if (!job) { const idle = await this.s.storage.get('idle'); if (idle && Date.now() >= idle) { await this.s.storage.delete('idle'); try { this.s.container?.destroy?.(); } catch { /* ปิดอยู่แล้ว */ } } return; } // Kyber Harness ว่างครบ 15 นาที: ปิดเครื่อง (ข้อความถัดไปเปิดใหม่จากไฟล์ใน R2)
     try {
       const d = await (await this.box('/events?from=' + job.from)).json();
       const cw = job.kind === 'cowork', done = cw ? finishCowork : finishJob;
@@ -45,7 +45,7 @@ export class AgentBox {
         if (over) await this.box('/stop', { method: 'POST' }).catch(() => {});
         const res = await (await this.box('/result')).json();
         await done(this.env, job.id, over ? { ...res, status: 'error', error: 'เกินเวลา 30 นาที หยุดให้แล้ว (ไฟล์ที่ทำถึงตรงนั้นบันทึกแล้ว)' } : res);
-        await this.s.storage.delete('job'); if (!cw) try { this.s.container.destroy?.(); } catch { /* ปิดอยู่แล้ว */ } else { const at = Date.now() + 15 * 60e3; await this.s.storage.put('idle', at); await this.s.storage.setAlarm(at); } return; // Cowork: เก็บเครื่องไว้คุยต่อ (ปิดเองเมื่อว่างนาน)
+        await this.s.storage.delete('job'); if (!cw) try { this.s.container.destroy?.(); } catch { /* ปิดอยู่แล้ว */ } else { const at = Date.now() + 15 * 60e3; await this.s.storage.put('idle', at); await this.s.storage.setAlarm(at); } return; // Kyber Harness: เก็บเครื่องไว้คุยต่อ (ปิดเองเมื่อว่างนาน)
       }
       job.err = 0; await this.s.storage.put('job', job); await this.s.storage.setAlarm(Date.now() + 4000);
     } catch (e) {

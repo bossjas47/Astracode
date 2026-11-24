@@ -169,7 +169,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       await DB.batch([DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -amount, took.balance, 'gift', code, Date.now()),
         DB.prepare('INSERT INTO gift_codes (code,amount,from_user,created_at) VALUES (?,?,?,?)').bind(code, amount, u.id, Date.now())]);
     } catch (e) { await walletAdd(env, u.id, amount, 'refund', 'gift failed').catch(() => {}); throw e; } // หักเงินแล้วแต่สร้างโค้ดไม่สำเร็จ: คืนเงิน
-    if (to) await mail(env, to, `คุณได้รับของขวัญ ฿${amount} จาก AstraCode`, mailBox('คุณได้รับของขวัญ', `${esc(u.email.split('@')[0])} ส่งเครดิต AstraCode ฿${amount} ให้คุณ${note ? `<br><br>"${esc(note)}"` : ''}<br><br>โค้ดของขวัญ: <b style="font-size:20px;letter-spacing:1px">${code}</b><br>เข้าสู่ระบบแล้วกรอกโค้ดที่หน้าบัญชี → Wallet → "ใช้โค้ดของขวัญ"`, 'รับของขวัญ', siteUrl(env) + '/account')).catch(() => {});
+    if (to) await mail(env, to, `คุณได้รับของขวัญ ฿${amount} จาก Kyber`, mailBox('คุณได้รับของขวัญ', `${esc(u.email.split('@')[0])} ส่งเครดิต Kyber ฿${amount} ให้คุณ${note ? `<br><br>"${esc(note)}"` : ''}<br><br>โค้ดของขวัญ: <b style="font-size:20px;letter-spacing:1px">${code}</b><br>เข้าสู่ระบบแล้วกรอกโค้ดที่หน้าบัญชี → Wallet → "ใช้โค้ดของขวัญ"`, 'รับของขวัญ', siteUrl(env) + '/account')).catch(() => {});
     return json({ code, amount, sent: !!to });
   }
   if (path === '/api/gift/redeem' && M === 'POST') {
@@ -249,13 +249,13 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (u.totp_on) return err('เปิด 2FA อยู่แล้ว');
     const secret = b32(crypto.getRandomValues(new Uint8Array(20)));
     await DB.prepare('UPDATE users SET totp_secret=? WHERE id=?').bind(await seal(env, secret), u.id).run();
-    return json({ secret, uri: `otpauth://totp/AstraCode:${encodeURIComponent(u.email)}?secret=${secret}&issuer=AstraCode` });
+    return json({ secret, uri: `otpauth://totp/Kyber:${encodeURIComponent(u.email)}?secret=${secret}&issuer=Kyber` });
   }
   if ((path === '/api/2fa/enable' || path === '/api/2fa/disable') && M === 'POST') {
     if (await limited(env, '2fa:' + u.id, 10, 900e3)) return err('ลองผิดหลายครั้ง รอ 15 นาที', 429);
     if (!await totpOk(env, u, (await req.json()).code)) return err('รหัสไม่ถูกต้อง ลองรหัสล่าสุดจากแอป');
     await DB.prepare(path.endsWith('enable') ? 'UPDATE users SET totp_on=1 WHERE id=?' : 'UPDATE users SET totp_on=0, totp_secret=NULL WHERE id=?').bind(u.id).run();
-    ctx.waitUntil(mail(env, u.email, 'AstraCode: ความปลอดภัยบัญชีมีการเปลี่ยนแปลง', mailBox('ความปลอดภัยบัญชีมีการเปลี่ยนแปลง', path.endsWith('enable') ? 'เปิดการยืนยันตัวตน 2 ขั้น (2FA) ให้บัญชีของคุณแล้ว' : 'ปิดการยืนยันตัวตน 2 ขั้น (2FA) ของบัญชีคุณแล้ว ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านทันที')));
+    ctx.waitUntil(mail(env, u.email, 'Kyber: ความปลอดภัยบัญชีมีการเปลี่ยนแปลง', mailBox('ความปลอดภัยบัญชีมีการเปลี่ยนแปลง', path.endsWith('enable') ? 'เปิดการยืนยันตัวตน 2 ขั้น (2FA) ให้บัญชีของคุณแล้ว' : 'ปิดการยืนยันตัวตน 2 ขั้น (2FA) ของบัญชีคุณแล้ว ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านทันที')));
     return json({ ok: true });
   }
   if (path === '/api/me/export') { // ดาวน์โหลดข้อมูลของตัวเอง (PDPA)
@@ -265,7 +265,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       messages: await q('SELECT m.chat_id,m.role,m.content,m.created_at FROM messages m JOIN chats c ON c.id=m.chat_id WHERE c.user_id=?', u.id),
       projects: await q('SELECT p.name,f.path,f.content FROM projects p JOIN project_files f ON f.project_id=p.id WHERE p.user_id=?', u.id),
       payments: await q('SELECT amount,kind,status,created_at FROM payments WHERE user_id=?', u.id), wallet: await q('SELECT amount,kind,created_at FROM wallet_tx WHERE user_id=?', u.id) };
-    return new Response(JSON.stringify(data, null, 2), { headers: { 'content-type': 'application/json', 'content-disposition': 'attachment; filename="astracode-data.json"' } });
+    return new Response(JSON.stringify(data, null, 2), { headers: { 'content-type': 'application/json', 'content-disposition': 'attachment; filename="kyber-data.json"' } });
   }
   if (path === '/api/me/delete' && M === 'POST') { // ลบบัญชี: ต้องพิมพ์อีเมลยืนยัน
     const b = await req.json();
@@ -514,7 +514,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (await limited(env, 'tinv:' + u.id, 20, DAY)) return err('ส่งคำเชิญวันนี้ครบแล้ว ลองใหม่พรุ่งนี้', 429);
     const link = origin(req, env) + '/login?next=' + encodeURIComponent('/account?join=' + tm.invite_code);
     await teamLog(env, tm.id, u.id, 'invite', email);
-    const sent = await mail(env, email, 'AstraCode: คุณได้รับเชิญเข้าทีม ' + tm.name.slice(0, 60), mailBox('คุณได้รับเชิญเข้าทีม', `${esc(u.email)} เชิญคุณเข้าทีม “${esc(tm.name.slice(0, 60))}” ล็อกอินหรือสมัครแล้วระบบจะพาเข้าทีมให้ทันที`, 'เข้าร่วมทีม', link));
+    const sent = await mail(env, email, 'Kyber: คุณได้รับเชิญเข้าทีม ' + tm.name.slice(0, 60), mailBox('คุณได้รับเชิญเข้าทีม', `${esc(u.email)} เชิญคุณเข้าทีม “${esc(tm.name.slice(0, 60))}” ล็อกอินหรือสมัครแล้วระบบจะพาเข้าทีมให้ทันที`, 'เข้าร่วมทีม', link));
     return json({ ok: true, sent });
   }
   if ((r = path.match(/^\/api\/team\/members\/(\d+)$/)) && M === 'DELETE') {
@@ -545,7 +545,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const m = String((await req.json()).url || '').trim().match(/^https:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/(?:tree|blob)\/([^/]+)(\/.*)?)?\/?$/i);
     if (!m) return err('ใส่ลิงก์ GitHub repo เช่น https://github.com/owner/repo');
     const [, owner, repo, br0, sub0] = m, sub = (sub0 || '').replace(/^\/|\/$/g, '').replace(/\/?SKILL\.md$/i, '');
-    const H = { accept: 'application/vnd.github+json', 'user-agent': 'AstraCode' }, g = p2 => fetch('https://api.github.com/repos/' + owner + '/' + repo + p2, { headers: H });
+    const H = { accept: 'application/vnd.github+json', 'user-agent': 'Kyber' }, g = p2 => fetch('https://api.github.com/repos/' + owner + '/' + repo + p2, { headers: H });
     const info = br0 ? null : await g('').then(r => r.ok ? r.json() : null).catch(() => null);
     const br = br0 || info?.default_branch; if (!br) return err('ไม่พบ repo (ต้องเป็น repo สาธารณะ)', 404);
     const tree = await g('/git/trees/' + encodeURIComponent(br) + '?recursive=1').then(r => r.ok ? r.json() : null).catch(() => null);
@@ -595,7 +595,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       if (!url_) return err('URL ต้องเป็น https:// สาธารณะเท่านั้น');
       if ((await DB.prepare('SELECT COUNT(*) n FROM mcp_servers WHERE user_id=?').bind(u.id).first()).n >= 15) return err('เชื่อมต่อ MCP ส่วนตัวได้สูงสุด 15 ตัว');
       // ลิงก์ repo (GitHub/GitLab/npm) คือซอร์สโค้ดของ MCP ไม่ใช่ที่อยู่เซิร์ฟเวอร์ที่ออนไลน์อยู่ · บอกให้ชัดแทน error 500
-      if (/^https:\/\/(www\.)?(github\.com|gitlab\.com|npmjs\.com|pypi\.org)\//i.test(url_)) return err('ลิงก์นี้เป็นหน้าโค้ดของ MCP (repo) ไม่ใช่ที่อยู่เซิร์ฟเวอร์ · Remote MCP ต้องเป็น URL ของเซิร์ฟเวอร์ที่ออนไลน์อยู่ เช่น https://example.com/mcp · ถ้าเป็น MCP ที่ต้องติดตั้งในเครื่อง ให้ใช้แอป AstraCode บนคอม (Plugins / Local MCP) หรือดูใน README ว่ามี URL แบบ hosted ไหม', 400);
+      if (/^https:\/\/(www\.)?(github\.com|gitlab\.com|npmjs\.com|pypi\.org)\//i.test(url_)) return err('ลิงก์นี้เป็นหน้าโค้ดของ MCP (repo) ไม่ใช่ที่อยู่เซิร์ฟเวอร์ · Remote MCP ต้องเป็น URL ของเซิร์ฟเวอร์ที่ออนไลน์อยู่ เช่น https://example.com/mcp · ถ้าเป็น MCP ที่ต้องติดตั้งในเครื่อง ให้ใช้แอป Kyber บนคอม (Plugins / Local MCP) หรือดูใน README ว่ามี URL แบบ hosted ไหม', 400);
       let tools; try { tools = await mcpSync(url_, token || null); } catch (e) { return err('เชื่อมต่อ MCP ไม่ได้: ' + String(e.message || e).slice(0, 160) + ' · ตรวจว่า URL เป็น MCP endpoint (Streamable HTTP) และ token ถูกต้อง', 400); }
       const tokEnc = token ? await seal(env, token) : null;
       const row = await DB.prepare('INSERT INTO mcp_servers (user_id,name,url,token_enc,tools_json,enabled,created_at) VALUES (?,?,?,?,?,1,?) RETURNING id,user_id,name,url,enabled')

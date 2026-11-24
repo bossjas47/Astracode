@@ -30,7 +30,7 @@ export async function cron(env) {
     if (took) {
       await DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(u.id, -price, took.balance, 'renew', u.pname, now).run();
       await DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at) VALUES (?,?,?,'wallet','approved','plan',?,?,?)").bind(u.id, u.plan_id, price, year ? 'year' : 'month', now, now).run();
-      await mail(env, u.email, 'AstraCode: ต่ออายุแพลนแล้ว', mailBox('ต่ออายุแพลนแล้ว', `ตัดเงินจาก Wallet ฿${price} ต่ออายุ ${u.pname} เรียบร้อย`)); log.push('renew ' + u.id);
+      await mail(env, u.email, 'Kyber: ต่ออายุแพลนแล้ว', mailBox('ต่ออายุแพลนแล้ว', `ตัดเงินจาก Wallet ฿${price} ต่ออายุ ${u.pname} เรียบร้อย`)); log.push('renew ' + u.id);
     }
   } });
   // ค่าใช้จ่ายผิดปกติ: ต้นทุนวันนี้ (24 ชม.) เกิน 5 เท่าของเฉลี่ยรายวัน 7 วันก่อนหน้า และเกิน ฿20 → แจ้งแอดมิน คนละครั้งต่อวัน
@@ -63,7 +63,7 @@ export async function cron(env) {
     for (const r of rows) {
       if (await limited(env, 'winback:' + r.id, 1, 60 * DAY)) continue;
       if (credit > 0) await walletAdd(env, r.id, credit, 'winback', 'ดึงกลับ');
-      await mail(env, r.email, 'AstraCode: คิดถึงนะ มีของใหม่รออยู่', mailBox('กลับมาลองของใหม่กัน', `ช่วงที่ผ่านมาเราเพิ่มโมเดลใหม่ ระบบทีม Agent ในโหมด Code และโหมดสร้างภาพที่ AI ช่วยเขียน prompt${credit > 0 ? `<br><br>เราเติมเครดิต <b>฿${credit}</b> เข้า Wallet ให้แล้ว ใช้กับโมเดลไหนก็ได้` : ''}`, 'เปิด AstraCode', siteUrl(env) + '/chat')).catch(() => {});
+      await mail(env, r.email, 'Kyber: คิดถึงนะ มีของใหม่รออยู่', mailBox('กลับมาลองของใหม่กัน', `ช่วงที่ผ่านมาเราเพิ่มโมเดลใหม่ ระบบทีม Agent ในโหมด Code และโหมดสร้างภาพที่ AI ช่วยเขียน prompt${credit > 0 ? `<br><br>เราเติมเครดิต <b>฿${credit}</b> เข้า Wallet ให้แล้ว ใช้กับโมเดลไหนก็ได้` : ''}`, 'เปิด Kyber', siteUrl(env) + '/chat')).catch(() => {});
     }
   });
   // 2) เตือนแพลนใกล้หมด (3 วัน) ครั้งเดียวต่อรอบ
@@ -73,7 +73,7 @@ export async function cron(env) {
     const offer = u.price > 0 && !u.once && !(u.auto_renew && u.balance >= u.price);
     const code = offer ? 'RENEW' + u.id + Math.random().toString(36).slice(2, 6).toUpperCase() : null;
     if (code) await DB.prepare("INSERT INTO coupons (code,kind,value,max_uses,expires,note,active,created_at) VALUES (?,'percent',?,1,?,?,1,?)").bind(code, RENEW_PCT, u.plan_expires + 3 * DAY, 'ต่ออายุ ' + u.email, now).run();
-    await mail(env, u.email, code ? `AstraCode: ต่ออายุวันนี้ ลด ${RENEW_PCT}%` : 'AstraCode: แพลนใกล้หมดอายุ', mailBox('แพลนใกล้หมดอายุ', `${u.pname} จะหมดอายุ ${when} (เวลาไทย)${code ? `<br><br>ต่ออายุตอนนี้ใช้โค้ด <b>${code}</b> ลด ${RENEW_PCT}% (ใช้ได้ถึง 3 วันหลังแพลนหมด) ที่ <a href="${siteUrl(env)}/plans?plan=${u.plan_id}&coupon=${code}">หน้าแพลน</a>` : ' ต่ออายุได้ที่หน้าแพลน หรือเปิด "ต่ออายุอัตโนมัติจาก Wallet" ในหน้าบัญชี'}`));
+    await mail(env, u.email, code ? `Kyber: ต่ออายุวันนี้ ลด ${RENEW_PCT}%` : 'Kyber: แพลนใกล้หมดอายุ', mailBox('แพลนใกล้หมดอายุ', `${u.pname} จะหมดอายุ ${when} (เวลาไทย)${code ? `<br><br>ต่ออายุตอนนี้ใช้โค้ด <b>${code}</b> ลด ${RENEW_PCT}% (ใช้ได้ถึง 3 วันหลังแพลนหมด) ที่ <a href="${siteUrl(env)}/plans?plan=${u.plan_id}&coupon=${code}">หน้าแพลน</a>` : ' ต่ออายุได้ที่หน้าแพลน หรือเปิด "ต่ออายุอัตโนมัติจาก Wallet" ในหน้าบัญชี'}`));
     if (code) await sendPush(env, u.id, { title: `ต่ออายุ ${u.pname} ลด ${RENEW_PCT}%`, body: `แพลนหมด ${when} · ใช้โค้ด ${code}`, url: `/plans?plan=${u.plan_id}&coupon=${code}` });
     await DB.prepare('UPDATE users SET reminded_at=plan_expires WHERE id=?').bind(u.id).run();
   } });
@@ -182,7 +182,7 @@ export async function monthlyDigest(env, now = Date.now(), batch = 40) {
     let payg = 0; const lines = [];
     for (const r of rows) { const m = models.get(r.model_id); if (!m) continue; const p = await priceOf(env, m); payg += p.req > 0 ? p.req * r.n : (r.tin * p.in + r.tout * p.out + r.tc * p.cache) / 1e6; lines.push(`${esc(m.name)} · ${r.n.toLocaleString('th-TH')} ครั้ง`); }
     const total = rows.reduce((a, r) => a + r.n, 0), save = payg - u.price;
-    await mail(env, u.email, `AstraCode: สรุปการใช้งานเดือน ${month}`, mailBox(`สรุปเดือน ${month}`, `แพลน ${esc(u.pname)} · ใช้ AI ไป <b>${total.toLocaleString('th-TH')}</b> ครั้ง<br><br>${lines.slice(0, 5).join('<br>')}<br><br>ถ้าจ่ายตามใช้จะเป็นประมาณ <b>฿${payg.toFixed(2)}</b>${save > 0 ? ` · แพลนช่วยประหยัด <b>฿${save.toFixed(2)}</b>` : ''}<br><br><small>ปิดอีเมลนี้ได้ที่หน้าบัญชี</small>`, 'ดูการใช้งาน', siteUrl(env) + '/account')).catch(() => {});
+    await mail(env, u.email, `Kyber: สรุปการใช้งานเดือน ${month}`, mailBox(`สรุปเดือน ${month}`, `แพลน ${esc(u.pname)} · ใช้ AI ไป <b>${total.toLocaleString('th-TH')}</b> ครั้ง<br><br>${lines.slice(0, 5).join('<br>')}<br><br>ถ้าจ่ายตามใช้จะเป็นประมาณ <b>฿${payg.toFixed(2)}</b>${save > 0 ? ` · แพลนช่วยประหยัด <b>฿${save.toFixed(2)}</b>` : ''}<br><br><small>ปิดอีเมลนี้ได้ที่หน้าบัญชี</small>`, 'ดูการใช้งาน', siteUrl(env) + '/account')).catch(() => {});
     await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('digest_cursor',?)").bind(month + ':' + u.id).run();
   }
   return users.length;
@@ -231,7 +231,7 @@ export async function blogPage(req, env, slugQ) { // ใส่ title/description
   if (!p) return res;
   const set = (sel, attr, v) => ({ element(e) { e.setAttribute(attr, v); } });
   return new HTMLRewriter()
-    .on('title', { element(e) { e.setInnerContent(p.title + ' · AstraCode'); } })
+    .on('title', { element(e) { e.setInnerContent(p.title + ' · Kyber'); } })
     .on('meta[name="description"]', set(0, 'content', p.summary || p.title))
     .on('meta[property="og:title"]', set(0, 'content', p.title))
     .on('meta[property="og:description"]', set(0, 'content', p.summary || p.title))

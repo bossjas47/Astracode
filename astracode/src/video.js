@@ -11,7 +11,7 @@ let vReady = null;
 export const ensureVideos = env => vReady ||= env.DB.batch([env.DB.prepare(TABLE), env.DB.prepare('CREATE INDEX IF NOT EXISTS videos_user ON videos(user_id, id)')])
   .then(() => Promise.all(['chat_id INTEGER', 'duration INTEGER'].map(c => env.DB.prepare('ALTER TABLE videos ADD COLUMN ' + c).run().catch(() => {})))).catch(e => { vReady = null; throw e; });
 export const VIDEO_MAX_S = 30, VIDEO_IMGS = 9, VIDEO_AUDIOS = 3;
-// เครื่องมือของ AI (แชต / Code / Cowork): สร้างวิดีโอในเซสชันนั้นเลย · ราคาเหมาต่อคลิป (ไม่ขึ้นกับความยาว)
+// เครื่องมือของ AI (แชต / Code / Kyber Harness): สร้างวิดีโอในเซสชันนั้นเลย · ราคาเหมาต่อคลิป (ไม่ขึ้นกับความยาว)
 export const videoToolDef = price => ({ type: 'function', function: { name: 'generate_video', description: `Create a video clip (1080p, 4-30 seconds, Seedance) when the user asks for a video/clip/animation. Costs ฿${price} per clip from the user's Wallet, refunded automatically if it fails, so only call it when the user clearly wants a video, and at most 2 clips per answer. It takes 1-5 minutes; the clip appears under your answer by itself. Write the prompt in English: subject, action, camera movement, lighting, mood, style.`, parameters: { type: 'object', properties: {
   prompt: { type: 'string', description: 'Detailed English scene description' }, duration: { type: 'integer', description: 'Seconds, 4-30 (default 5)' }, aspect: { type: 'string', enum: ['16:9', '9:16'] },
   use_attached_images: { type: 'boolean', description: 'Use the images the user attached in this message as references (up to 9)' } }, required: ['prompt'] } } });
@@ -100,7 +100,7 @@ export async function videoApi(req, env, u, path, M) {
   if (!m[2] && M === 'GET') { if (c.key && env.SLIPS) v = await checkVideo(env, v, c); return json(pub(v)); }
   if (m[2] && M === 'GET') {
     const o = v.status === 'done' && env.SLIPS && await env.SLIPS.get(`video/${v.user_id}/${v.id}.mp4`); if (!o) return err('ไม่พบไฟล์', 404);
-    return new Response(o.body, { headers: { 'content-type': 'video/mp4', 'content-disposition': `inline; filename="astracode-video-${v.id}.mp4"`, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' } });
+    return new Response(o.body, { headers: { 'content-type': 'video/mp4', 'content-disposition': `inline; filename="kyber-video-${v.id}.mp4"`, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' } });
   }
   if (!m[2] && M === 'DELETE') { if (['queued', 'processing'].includes(v.status)) return err('รอให้สร้างเสร็จก่อนจึงลบได้', 409); await env.SLIPS?.delete(`video/${v.user_id}/${v.id}.mp4`).catch(() => {}); await DB.prepare('DELETE FROM videos WHERE id=?').bind(v.id).run(); return json({ ok: true }); }
   return err('not found', 404);
@@ -111,7 +111,7 @@ export async function cronVideos(env) {
   for (const v of (await env.DB.prepare("SELECT * FROM videos WHERE status IN ('queued','processing') LIMIT 30").all()).results) await checkVideo(env, v, c).catch(() => {});
 }
 
-// /v1/videos สำหรับ API key (Cowork บนคลาวด์ และลูกค้า API): POST สร้าง · GET /v1/videos/:id สถานะ · GET /v1/videos/:id/content ไฟล์ mp4
+// /v1/videos สำหรับ API key (Kyber Harness บนคลาวด์ และลูกค้า API): POST สร้าง · GET /v1/videos/:id สถานะ · GET /v1/videos/:id/content ไฟล์ mp4
 export async function videoV1(req, env, k, path) {
   const u = { id: k.id }, out = (d, st = 200) => json(d, st, V1_CORS);
   if (path === '/v1/videos' && req.method === 'POST') {

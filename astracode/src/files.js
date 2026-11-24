@@ -1,4 +1,4 @@
-// ไฟล์ในบัญชี (แบบ Cowork): Excel / Word ที่ AI สร้างหรือลูกค้าแนบ เก็บในบัญชี · AI แก้ต่อได้ทีละจุด (edit_file) · เก็บ 20 เวอร์ชันย้อนกลับได้
+// ไฟล์ในบัญชี (แบบ Kyber Harness): Excel / Word ที่ AI สร้างหรือลูกค้าแนบ เก็บในบัญชี · AI แก้ต่อได้ทีละจุด (edit_file) · เก็บ 20 เวอร์ชันย้อนกลับได้
 // sheet = { sheets: [{ name, rows: [[ค่า | "=สูตร"]], widths?: [ความกว้างต่อคอลัมน์], freeze?: แถว, header?: bool, fmt?: { "C": "#,##0.00" } }] }
 // doc   = { md: "Markdown" }
 import { err, json } from './core.js';

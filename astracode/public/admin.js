@@ -1,8 +1,8 @@
-// AstraCode: หลังบ้าน
+// Kyber: หลังบ้าน
 PAGES.admin = () => adminView(qs().get('tab') || 'stats');
 
 const FIELDS = {
-  plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['days', 'ระยะแพลน (วัน) เว้นว่าง = 30 วัน เช่น 7 = แพลนทดลอง', 'o'], ['once', 'ซื้อได้ครั้งเดียวต่อบัญชี (ไม่ต่ออายุอัตโนมัติ)', 'b'], ['limit_4h', 'งบรอบ 4 ชม. (บาท ต้นทุนจริง · เว้นว่าง = เท่างบสัปดาห์)', 'o'], ['use_4h', 'เปิดรอบ 4 ชม. (ปิด = จำกัดเฉพาะรอบสัปดาห์)', 'b'], ['limit_week', 'งบรอบสัปดาห์ (บาท ต้นทุนจริง)', 'n'], ['seats', 'จำนวนคนในทีม (1 = เดี่ยว, 2+ = ทีม)', 'n'], ['shared_pool', 'ใช้งบลิมิตร่วมกันทั้งทีม', 'b'], ['api_limit', 'ใช้ API Key หักจากลิมิตแพลนได้ (ไม่ต้องเติม Wallet)', 'b'], ['agent', 'รวม Agent (แอป Desktop / คลาวด์) ในลิมิตแพลน · ปิด = ต้องซื้อแพ็ก Agent หรือใช้ Wallet', 'b'], ['cowork', 'ใช้โหมด Cowork ได้ (AI ทำงานออฟฟิศเองจนจบ · Sonnet 5.5 Eco)', 'b'], ['min_margin', 'กำไรขั้นต่ำ % (เว้นว่าง = ตั้งลิมิตเอง · ใส่แล้วระบบคำนวณลิมิต 4 ชม./สัปดาห์ให้จากราคา กรณีลูกค้าใช้เต็มทุกสัปดาห์ · ช่วงโปรเพิ่มลิมิตกำไรจะลดลงตามตัวคูณ)', 'o'], ['compare', 'ข้อความเทียบคู่แข่งบนการ์ด (เว้นว่าง = ไม่แสดง) เช่น ใช้ได้มากกว่า Claude Pro + ChatGPT Plus รวมกัน ~11 เท่า'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
+  plans: [['name', 'ชื่อ'], ['price', 'ราคา (บาท/เดือน)', 'n'], ['price_year', 'ราคารายปี (เว้นว่าง = ไม่ขายรายปี)', 'o'], ['days', 'ระยะแพลน (วัน) เว้นว่าง = 30 วัน เช่น 7 = แพลนทดลอง', 'o'], ['once', 'ซื้อได้ครั้งเดียวต่อบัญชี (ไม่ต่ออายุอัตโนมัติ)', 'b'], ['limit_4h', 'งบรอบ 4 ชม. (บาท ต้นทุนจริง · เว้นว่าง = เท่างบสัปดาห์)', 'o'], ['use_4h', 'เปิดรอบ 4 ชม. (ปิด = จำกัดเฉพาะรอบสัปดาห์)', 'b'], ['limit_week', 'งบรอบสัปดาห์ (บาท ต้นทุนจริง)', 'n'], ['seats', 'จำนวนคนในทีม (1 = เดี่ยว, 2+ = ทีม)', 'n'], ['shared_pool', 'ใช้งบลิมิตร่วมกันทั้งทีม', 'b'], ['api_limit', 'ใช้ API Key หักจากลิมิตแพลนได้ (ไม่ต้องเติม Wallet)', 'b'], ['agent', 'รวม Agent (แอป Desktop / คลาวด์) ในลิมิตแพลน · ปิด = ต้องซื้อแพ็ก Agent หรือใช้ Wallet', 'b'], ['cowork', 'ใช้โหมด Kyber Harness ได้ (AI ทำงานออฟฟิศเองจนจบ · Sonnet 5.5 Eco)', 'b'], ['min_margin', 'กำไรขั้นต่ำ % (เว้นว่าง = ตั้งลิมิตเอง · ใส่แล้วระบบคำนวณลิมิต 4 ชม./สัปดาห์ให้จากราคา กรณีลูกค้าใช้เต็มทุกสัปดาห์ · ช่วงโปรเพิ่มลิมิตกำไรจะลดลงตามตัวคูณ)', 'o'], ['compare', 'ข้อความเทียบคู่แข่งบนการ์ด (เว้นว่าง = ไม่แสดง) เช่น ใช้ได้มากกว่า Claude Pro + ChatGPT Plus รวมกัน ~11 เท่า'], ['description', 'คำอธิบาย'], ['sort', 'ลำดับ', 'n'], ['active', 'เปิดใช้', 'b']],
   models: [['name', 'ชื่อที่แสดง'], ['provider', 'รูปแบบ API (openai = /chat/completions · responses = /responses ของ OpenAI รุ่นใหม่ · image = โมเดลสร้างรูป ตอบเป็นรูป ใส่ราคาต่อ 1 รูปในช่อง ทุน output · embedding = โมเดลเวกเตอร์ใช้ผ่าน /v1/embeddings เท่านั้น คิดตาม token ขาเข้า · anthropic)', ['openai', 'responses', 'image', 'embedding', 'anthropic']], ['api_model', 'รหัสโมเดล'], ['base_url', 'Base URL'], ['key_name', 'ชื่อ secret ของ key'], ['multiplier', 'ความหนักสัมพัทธ์ (ใช้เรียง/แสดง ไม่ใช่ตัวหักลิมิต)', 'n'], ['cap_pct', 'เพดาน % ของงบสัปดาห์ (0 = ไม่จำกัด เช่น Opus 50)', 'n'],
     ['ctx_k', 'ขนาด context ของโมเดล (พัน token เช่น 128, 200, 1000 · เว้นว่าง = 128)', 'o'],
     ['long_k', 'ราคาขั้นที่ 2 เมื่อ context ยาว: เกณฑ์ (พัน token ต่อคำขอ เช่น 272 · ว่าง = ไม่มี)', 'o'],
@@ -543,7 +543,7 @@ const ADMIN = {
       <div class="row" style="margin-top:16px"><button class="btn blue">Save</button><button type="button" class="btn out" id="atest">Send test</button><span class="ok" id="as"></span></div></form>
 
       <section class="panel"><div class="ph"><h2>อีเมลถึงผู้ใช้ทุกคน</h2></div><p class="muted">ไม่ส่งถึงคนที่ปิดอีเมลสรุป/ข่าวสารในหน้าบัญชี · ส่งได้วันละ 2 ครั้ง · กดส่งทดสอบให้ตัวเองก่อน</p>
-        <form id="bcf" class="sheet-form" data-nosubmit><input name="subject" maxlength="150" placeholder="หัวข้อ" value="AstraCode โปรเดือนนี้: ใช้งานได้ 2 เท่า ถึง 30 พ.ย.">
+        <form id="bcf" class="sheet-form" data-nosubmit><input name="subject" maxlength="150" placeholder="หัวข้อ" value="Kyber โปรเดือนนี้: ใช้งานได้ 2 เท่า ถึง 30 พ.ย.">
         <textarea name="body" rows="5" maxlength="4000">ตั้งแต่วันนี้ถึง 30 พ.ย. 23:59 (เวลาไทย) ทุกแพลนที่ชำระเงินใช้งานได้ 2 เท่าในรอบ 4 ชั่วโมง และลิมิตรายสัปดาห์เพิ่ม 50% ไม่ต้องกดรับ ระบบปรับให้เอง
 
 มีอะไรใหม่: Deep research, ทีม Agent ในโหมด Code และระบบสร้างภาพที่ AI ช่วยเขียน prompt ให้</textarea>
@@ -696,7 +696,7 @@ const ADMIN = {
         <div><label>ต้นทุนต่อรูป (บาท, หักจากลิมิตและใช้ในสถิติ)</label><input name="image_cost" type="number" min="0" step="any" value="${esc(s.image_cost)}"></div></div>
       <h2 style="margin-top:28px">อีเมล</h2>
       <p class="muted">ใช้ Resend ตั้ง Secret <code>RESEND_KEY</code> ${s.env.RESEND_KEY ? '<span class="ok">✓ ตั้งแล้ว</span>' : '<span class="warn">ยังไม่ตั้ง</span>'} และยืนยันโดเมนผู้ส่งใน Resend</p>
-      <label>ผู้ส่ง (เช่น AstraCode &lt;no-reply@panderx.xyz&gt;)</label><input name="mail_from" value="${esc(s.mail_from)}">
+      <label>ผู้ส่ง (เช่น Kyber &lt;no-reply@panderx.xyz&gt;)</label><input name="mail_from" value="${esc(s.mail_from)}">
       <h2 style="margin-top:28px">ข้อมูลในใบเสร็จ</h2>
       <label>ชื่อร้าน / บริษัท</label><input name="business_name" value="${esc(s.business_name)}">
       <label>ที่อยู่</label><textarea name="business_address" rows="2">${esc(s.business_address)}</textarea>

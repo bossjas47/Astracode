@@ -36,7 +36,7 @@ export async function artifactTool(env, u, cid, a) {
   return { result: `Artifact ${id} saved as version ${ver}. The user sees a card under your answer and can open it. Do not paste the HTML again; to change it later call artifact with id=${id}.`, emit: artMarker(id, ver, title), ok: true, label: 'Artifact ' + title };
 }
 
-const badge = '<div style="position:fixed;right:10px;bottom:10px;z-index:2147483647;font:12px system-ui,sans-serif;background:rgba(20,20,24,.82);color:#fff;padding:5px 10px;border-radius:999px;pointer-events:none">สร้างด้วย AstraCode</div>';
+const badge = '<div style="position:fixed;right:10px;bottom:10px;z-index:2147483647;font:12px system-ui,sans-serif;background:rgba(20,20,24,.82);color:#fff;padding:5px 10px;border-radius:999px;pointer-events:none">สร้างด้วย Kyber</div>';
 export function artPage(html, { share = false } = {}) {
   const body = share ? (/<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, badge + '</body>') : html + badge) : html;
   return new Response(body, { headers: {
@@ -51,8 +51,8 @@ export async function artShell(env, token) {
   const a = await env.DB.prepare('SELECT title FROM artifacts WHERE share_token=?').bind(token).first();
   if (!a) return new Response('ไม่พบหน้านี้ หรือเจ้าของปิดการแชร์แล้ว', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'x-robots-tag': 'noindex' } });
   const t = esc(a.title);
-  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${t} · สร้างด้วย AstraCode</title>
-<meta property="og:title" content="${t}"><meta property="og:description" content="หน้าเว็บที่สร้างด้วย AI บน AstraCode"><meta property="og:image" content="/og.png">
+  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${t} · สร้างด้วย Kyber</title>
+<meta property="og:title" content="${t}"><meta property="og:description" content="หน้าเว็บที่สร้างด้วย AI บน Kyber"><meta property="og:image" content="/og.png">
 <style>html,body{margin:0;height:100%;background:#141210;font-family:system-ui,'Prompt',sans-serif;color:#f3eee7}.bar{display:flex;align-items:center;gap:10px;height:44px;padding:0 12px;border-bottom:1px solid #2c2824;font-size:14px}.bar b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar a,.bar button{color:#f3eee7;text-decoration:none;background:none;border:1px solid #3a352f;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}.bar a.cta{background:#d97757;border-color:#d97757;color:#fff}iframe{display:block;width:100%;height:calc(100% - 45px);border:0;background:#fff}@media(max-width:520px){.bar .hide{display:none}}</style></head>
 <body><div class="bar"><b>${t}</b><button type="button" id="rep" class="hide">รายงาน</button><a class="cta" href="/?ref=artifact">ทำแบบนี้ให้ฉัน</a></div>
 <iframe src="/a/${token}/raw" sandbox="allow-scripts allow-forms allow-modals" title="${t}"></iframe>

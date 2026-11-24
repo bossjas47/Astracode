@@ -21,7 +21,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const q = s => new Promise(ok => rl.question(s, ok));
 
 (async () => {
-  if (!key) { key = (await q('ใส่ API key (สร้างที่ ' + SITE + '/developers): ')).trim(); if (!/^sk-astra-/.test(key)) { console.log(red('key ไม่ถูกต้อง')); process.exit(1); } fs.mkdirSync(path.dirname(keyFile), { recursive: true }); fs.writeFileSync(keyFile, key, { mode: 0o600 }); }
+  if (!key) { key = (await q('ใส่ API key (สร้างที่ ' + SITE + '/developers): ')).trim(); if (!/^sk-(astra|kyber)-/.test(key)) { console.log(red('key ไม่ถูกต้อง')); process.exit(1); } fs.mkdirSync(path.dirname(keyFile), { recursive: true }); fs.writeFileSync(keyFile, key, { mode: 0o600 }); }
   const allow = new Set();
   const ask = async r => {
     if (mode === 'yolo') return true; // --mode yolo: ไม่ถามอะไรเลย
@@ -58,7 +58,7 @@ const q = s => new Promise(ok => rl.question(s, ok));
       const ch = ws.changed(); console.log(dim(`\n— เสร็จ${ch.length ? ' · แก้ ' + ch.join(', ') + ' (/undo เพื่อย้อน)' : ''}${cost ? ` · ฿${cost.toFixed(2)}` : ''}`));
     } catch (x) { console.log(red('\n' + x.message)); } finally { ac = null; }
   };
-  console.log(dim(`AstraCode Agent · ${root} · โหมด ${mode} · ${model} · Ctrl+C = หยุด · /mode auto|edits|ask|plan · /undo`));
+  console.log(dim(`Kyber Agent · ${root} · โหมด ${mode} · ${model} · Ctrl+C = หยุด · /mode auto|edits|ask|plan · /undo`));
   if (task) { await run(task); rl.close(); return; }
   for (;;) { const t = (await q(green('\n> '))).trim(); if (t === 'exit' || t === 'quit') break; if (t) await run(t); }
   rl.close();

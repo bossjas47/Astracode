@@ -41,7 +41,7 @@ export async function setupScript(env, token) {
 
 // สคริปต์ที่รันบนเครื่องลูกค้า: ค่าทั้งหมดฝังเป็น JSON (ไม่ต่อสตริงเป็นโค้ด)
 export function script(p) {
-  return `// AstraCode: ตั้งค่า ${p.tool} ให้ใช้ AstraCode อัตโนมัติ (สำรองไฟล์เดิมเป็น .bak)
+  return `// Kyber: ตั้งค่า ${p.tool} ให้ใช้ Kyber อัตโนมัติ (สำรองไฟล์เดิมเป็น .bak)
 const P = ${JSON.stringify(p)};
 const fs = require('fs'), path = require('path'), os = require('os'), home = os.homedir();
 const save = (f, text) => { fs.mkdirSync(path.dirname(f), { recursive: true }); if (fs.existsSync(f)) fs.copyFileSync(f, f + '.bak'); fs.writeFileSync(f, text); };
@@ -56,17 +56,17 @@ if (P.tool === 'Codex') {
     if (skip) continue; if (top && /^\\s*(model|model_provider)\\s*=/.test(l)) continue; out.push(l);
   }
   const prof = P.models.map(m => '\\n[profiles.astra-' + m.replace(/[^a-z0-9-]/g, '-') + ']\\nmodel = ' + q(m) + '\\nmodel_provider = "astra"\\n').join('');
-  save(file, 'model = ' + q(P.model) + '\\nmodel_provider = "astra"\\n' + out.join('\\n').replace(/^\\n+/, '').replace(/\\n*$/, '\\n') + '\\n[model_providers.astra]\\nname = "AstraCode"\\nbase_url = ' + q(P.site + '/v1') + '\\nexperimental_bearer_token = ' + q(P.key) + '\\nwire_api = "responses"\\n' + prof);
+  save(file, 'model = ' + q(P.model) + '\\nmodel_provider = "astra"\\n' + out.join('\\n').replace(/^\\n+/, '').replace(/\\n*$/, '\\n') + '\\n[model_providers.astra]\\nname = "Kyber"\\nbase_url = ' + q(P.site + '/v1') + '\\nexperimental_bearer_token = ' + q(P.key) + '\\nwire_api = "responses"\\n' + prof);
 } else if (P.tool === 'Claude Code') {
   file = path.join(home, '.claude', 'settings.json'); const j = readJson(file);
   j.env = { ...(j.env || {}), ANTHROPIC_BASE_URL: P.site, ANTHROPIC_AUTH_TOKEN: P.key, ANTHROPIC_MODEL: P.model };
   save(file, JSON.stringify(j, null, 2) + '\\n');
 } else {
   file = path.join(home, '.config', 'opencode', 'opencode.json'); const j = readJson(file);
-  j.provider = { ...(j.provider || {}), astra: { npm: '@ai-sdk/openai-compatible', name: 'AstraCode', options: { baseURL: P.site + '/v1', apiKey: P.key }, models: Object.fromEntries(P.models.map(m => [m, { limit: { context: 1050000, output: 128000 } }])) } };
+  j.provider = { ...(j.provider || {}), astra: { npm: '@ai-sdk/openai-compatible', name: 'Kyber', options: { baseURL: P.site + '/v1', apiKey: P.key }, models: Object.fromEntries(P.models.map(m => [m, { limit: { context: 1050000, output: 128000 } }])) } };
   j.model = 'astra/' + P.model; save(file, JSON.stringify(j, null, 2) + '\\n');
 }
-console.log('\\n✅ ตั้งค่า ' + P.tool + ' ให้ใช้ AstraCode แล้ว');
+console.log('\\n✅ ตั้งค่า ' + P.tool + ' ให้ใช้ Kyber แล้ว');
 console.log('   ไฟล์: ' + file + (fs.existsSync(file + '.bak') ? '  (ไฟล์เดิมสำรองไว้ที่ .bak)' : ''));
 console.log('   โมเดลหลัก: ' + P.model);
 if (P.tool === 'Codex' && P.models.length > 1) console.log('   สลับโมเดล: codex --profile astra-<ชื่อโมเดล> เช่น codex --profile astra-' + P.models[1].replace(/[^a-z0-9-]/g, '-'));

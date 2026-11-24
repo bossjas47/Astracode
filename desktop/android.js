@@ -14,19 +14,19 @@ const exists = p => fs.access(p).then(() => true, () => false);
 const NAME = { 'iBotPeaches/Apktool': v => `apktool_${v}.jar`, 'patrickfav/uber-apk-signer': v => `uber-apk-signer-${v}.jar`, 'skylot/jadx': v => `jadx-${v}.zip` };
 async function latest(repo, re) {
   try { return await latestApi(repo, re); } catch (e) {
-    const r = await fetch(`https://github.com/${repo}/releases/latest`, { redirect: 'manual', headers: { 'user-agent': 'AstraCode-Agent' }, signal: AbortSignal.timeout(20e3) });
+    const r = await fetch(`https://github.com/${repo}/releases/latest`, { redirect: 'manual', headers: { 'user-agent': 'Kyber-Agent' }, signal: AbortSignal.timeout(20e3) });
     const tag = (r.headers.get('location') || '').match(/\/tag\/(v?([\d.]+))$/); if (!tag) throw e;
     return { browser_download_url: `https://github.com/${repo}/releases/download/${tag[1]}/${NAME[repo](tag[2])}` };
   }
 }
 async function latestApi(repo, re) {
-  const r = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { 'user-agent': 'AstraCode-Agent', accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(20e3) });
+  const r = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { 'user-agent': 'Kyber-Agent', accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(20e3) });
   if (!r.ok) throw new Error(`หา ${repo} รุ่นล่าสุดไม่ได้ (HTTP ${r.status})`);
   const a = (await r.json()).assets?.find(x => re.test(x.name)); if (!a) throw new Error(`ไม่พบไฟล์ของ ${repo}`);
   return a;
 }
 async function download(url, file) {
-  const r = await fetch(url, { headers: { 'user-agent': 'AstraCode-Agent' }, redirect: 'follow', signal: AbortSignal.timeout(300e3) });
+  const r = await fetch(url, { headers: { 'user-agent': 'Kyber-Agent' }, redirect: 'follow', signal: AbortSignal.timeout(300e3) });
   if (!r.ok) throw new Error(`ดาวน์โหลด ${path.basename(file)} ไม่ได้ (HTTP ${r.status})`);
   await fs.writeFile(file + '.part', Buffer.from(await r.arrayBuffer())); await fs.rename(file + '.part', file);
 }

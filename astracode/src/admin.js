@@ -158,7 +158,7 @@ export async function admin(req, env, path, url, me) {
       if (b.wallet) await walletAdd(env, p.user_id, p.amount, 'refund', ref);
     }
     const u = await DB.prepare('SELECT email FROM users WHERE id=?').bind(p.user_id).first();
-    await mail(env, u?.email, 'AstraCode: คืนเงินแล้ว', mailBox('คืนเงินแล้ว', `รายการ #${p.id} ฿${p.amount} ถูกยกเลิก ${p.kind !== 'topup' && b.wallet ? 'คืนเป็นเครดิตเข้า Wallet แล้ว' : 'เราจะโอนเงินคืนเข้าบัญชีของคุณ'}`)).catch(() => {});
+    await mail(env, u?.email, 'Kyber: คืนเงินแล้ว', mailBox('คืนเงินแล้ว', `รายการ #${p.id} ฿${p.amount} ถูกยกเลิก ${p.kind !== 'topup' && b.wallet ? 'คืนเป็นเครดิตเข้า Wallet แล้ว' : 'เราจะโอนเงินคืนเข้าบัญชีของคุณ'}`)).catch(() => {});
     return json({ ok: true });
   }
   if (path === '/api/admin/margin') return json(await lossModels(env));
@@ -317,7 +317,7 @@ export async function admin(req, env, path, url, me) {
     if (!t) return err('ไม่พบเรื่อง', 404);
     if (M === 'POST') {
       const b = await req.json(), body = String(b.body || '').trim().slice(0, 5000);
-      if (body) { await DB.prepare('INSERT INTO ticket_msgs (ticket_id,admin,body,created_at) VALUES (?,1,?,?)').bind(t.id, body, Date.now()).run(); await mail(env, t.email, 'AstraCode: แอดมินตอบเรื่อง ' + t.subject, mailBox('แอดมินตอบแล้ว', esc(body).slice(0, 800).replace(/\n/g, '<br>'))); }
+      if (body) { await DB.prepare('INSERT INTO ticket_msgs (ticket_id,admin,body,created_at) VALUES (?,1,?,?)').bind(t.id, body, Date.now()).run(); await mail(env, t.email, 'Kyber: แอดมินตอบเรื่อง ' + t.subject, mailBox('แอดมินตอบแล้ว', esc(body).slice(0, 800).replace(/\n/g, '<br>'))); }
       await DB.prepare('UPDATE tickets SET status=?, updated_at=? WHERE id=?').bind(b.status === 'closed' ? 'closed' : body ? 'answered' : t.status, Date.now(), t.id).run();
       return json({ ok: true });
     }
@@ -419,7 +419,7 @@ export async function admin(req, env, path, url, me) {
     const rows = (await DB.prepare(q[0]).bind(from).all()).results;
     const cell = v => { if (v == null) return ''; if (typeof v === 'number' && v > 1e12) v = new Date(v + BKK).toISOString().slice(0, 16).replace('T', ' '); v = String(v); if (/^[=+\-@]/.test(v) && isNaN(+v)) v = "'" + v; return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }; // กันสูตร Excel ที่แฝงมา
     const csv = '﻿' + [q[1], ...rows.map(r => Object.values(r))].map(r => r.map(cell).join(',')).join('\r\n');
-    return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="astracode-${type}-${new Date().toISOString().slice(0, 10)}.csv"` } });
+    return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="kyber-${type}-${new Date().toISOString().slice(0, 10)}.csv"` } });
   }
   if (path === '/api/admin/slip-test' && M === 'POST') { // ตรวจการเชื่อมต่อ Slip2Go: ดูข้อมูลบัญชี/โควตาที่เหลือ
     if ((await getSetting(env, 'slip_provider')) === 'easyslip') { // EasySlip: อ่านข้อมูลแอป/โควตาที่เหลือ
@@ -434,7 +434,7 @@ export async function admin(req, env, path, url, me) {
     const r = await fetch(base.replace(/\/$/, '') + '/api/account/info', { headers: { authorization: 'Bearer ' + env.SLIP2GO_KEY } }).catch(e => ({ ok: false, json: async () => ({ message: e.message }) }));
     return json({ ok: r.ok, data: await r.json().catch(() => null) });
   }
-  if (path === '/api/admin/notify-test' && M === 'POST') { await notify(env, '✅ ทดสอบแจ้งเตือนจาก AstraCode'); return json({ ok: true }); }
+  if (path === '/api/admin/notify-test' && M === 'POST') { await notify(env, '✅ ทดสอบแจ้งเตือนจาก Kyber'); return json({ ok: true }); }
   if ((path === '/api/admin/reset-limits' || path === '/api/admin/reset-credits') && M === 'POST') { // รีเซ็ตทันที หรือ แจกปุ่มรีเซ็ต: ทุกคน / ทุกคนในแพลน / คนเดียว
     const b = await req.json(), now = Date.now(), credits = path.endsWith('credits');
     let where = '1=1', args = [];
@@ -588,8 +588,8 @@ export async function admin(req, env, path, url, me) {
     for (const m of ms) {
       const p = await priceOf(env, m), o = official[m.id], s = 'model-' + slug(m), ctx = (m.ctx_k > 0 ? m.ctx_k : 128) >= 1000 ? Math.round((m.ctx_k || 128) / 1000 * 10) / 10 + ' ล้าน' : (m.ctx_k || 128) + 'k';
       const cheaper = o?.out > 0 && p.out > 0 ? Math.round((1 - p.out / (o.out * rate)) * 100) : 0;
-      const title = `ใช้ ${m.name} ภาษาไทย ราคาถูก จ่ายเป็นบาท`, summary = `${m.name} บน AstraCode: แชตภาษาไทย เขียนโค้ด และเรียกผ่าน API ราคา output ฿${p.out}/1M token${cheaper > 0 ? ` ถูกกว่าซื้อตรงประมาณ ${cheaper}%` : ''} เติมเริ่มต้น ฿10`;
-      const body = `# ${m.name} ใช้ได้แล้วบน AstraCode
+      const title = `ใช้ ${m.name} ภาษาไทย ราคาถูก จ่ายเป็นบาท`, summary = `${m.name} บน Kyber: แชตภาษาไทย เขียนโค้ด และเรียกผ่าน API ราคา output ฿${p.out}/1M token${cheaper > 0 ? ` ถูกกว่าซื้อตรงประมาณ ${cheaper}%` : ''} เติมเริ่มต้น ฿10`;
+      const body = `# ${m.name} ใช้ได้แล้วบน Kyber
 
 ใช้ **${m.name}** ผ่านเว็บได้ทันที ไม่ต้องมีบัตรเครดิต จ่ายเป็นบาทผ่าน PromptPay เติมเริ่มต้นแค่ ฿10
 
@@ -602,7 +602,7 @@ export async function admin(req, env, path, url, me) {
 
 ## ราคา (ต่อ 1 ล้าน token)
 
-| | AstraCode | ซื้อตรง (ราคาทางการ) |
+| | Kyber | ซื้อตรง (ราคาทางการ) |
 |---|---|---|
 | Input | ฿${p.in} | ${o?.in ? '฿' + Math.round(o.in * rate * 100) / 100 : '-'} |
 | Output | ฿${p.out} | ${o?.out ? '฿' + Math.round(o.out * rate * 100) / 100 : '-'} |
@@ -611,7 +611,7 @@ ${cheaper > 0 ? `ถูกกว่าซื้อ API ทางการปร�
 
 ` : ''}## เริ่มใช้ใน 1 นาที
 
-1. สมัครที่ [AstraCode](${base}/login)
+1. สมัครที่ [Kyber](${base}/login)
 2. เลือก **${m.name}** ที่ปุ่มเลือกโมเดล
 3. ถ้าโมเดลไม่อยู่ในแพลนของคุณ เติม Wallet ขั้นต่ำ ฿1 แล้วใช้ได้ทันที
 

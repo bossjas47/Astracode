@@ -418,7 +418,7 @@ export async function readLinks(text) {
   return (await Promise.all(urls.map(async url => {
     let u; try { u = new URL(url); } catch { return null; }
     if (!/^https?:$/.test(u.protocol) || /^(localhost|.*\.local|.*\.internal|\d+\.\d+\.\d+\.\d+|\[.*\])$/i.test(u.hostname) || u.port) return null;
-    const r = await fetch(u, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; AstraCodeReader/1.0)', accept: 'text/html,text/plain,application/json' }, redirect: 'follow', signal: AbortSignal.timeout(8000) }).catch(() => null);
+    const r = await fetch(u, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; KyberReader/1.0)', accept: 'text/html,text/plain,application/json' }, redirect: 'follow', signal: AbortSignal.timeout(8000) }).catch(() => null);
     if (!r?.ok || !/text\/|json/.test(r.headers.get('content-type') || '')) return null;
     const raw = (await r.text()).slice(0, 600000), title = /<title[^>]*>([^<]{1,200})/i.exec(raw)?.[1]?.trim() || '';
     const body = raw.replace(/<(script|style|noscript|svg|nav|footer|header)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr)>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
@@ -668,7 +668,7 @@ export async function runChat(env, J, send, st) {
     }),
     // ค้นเว็บก่อนตอบเฉพาะเมื่อผู้ใช้กดค้นเอง หรือโมเดลใช้ tool ไม่ได้ (โมเดลที่ใช้ tool ได้ค้นเองเมื่อจำเป็น)
     (async () => !pid && (J.search || (!useTools && await autoSearch(env, lastText))) ? smartSearch(env, u, hist) : [])(),
-    pid ? env.DB.batch([env.DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid), env.DB.prepare('SELECT instructions, gh_skipped FROM projects WHERE id=?').bind(pid)]).then(r => r.map(x => x.results?.[0])) : [],
+    pid ? env.DB.batch([env.DB.prepare("SELECT path, content FROM project_files WHERE project_id=? AND path IN ('KYBER.md','ASTRA.md','CLAUDE.md','AGENTS.md') ORDER BY CASE path WHEN 'KYBER.md' THEN 0 WHEN 'ASTRA.md' THEN 1 WHEN 'CLAUDE.md' THEN 2 ELSE 3 END LIMIT 1").bind(pid), env.DB.prepare('SELECT instructions, gh_skipped FROM projects WHERE id=?').bind(pid)]).then(r => r.map(x => x.results?.[0])) : [],
     systemFor(env, u, '', J.skill_ids),
     connTools(env, u.id, { ids: J.mcp_ids || [], off: J.mcp_off || [], askOk: !pid }).catch(() => ({ tools: [], map: new Map() })), // connectors ที่เปิดใช้ทุกแชต + ที่เลือกเพิ่ม · โหมด Code ไม่มีปุ่มอนุญาต จึงได้เฉพาะเครื่องมือที่อนุญาตเสมอ
     model.fallback_id ? modelDown(env, model.id) : false,
@@ -679,7 +679,7 @@ export async function runChat(env, J, send, st) {
   if (sources.length) await send({ sources: sources.map(({ title, url }) => ({ title, url })) });
   const projFile = projRows[0]?.content?.trim() || ''; // ไฟล์กติกาในโปรเจกต์ (แก้ได้เอง/ให้ AI แก้ และซิงก์ GitHub ได้)
   let ghSkip = []; try { ghSkip = JSON.parse(projRows[1]?.gh_skipped || '[]'); } catch { /* ไม่มี */ }
-  const projIns = pid ? [projRows[1]?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? 'From the project file ASTRA.md:\n' + projFile.slice(0, 3000) : '', ghSkip.length ? `These ${ghSkip.length} files exist in the linked GitHub repo but are not loaded here because they are images, fonts or other binary/large files. They are NOT missing: never report them as missing, never recreate or delete them; reference them by path as usual:\n` + ghSkip.slice(0, 300).join('\n') + (ghSkip.length > 300 ? `\n…and ${ghSkip.length - 300} more` : '') : ''].filter(Boolean).join('\n\n') : '';
+  const projIns = pid ? [projRows[1]?.instructions?.trim(), projFile && !projFile.startsWith('data:') ? `From the project file ${projRows[0]?.path || 'ASTRA.md'}:\n` + projFile.slice(0, 3000) : '', ghSkip.length ? `These ${ghSkip.length} files exist in the linked GitHub repo but are not loaded here because they are images, fonts or other binary/large files. They are NOT missing: never report them as missing, never recreate or delete them; reference them by path as usual:\n` + ghSkip.slice(0, 300).join('\n') + (ghSkip.length > 300 ? `\n…and ${ghSkip.length - 300} more` : '') : ''].filter(Boolean).join('\n\n') : '';
   // systemFor ต่อท้ายคำสั่งผู้ใช้/ความจำ/Skills หลังข้อความหลัก จึงคำนวณส่วนท้ายครั้งเดียวแล้ววางต่อจากข้อความหลักของโหมดนั้น
   const system = (pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM + (m.sys_prompt?.trim() ? '\n\n' + m.sys_prompt.trim() : '')) + systemBase + (J.summary ?  `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.folder_ins ? `\n\nInstructions for every chat in this folder (follow them):\n${J.folder_ins}` : '') + folderDocs(J.folder_docs, String(hist.at(-1)?.content || '').slice(0, 4000)) + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + imgPrompt; // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
   const mcpTools = mcpSrvs.tools, mcpMap = mcpSrvs.map; let askStop = false;
@@ -911,7 +911,7 @@ export async function runChat(env, J, send, st) {
   if (J.task && cid) await import('./push.js').then(p => p.sendPush(env, u.id, { title: (lastTodo || []).some(x => x.status !== 'completed') ? 'งานหยุดก่อนเสร็จ · แตะเพื่อดู' : 'งานเสร็จแล้ว', body: String(hist.at(-1)?.content || '').replace(/\[\[[^\]]*\]\]/g, '').slice(0, 120), url: '/chat?id=' + cid })).catch(() => {}); // โหมดงาน: แจ้งเตือนเมื่อจบ (ลูกค้าอาจปิดเว็บไปแล้ว)
   await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), ...(roundsOut ? { more: true } : {}), rounds: round_, ctx: { used: lastCtx || ctxUsed, max: ctxMax(model), real: !!lastCtx }, ...fin });
   for (const lv of [100, 80]) if (J.pw0 < lv && fin.pctWeek >= lv) { // ข้ามเส้น 80% / 100% ของลิมิตสัปดาห์: อีเมลครั้งเดียวตอนข้าม
-    await mail(env, u.email, `AstraCode: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', siteUrl(env) + '/plans')).catch(() => {});
+    await mail(env, u.email, `Kyber: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', siteUrl(env) + '/plans')).catch(() => {});
     break;
   }
   if (cid && (out || think) && u.auto_compact !== 0) { // ย่อแชตอัตโนมัติหลังตอบเสร็จ: context ใช้ถึง compact_pct % ของหน้าต่างโมเดล (ค่าเริ่มต้น 75 · 0 = ปิดทั้งระบบ) หรือแชตยาวเกินเกณฑ์ตัวอักษร
@@ -976,7 +976,7 @@ export function isSafeMcpUrl(raw) {
   return u.href;
 }
 export async function mcpRpc(url, token, method, params = {}, sessionId = null, notifyOnly = false) {
-  const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'user-agent': 'AstraCode-MCP/1.0' };
+  const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'user-agent': 'Kyber-MCP/1.0' };
   if (token) headers.authorization = 'Bearer ' + token;
   if (sessionId) headers['mcp-session-id'] = sessionId;
   const id = notifyOnly ? undefined : Math.floor(Math.random() * 1e9);
@@ -1006,7 +1006,7 @@ export async function mcpRpc(url, token, method, params = {}, sessionId = null, 
 export const READ_NAME = /^(get|list|search|read|fetch|find|query|lookup|describe|view|show|retrieve|count|check|resolve|ask|explain)(?:[_-]|[A-Z]|$)|(?:[_-])(get|list|search|read|fetch|find|query|lookup|view|retrieve)(?:[_-]|$)/i;
 export async function mcpSync(url, token) {
   if (url === GOOGLE_URL) return GOOGLE_TOOLS;
-  const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'AstraCode', version: '1.0.0' } });
+  const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'Kyber', version: '1.0.0' } });
   await mcpRpc(url, token, 'notifications/initialized', {}, init.sessionId, true).catch(() => {});
   const res = await mcpRpc(url, token, 'tools/list', {}, init.sessionId);
   const tools = (res.data?.tools || []).slice(0, 40).map(t => ({
@@ -1019,7 +1019,7 @@ export async function mcpSync(url, token) {
 }
 export async function mcpCall(url, token, name, args, env) {
   if (url === GOOGLE_URL) return String(await googleCall(env, token, name, args || {})).slice(0, 12000); // เชื่อม Google แบบปุ่มเดียว: เรียกตรงในเซิร์ฟเวอร์
-  const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'AstraCode', version: '1.0.0' } });
+  const init = await mcpRpc(url, token, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'Kyber', version: '1.0.0' } });
   await mcpRpc(url, token, 'notifications/initialized', {}, init.sessionId, true).catch(() => {});
   const res = await mcpRpc(url, token, 'tools/call', { name, arguments: args || {} }, init.sessionId);
   const c = res.data?.content;
@@ -1030,12 +1030,12 @@ export async function mcpCall(url, token, name, args, env) {
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
 export const AGENT_ROUNDS = 20, AGENT_IN_MAX = 1.2e6; // โหมด Agent ในหน้า Code (แพลนชำระเงิน)
 // ---------- zip ที่แนบในแชต: เครื่องมืออ่านไฟล์ให้ AI ----------
-// แอป AstraCode Desktop: แชต/โหมด Code ใช้ไฟล์ คำสั่ง และ MCP ในเครื่องผู้ใช้ได้ (หน้าเว็บในแอปเป็นคนทำตามบรรทัดคำสั่ง แล้วส่งผลกลับเป็นข้อความถัดไป)
+// แอป Kyber Desktop: แชต/โหมด Code ใช้ไฟล์ คำสั่ง และ MCP ในเครื่องผู้ใช้ได้ (หน้าเว็บในแอปเป็นคนทำตามบรรทัดคำสั่ง แล้วส่งผลกลับเป็นข้อความถัดไป)
 export const localOf = l => l && typeof l === 'object' ? { os: String(l.os || '').slice(0, 20), folder: String(l.folder || '').slice(0, 80), screen: !!l.screen, mcp: Array.isArray(l.mcp) ? l.mcp.slice(0, 40).map(t => ({ name: String(t?.name || '').slice(0, 64), description: String(t?.description || '').slice(0, 300), args: JSON.stringify(t?.parameters?.properties || {}).slice(0, 500) })).filter(t => t.name) : [] } : null;
 export function localSys(l, code) {
   if (!l) return '';
-  if (code) return `\n\nThis project is linked to a real folder on the user's computer (${l.os || 'unknown OS'}) through the AstraCode Desktop app: the project files ARE the files in that folder. RUN lines execute in a real shell in that folder on the user's machine (not the browser emulator described above), with whatever the user has installed (node, npm, python, pip, git…). The user approves commands (or allowed them automatically). Commands time out after 10 minutes and get no keyboard input, so pass non-interactive flags (-y, --yes). Dev servers and watchers (npm run dev, vite, next dev, python -m http.server…) start in the background and you get their URL back; do not start the same server twice.`;
-  return `\n\nThis chat runs inside the AstraCode Desktop app, which gives you tools on the user's computer (${l.os || 'unknown OS'}), limited to the folder "${l.folder}". This overrides "You have no tools" above. To use a tool, write each call on its own line outside code blocks, then STOP and wait; the results come back in the next message:\nLIST <relative folder, . for the root>\nREAD <relative file path>\nGREP <text to find in all files>\nRUN <shell command, runs in that folder; no keyboard input, so use -y/--yes; 10 minute timeout; dev servers run in the background and return their URL>\n${l.mcp.length ? 'MCP <tool name> <JSON arguments on one line>\n' : ''}${l.screen ? 'SCREEN (take a screenshot)\nCLICK x y | DOUBLE x y | RIGHT x y (pixels of the latest screenshot)\nTYPE <text>\nKEY <keys, e.g. ctrl+s, enter, alt+f4>\nSCROLL x y <notches, negative = up>\nWAIT <ms>\n' : ''}To create or overwrite a file in that folder, put the FULL content in a code block whose info string is the language then file=<relative path>. To change part of an existing file, use the same kind of block containing one or more\n<<<<<<< SEARCH\nexact existing lines\n=======\nnew lines\n>>>>>>> REPLACE\nThe app writes files without asking. Use at most 12 tool lines per reply. Look before you change things (LIST/GREP/READ), never claim a command ran or a file changed before you see the result, and summarize what you did when finished.${l.screen ? ' When controlling the screen: start with SCREEN, act in small steps, a fresh screenshot comes back after each batch; never enter passwords, payment details or send messages/purchases without the user asking explicitly in this chat.' : ''}${l.mcp.length ? '\nLocal MCP tools:\n' + l.mcp.map(t => `- ${t.name}: ${t.description} args ${t.args}`).join('\n').slice(0, 8000) : ''}`;
+  if (code) return `\n\nThis project is linked to a real folder on the user's computer (${l.os || 'unknown OS'}) through the Kyber Desktop app: the project files ARE the files in that folder. RUN lines execute in a real shell in that folder on the user's machine (not the browser emulator described above), with whatever the user has installed (node, npm, python, pip, git…). The user approves commands (or allowed them automatically). Commands time out after 10 minutes and get no keyboard input, so pass non-interactive flags (-y, --yes). Dev servers and watchers (npm run dev, vite, next dev, python -m http.server…) start in the background and you get their URL back; do not start the same server twice.`;
+  return `\n\nThis chat runs inside the Kyber Desktop app, which gives you tools on the user's computer (${l.os || 'unknown OS'}), limited to the folder "${l.folder}". This overrides "You have no tools" above. To use a tool, write each call on its own line outside code blocks, then STOP and wait; the results come back in the next message:\nLIST <relative folder, . for the root>\nREAD <relative file path>\nGREP <text to find in all files>\nRUN <shell command, runs in that folder; no keyboard input, so use -y/--yes; 10 minute timeout; dev servers run in the background and return their URL>\n${l.mcp.length ? 'MCP <tool name> <JSON arguments on one line>\n' : ''}${l.screen ? 'SCREEN (take a screenshot)\nCLICK x y | DOUBLE x y | RIGHT x y (pixels of the latest screenshot)\nTYPE <text>\nKEY <keys, e.g. ctrl+s, enter, alt+f4>\nSCROLL x y <notches, negative = up>\nWAIT <ms>\n' : ''}To create or overwrite a file in that folder, put the FULL content in a code block whose info string is the language then file=<relative path>. To change part of an existing file, use the same kind of block containing one or more\n<<<<<<< SEARCH\nexact existing lines\n=======\nnew lines\n>>>>>>> REPLACE\nThe app writes files without asking. Use at most 12 tool lines per reply. Look before you change things (LIST/GREP/READ), never claim a command ran or a file changed before you see the result, and summarize what you did when finished.${l.screen ? ' When controlling the screen: start with SCREEN, act in small steps, a fresh screenshot comes back after each batch; never enter passwords, payment details or send messages/purchases without the user asking explicitly in this chat.' : ''}${l.mcp.length ? '\nLocal MCP tools:\n' + l.mcp.map(t => `- ${t.name}: ${t.description} args ${t.args}`).join('\n').slice(0, 8000) : ''}`;
 }
 export const ZIP_SYS = '\n\nThe user attached a project archive; its file list is in their message. Call read_file to open the files you need (and grep_files to find where something is) before answering. Never guess file contents. To change files, output each changed file in FULL in its own code block with file=<the same path as in the archive>; the page merges them back into the archive for download.';
 export const ZIP_TOOLS = [
@@ -1058,7 +1058,7 @@ export function zipTool(name, a, files) {
   if (cut) body = body.slice(0, ZIP_READ_MAX);
   return `${p} (lines ${from}-${to} of ${ls.length})\n${body}${cut ? `\n…(cut at ${ZIP_READ_MAX} characters; read the rest with from_line/to_line)` : ''}`;
 }
-// โหมดงาน (แบบ Cowork): AI วางแผนด้วย checklist แล้วทำเองจนจบ · ไฟล์ผลลัพธ์อยู่ในโฟลเดอร์งาน (ไฟล์ในบัญชีที่ผูกกับแชตนี้)
+// โหมดงาน (แบบ Kyber Harness): AI วางแผนด้วย checklist แล้วทำเองจนจบ · ไฟล์ผลลัพธ์อยู่ในโฟลเดอร์งาน (ไฟล์ในบัญชีที่ผูกกับแชตนี้)
 export const TASK_ROUNDS = 40;
 export const TASK_SYS = `\n\nTASK MODE: the user handed you a whole piece of work and may have closed the page; they will come back for the result. Work on your own until it is done:
 1. First call todo_write with a short plan (3-8 steps).

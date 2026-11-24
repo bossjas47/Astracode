@@ -154,7 +154,7 @@ async function runLead(env, J, u, plan, m) {
     .bind(J.user_id, J.project_id, (wm || m).id, workerPrompt(t, goal), confirm ? 'planned' : 'waiting', now, J.id, JSON.stringify(t.files), confirm ? JSON.stringify({ title: t.title, prompt: t.prompt }) : null)));
   await setJob(env, J.id, { status: confirm ? 'plan' : 'team', log: `แบ่งงาน ${tasks.length} ชิ้น (ลูกทีมใช้ ${(wm || m).name})\n` + tasks.map((t, i) => `${i + 1}. ${t.title} → ${t.files.join(', ')}`).join('\n') });
   if (confirm) await sendPush(env, u.id, { title: 'ทีม Agent: แผนพร้อมแล้ว', body: 'แตะเพื่อตรวจแผนและกดเริ่ม', url: '/code?p=' + J.project_id });
-  if (confirm) { await mail(env, u.email, 'AstraCode ทีม Agent: แผนพร้อมแล้ว รอคุณยืนยัน', mailBox('แผนงานพร้อมแล้ว', `หัวหน้าทีมแบ่งงานเป็น ${tasks.length} ชิ้น ตรวจ แก้ หรือตัดงานย่อยได้ แล้วกด "เริ่มทีม" (แผนหมดอายุใน 24 ชม.)`, 'ดูแผน', `${siteUrl(env)}/code?p=${J.project_id}`)).catch(() => {}); return null; }
+  if (confirm) { await mail(env, u.email, 'Kyber ทีม Agent: แผนพร้อมแล้ว รอคุณยืนยัน', mailBox('แผนงานพร้อมแล้ว', `หัวหน้าทีมแบ่งงานเป็น ${tasks.length} ชิ้น ตรวจ แก้ หรือตัดงานย่อยได้ แล้วกด "เริ่มทีม" (แผนหมดอายุใน 24 ชม.)`, 'ดูแผน', `${siteUrl(env)}/code?p=${J.project_id}`)).catch(() => {}); return null; }
   await teamAdvance(env, J.id);
   return null;
 }
@@ -202,7 +202,7 @@ async function runResearch(env, J, u, plan, m) {
     DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,sources) VALUES (?,?,?,?,?,?)').bind(chat.id, 'assistant', body, J.model_id, Date.now() + 1, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null)]);
   await setJob(env, J.id, { status, rounds: 3, log: log.join('\n').slice(0, 8000), summary: (report || log.at(-1) || '').slice(0, 600), chat_id: chat.id, finished_at: Date.now() });
   await sendPush(env, u.id, { title: `Deep research ${status === 'done' ? 'เสร็จแล้ว' : 'ไม่ครบ'}`, body: J.prompt.slice(0, 120), url: '/chat?id=' + chat.id });
-  await mail(env, u.email, `AstraCode Deep research ${status === 'done' ? 'เสร็จแล้ว' : 'ไม่ครบ'}: ${J.prompt.slice(0, 50)}`, mailBox('รายงานพร้อมแล้ว', esc((report || log.at(-1) || '').slice(0, 1500)).replace(/\n/g, '<br>'), 'เปิดรายงาน', `${siteUrl(env)}/chat?id=${chat.id}`)).catch(() => {});
+  await mail(env, u.email, `Kyber Deep research ${status === 'done' ? 'เสร็จแล้ว' : 'ไม่ครบ'}: ${J.prompt.slice(0, 50)}`, mailBox('รายงานพร้อมแล้ว', esc((report || log.at(-1) || '').slice(0, 1500)).replace(/\n/g, '<br>'), 'เปิดรายงาน', `${siteUrl(env)}/chat?id=${chat.id}`)).catch(() => {});
 }
 // โมเดลลูกทีม: ตั้งใน team_worker_model (id) ไม่งั้นใช้ DeepSeek 4.1 Flash ถ้าแพลนมี สุดท้ายใช้ตัวที่ตัวคูณต่ำสุด
 export async function workerModel(env, plan, chosen = null) { // chosen = ผู้ใช้เลือกเอง (ต้องอยู่ในแพลน) · ไม่งั้นค่าที่แอดมินตั้ง → DeepSeek Flash → ถูกสุด
@@ -238,7 +238,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     }
     const label = { done: 'เสร็จแล้ว', stopped: 'หยุดแล้ว', limit: 'หยุดเพราะลิมิตเต็ม', failed: 'ไม่สำเร็จ', timeout: 'หยุดเพราะใช้เวลานานเกินกำหนด' }[status] || status;
     await sendPush(env, u.id, { title: `Agent ${label}`, body: J.prompt.slice(0, 120) + (changedAll.size ? ` · ${changedAll.size} ไฟล์` : ''), url: '/code?p=' + J.project_id });
-    await mail(env, u.email, `AstraCode Agent ${label}: ${J.prompt.slice(0, 50)}`, mailBox(`Agent ${label}`, esc((final || usageNote || '').slice(0, 2500)).replace(/\n/g, '<br>') + (changedAll.size ? `<br><br>ไฟล์ที่เปลี่ยน: ${esc([...changedAll].join(', '))}` : ''), 'เปิดโปรเจกต์', `${siteUrl(env)}/code?p=${J.project_id}`)).catch(() => {});
+    await mail(env, u.email, `Kyber Agent ${label}: ${J.prompt.slice(0, 50)}`, mailBox(`Agent ${label}`, esc((final || usageNote || '').slice(0, 2500)).replace(/\n/g, '<br>') + (changedAll.size ? `<br><br>ไฟล์ที่เปลี่ยน: ${esc([...changedAll].join(', '))}` : ''), 'เปิดโปรเจกต์', `${siteUrl(env)}/code?p=${J.project_id}`)).catch(() => {});
   };
   try {
     if (J.role === 'research') return await runResearch(env, J, u, plan, m);

@@ -1,9 +1,9 @@
 {
   "name": "astracode-desktop",
-  "version": "0.9.0",
-  "description": "AstraCode Desktop: the AstraCode website in an app window, with access to files, commands and MCP tools on your computer",
+  "version": "0.10.0",
+  "description": "Kyber Desktop (formerly AstraCode Desktop) by Hypatia: the Kyber website in an app window, with access to files, commands and MCP tools on your computer",
   "main": "main.js",
-  "author": "AstraCode",
+  "author": "Hypatia",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
@@ -27,7 +27,7 @@
   },
   "build": {
     "appId": "xyz.panderx.astracode.desktop",
-    "productName": "AstraCode Desktop",
+    "productName": "Kyber Desktop",
     "files": [
       "main.js",
       "preload-web.js",
@@ -43,7 +43,8 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "executableName": "AstraCode Desktop"
     },
     "nsis": {
       "oneClick": false,
@@ -58,8 +59,9 @@
     ],
     "protocols": [
       {
-        "name": "AstraCode",
+        "name": "Kyber",
         "schemes": [
+          "kyber",
           "astracode"
         ]
       }

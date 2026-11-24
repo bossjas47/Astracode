@@ -12,6 +12,10 @@ const { setupTool, SETUP_TOOLS } = require('./setuptools');
 const { AGENT_TOOLS, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin } = require('./agenttools');
 
 const SITE = 'https://astracode.panderx.xyz';
+// โดเมนที่เชื่อถือ (ช่วงย้ายแบรนด์เป็น Kyber): หน้าจากโดเมนเหล่านี้เท่านั้นที่เรียกสะพานไฟล์/คำสั่งได้ · แอปยังเปิดโดเมนเดิม (SITE) เป็นหลัก
+const SITES = [SITE]; // ย้ายโดเมนใหม่เมื่อไร เพิ่ม origin ใหม่ที่นี่ (และใน AUTH_HOSTS) ก่อนปล่อยแอป
+// productName เปลี่ยนเป็น "Kyber Desktop": ใช้โฟลเดอร์ข้อมูลเดิม ("AstraCode Desktop") ถ้ามี ไม่งั้นผู้ใช้เดิมหลุดล็อกอินและการตั้งค่า (key, โฟลเดอร์ที่ผูก, ปลั๊กอิน) หาย
+{ const old = path.join(app.getPath('appData'), 'AstraCode Desktop'); try { if (fs.existsSync(old)) app.setPath('userData', old); } catch { /* ใช้โฟลเดอร์ใหม่ */ } }
 let settings, mcp = null;
 const setFile = () => path.join(app.getPath('userData'), 'settings.json');
 const load = () => { try { return JSON.parse(fs.readFileSync(setFile(), 'utf8')); } catch { return {}; } };
@@ -24,12 +28,12 @@ let web, tray = null, quitting = false;
 const OFFLINE = 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><meta charset="utf-8"><body style="margin:0;height:100vh;display:grid;place-items:center;background:#111;color:#ddd;font:15px system-ui,sans-serif;text-align:center"><div><h2 style="margin:0 0 8px">ต่ออินเทอร์เน็ตไม่ได้</h2><p style="color:#999;margin:0 0 16px">เช็กเน็ตแล้วลองใหม่ · แอปจะลองเองทุก 10 วินาที</p><button onclick="location.href='${SITE}/chat'" style="padding:10px 18px;border-radius:10px;border:0;background:#c25b3a;color:#fff;font:inherit;cursor:pointer">ลองใหม่</button><script>setTimeout(()=>location.href='${SITE}/chat',10000)</script></div>`);
 function openWeb() {
   const b = settings.bounds || {};
-  web = new BrowserWindow({ width: b.width || 1200, height: b.height || 820, x: b.x, y: b.y, title: 'AstraCode', icon: path.join(__dirname, 'build', 'icon.png'), backgroundColor: '#111111', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload-web.js'), partition: 'persist:astra', contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false } });
+  web = new BrowserWindow({ width: b.width || 1200, height: b.height || 820, x: b.x, y: b.y, title: 'Kyber', icon: path.join(__dirname, 'build', 'icon.png'), backgroundColor: '#111111', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload-web.js'), partition: 'persist:astra', contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false } });
   if (b.max) web.maximize();
   const keep = () => { if (!web.isMinimized()) settings.bounds = { ...(web.isMaximized() ? settings.bounds : web.getNormalBounds()), max: web.isMaximized() }; };
   web.on('resize', keep); web.on('move', keep);
-  web.on('close', e => { keep(); save(); if (!quitting && tray) { e.preventDefault(); web.hide(); if (!settings.trayTold) { settings.trayTold = true; save(); tray.displayBalloon?.({ title: 'AstraCode ยังทำงานอยู่', content: 'แอปย่ออยู่ที่ถาดมุมขวาล่าง คลิกขวาที่ไอคอน → ออก เพื่อปิดจริง' }); } } });
-  const inApp = u => { try { const x = new URL(u); return x.protocol === 'https:' && AUTH_HOSTS.test(x.hostname) && !(x.origin === SITE && USER_CONTENT.test(x.pathname)); } catch { return false; } }; // หน้าเนื้อหาผู้ใช้เปิดในเบราว์เซอร์ภายนอก
+  web.on('close', e => { keep(); save(); if (!quitting && tray) { e.preventDefault(); web.hide(); if (!settings.trayTold) { settings.trayTold = true; save(); tray.displayBalloon?.({ title: 'Kyber ยังทำงานอยู่', content: 'แอปย่ออยู่ที่ถาดมุมขวาล่าง คลิกขวาที่ไอคอน → ออก เพื่อปิดจริง' }); } } });
+  const inApp = u => { try { const x = new URL(u); return x.protocol === 'https:' && AUTH_HOSTS.test(x.hostname) && !(SITES.includes(x.origin) && USER_CONTENT.test(x.pathname)); } catch { return false; } }; // หน้าเนื้อหาผู้ใช้เปิดในเบราว์เซอร์ภายนอก
   web.webContents.on('will-navigate', (e, u) => { if (!inApp(u) && !u.startsWith('data:text/html')) { e.preventDefault(); if (/^https?:\/\//.test(u)) shell.openExternal(u); } });
   web.webContents.setWindowOpenHandler(({ url }) => { if (inApp(url)) return { action: 'allow' }; if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; }); // ป๊อปอัปล็อกอิน Google ให้เปิดในแอป
   web.webContents.on('did-fail-load', (e, code, desc, url, main) => { if (main && code !== -3 && !url.startsWith('data:')) web.loadURL(OFFLINE); });
@@ -60,17 +64,17 @@ const show = () => { if (!web) return; if (web.isMinimized()) web.restore(); web
 function makeTray() {
   try {
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')).resize({ width: 16, height: 16 }));
-    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด AstraCode', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; settings.screenAlways = false; save(); } }, ...(Object.values(settings.links || {}).some(r => settings.autoRun?.[r] ?? true) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = Object.fromEntries(Object.values(settings.links || {}).map(r => [r, false])); save(); } }] : []), ...(fs.existsSync(CMD_LOG()) ? [{ label: 'เปิดบันทึกคำสั่งที่รัน', click: () => shell.openPath(CMD_LOG()) }] : []), { label: 'ออกจากแอป', click: quit }]);
-    tray.setToolTip('AstraCode'); tray.setContextMenu(menu()); tray.on('click', show); tray.on('right-click', () => tray.setContextMenu(menu()));
+    const menu = () => Menu.buildFromTemplate([{ label: 'เปิด Kyber', click: show }, { label: 'เปิดพร้อมเครื่อง', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: ['--hidden'] }) }, { type: 'separator' }, { label: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ด', click: () => { screenOk = false; settings.screenAlways = false; save(); } }, ...(Object.values(settings.links || {}).some(r => settings.autoRun?.[r] ?? true) ? [{ label: 'ปิดการรันคำสั่งอัตโนมัติ (ทุกโฟลเดอร์)', click: () => { settings.autoRun = Object.fromEntries(Object.values(settings.links || {}).map(r => [r, false])); save(); } }] : []), ...(fs.existsSync(CMD_LOG()) ? [{ label: 'เปิดบันทึกคำสั่งที่รัน', click: () => shell.openPath(CMD_LOG()) }] : []), { label: 'ออกจากแอป', click: quit }]);
+    tray.setToolTip('Kyber'); tray.setContextMenu(menu()); tray.on('click', show); tray.on('right-click', () => tray.setContextMenu(menu()));
   } catch { tray = null; } // บาง Linux ไม่มีถาด: ปิดหน้าต่าง = ออกจากแอป
 }
 // ลิงก์ astracode://open?path=/code?p=12 จากเว็บ/อีเมล เปิดแอปที่หน้านั้น (ใช้ได้เฉพาะพาธในเว็บเรา)
-const deepPath = argv => { const u = argv.find(a => /^astracode:\/\//i.test(a)); if (!u) return null; try { const p = new URL(u).searchParams.get('path') || '/chat'; return /^\/(?!\/)[\w\-./?=&%]*$/.test(p) ? p : '/chat'; } catch { return '/chat'; } };
+const deepPath = argv => { const u = argv.find(a => /^(astracode|kyber):\/\//i.test(a)); if (!u) return null; try { const p = new URL(u).searchParams.get('path') || '/chat'; return /^\/(?!\/)[\w\-./?=&%]*$/.test(p) ? p : '/chat'; } catch { return '/chat'; } };
 
 // ทุกช่องทางที่หน้าเว็บเรียกได้ต้องมาจาก astracode.panderx.xyz เท่านั้น (หน้าล็อกอิน Google/LINE ที่เปิดในหน้าต่างเดียวกันเรียกไม่ได้)
 // หน้าที่แสดงเนื้อหาของผู้ใช้ (Artifact ที่แชร์, พรีวิวโค้ด, เทอร์มินัล Node, ไฟล์ที่แชร์เข้ามา) อยู่โดเมนเดียวกันแต่เป็น sandbox: ห้ามเรียกสะพานเด็ดขาด
 const USER_CONTENT = /^\/(a\/|preview(\.html)?$|node-runner(\.html)?$|pyworker\.js$|api\/(shared|img|artifacts|files|cowork|a)\/)/; // ไม่รวม /api/oauth (ล็อกอิน Google/LINE ต้องอยู่ในหน้าต่างแอป)
-const fromSite = e => { try { const u = new URL(e.senderFrame?.url || ''); return u.origin === SITE && !USER_CONTENT.test(u.pathname) && e.senderFrame === e.sender.mainFrame; } catch { return false; } };
+const fromSite = e => { try { const u = new URL(e.senderFrame?.url || ''); return SITES.includes(u.origin) && !USER_CONTENT.test(u.pathname) && e.senderFrame === e.sender.mainFrame; } catch { return false; } };
 const h = (ch, fn) => ipcMain.handle(ch, (e, ...a) => { if (!fromSite(e)) throw new Error('ไม่อนุญาต'); return fn(e, ...a); });
 
 // โฟลเดอร์ในเครื่อง: เว็บอ้างถึงด้วยชื่อช่อง (p:<id โปรเจกต์> หรือ chat) ไม่เคยส่งพาธเต็มมาเอง · ผู้ใช้เลือกโฟลเดอร์ผ่านหน้าต่างของ Windows เท่านั้น
@@ -78,7 +82,7 @@ const slot = k => { if (!/^(p:\d{1,12}|chat)$/.test(String(k))) throw new Error(
 const rootOf = k => { const r = (settings.links || {})[slot(k)]; if (!r || !fs.existsSync(r)) throw new Error('ยังไม่ได้เชื่อมโฟลเดอร์ในเครื่อง หรือโฟลเดอร์ถูกย้าย/ลบไปแล้ว'); return r; };
 const info = r => ({ name: path.basename(r), path: r, auto: settings.autoRun?.[r] ?? true }); // false | true (รันเองยกเว้นอันตราย) | 'all' (รันเองทุกคำสั่ง)
 h('desk:link', async (_, k) => {
-  const r = await dialog.showOpenDialog(web, { title: 'เลือกโฟลเดอร์ที่ให้ AstraCode ทำงาน', properties: ['openDirectory', 'createDirectory'] });
+  const r = await dialog.showOpenDialog(web, { title: 'เลือกโฟลเดอร์ที่ให้ Kyber ทำงาน', properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
   const dir = r.filePaths[0];
   if (path.dirname(dir) === dir || dir === app.getPath('home')) { await dialog.showMessageBox(web, { type: 'warning', message: 'เลือกทั้งไดรฟ์หรือโฟลเดอร์ผู้ใช้ทั้งหมดไม่ได้', detail: 'สร้างหรือเลือกโฟลเดอร์ของงานนี้โดยเฉพาะ' }); return null; }
@@ -117,11 +121,11 @@ async function allow(r, cmd) {
     if (a === 1) setLvl('all');
     return null;
   }
-  const a = await box({ type: 'question', title: 'อนุญาตให้รันคำสั่ง?', message: 'AstraCode ขอรันคำสั่งนี้ในเครื่องของคุณ', buttons: ['อนุญาตครั้งนี้', 'รันเองในโฟลเดอร์นี้ (ยกเว้นคำสั่งอันตราย)', 'รันเองทุกคำสั่ง (รวมคำสั่งอันตราย)', 'ไม่อนุญาต'], defaultId: 0, cancelId: 3 });
+  const a = await box({ type: 'question', title: 'อนุญาตให้รันคำสั่ง?', message: 'Kyber ขอรันคำสั่งนี้ในเครื่องของคุณ', buttons: ['อนุญาตครั้งนี้', 'รันเองในโฟลเดอร์นี้ (ยกเว้นคำสั่งอันตราย)', 'รันเองทุกคำสั่ง (รวมคำสั่งอันตราย)', 'ไม่อนุญาต'], defaultId: 0, cancelId: 3 });
   if (a === 3) return DENIED;
   if (a === 1) setLvl(true);
   if (a === 2) { // รันเองทุกคำสั่ง = เสี่ยง ยืนยันอีกชั้นก่อนเปิด
-    const c = await dialog.showMessageBox(web, { type: 'warning', title: 'รันทุกคำสั่งเองโดยไม่ถาม?', message: '⚠ AstraCode จะรันทุกคำสั่งในโฟลเดอร์นี้เองโดยไม่ถามอีก', detail: `รวมคำสั่งลบไฟล์ ติดตั้งโปรแกรม และ git push ในโฟลเดอร์ ${r}\nถ้า AI เข้าใจผิด ข้อมูลอาจหายถาวรและย้อนไม่ได้ ควรใช้กับโฟลเดอร์ที่สำรองไว้แล้ว · ปิดได้ทุกเมื่อที่ไอคอนถาดมุมจอ → ปิดการรันคำสั่งอัตโนมัติ`, buttons: ['เปิดโหมดนี้', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
+    const c = await dialog.showMessageBox(web, { type: 'warning', title: 'รันทุกคำสั่งเองโดยไม่ถาม?', message: '⚠ Kyber จะรันทุกคำสั่งในโฟลเดอร์นี้เองโดยไม่ถามอีก', detail: `รวมคำสั่งลบไฟล์ ติดตั้งโปรแกรม และ git push ในโฟลเดอร์ ${r}\nถ้า AI เข้าใจผิด ข้อมูลอาจหายถาวรและย้อนไม่ได้ ควรใช้กับโฟลเดอร์ที่สำรองไว้แล้ว · ปิดได้ทุกเมื่อที่ไอคอนถาดมุมจอ → ปิดการรันคำสั่งอัตโนมัติ`, buttons: ['เปิดโหมดนี้', 'ยกเลิก'], defaultId: 1, cancelId: 1, noLink: true });
     if (c.response !== 0) return DENIED;
     setLvl('all');
   }
@@ -272,7 +276,7 @@ const agentFile = sid => path.join(app.getPath('userData'), 'agents', sid.replac
 const agentSave = a => { try { fs.mkdirSync(path.dirname(agentFile(a.sid)), { recursive: true }); fs.writeFileSync(agentFile(a.sid), JSON.stringify({ root: a.ws.root, messages: a.messages.slice(-400) })); } catch { /* ดิสก์เต็ม/สิทธิ์: ยังทำงานต่อได้ แค่ไม่จำหลังปิดแอป */ } };
 const agentLoad = sid => { try { return JSON.parse(fs.readFileSync(agentFile(sid), 'utf8')); } catch { return null; } };
 h('desk:agentNeedKey', () => !settings.key);
-h('desk:agentSetKey', (_, key) => { if (!/^sk-astra-[0-9a-f]+$/.test(String(key))) return false; settings.key = String(key); save(); return true; });
+h('desk:agentSetKey', (_, key) => { if (!/^sk-(astra|kyber)-[0-9a-f]+$/.test(String(key))) return false; settings.key = String(key); save(); return true; });
 h('desk:agentStop', (_, sid) => { const a = agents.get(String(sid)); a?.ac?.abort(); a?.ws?.stopAll(); return true; });
 h('desk:agentSteer', (_, sid, text) => { const a = agents.get(String(sid)); if (!a?.ac) return false; a.inbox.push('[ผู้ใช้พิมพ์แทรกระหว่างทำงาน] ' + String(text).slice(0, 20000)); return true; });
 h('desk:agentUndo', async (_, sid, step) => { const a = agents.get(String(sid)); return a?.ws ? await (step != null ? a.ws.undoTo(+step) : a.ws.undo()) : []; });
@@ -296,15 +300,15 @@ h('desk:pluginInstall', async (_, src, envValues = {}) => {
 h('desk:pluginRemove', async (_, name) => { if (settings.plugins?.[name]) { delete settings.plugins[name]; save(); await mcp?.close(); mcp = null; } return true; });
 // ตั้งค่า Codex / Claude Code / OpenCode ให้ใช้ AstraCode: เขียนไฟล์ config ให้ (ยืนยันด้วยหน้าต่างของแอปก่อน · สำรองไฟล์เดิมเป็น .bak)
 h('desk:setupTool', async (_, tool, key, model) => {
-  if (!SETUP_TOOLS.includes(tool) || !/^sk-astra-[0-9a-f]+$/.test(String(key)) || !/^[\w.:-]{1,120}$/.test(String(model))) throw new Error('ข้อมูลไม่ถูกต้อง');
-  const r = await dialog.showMessageBox(web, { type: 'question', title: 'ตั้งค่า ' + tool, message: `ให้ ${tool} ใช้ AstraCode (โมเดล ${model})?`, detail: 'แอปจะแก้ไฟล์ตั้งค่าของโปรแกรมนั้นให้ และสำรองไฟล์เดิมไว้เป็น .bak · ปิดโปรแกรมแล้วเปิดใหม่หลังตั้งค่า', buttons: ['ตั้งค่าเลย', 'ยกเลิก'], defaultId: 0, cancelId: 1, noLink: true });
+  if (!SETUP_TOOLS.includes(tool) || !/^sk-(astra|kyber)-[0-9a-f]+$/.test(String(key)) || !/^[\w.:-]{1,120}$/.test(String(model))) throw new Error('ข้อมูลไม่ถูกต้อง');
+  const r = await dialog.showMessageBox(web, { type: 'question', title: 'ตั้งค่า ' + tool, message: `ให้ ${tool} ใช้ Kyber (โมเดล ${model})?`, detail: 'แอปจะแก้ไฟล์ตั้งค่าของโปรแกรมนั้นให้ และสำรองไฟล์เดิมไว้เป็น .bak · ปิดโปรแกรมแล้วเปิดใหม่หลังตั้งค่า', buttons: ['ตั้งค่าเลย', 'ยกเลิก'], defaultId: 0, cancelId: 1, noLink: true });
   if (r.response !== 0) return null;
   return setupTool(tool, { site: SITE, key: String(key), model: String(model) });
 });
 // Git ของโฟลเดอร์งาน: ดูสถานะ / diff / commit (ปุ่มในแชต)
 h('desk:agentGit', async (_, k, action, msg) => {
   const r = rootOf(k || 'chat'), q = s => process.platform === 'win32' ? '"' + s.replace(/"/g, '""') + '"' : "'" + s.replace(/'/g, "'\\''") + "'";
-  const cmd = action === 'diff' ? 'git diff --stat && git diff' : action === 'commit' ? `git add -A && git commit -m ${q(String(msg || 'AstraCode Agent').slice(0, 500))}` : 'git status --short --branch';
+  const cmd = action === 'diff' ? 'git diff --stat && git diff' : action === 'commit' ? `git add -A && git commit -m ${q(String(msg || 'Kyber Agent').slice(0, 500))}` : 'git status --short --branch';
   const x = await runCmd(r, cmd, { timeout: 60e3 }); return { code: x.code, out: (x.stdout + (x.stderr ? '\n' + x.stderr : '')).slice(0, 150000) };
 });
 async function approve(a, req) {
@@ -321,7 +325,7 @@ async function approve(a, req) {
 // ถามผู้ใช้: หน้าต่างของ Windows · ถ้าเปิดสั่งจากมือถือไว้ ส่งคำถามไปให้กดจากมือถือได้ด้วย (ใครตอบก่อนใช้คำตอบนั้น)
 async function askUser(a, { title, detail, warn, allowAllLabel }) {
   const ac = new AbortController(), buttons = ['อนุญาต', ...(allowAllLabel ? [allowAllLabel] : []), 'ไม่อนุญาต'];
-  const local = dialog.showMessageBox(web, { type: warn ? 'warning' : 'question', title: 'AstraCode Agent', message: title, detail, buttons, defaultId: 0, cancelId: buttons.length - 1, noLink: true, signal: ac.signal })
+  const local = dialog.showMessageBox(web, { type: warn ? 'warning' : 'question', title: 'Kyber Agent', message: title, detail, buttons, defaultId: 0, cancelId: buttons.length - 1, noLink: true, signal: ac.signal })
     .then(r => r.response === 0 ? 'yes' : allowAllLabel && r.response === 1 ? 'all' : 'no');
   const remote = a.remote ? a.remote.ask({ title, detail: detail.slice(0, 3000), allowAll: !!allowAllLabel }) : new Promise(() => {});
   const ans = await Promise.race([local, remote]); ac.abort(); a.remote?.cancelAsk(); return ans;
@@ -459,7 +463,7 @@ setInterval(async () => {
 // ---------- สั่ง/อนุญาตจากมือถือ: แอปส่งความคืบหน้าขึ้นเซิร์ฟเวอร์ (ผูกกับแชต) มือถือเปิดแชตเดียวกันเห็นสด กดอนุญาต/พิมพ์แทรกได้ ----------
 async function remoteStart(a, chatId) {
   if (!(+chatId > 0)) throw new Error('ต้องมีแชตก่อน');
-  const r = await dialog.showMessageBox(web, { type: 'warning', title: 'สั่งจากมือถือ', message: 'ให้กดอนุญาตและสั่งงาน Agent จากมือถือ (บัญชีเดียวกัน) ได้?', detail: 'ความคืบหน้าจะถูกส่งขึ้นเซิร์ฟเวอร์ AstraCode เพื่อแสดงในแชตนี้บนมือถือ · ปิดได้เมื่อปิดแอป', buttons: ['อนุญาต', 'ไม่'], defaultId: 1, cancelId: 1, noLink: true });
+  const r = await dialog.showMessageBox(web, { type: 'warning', title: 'สั่งจากมือถือ', message: 'ให้กดอนุญาตและสั่งงาน Agent จากมือถือ (บัญชีเดียวกัน) ได้?', detail: 'ความคืบหน้าจะถูกส่งขึ้นเซิร์ฟเวอร์ Kyber เพื่อแสดงในแชตนี้บนมือถือ · ปิดได้เมื่อปิดแอป', buttons: ['อนุญาต', 'ไม่'], defaultId: 1, cancelId: 1, noLink: true });
   if (r.response !== 0) throw new Error('ไม่ได้เปิด');
   const api = async (p, body) => { const x = await fetch(SITE + '/v1/remote/' + p, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) }); return x.json().catch(() => ({})); };
   let buf = [], t = null, waiting = null, askId = 0;
@@ -497,14 +501,14 @@ app.on('render-process-gone', (_, wc, d) => report('renderer', new Error('หน
 app.setAppUserModelId('xyz.panderx.astracode.desktop'); // Windows: ให้แจ้งเตือนขึ้นในชื่อแอป
 if (!app.requestSingleInstanceLock()) app.quit(); // เปิดซ้ำ = กลับไปหน้าต่างเดิม (และรับลิงก์ astracode://)
 else {
-  app.setAsDefaultProtocolClient('astracode');
+  app.setAsDefaultProtocolClient('astracode'); app.setAsDefaultProtocolClient('kyber'); // ลิงก์ชื่อใหม่ kyber:// และชื่อเดิม astracode://
   app.on('second-instance', (_, argv) => { const p = deepPath(argv); if (p && web) web.loadURL(SITE + p); show(); });
   app.on('open-url', (e, u) => { e.preventDefault(); const p = deepPath([u]); if (web && p) { web.loadURL(SITE + p); show(); } else settings.openPath = p; }); // macOS
   app.whenReady().then(() => {
     settings = { ...load(), openPath: deepPath(process.argv) }; screenOk = process.platform === 'win32' && settings.screenAlways === true;
     if (!settings.links?.chat) { settings.links = { ...settings.links, chat: app.getPath('home') }; save(); } // แชตในแอปทำงานในเครื่องได้ทันที (โฟลเดอร์ผู้ใช้ เหมือนเปิด terminal) · เปลี่ยนโฟลเดอร์ได้ในหน้า ใช้คอมเครื่องนี้ // เคยกด "จำไว้" แล้ว: ไม่ต้องขอสิทธิ์คุมจอซ้ำทุกครั้งที่เปิดแอป
     appMenu(); makeTray(); openWeb(); if (process.argv.includes('--hidden') && tray) web.hide(); autoUpdate();
-    globalShortcut.register('CommandOrControl+Alt+Escape', () => { if (screenOk) { screenOk = false; new Notification({ title: 'AstraCode', body: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ดแล้ว' }).show(); } }); // ปุ่มฉุกเฉิน
+    globalShortcut.register('CommandOrControl+Alt+Escape', () => { if (screenOk) { screenOk = false; new Notification({ title: 'Kyber', body: 'หยุดให้ AI คุมเมาส์/คีย์บอร์ดแล้ว' }).show(); } }); // ปุ่มฉุกเฉิน
   });
 }
 app.on('before-quit', () => { quitting = true; for (const s of servers.values()) s.kill(); });

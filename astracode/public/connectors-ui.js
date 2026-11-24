@@ -148,7 +148,7 @@
   function skillsHTML() {
     const list = S.skills.filter(s => !s.as_text && (S.view === 'mine' ? s.user_id : !s.user_id) && match(s.name, s.description));
     if (!list.length) return S.view === 'mine' ? '<div class="cn-empty"><p>ยังไม่มี Skill ของคุณ</p><p class="muted">Skill = ชุดคำสั่งให้ AI ทำงานแบบเดิมทุกครั้ง เช่น สไตล์การเขียน กติกาโค้ด กด + เพิ่ม เพื่อสร้าง</p></div>' : '<p class="muted">ไม่พบ Skill</p>';
-    return `<div class="cn-grid">${list.map(s => `<button type="button" class="cn-card" data-sk="${s.id}"><span class="cn-ico" style="--c:#8b5cf6">${ic('sparkles', 'sm')}</span><span class="cn-txt"><b>${esc(s.name)}</b><span>${esc(s.description || String(s.content || '').slice(0, 90))}</span><small>${s.user_id ? 'ของคุณ' : 'AstraCode'}</small></span><span class="cn-plus">${ic('right', 'sm')}</span></button>`).join('')}</div><p class="muted cn-hint">ใช้ในแชต: กด + ในช่องพิมพ์ → Skills หรือพิมพ์ / ตามด้วยชื่อ</p>`;
+    return `<div class="cn-grid">${list.map(s => `<button type="button" class="cn-card" data-sk="${s.id}"><span class="cn-ico" style="--c:#8b5cf6">${ic('sparkles', 'sm')}</span><span class="cn-txt"><b>${esc(s.name)}</b><span>${esc(s.description || String(s.content || '').slice(0, 90))}</span><small>${s.user_id ? 'ของคุณ' : 'Kyber'}</small></span><span class="cn-plus">${ic('right', 'sm')}</span></button>`).join('')}</div><p class="muted cn-hint">ใช้ในแชต: กด + ในช่องพิมพ์ → Skills หรือพิมพ์ / ตามด้วยชื่อ</p>`;
   }
   function skillDetail(id) {
     const s = S.skills.find(x => x.id === id); if (!s) return;

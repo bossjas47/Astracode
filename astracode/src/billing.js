@@ -28,10 +28,10 @@ export async function walletAdd(env, uid, amount, kind, ref) {
   return r?.balance;
 }
 // อีเมล (Resend) และแจ้งเตือนแอดมิน (Discord webhook / LINE Messaging API)
-export const mailBox = (title, body, btn, link) => `<div style="font-family:system-ui,sans-serif;max-width:520px;margin:auto;padding:28px;background:#000;color:#f5f5f7;border-radius:20px"><h2 style="margin:0 0 12px">${title}</h2><p style="color:#c7c7cc;line-height:1.6">${body}</p>${btn ? `<a href="${link}" style="display:inline-block;margin-top:12px;background:#0071e3;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none">${btn}</a>` : ''}<p style="color:#86868b;font-size:12px;margin-top:28px">AstraCode</p></div>`;
+export const mailBox = (title, body, btn, link) => `<div style="font-family:system-ui,sans-serif;max-width:520px;margin:auto;padding:28px;background:#000;color:#f5f5f7;border-radius:20px"><h2 style="margin:0 0 12px">${title}</h2><p style="color:#c7c7cc;line-height:1.6">${body}</p>${btn ? `<a href="${link}" style="display:inline-block;margin-top:12px;background:#0071e3;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none">${btn}</a>` : ''}<p style="color:#86868b;font-size:12px;margin-top:28px">Kyber · สร้างโดย Hypatia</p></div>`;
 export async function mail(env, to, subject, html) {
   if (!env.RESEND_KEY || !to || to.endsWith('.local')) return false;
-  const from = (await getSetting(env, 'mail_from')) || 'AstraCode <onboarding@resend.dev>';
+  const from = (await getSetting(env, 'mail_from')) || 'Kyber by Hypatia <onboarding@resend.dev>';
   try { return (await fetch('https://api.resend.com/emails', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.RESEND_KEY }, body: JSON.stringify({ from, to, subject, html }) })).ok; }
   catch { return false; }
 }
@@ -39,7 +39,7 @@ export async function notify(env, text) {
   const s = await getSettings(env, ['alert_discord', 'alert_line_to']), jobs = [];
   if (s.alert_discord) jobs.push(fetch(s.alert_discord, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: text.slice(0, 1900), allowed_mentions: { parse: [] } }) })); // กันข้อความผู้ใช้ปิง @everyone
   // แอดมินที่เปิดแจ้งเตือนในเครื่องไว้: ได้ push ด้วย (สลิปรอตรวจ, โมเดลล่ม, ticket ใหม่ ฯลฯ)
-  jobs.push(env.DB.prepare("SELECT id FROM users WHERE role='admin'").all().then(async r => { const { sendPush } = await import('./push.js'); for (const a of r.results) await sendPush(env, a.id, { title: 'AstraCode แอดมิน', body: text.slice(0, 280), url: '/admin' }); }));
+  jobs.push(env.DB.prepare("SELECT id FROM users WHERE role='admin'").all().then(async r => { const { sendPush } = await import('./push.js'); for (const a of r.results) await sendPush(env, a.id, { title: 'Kyber แอดมิน', body: text.slice(0, 280), url: '/admin' }); }));
   if (env.LINE_ALERT_TOKEN && s.alert_line_to) jobs.push(fetch('https://api.line.me/v2/bot/message/push', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.LINE_ALERT_TOKEN }, body: JSON.stringify({ to: s.alert_line_to, messages: [{ type: 'text', text: text.slice(0, 4900) }] }) }));
   await Promise.allSettled(jobs);
 }
@@ -52,7 +52,7 @@ export async function event(env, kind, model_id, detail) {
     if (n.n === 1 || again) {
       const hint = sup?.hint || (/timeout|timed out|หมดเวลา|stall|ไม่ตอบภายใน/i.test(d) ? '⏱️ ผู้ขายตอบช้า/ไม่ตอบ' : '');
       const name = model_id ? (await env.DB.prepare('SELECT name FROM models WHERE id=?').bind(model_id).first().catch(() => null))?.name : null;
-      await notify(env, `⚠️ AstraCode: ${name ? name + ` (#${model_id})` : 'โมเดล #' + (model_id ?? '-')} ตอบไม่ได้${hint ? '\n' + hint : ''}\n${d.slice(0, 300)}`);
+      await notify(env, `⚠️ Kyber: ${name ? name + ` (#${model_id})` : 'โมเดล #' + (model_id ?? '-')} ตอบไม่ได้${hint ? '\n' + hint : ''}\n${d.slice(0, 300)}`);
     }
   }
 }
@@ -292,7 +292,7 @@ export async function applyPayment(env, p) {
     const bonus = +(await getSetting(env, 'referral_bonus')) || 0;
     if (bonus > 0) { await walletAdd(env, u.id, bonus, 'referral', 'ref'); await walletAdd(env, u.referred_by, bonus, 'referral', 'user#' + u.id); }
   }
-  await mail(env, u.email, 'AstraCode: ชำระเงินสำเร็จ', mailBox('ชำระเงินสำเร็จ', p.kind === 'topup' ? `เติมเงิน ฿${p.amount} เข้า Wallet แล้ว` : 'เปิดแพลนให้แล้ว ใช้งานได้ทันที'));
+  await mail(env, u.email, 'Kyber: ชำระเงินสำเร็จ', mailBox('ชำระเงินสำเร็จ', p.kind === 'topup' ? `เติมเงิน ฿${p.amount} เข้า Wallet แล้ว` : 'เปิดแพลนให้แล้ว ใช้งานได้ทันที'));
 }
 export const SEATS_MAX = 100;
 const setSeats = async (env, p, seats) => { if (p && seats) { await env.DB.prepare('UPDATE payments SET seats=? WHERE id=?').bind(seats, p.id).run(); p.seats = seats; } return p; };

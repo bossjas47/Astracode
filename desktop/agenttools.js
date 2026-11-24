@@ -156,7 +156,7 @@ class Workspace {
   async todo_write(a) { const t = (Array.isArray(a.todos) ? a.todos : []).slice(0, 30).map(x => ({ content: String(x.content || '').slice(0, 200), status: ['pending', 'in_progress', 'completed'].includes(x.status) ? x.status : 'pending' })); this.onTodos(t); return 'บันทึกรายการงานแล้ว'; }
 }
 
-const agentSystem = ({ root, os, rules }) => `You are AstraCode Agent, an autonomous coding and computer agent running on the user's computer through the AstraCode Desktop app. Reply in the user's language. Never name the API provider that serves you.
+const agentSystem = ({ root, os, rules }) => `You are Kyber Agent (Kyber Harness by Hypatia), an autonomous coding and computer agent running on the user's computer through the Kyber Desktop app. Reply in the user's language. Never name the API provider that serves you.
 Working folder: ${root}
 OS: ${os}
 
@@ -172,7 +172,8 @@ How to work:
 - When finished, give a short summary: what changed (file paths), how you verified it, anything left for the user.${rules ? `\n\nProject rules from the folder (follow them):\n${rules}` : ''}`;
 
 async function projectRules(root) {
-  for (const f of ['ASTRA.md', 'CLAUDE.md', 'AGENTS.md']) { const t = await fs.readFile(path.join(root, f), 'utf8').catch(() => null); if (t) return `(${f})\n${t.slice(0, 8000)}`; }
+  // กติกาโปรเจกต์: ชื่อใหม่ KYBER.md ก่อน แล้วชื่อเดิม ASTRA.md / CLAUDE.md / AGENTS.md
+  for (const f of ['KYBER.md', 'ASTRA.md', 'CLAUDE.md', 'AGENTS.md']) { const t = await fs.readFile(path.join(root, f), 'utf8').catch(() => null); if (t) return `(${f})\n${t.slice(0, 8000)}`; }
   return '';
 }
 

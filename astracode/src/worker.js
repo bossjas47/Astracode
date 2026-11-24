@@ -86,13 +86,13 @@ export default {
       return new Response(null, { status: 303, headers: { location: '/chat?' + q } });
     }
     if (path === '/download/cli' && M === 'GET') return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/astra-cli.zip', 302); // Agent ในเทอร์มินัล (workflow desktop.yml)
-    if (path === '/download/desktop' && M === 'GET') { // ตัวติดตั้ง AstraCode Desktop (workflow desktop.yml อัปขึ้น R2)
+    if (path === '/download/desktop' && M === 'GET') { // ตัวติดตั้ง Kyber Desktop (workflow desktop.yml อัปขึ้น R2)
       const os = new URL(req.url).searchParams.get('os'), f = { linux: 'AstraCode-Desktop-linux.AppImage' }[os];
       if (os === 'mac') return Response.redirect(new URL('/#download', req.url).href, 302); // หยุดพัฒนาแอป Mac แล้ว: ใช้ผ่านเว็บ
       if (f) return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/' + f, 302);
       const o = env.SLIPS && await env.SLIPS.get('dl/AstraCode-Desktop-Setup.exe');
       if (!o) return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/AstraCode-Desktop-Setup.exe', 302); // ไฟล์อยู่ที่ GitHub Release (workflow desktop.yml)
-      return new Response(o.body, { headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="AstraCode-Desktop-Setup.exe"', 'content-length': String(o.size), 'cache-control': 'public, max-age=300' } });
+      return new Response(o.body, { headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="Kyber-Desktop-Setup.exe"', 'content-length': String(o.size), 'cache-control': 'public, max-age=300' } });
     }
     if (!path.startsWith('/api/')) { // URL สะอาด: ไม่มี .html, หน้าแรกอยู่ที่ / (ไฟล์ home.html)
       const clean = path === '/index.html' || path === '/home' || path === '/home.html' ? '/' : path.endsWith('.html') ? path.slice(0, -5) : null;
@@ -255,11 +255,11 @@ export async function route(req, env, ctx, url, path, M) {
         const rows = (await env.DB.prepare("SELECT date((g.created_at+25200000)/1000,'unixepoch') d, COALESCE(m.name,'(รูป/อื่นๆ)') model, COUNT(*) n, SUM(g.tokens_in) tin, SUM(g.tokens_out) tout, SUM(g.tokens_cache) tc, SUM(g.units) units FROM usage g LEFT JOIN models m ON m.id=g.model_id WHERE g.user_id=? AND g.created_at>=? GROUP BY d, g.model_id ORDER BY d DESC, model").bind(u.id, Date.now() - days * DAY).all()).results;
         const q = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : v;
         const csv = '\ufeffวันที่,โมเดล,ข้อความ,token เข้า,token ออก,token cache,ใช้ลิมิต (% ของงบสัปดาห์)\n' + rows.map(r => [r.d, q(r.model), r.n, r.tin, r.tout, r.tc, wk > 0 ? Math.round(r.units / wk * 1000) / 10 : ''].join(',')).join('\n');
-        return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="astracode-usage-${days}d.csv"` } });
+        return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="kyber-usage-${days}d.csv"` } });
       }
       if (path === '/api/sessions') { // อุปกรณ์ที่ล็อกอินอยู่: ดูรายการ / ออกจากระบบเครื่องอื่นทั้งหมด
         if (M === 'GET') return json((await env.DB.prepare('SELECT token,created_at,ua,ip,expires FROM sessions WHERE user_id=? AND expires>? ORDER BY created_at DESC').bind(u.id, Date.now()).all()).results.map(x => ({ id: x.token.slice(0, 16), created_at: x.created_at, ua: x.ua || '', ip: x.ip || '', current: x.token === u.sid })));
-        if (M === 'DELETE') { await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').bind(u.id, u.sid).run(); ctx.waitUntil(mail(env, u.email, 'AstraCode: ออกจากระบบเครื่องอื่นแล้ว', mailBox('ออกจากระบบเครื่องอื่นแล้ว', 'มีการสั่งออกจากระบบทุกเครื่องยกเว้นเครื่องที่ใช้อยู่ ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านทันที'))); return json({ ok: true }); }
+        if (M === 'DELETE') { await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').bind(u.id, u.sid).run(); ctx.waitUntil(mail(env, u.email, 'Kyber: ออกจากระบบเครื่องอื่นแล้ว', mailBox('ออกจากระบบเครื่องอื่นแล้ว', 'มีการสั่งออกจากระบบทุกเครื่องยกเว้นเครื่องที่ใช้อยู่ ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านทันที'))); return json({ ok: true }); }
       }
       if ((r = path.match(/^\/api\/sessions\/([a-f0-9]{16})$/)) && M === 'DELETE') {
         await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND substr(token,1,16)=? AND token<>?').bind(u.id, r[1], u.sid).run(); return json({ ok: true });

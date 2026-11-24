@@ -8,7 +8,7 @@ async function startMcp(cfg, log = () => {}) {
   const tools = [], map = new Map(), clients = [];
   for (const [srv, c] of Object.entries(cfg?.mcpServers || {})) {
     try {
-      const client = new Client({ name: 'astracode-desktop', version: '0.1.0' }, { capabilities: {} });
+      const client = new Client({ name: 'kyber-desktop', version: '0.1.0' }, { capabilities: {} });
       await within(client.connect(new StdioClientTransport({ ...launch(c), env: { ...process.env, ...(c.env || {}) } })), 180e3, 'เปิด MCP');
       clients.push(client);
       for (const t of (await client.listTools()).tools || []) {

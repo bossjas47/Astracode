@@ -13,7 +13,7 @@ export async function contextReport(env, u, { cid, pid, model, skill_ids = [] })
   if (sids.length) { const sks = (await DB.prepare(`SELECT name,content FROM skills WHERE id IN (${sids.map(() => '?')}) AND (user_id=0 OR user_id=?) AND enabled=1`).bind(...sids, u.id).all()).results; for (const s of sks) add('skill', 'Skill: ' + s.name, s.content.slice(0, 6000)); }
   if (pid) {
     const pr = await projectFor(env, pid, u.id);
-    const af = (await DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(pid).first())?.content || '';
+    const af = (await DB.prepare("SELECT path, content FROM project_files WHERE project_id=? AND path IN ('KYBER.md','ASTRA.md','CLAUDE.md','AGENTS.md') ORDER BY CASE path WHEN 'KYBER.md' THEN 0 WHEN 'ASTRA.md' THEN 1 WHEN 'CLAUDE.md' THEN 2 ELSE 3 END LIMIT 1").bind(pid).first())?.content || '';
     add('rules', 'กฎประจำโปรเจกต์', ((pr?.instructions || '') + (af.startsWith('data:') ? '' : af.slice(0, 3000))).slice(0, 6000));
     // ทุกข้อความในโหมด Code แนบรายชื่อไฟล์ และถ้าโปรเจกต์เล็ก (ข้อความรวม ≤ 14,000 ตัวอักษร) แนบเนื้อหาทุกไฟล์ด้วย (เหมือนหน้าเว็บ)
     const fl = (await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(pid).all()).results;

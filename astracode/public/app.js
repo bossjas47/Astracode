@@ -1,4 +1,4 @@
-// AstraCode frontend — vanilla JS, hash router
+// Kyber frontend — vanilla JS, hash router
 const $ = s => document.querySelector(s);
 const app = $('#app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -236,7 +236,7 @@ let a11yT = 0;
 if (typeof MutationObserver !== 'undefined') new MutationObserver(() => { clearTimeout(a11yT); a11yT = setTimeout(() => a11yFix(), 120); }).observe(document.documentElement, { childList: true, subtree: true });
 
 // ---------- ส่วนที่ใช้ซ้ำ ----------
-// แอป AstraCode Desktop รุ่นเก่า (0.2.x): ปุ่มเปิดหน้าต่าง "ทำงานในเครื่อง" (ครั้งแรกสร้าง API key ชื่อ Desktop) · รุ่นใหม่ (มี .fs) ทำงานในเครื่องจากแชต/Code ได้เลย จึงไม่ต้องมีปุ่มนี้
+// แอป Kyber Desktop รุ่นเก่า (0.2.x): ปุ่มเปิดหน้าต่าง "ทำงานในเครื่อง" (ครั้งแรกสร้าง API key ชื่อ Desktop) · รุ่นใหม่ (มี .fs) ทำงานในเครื่องจากแชต/Code ได้เลย จึงไม่ต้องมีปุ่มนี้
 const osName = () => /Mac/i.test(navigator.platform) ? 'mac' : /Linux/i.test(navigator.platform) && !/Android/i.test(navigator.userAgent) ? 'linux' : 'win';
 const dlLink = (cls = '') => window.astraDesktop ? '' : `<a class="${cls}" href="/#download">${ic('download')}<span>ดาวน์โหลดแอปคอม</span></a>`;
 const deskLink = (cls = '') => window.astraDesktop && !window.astraDesktop.fs && me ? `<a class="${cls}" href="#" data-desk>${ic('code')}<span>💻 ทำงานในเครื่อง</span></a>` : '';
@@ -285,8 +285,8 @@ const nav = () => {
     <button type="button" class="side-user" data-acct aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}"><span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span><span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan?.name || '')} · ${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}% used</small></span>${ic('up', 'sm')}</button>`
     : `${navL('/', 'Home', 'sparkles')}${navL('/pricing', 'Pricing', 'tag')}${navL('/plans', 'Plans', 'layers')}${window.astraDesktop ? '' : navL('/#download', 'Desktop app', 'download')}${navL('/blog', 'Blog', 'news')}${navL('/status', 'Status', 'activity')}
     <span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`;
-  return `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">AstraCode</a>${navRight()}</div>
-  <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">AstraCode</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
+  return `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">Kyber</a>${navRight()}</div>
+  <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">Kyber</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
   ${body}</div></nav>`;
 };
 // แชตล่าสุด / โปรเจกต์ในแถบข้างของหน้าอื่น (โหลดครั้งเดียวต่อ 60 วินาที)
@@ -440,7 +440,7 @@ function dlBand() {
   const os = osName(), P = { win: ['Windows', '/download/desktop', 'Windows 10 / 11 · ไฟล์ .exe'], linux: ['Linux', '/download/desktop?os=linux', 'AppImage'] };
   const main = P[os] || P.win, others = Object.entries(P).filter(([k]) => P[os] ? k !== os : k !== 'win'); // Mac หยุดพัฒนาแล้ว: แสดง Windows เป็นหลัก
   const feats = [['terminal', 'Agent ทำงานจนเสร็จ', 'แก้ไฟล์ รันคำสั่ง ทดสอบ แก้ซ้ำเองจนผ่าน เหมือน Claude Code'], ['cpu', 'คุมเมาส์ คีย์บอร์ด หน้าจอ', 'เปิดโปรแกรม คลิก พิมพ์ ใน Excel, Blender, เบราว์เซอร์ หยุดได้ทันทีด้วย Ctrl+Alt+Esc'], ['filetext', 'ทำไฟล์ Office ให้เลย', 'สร้าง Word, Excel, PowerPoint, PDF จากไฟล์ในโฟลเดอร์'], ['layers', 'ปลั๊กอิน MCP คลิกเดียว', 'คุมเบราว์เซอร์, GitHub, Google, ความจำถาวร ติดตั้ง Node.js ให้เอง'], ['smartphone', 'สั่งจากมือถือได้', 'คอมทำงาน มือถือดูความคืบหน้าและกดอนุญาต'], ['bell', 'งานตั้งเวลา', 'เช่น สรุปยอดขายทุกเช้า 07:30 เป็น Excel']];
-  return `<div class="band dlband" id="download"><h2>แอป AstraCode บนคอม</h2><p class="muted" style="text-align:center;margin:-8px auto 22px;max-width:620px">บัญชีเดียวกับเว็บ ลิมิตเดียวกัน แต่ AI ทำงานกับไฟล์และโปรแกรมในเครื่องคุณได้จริง</p>
+  return `<div class="band dlband" id="download"><h2>แอป Kyber บนคอม</h2><p class="muted" style="text-align:center;margin:-8px auto 22px;max-width:620px">บัญชีเดียวกับเว็บ ลิมิตเดียวกัน แต่ AI ทำงานกับไฟล์และโปรแกรมในเครื่องคุณได้จริง</p>
     <div class="dl-grid"><div class="dl-main">
       <a class="btn blue dl-btn" href="${main[1]}">${ic('download')} ดาวน์โหลดสำหรับ ${main[0]}</a><div class="muted" style="font-size:13px;margin:6px 0 14px">${main[2]} · ฟรี · อัปเดตเอง</div>
       ${os === 'mac' ? '<p class="muted dl-note">แอปบนคอมรองรับ Windows และ Linux · บน Mac ใช้งานผ่านเว็บได้ครบทุกอย่าง</p>' : ''}
@@ -459,7 +459,7 @@ async function landing() {
   // ถูกกว่าซื้อ API ทางการ: เฉพาะโมเดลที่ตั้งราคาทางการไว้และเราถูกกว่า (เรียงตามลำดับโมเดลในระบบ) · ทางการแปลงเป็นบาทด้วยอัตราเดียวกับหน้าราคา
   const vs = pr.models.filter(m => m.official?.in > 0 && m.official?.out > 0 && m.out > 0).map(m => ({ m, pct: Math.round((1 - m.out / (m.official.out * usdRate())) * 100) })).filter(x => x.pct > 0).slice(0, 6);
   const vsRow = ({ m, pct }) => `<tr><td><b>${esc(m.name)}</b><div><span class="pill sale">ถูกกว่า <b>${pct}%</b></span></div></td><td class="vsp"><div>Input ${curSign()}${money(toCur(m.in))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.in * usdRate()))}</small></div><div>Output ${curSign()}${money(toCur(m.out))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.out * usdRate()))}</small></div></td></tr>`;
-  page(nav() + `<section class="hero"><div class="name">AstraCode</div>
+  page(nav() + `<section class="hero"><div class="name">Kyber</div><p class="muted" style="margin:-6px 0 10px">สร้างโดย Hypatia · เดิมคือ AstraCode</p>
     <h1>AI ทุกตัว<br>ที่ทำงานแทนคุณได้จริง</h1>
     <p>Claude, ChatGPT, Gemini และ DeepSeek ในที่เดียว ใช้ได้ทั้งมือถือ เว็บ และแอปบนคอมที่ให้ Agent คุมเครื่องทำงานจนเสร็จ${cheapest ? ` · เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''}</p>
     ${me ? `<div class="row" style="justify-content:center"><a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>${window.astraDesktop ? '' : `<a class="btn out" href="#download" data-dlgo>${ic('download', 'sm')} ดาวน์โหลดแอปคอม</a>`}</div>` : '<div id="homeAuth" class="home-auth"></div>'}
@@ -477,7 +477,7 @@ async function landing() {
     <div class="band" id="plans"><h2>แพลน</h2><div style="text-align:center;margin-bottom:14px">${curSegHTML()}</div>${planTiles(plans)}</div>
     ${dlBand()}
     ${vs.length ? `<div class="band" id="vs"><h2>ถูกกว่าซื้อ API ทางการ</h2><p class="muted" style="text-align:center;margin:-4px 0 14px">ราคาต่อ 1M token เทียบกับราคาทางการของเจ้าของโมเดล (คิดที่ $1 = ฿<b>${usdRate()}</b>)</p><div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>ราคาต่อ 1M token</th></tr>${vs.map(vsRow).join('')}</table></div><p style="text-align:center;margin-top:12px"><a href="/pricing">ดูราคาทุกโมเดล ›</a></p></div>` : ''}
-    <div class="band facts"><h2>ทำไมต้อง AstraCode</h2><div class="grid">
+    <div class="band facts"><h2>ทำไมต้อง Kyber</h2><div class="grid">
       <div class="tile"><div class="stat">Web</div><div class="muted">เปิดในเบราว์เซอร์ได้ทันที ไม่ต้องติดตั้ง เพิ่มลงหน้าจอหลักได้</div></div>
       <div class="tile"><div class="stat">฿</div><div class="muted">จ่ายผ่าน PromptPay${cheapest ? ` เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''} ไม่ต้องใช้บัตร</div></div>
       <div class="tile"><div class="stat">%</div><div class="muted">เห็นลิมิตชัดเจน รีเซ็ตทุก 4 ชั่วโมงและทุกสัปดาห์</div></div>
@@ -676,7 +676,7 @@ const withFiles = (text, files) => text + files.map(f => `\n\n[[file:${f.name}]]
 const nearBottom = box => box.scrollHeight - box.scrollTop - box.clientHeight < 120;
 // ---------- เงื่อนไขการใช้บริการ ----------
 const TERMS = [
-  ['1. บริการ', 'AstraCode ให้บริการแชตกับโมเดล AI จากผู้ให้บริการหลายราย (เช่น OpenAI, Anthropic, Google, DeepSeek, Moonshot) ผ่านเว็บไซต์ รายชื่อโมเดลที่ใช้ได้ขึ้นอยู่กับแพลน และอาจเปลี่ยนแปลงได้ตามความพร้อมของผู้ให้บริการ'],
+  ['1. บริการ', 'Kyber (เดิมคือ AstraCode) ซึ่งพัฒนาโดย Hypatia ให้บริการแชตกับโมเดล AI จากผู้ให้บริการหลายราย (เช่น OpenAI, Anthropic, Google, DeepSeek, Moonshot) ผ่านเว็บไซต์ รายชื่อโมเดลที่ใช้ได้ขึ้นอยู่กับแพลน และอาจเปลี่ยนแปลงได้ตามความพร้อมของผู้ให้บริการ'],
   ['2. บัญชีผู้ใช้', 'ผู้ใช้ต้องให้อีเมลที่ใช้งานได้ และรักษารหัสผ่านเป็นความลับ บัญชีหนึ่งใช้ได้หนึ่งคน ห้ามแชร์ ขาย หรือให้เช่าบัญชี หากพบการใช้งานผิดเงื่อนไข เราอาจระงับบัญชีโดยไม่คืนเงิน'],
   ['3. แพลนและการชำระเงิน', 'แพลนแบบชำระเงินมีอายุ 30 วัน (รายเดือน) หรือ 365 วัน (รายปี) นับจากวันที่ชำระเงินได้รับการอนุมัติ การต่ออายุแพลนเดิมจะบวกเวลาต่อจากวันหมดอายุเดิม ชำระได้ทั้งผ่าน PromptPay (แนบสลิปเพื่อตรวจอัตโนมัติ/โดยแอดมิน) หรือตัดเงินจาก Wallet สลิปปลอม สลิปซ้ำ หรือยอดไม่ตรงจะไม่ได้รับการอนุมัติ'],
   ['4. การคืนเงิน', 'ไม่คืนเงินหลังเปิดใช้แพลนแล้ว ยกเว้นกรณีระบบขัดข้องจนใช้งานไม่ได้ต่อเนื่องเกิน 72 ชั่วโมงโดยเป็นความผิดของเรา ซึ่งจะคืนเงินหรือชดเชยวันใช้งานตามสัดส่วน ติดต่อแอดมินภายใน 7 วันนับจากวันที่เกิดปัญหา'],
@@ -701,10 +701,10 @@ function terms() {
     ${sec('เงื่อนไขการใช้บริการ', TERMS)}${sec('นโยบายความเป็นส่วนตัว', PRIVACY)}
     <p class="muted" style="text-align:center;padding-bottom:48px">มีคำถามเกี่ยวกับเงื่อนไขนี้ ติดต่อแอดมิน</p></div>`);
 }
-const footer = () => `<footer class="foot"><div><b>AstraCode</b><span class="muted">AI ทุกตัวในมือถือเครื่องเดียว</span></div>
+const footer = () => `<footer class="foot"><div><b>Kyber</b><span class="muted">AI ทุกตัวในมือถือเครื่องเดียว · สร้างโดย Hypatia</span></div>
   <div><a href="/#download">ดาวน์โหลดแอปคอม (Windows / Linux)</a><a href="/pricing">ราคาต่อ token</a><a href="/developers">API สำหรับนักพัฒนา</a><a href="/blog">บล็อก</a></div>
   <div><a href="/status">สถานะระบบ</a><a href="/support">Contact us</a><a href="/security">ความปลอดภัยของข้อมูล</a><a href="/terms">เงื่อนไขและความเป็นส่วนตัว</a></div>
-  <p class="muted">© ${new Date().getFullYear()} AstraCode</p></footer>`;
+  <p class="muted">© ${new Date().getFullYear()} Hypatia · Kyber (เดิมคือ AstraCode) สร้างโดย Hypatia</p></footer>`;
 
 
 const money = v => v === 0 ? '0' : v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3).replace(/0$/, '') : baht(v);
@@ -725,7 +725,7 @@ document.addEventListener('click', async e => {
   const src = b.closest('.genfig')?.querySelector('img')?.src; if (!src) return;
   try {
     const blob = await (await fetch(src)).blob(), ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg'), a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = `astracode-${Date.now()}.${ext}`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    a.href = URL.createObjectURL(blob); a.download = `kyber-${Date.now()}.${ext}`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   } catch (x) { toast('ดาวน์โหลดรูปไม่ได้: ' + x.message, 'bad'); }
 });
 document.addEventListener('click', e => { const b = e.target.closest('.dl-code'); if (b) downloadCode(b).catch(x => toast('ดาวน์โหลดไม่ได้: ' + x.message, 'bad')); });
@@ -1149,13 +1149,13 @@ const PAGES = {
     const tok = qs().get('t');
     if (!tok) return go('/');
     const d = await api('/share/' + encodeURIComponent(tok));
-    document.title = d.title + ' · ASTRACODE';
+    document.title = d.title + ' · Kyber';
     page(nav() + `<div class="wrap" style="max-width:780px;padding-bottom:64px">
-      <section class="hero" style="padding:40px 0 20px"><div class="name">AstraCode</div><h1>${esc(d.title)}</h1><p>${when(d.created_at)} · แชตที่แชร์</p></section>
+      <section class="hero" style="padding:40px 0 20px"><div class="name">Kyber</div><h1>${esc(d.title)}</h1><p>${when(d.created_at)} · แชตที่แชร์</p></section>
       <div class="msgs" style="padding:0">${d.messages.map(m => m.role === 'user'
         ? `<div class="msg user"><div class="b">${esc(m.content.replace(ATT_IMG_RE, '\n[รูปที่แนบ]').replace(FILE_RE, (_, n) => `[ไฟล์: ${n}]`).trim())}</div></div>`
         : `<div class="msg ai"><div class="b">${md(m.content)}</div>${m.model ? `<div class="acts"><span class="muted">${esc(m.model)}</span></div>` : ''}</div>`).join('')}</div>
-      <div style="text-align:center;margin-top:32px"><a class="btn blue" href="${me ? '/chat' : '/login'}">${me ? 'Open AstraCode Chat' : 'Try AstraCode free'}</a></div>
+      <div style="text-align:center;margin-top:32px"><a class="btn blue" href="${me ? '/chat' : '/login'}">${me ? 'Open Kyber Chat' : 'Try Kyber free'}</a></div>
       ${footer()}</div>`);
     app.querySelectorAll('.cp-code').forEach(b => b.onclick = () => copy(b.closest('.code').querySelector('code').textContent, b)); renderRich();
   },
@@ -1282,7 +1282,7 @@ async function vidPoll() {
     const id = el.dataset.vid, known = VID_DONE.get(id);
     const v = known || await api('/videos/' + id).catch(() => null); if (!v) continue;
     if (v.status === 'done' || v.status === 'failed') VID_DONE.set(id, v);
-    if (v.status === 'done') { el.dataset.ok = '1'; el.innerHTML = `<video src="${v.url}" controls playsinline preload="metadata" class="${v.aspect === '9:16' ? 'tall' : ''}"></video><div class="row"><small class="muted">${v.duration || 5} วินาที · ${v.aspect} · ฿${v.charged}</small><a class="btn out sm" href="${v.url}" download="astracode-video-${v.id}.mp4">${ic('download', 'sm')} ดาวน์โหลด</a></div>`; }
+    if (v.status === 'done') { el.dataset.ok = '1'; el.innerHTML = `<video src="${v.url}" controls playsinline preload="metadata" class="${v.aspect === '9:16' ? 'tall' : ''}"></video><div class="row"><small class="muted">${v.duration || 5} วินาที · ${v.aspect} · ฿${v.charged}</small><a class="btn out sm" href="${v.url}" download="kyber-video-${v.id}.mp4">${ic('download', 'sm')} ดาวน์โหลด</a></div>`; }
     else if (v.status === 'failed') { el.dataset.ok = '1'; el.innerHTML = `<div class="vid-wait failed">${ic('x')} สร้างวิดีโอไม่สำเร็จ (คืนเงินแล้ว)${v.error ? ': ' + esc(v.error.slice(0, 120)) : ''}</div>`; }
   }
 }

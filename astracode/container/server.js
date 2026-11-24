@@ -15,11 +15,11 @@ QUALITY BAR (the user judges you by the files):
 - Language: natural, polished Thai when the user writes Thai; keep company names, tickers and units correct.
 - Before you finish, open your own output with read_document and fix anything wrong, missing or ugly. Never deliver placeholder text.`;
 const ROOT = process.env.WORK || '/work';
-let OFFICE = null, BROWSER = null; // Cowork: ไฟล์ออฟฟิศ + เบราว์เซอร์ (โหลดเมื่อใช้ · ถ้าไม่มีแพ็กเกจก็ทำงานต่อได้แบบไม่มีเครื่องมือนั้น)
+let OFFICE = null, BROWSER = null; // Kyber Harness: ไฟล์ออฟฟิศ + เบราว์เซอร์ (โหลดเมื่อใช้ · ถ้าไม่มีแพ็กเกจก็ทำงานต่อได้แบบไม่มีเครื่องมือนั้น)
 try { OFFICE = require(path.join(lib, 'office')); } catch {}
 try { BROWSER = require('./browser'); } catch {}
 const S = d => ({ type: 'string', description: d }), fnT = (name, description, properties, required = []) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } });
-// เครื่องมือเพิ่มของ Cowork: สร้างรูป · อ่านรูป/สแกน (OCR) · ส่งไฟล์ขึ้น Drive · ส่งอีเมลแนบไฟล์ (2 อย่างหลังใช้ Google ที่ลูกค้าเชื่อมไว้บนเว็บ)
+// เครื่องมือเพิ่มของ Kyber Harness: สร้างรูป · อ่านรูป/สแกน (OCR) · ส่งไฟล์ขึ้น Drive · ส่งอีเมลแนบไฟล์ (2 อย่างหลังใช้ Google ที่ลูกค้าเชื่อมไว้บนเว็บ)
 const asks = new Map(); // คำถามที่รอลูกค้าตอบ (ปุ่ม/พิมพ์ในหน้าเว็บ) id → resolve
 const COWORK_TOOLS = [
   fnT('ask_user', 'Ask the user ONE question when the task is unclear or a decision is theirs (which file, which option, missing info, permission to delete/overwrite). Give 2-4 short options when you can. Waits for the answer (up to 20 minutes).', { question: S('The question, in the user\'s language'), options: { type: 'array', items: { type: 'string' }, description: '2-4 short choices (optional)' } }, ['question']),
@@ -31,7 +31,7 @@ const COWORK_TOOLS = [
 ];
 const MIME = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', csv: 'text/csv', txt: 'text/plain', md: 'text/markdown', html: 'text/html' };
 const mimeOf = p => MIME[String(p).split('.').pop().toLowerCase()] || 'application/octet-stream';
-let session = null; // Cowork: บทสนทนาต่อเนื่องหลายข้อความในเครื่องเดียว { messages, ws, cowork }
+let session = null; // Kyber Harness: บทสนทนาต่อเนื่องหลายข้อความในเครื่องเดียว { messages, ws, cowork }
 
 let job = null; // { status: running|done|error, events, final, error, ac, before: Map }
 const json = (res, code, d) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(d)); };
@@ -68,7 +68,7 @@ async function turn(o, before) {
   const ws = session?.ws && o.follow ? session.ws : new Workspace(ROOT, { subagent, ask: async () => true, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
     search: async q => { const r = await fetch(o.site + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key }, body: JSON.stringify({ query: q }) }); return (await r.json()).results || []; } });
   ws.signal = ac.signal;
-  const sys = o.cowork ? agentSystem({ root: ROOT, os: 'Linux cloud sandbox (node, npm, python3 + pip, git, Chromium). This is the user\'s Cowork task folder: put every deliverable (reports, spreadsheets, slides, PDFs, charts) as real files in this folder; the user sees and downloads them from the Artifacts panel', rules: '' }) + COWORK_SYS + (o.skills ? '\n\nThe user\'s Skills (follow them whenever they apply):\n' + String(o.skills).slice(0, 30000) : '')
+  const sys = o.cowork ? agentSystem({ root: ROOT, os: 'Linux cloud sandbox (node, npm, python3 + pip, git, Chromium). This is the user\'s Kyber Harness task folder: put every deliverable (reports, spreadsheets, slides, PDFs, charts) as real files in this folder; the user sees and downloads them from the Artifacts panel', rules: '' }) + COWORK_SYS + (o.skills ? '\n\nThe user\'s Skills (follow them whenever they apply):\n' + String(o.skills).slice(0, 30000) : '')
     : agentSystem({ root: ROOT, os: 'Linux (cloud sandbox: node, npm, python3, pip, git available; changes to files under the working folder are saved back to the user\'s project)', rules: await projectRules(ROOT) });
   const messages = o.follow && session?.messages ? session.messages : (o.history?.length ? [{ role: 'system', content: sys }, ...o.history.slice(-40)] : [{ role: 'system', content: sys }]);
   messages.push({ role: 'user', content: String(o.prompt || '').slice(0, 100000) });
@@ -138,7 +138,7 @@ async function turn(o, before) {
 
 // ไฟล์ที่เปลี่ยน: สแกนโฟลเดอร์ (กฎเดียวกับแอป: ข้าม node_modules/dist/ไบนารี) แล้วเทียบกับตอนเริ่ม
 const SKIPDIR = /^(node_modules|\.git|__pycache__|\.venv|venv|\.cache)$/;
-async function allFiles(dir = ROOT, out = []) { // Cowork: ทุกไฟล์ในโฟลเดอร์งาน (ไฟล์ไบนารีเป็น base64) ไม่เกิน 300 ไฟล์ / ไฟล์ละ 15MB
+async function allFiles(dir = ROOT, out = []) { // Kyber Harness: ทุกไฟล์ในโฟลเดอร์งาน (ไฟล์ไบนารีเป็น base64) ไม่เกิน 300 ไฟล์ / ไฟล์ละ 15MB
   for (const it of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
     if (out.length >= 300) break; const a = path.join(dir, it.name);
     if (it.isDirectory()) { if (!SKIPDIR.test(it.name)) await allFiles(a, out); continue; }
