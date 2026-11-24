@@ -1,4 +1,4 @@
-// โลโก้ Kyber (สร้างโดย Hypatia) จากโค้ด: ตัว K เรขาคณิต · ก้านและขาสีกระเบื้อง (porcelain) · แขนบนสีดินเผา (clay) · พื้นดำอุ่น (สีจาก DESIGN.md)
+// โลโก้ Kyber (สร้างโดย Hypatia) จากโค้ด: ตัว K เรขาคณิต · ก้านและขาสีขาวเย็น · แขนบนไล่สีสเปกตรัม · พื้นหมึกเย็น (UI 2.0 Prism)
 // รัน: node tools/icons.mjs (ต้องมี Playwright + Chromium ในเครื่องสำหรับทำ PNG) → เขียนไอคอนทั้งหมดของเว็บ, แอป Desktop และไฟล์แบรนด์ใน ../brand
 // แก้รูปทรงที่ K() เท่านั้น ทุกไฟล์สร้างจากฟังก์ชันเดียวกัน
 import { createRequire } from 'node:module';
@@ -7,15 +7,15 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..'), repo = join(root, '..');
-const C = { black: '#12100e', porcelain: '#f4efe8', clay: '#d97757', ink: '#1d1b19' };
+const C = { black: '#0e1116', porcelain: '#eef0f6', ink: '#0e1116' }; // UI 2.0 Prism: พื้นหมึกเย็น · แขนบนไล่สีสเปกตรัม (ฟ้า→คราม→ชมพู)
 
 // ตัว K ในกรอบ 512×512 (สูง 272 ตรงกลาง) · s = ย่อ/ขยายรอบจุดกลาง (ไอคอน maskable ต้องอยู่ในวงกลม 80%)
 // แขนบนตัดให้เริ่มในก้าน (x ≥ 160) ไม่ให้ขอบ anti-alias เป็นเส้นบาง ๆ ข้างก้าน · ลำดับวาด: ขา → แขน (ทับรอยต่อ) → ก้าน
-const K = ({ s = 1, stem = C.porcelain, arm = C.clay, id = 'k' } = {}) =>
-  `<defs><clipPath id="${id}c"><rect x="0" y="120" width="512" height="272"/></clipPath><clipPath id="${id}a"><rect x="160" y="120" width="400" height="272"/></clipPath></defs>` +
+const K = ({ s = 1, stem = C.porcelain, id = 'k' } = {}) =>
+  `<defs><linearGradient id="${id}g" gradientUnits="userSpaceOnUse" x1="160" y1="316" x2="400" y2="76"><stop offset="0" stop-color="#14b8d9"/><stop offset=".5" stop-color="#4b4fe0"/><stop offset="1" stop-color="#d9409a"/></linearGradient><clipPath id="${id}c"><rect x="0" y="120" width="512" height="272"/></clipPath><clipPath id="${id}a"><rect x="160" y="120" width="400" height="272"/></clipPath></defs>` +
   `<g transform="translate(256 256) scale(${s}) translate(-256 -256) translate(-34 0)"><g clip-path="url(#${id}c)">` +
   `<line x1="250" y1="236" x2="430" y2="446" stroke="${stem}" stroke-width="58"/>` +
-  `<line x1="140" y1="336" x2="400" y2="76" stroke="${arm}" stroke-width="58" clip-path="url(#${id}a)"/>` +
+  `<line x1="140" y1="336" x2="400" y2="76" stroke="url(#${id}g)" stroke-width="58" clip-path="url(#${id}a)"/>` +
   `<rect x="148" y="0" width="58" height="512" fill="${stem}"/></g></g>`;
 const svg = (inner, w = 512, h = 512) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${inner}</svg>`;
 
@@ -28,7 +28,7 @@ const MARK_DARK = svg(K({ id: 'd' })); // ตัว K เปล่าบนพ�
 const WORD = (dark) => svg(`<rect width="1200" height="400" fill="${dark ? C.black : '#ffffff'}"/>` +
   `<svg x="96" y="88" width="224" height="224" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="${C.black}"/>${K({ id: dark ? 'wd' : 'wl' })}</svg>` +
   `<text x="372" y="232" font-family="Inter, system-ui, sans-serif" font-size="150" font-weight="600" letter-spacing="-4" fill="${dark ? C.porcelain : C.ink}">Kyber</text>` +
-  `<text x="378" y="300" font-family="Inter, system-ui, sans-serif" font-size="44" font-weight="400" fill="${dark ? '#8e8a84' : '#6f665b'}">by Hypatia</text>`, 1200, 400);
+  `<text x="378" y="300" font-family="Inter, system-ui, sans-serif" font-size="44" font-weight="400" fill="${dark ? '#a3abbd' : '#5b6170'}">by Hypatia</text>`, 1200, 400);
 
 const out = {
   [join(root, 'public/icon.svg')]: ICON,
