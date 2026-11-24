@@ -391,3 +391,16 @@ test('wallet slots: streamed requests that fail before any answer free their slo
   const ok = await raw('/v1/chat/completions', { model: 'chat-one', stream: true, messages: [{ role: 'user', content: 'hi' }] });
   assert.match(ok.text, /hello/); bad.close(); fm.close();
 });
+
+test('/v1 refuses a model the moment it is disabled or hidden (the 30 s model cache is not trusted)', async () => {
+  const { t, fm, m, raw } = await setup(), ask = () => raw('/v1/chat/completions', { model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal((await ask()).status, 200); // โหลดรายการโมเดลเข้า cache แล้ว
+  const before = fm.hits.length;
+  t.DB.raw.prepare('UPDATE models SET active=0 WHERE id=?').run(m.id);
+  const off = await ask(); assert.equal(off.status, 404); assert.match(off.json().error.message, /does not exist|ไม่พบโมเดล/);
+  t.DB.raw.prepare('UPDATE models SET active=1, public=0 WHERE id=?').run(m.id);
+  assert.equal((await ask()).status, 404);
+  assert.equal((await raw('/v1/messages', { model: 'chat-one', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })).status, 404);
+  assert.equal(fm.hits.length, before); // หลังปิดไม่มีคำขอไปถึงผู้ให้บริการเลย
+  fm.close();
+});

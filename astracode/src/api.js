@@ -125,7 +125,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const onPlan = canPlan && planIds.has(m.id) && (!isAgentKey || plan.agent); // Agent ใช้ลิมิตแพลนได้เฉพาะแพลนที่รวม Agent
     const [fresh, reqCapped, capped, st, blockWords, markup] = await Promise.all([env.DB.prepare('SELECT * FROM models WHERE id=?').bind(m.id).first(), reqCapHit(env, k, m),
       onPlan ? capHit(env, k, plan, m) : false, onPlan ? usageStatus(env, k, plan) : null, getSetting(env, 'block_words'), getSetting(env, 'price_markup')]);
-    Object.assign(m, fresh || {}); // ราคา/ตั้งค่าล่าสุดเสมอ (รายการโมเดลอาจค้างจาก memo ได้ 30 วิ)
+    // รายการโมเดลค้างจาก memo ได้ 30 วิ: ถ้าแอดมินเพิ่งปิด/ซ่อนโมเดล ต้องปฏิเสธทันที (เดิมเรียกโมเดลที่ปิดแล้วได้อีกนานสุด 30 วิ)
+    if (!fresh || !fresh.active || !fresh.public) return fail(`ไม่พบโมเดล "${String(b?.model ?? '').slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404);
+    Object.assign(m, fresh); // ราคา/ตั้งค่าล่าสุดเสมอ
     if (reqCapped) return fail(`${m.name} reached its request cap (${m.req_cap} per 4 hours).`, 429, 'rate_limit_error');
     let billingMode = 'wallet';
     if (mcIds.has(m.id) && isCall) billingMode = 'mcredit'; // เครดิตเฉพาะโมเดล: ใช้ก่อนแพลน/Wallet
