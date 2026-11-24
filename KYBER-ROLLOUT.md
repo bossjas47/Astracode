@@ -134,9 +134,14 @@
 - [ ] **Resend (อีเมล):** ถ้าจะส่งจากโดเมนใหม่ ให้ verify โดเมนใน Resend แล้วตั้ง `mail_from` ในหลังบ้าน (ค่าเริ่มต้นตอนนี้ `Kyber by Hypatia <onboarding@resend.dev>`)
 
 ### ไอคอน / OG image
-- [x] `public/og.png`: ทำใหม่แล้ว (Kyber by Hypatia · formerly AstraCode, 1200×630)
-- [ ] `public/icon.svg`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `desktop/build/icon.png`: ยังเป็นโลโก้เดิม (ไม่มีตัวอักษรชื่อแบรนด์ ใช้ต่อได้)
-  - ถ้าจะใช้โลโก้ Kyber ให้แทนที่ไฟล์ที่ขนาดเดิม แล้วเปลี่ยน `?v=` / ชื่อไฟล์เพื่อล้าง cache ของ PWA
+- [x] โลโก้ Kyber สร้างจากโค้ด: `astracode/tools/icons.mjs` (รันซ้ำได้ด้วย `node tools/icons.mjs`)
+  - เว็บ: `icon.svg`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png` (180, ใหม่)
+  - แอป Desktop: `desktop/build/icon.png` (1024)
+  - ภาพตัวอย่างลิงก์: `og.png`
+  - ไฟล์แบรนด์ใน `brand/`: ไอคอน, ตัว K เปล่า, โลโก้แนวนอนพื้นมืด/สว่าง (SVG + PNG), รูปโปรไฟล์ 1024
+- [x] `apple-touch-icon` ชี้ไฟล์ PNG แทน SVG แล้ว (iOS ไม่รองรับ SVG สำหรับไอคอนหน้าจอโฮม)
+- [ ] เปลี่ยนรูปโปรไฟล์เพจ Facebook / LINE OA เป็น `brand/kyber-profile-1024.png`
+- [ ] ไอคอน PWA ที่ผู้ใช้ติดตั้งไว้แล้วจะเปลี่ยนตามเมื่อเบราว์เซอร์อัปเดต manifest เอง (อาจใช้เวลาหลายวัน)
 - [ ] ตรวจภาพตัวอย่างลิงก์หลัง deploy:
   - Facebook Sharing Debugger: กด "Scrape Again"
   - LINE: แชร์ลิงก์ใหม่ (LINE cache ราว 1 วัน)

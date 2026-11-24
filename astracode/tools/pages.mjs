@@ -75,7 +75,7 @@ ${index ? `<meta property="og:url" content="${SITE}/${file === 'home' ? '' : fil
 <meta name="twitter:image" content="${SITE}/og.png">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg">
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preload" as="style" href="${font}">
