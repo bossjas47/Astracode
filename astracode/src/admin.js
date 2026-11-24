@@ -1,6 +1,6 @@
 import { BKK, DAY, creditsInit, err, esc, hex, json, limitBoost, limited, logReset, planOf, rand, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { callModel, ensureFb, isSafeMcpUrl, logUsage, mcpSync } from './ai.js';
-import { applyPayment, audit, promoOn, releaseCoupon, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, topupPromo, walletAdd } from './billing.js';
+import { applyPayment, audit, promoOn, supplyIssue, releaseCoupon, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, topupPromo, walletAdd } from './billing.js';
 import { seal } from './projects.js';
 import { adminConnectors, adminPlugins } from './connectors.js';
 import { slug } from './api.js';
@@ -646,7 +646,7 @@ ${cheaper > 0 ? `ถูกกว่าซื้อ API ทางการปร�
     const last = (await DB.prepare("SELECT model_id, detail FROM events WHERE id IN (SELECT MAX(id) FROM events WHERE kind='error' AND created_at>? GROUP BY model_id)").bind(since).all().catch(() => ({ results: [] }))).results;
     const fbs = (await DB.prepare("SELECT model_id, COUNT(*) n FROM events WHERE kind='fallback' AND created_at>? GROUP BY model_id").bind(since).all()).results; // ตอบด้วยโมเดลสำรองแทนตัวนี้กี่ครั้ง
     const ms = (await DB.prepare('SELECT id,name,active FROM models ORDER BY id').all()).results;
-    return json(ms.map(m => ({ id: m.id, name: m.name, active: m.active, fallback: fbs.find(x => x.model_id === m.id)?.n || 0, ok: ok.find(x => x.model_id === m.id)?.n || 0, ttft: Math.round(ok.find(x => x.model_id === m.id)?.ttft || 0), ms: Math.round(ok.find(x => x.model_id === m.id)?.ms || 0), prep: Math.round(ok.find(x => x.model_id === m.id)?.prep || 0), err: er.find(x => x.model_id === m.id)?.n || 0, last_at: er.find(x => x.model_id === m.id)?.at || null, last: last.find(x => x.model_id === m.id)?.detail || '' })).filter(x => x.ok || x.err || x.fallback));
+    return json(ms.map(m => ({ id: m.id, name: m.name, active: m.active, fallback: fbs.find(x => x.model_id === m.id)?.n || 0, issue: supplyIssue(last.find(x => x.model_id === m.id)?.detail)?.label || '', ok: ok.find(x => x.model_id === m.id)?.n || 0, ttft: Math.round(ok.find(x => x.model_id === m.id)?.ttft || 0), ms: Math.round(ok.find(x => x.model_id === m.id)?.ms || 0), prep: Math.round(ok.find(x => x.model_id === m.id)?.prep || 0), err: er.find(x => x.model_id === m.id)?.n || 0, last_at: er.find(x => x.model_id === m.id)?.at || null, last: last.find(x => x.model_id === m.id)?.detail || '' })).filter(x => x.ok || x.err || x.fallback));
   }
   if (path === '/api/admin/events') return json((await DB.prepare('SELECT e.*,m.name model FROM events e LEFT JOIN models m ON m.id=e.model_id ORDER BY e.id DESC LIMIT 200').all()).results);
   if (path === '/api/admin/backups') {

@@ -1326,7 +1326,7 @@ async function applyChanges(ch, msg) {
 async function feedBack(bad) {
   if (!bad.length || (IDE.round ?? 0) >= 3) return;
   IDE.round = (IDE.round ?? 0) + 1;
-  await codeSend({ auto: { text: `การแก้ไขบางไฟล์ยังไม่ถูกใช้ ไม่มีอะไรถูกเขียนทับในไฟล์เหล่านี้:\n${bad.map(x => '- ' + x).join('\n')}\n\nถ้ามีบรรทัดที่ใกล้ที่สุดแนบมา ใช้ตรงนั้นเป็น SEARCH ได้เลยไม่ต้องอ่านใหม่ ไม่งั้นใช้ READ อ่านไฟล์ที่เกี่ยวข้องก่อน แล้วส่งการแก้ที่ถูกต้องใหม่ (ถ้าแก้ไฟล์ที่มีอยู่ ให้ SEARCH ตรงกับเนื้อหาจริงของไฟล์ ถ้าเปลี่ยนเกือบทั้งไฟล์ให้ส่งทั้งไฟล์)` } });
+  await codeSend({ text: `การแก้ไขบางไฟล์ยังไม่ถูกใช้ ไม่มีอะไรถูกเขียนทับในไฟล์เหล่านี้:\n${bad.map(x => '- ' + x).join('\n')}\n\nถ้ามีบรรทัดที่ใกล้ที่สุดแนบมา ใช้ตรงนั้นเป็น SEARCH ได้เลยไม่ต้องอ่านใหม่ ไม่งั้นใช้ READ อ่านไฟล์ที่เกี่ยวข้องก่อน แล้วส่งการแก้ที่ถูกต้องใหม่ (ถ้าแก้ไฟล์ที่มีอยู่ ให้ SEARCH ตรงกับเนื้อหาจริงของไฟล์ ถ้าเปลี่ยนเกือบทั้งไฟล์ให้ส่งทั้งไฟล์)` });
 }
 async function apply(c, msg, force = true) {
   if (!c.del && !force) { const why = problemOf(c.path, c.content, has(c.path) ? content(c.path) : null); if (why) throw Object.assign(new Error(why), { problem: true }); }
@@ -1509,7 +1509,8 @@ function aiMsgHTML(m, i) {
   if (m.cloud) return cloudMsgHTML(m);
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
-    return `<div class="msg user ${m.auto ? 'auto' : ''}"><div class="b">${m.imgs ? `<div class="mimgs shot">${m.imgs.map(d => `<img src="${d}" alt="ภาพหน้าจอผลลัพธ์">`).join('')}</div>` : ''}${esc(m.content.replace(FILE_RE, '').replace(TREE_RE, '').replace(CHECK_RE, '').replace(/\n\n\[แนบรูป \d+ รูป\]/, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${icon(f[1])} <span>${esc(f[1])}</span></span>`).join('')}</div>` : ''}</div></div>`;
+    const shots = m.imgs || (attImgsOf(m.content).length ? attImgsOf(m.content) : null); // รูปที่แนบ (ในเครื่อง หรือที่เซิร์ฟเวอร์เก็บไว้หลังโหลดใหม่)
+    return `<div class="msg user ${m.auto ? 'auto' : ''}"><div class="b">${shots ? `<div class="mimgs shot">${shots.map(d => `<img src="${esc(d)}" alt="ภาพที่แนบ" loading="lazy">`).join('')}</div>` : ''}${esc(noAttImgs(m.content).replace(FILE_RE, '').replace(TREE_RE, '').replace(CHECK_RE, '').replace(/\n\n\[แนบรูป \d+ รูป\]/, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${icon(f[1])} <span>${esc(f[1])}</span></span>`).join('')}</div>` : ''}</div></div>`;
   }
   const ask = parseAsk(m.content, m.streaming);
   let cleanBody = vidStrip(fenceBare(stripTools(ask.text)));
@@ -1585,7 +1586,7 @@ async function codeSend(auto) {
   if (resume && IDE.msgs.at(-1)?.role !== 'user') return;
   const t = $('#ct'), text = resume ? '' : auto ? auto.text : t.value.trim() || (IDE.att?.images.length || IDE.att?.files.length ? 'ดูรูป/ไฟล์ที่แนบ' : '');
   if (!resume && !text && !(IDE.att?.images.length || IDE.att?.files.length)) return;
-  if (!auto) { IDE.round = 0; IDE.t0 = Date.now(); IDE.task = resume || IDE.perm !== 'auto' ? null : { prompt: text, touched: new Set() }; }
+  if (!auto) { IDE.round = 0; IDE.cont = 0; IDE.t0 = Date.now(); IDE.task = resume || IDE.perm !== 'auto' ? null : { prompt: text, touched: new Set() }; }
   await saveNow();
   const att = !auto && !resume ? takeAtt() : { images: [], files: [] }; // รูป/ไฟล์ที่แนบในข้อความนี้ (ไม่เข้าโปรเจกต์)
   const files = att.files;
@@ -1626,7 +1627,7 @@ async function codeSend(auto) {
         const line = buf.slice(0, k); buf = buf.slice(k + 2);
         if (!line.startsWith('data: ')) continue;
         let d; try { d = JSON.parse(line.slice(6)); } catch { continue; } // event ขาดครึ่ง (สตรีมถูกตัด) ไม่ทำให้ทั้งคำตอบพัง
-        if (d.done) { ended = true; if (d.mid) ai.id = d.mid; }
+        if (d.done) { ended = true; if (d.mid) ai.id = d.mid; if (d.more) ai.more = true; } // more = ครบรอบทั้งที่งานยังไม่เสร็จ
         if (d.chat_id) { const fresh = !IDE.chatId; IDE.chatId = d.chat_id; if (fresh) { setUrl(`/code?p=${IDE.pid}&s=${d.chat_id}`, true); sessionsChanged(); } } // session ใหม่ได้เลขแล้ว
         if (d.todo) { ai.todos = d.todo; if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
         if (d.mcp) { (ai.mcps ||= []).push(d.mcp); if (!raf) raf = requestAnimationFrame(() => { raf = 0; const b = $('#cmsgs'), last = b?.lastElementChild; if (last) paintStreaming(last, ai); }); }
@@ -1678,10 +1679,15 @@ async function codeSend(auto) {
     else if (autoOn && runs.length && (IDE.round ?? 0) < 5) await runForAI(ai, runs);
     else if (!ch.length && !runs.length && !(ai.content && /^\s*(?:READ|GREP|LIST)\b/m.test(ai.content.replace(/```[\s\S]*?```/g, ''))) && ai.content && looseCode(ai.content).length && (IDE.round ?? 0) < 2) { // ตอบเป็นโค้ดลอยๆ ไม่ใช้รูปแบบที่ระบบแก้ไฟล์ได้: ขอให้ส่งใหม่ให้ถูก (ไม่เกิน 2 รอบ)
       IDE.round = (IDE.round ?? 0) + 1;
-      await codeSend({ auto: { text: 'ข้อความก่อนหน้ายังไม่ได้แก้ไฟล์ เพราะโค้ดไม่ได้อยู่ในรูปแบบที่ระบบใช้ได้ คุณแก้ไฟล์ในโปรเจกต์ได้จริง ให้ส่งใหม่: ไฟล์ที่มีอยู่แล้วใช้บล็อก ```<ภาษา> path=<ไฟล์> ที่ข้างในเป็น <<<<<<< SEARCH / ======= / >>>>>>> REPLACE (คัดลอก SEARCH จากเนื้อหาไฟล์จริง) หรือส่งทั้งไฟล์ใน path= เดียวกัน ห้ามตอบว่าแก้ไฟล์ไม่ได้ และห้ามส่งโค้ดที่ไม่มี path=' } });
+      await codeSend({ text: 'ข้อความก่อนหน้ายังไม่ได้แก้ไฟล์ เพราะโค้ดไม่ได้อยู่ในรูปแบบที่ระบบใช้ได้ คุณแก้ไฟล์ในโปรเจกต์ได้จริง ให้ส่งใหม่: ไฟล์ที่มีอยู่แล้วใช้บล็อก ```<ภาษา> path=<ไฟล์> ที่ข้างในเป็น <<<<<<< SEARCH / ======= / >>>>>>> REPLACE (คัดลอก SEARCH จากเนื้อหาไฟล์จริง) หรือส่งทั้งไฟล์ใน path= เดียวกัน ห้ามตอบว่าแก้ไฟล์ไม่ได้ และห้ามส่งโค้ดที่ไม่มี path=' });
     }
     else if (autoOn && ch.length) { const bad = await applyChanges(ch, ai); if (bad.length) await feedBack(bad); else if (await autoTest()) { /* รันเทสต์แล้ว */ } else if ((IDE.autoMode || barAuto()) && (IDE.round ?? 0) < (IDE.agent ? 8 : 3)) await check(); }
   } catch (x) { $('#ce').textContent = x.message; }
+  // งานใหญ่ครบรอบต่อคำตอบแล้วแต่ยังไม่เสร็จ: สั่งทำต่อเองสูงสุด 2 ครั้งต่อคำสั่ง (เดิมหยุดเงียบ ลูกค้าต้องพิมพ์ "ทำต่อ" เอง) · กดหยุด = ไม่ทำต่อ
+  if (ai.more && !IDE.busy && IDE.round !== 99 && (IDE.cont ?? 0) < 2) {
+    IDE.cont = (IDE.cont ?? 0) + 1; toast(`งานยังไม่เสร็จ ทำต่อให้อัตโนมัติ (${IDE.cont}/2)`, 'ok');
+    await codeSend({ text: '[ทำต่ออัตโนมัติ] คำตอบก่อนหน้าครบจำนวนรอบแล้วแต่งานยังไม่เสร็จ ทำต่อจากจุดที่ค้างไว้จนเสร็จ ไม่ต้องเริ่มใหม่หรือทำซ้ำสิ่งที่ทำไปแล้ว' });
+  }
   if (!auto && !IDE.busy && IDE.round !== 99) await autoPush(); else if (!auto) IDE.task = null;
   if (!auto) sessionsChanged(); // ชื่อ session ตั้งหลังคำตอบแรก // งานจบ (ไม่ได้กดหยุด): commit + push ขึ้น GitHub ให้เอง
   if (!IDE.busy && Date.now() - (IDE.t0 || Date.now()) > 15000 && Date.now() - (IDE.told || 0) > 10000) { IDE.told = Date.now(); window.astraDesktop?.notify('AI ทำงานเสร็จแล้ว', IDE.name); } // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่น

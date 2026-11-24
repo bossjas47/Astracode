@@ -938,7 +938,8 @@ function msgHTML(m, i, isNew) {
   if (m.role === 'user' && m.content.startsWith(PC_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('folder', 'sm')} ผลจากเครื่อง</summary>${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}<pre>${esc(m.content.slice(PC_RES.length).trim())}</pre></details></div>`;
   if (m.role === 'user') {
     const files = [...m.content.matchAll(FILE_RE)];
-    return `<div class="msg user ${isNew ? 'new' : ''}"><div class="b">${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}${m.content.startsWith('🎨 ') ? ic('image') + ' ' : ''}${esc(m.content.replace(FILE_RE, '').replace(/^🎨 /, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${ic('filetext')}<span>${esc(f[1])}</span><small>${tok(f[2].length)}</small></span>`).join('')}</div>` : ''}</div>
+    const shots = m.imgs || (attImgsOf(m.content).length ? attImgsOf(m.content) : null); // รูปที่แนบ: ตอนส่ง (ในเครื่อง) หรือที่เซิร์ฟเวอร์เก็บไว้ (หลังโหลดใหม่)
+    return `<div class="msg user ${isNew ? 'new' : ''}"><div class="b">${shots ? `<div class="mimgs">${shots.map(d => `<img src="${esc(d)}" alt="" loading="lazy">`).join('')}</div>` : ''}${m.content.startsWith('🎨 ') ? ic('image') + ' ' : ''}${esc(noAttImgs(m.content).replace(FILE_RE, '').replace(/^🎨 /, '').trim())}${files.length ? `<div class="mfiles">${files.map(f => `<span class="fchip">${ic('filetext')}<span>${esc(f[1])}</span><small>${tok(f[2].length)}</small></span>`).join('')}</div>` : ''}</div>
       ${i >= 0 && !m.content.startsWith('🎨') ? `<div class="acts"><button data-copy="${i}" aria-label="คัดลอกข้อความ">${ic('copy', 'sm')}</button>${m.id && !chat.busy ? `<button data-edit="${i}">${ic('pen', 'sm')} Edit</button>` : ''}<button data-mem="${i}" class="${MEM_RE.test(m.content) ? 'memhint' : ''}">${MEM_RE.test(m.content) ? ic('bulb') + ' ให้ AI จำเรื่องนี้?' : 'Remember'}</button></div>` : ''}</div>`;
   }
   const last = i === chat.msgs.length - 1;
@@ -1020,7 +1021,7 @@ const noteOf = (m, d) => { const add = t => { if (!(m.note || '').includes(t)) m
 async function editMsg(idx) {
   if (chat.busy) return;
   const m = chat.msgs[idx]; if (!m?.id) return;
-  const raw = m.content.replace(FILE_RE, '').trim();
+  const raw = noAttImgs(m.content).replace(FILE_RE, '').trim();
   const next = await promptSheet('แก้ไขข้อความแล้วให้ AI ตอบใหม่จากจุดนี้', raw, { title: 'แก้ไขข้อความ', ok: 'Resend' });
   if (!next?.trim() || next.trim() === raw) return;
   chat.msgs = chat.msgs.slice(0, idx + 1);

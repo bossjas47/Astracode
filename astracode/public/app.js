@@ -51,6 +51,10 @@ async function api(path, opt = {}) {
   return d;
 }
 
+// รูปที่ผู้ใช้แนบในข้อความ (เซิร์ฟเวอร์เก็บไว้แล้วอ้างเป็น ![รูปที่แนบ](/api/img/...)): แสดงเป็นรูปย่อ ไม่แสดงเป็นข้อความดิบ
+const ATT_IMG_RE = /\n*!\[รูปที่แนบ\]\((\/api\/img\/\d+\/[\w-]+\.(?:png|jpg))\)/g;
+const attImgsOf = s => [...String(s || '').matchAll(ATT_IMG_RE)].map(m => m[1]);
+const noAttImgs = s => String(s || '').replace(ATT_IMG_RE, '');
 // ---------- Markdown ----------
 function inline(s) { // s escape แล้ว
   const codes = [], maths = [];
@@ -1149,7 +1153,7 @@ const PAGES = {
     page(nav() + `<div class="wrap" style="max-width:780px;padding-bottom:64px">
       <section class="hero" style="padding:40px 0 20px"><div class="name">AstraCode</div><h1>${esc(d.title)}</h1><p>${when(d.created_at)} · แชตที่แชร์</p></section>
       <div class="msgs" style="padding:0">${d.messages.map(m => m.role === 'user'
-        ? `<div class="msg user"><div class="b">${esc(m.content.replace(FILE_RE, (_, n) => `[ไฟล์: ${n}]`).trim())}</div></div>`
+        ? `<div class="msg user"><div class="b">${esc(m.content.replace(ATT_IMG_RE, '\n[รูปที่แนบ]').replace(FILE_RE, (_, n) => `[ไฟล์: ${n}]`).trim())}</div></div>`
         : `<div class="msg ai"><div class="b">${md(m.content)}</div>${m.model ? `<div class="acts"><span class="muted">${esc(m.model)}</span></div>` : ''}</div>`).join('')}</div>
       <div style="text-align:center;margin-top:32px"><a class="btn blue" href="${me ? '/chat' : '/login'}">${me ? 'Open AstraCode Chat' : 'Try AstraCode free'}</a></div>
       ${footer()}</div>`);

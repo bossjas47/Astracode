@@ -347,6 +347,31 @@ export async function imagePrompt(env, code) {
 export const IMG_CHUNK = 900e3, IMG_MAX = 8e6;
 export let imgTable;
 export const ensureImgTable = env => imgTable ||= env.DB.prepare('CREATE TABLE IF NOT EXISTS chat_images (key TEXT NOT NULL, n INTEGER NOT NULL, user_id INTEGER NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (key, n))').run().catch(e => { imgTable = undefined; throw e; }); // ล้มครั้งเดียวไม่ควรจำค่าล้มไว้ตลอดอายุ isolate
+// รูปที่ผู้ใช้แนบไว้ในข้อความก่อนหน้า (![รูปที่แนบ](/api/img/<uid>/<key>.<ext>)): ส่งให้โมเดลเห็นอีกครั้ง เฉพาะ 2 ข้อความล่าสุดที่มีรูป ไม่เกิน 4 รูป (คุมต้นทุน)
+// ข้อความล่าสุด: ตัดลิงก์ออกจากข้อความ (รูปส่งแยกใน images อยู่แล้ว) ถ้าไม่มีรูปส่งมา (กดตอบใหม่) คืนรูปเดิมให้ส่งแทน · โมเดลที่อ่านรูปไม่ได้เห็นเป็นป้ายข้อความ
+export const ATT_IMG_RE = /\n*!\[รูปที่แนบ\]\(\/api\/img\/(\d+)\/([\w-]+)\.(png|jpg)\)/g;
+export async function loadImage(env, uid, key, ext) {
+  const o = env.SLIPS && await env.SLIPS.get(`img/${uid}/${key}.${ext}`);
+  if (o) { const buf = o.arrayBuffer ? await o.arrayBuffer() : await new Response(o.body).arrayBuffer(); return `data:${o.httpMetadata?.contentType || (ext === 'png' ? 'image/png' : 'image/jpeg')};base64,${b64(buf)}`; }
+  await ensureImgTable(env);
+  const rows = (await env.DB.prepare('SELECT mime,data FROM chat_images WHERE key=? AND user_id=? ORDER BY n').bind(key, uid).all()).results;
+  return rows.length ? `data:${rows[0].mime};base64,${rows.map(x => x.data).join('')}` : null;
+}
+export async function withPastImages(env, uid, hist, vision, hasCurrent) {
+  let budget = 4, withImg = 0, lastImgs = [];
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const x = hist[i]; if (x.role !== 'user' || typeof x.content !== 'string' || !x.content.includes('](/api/img/')) continue;
+    const refs = [...x.content.matchAll(ATT_IMG_RE)].filter(r => +r[1] === uid); if (!refs.length) continue; // รูปของคนอื่น: ไม่โหลด
+    const text = x.content.replace(ATT_IMG_RE, '').trim(), last = i === hist.length - 1, label = `\n\n[แนบรูป ${refs.length} รูป]`;
+    if (!vision || (last && hasCurrent) || budget <= 0 || withImg >= 2) { x.content = (text || '(รูปที่แนบ)') + (last ? '' : label); continue; }
+    withImg++;
+    const got = [];
+    for (const r of refs) { if (budget <= 0) break; const d = await loadImage(env, uid, r[2], r[3]).catch(() => null); if (d && d.length <= 2.8e6) { got.push(d); budget--; } }
+    if (last) { x.content = text || 'อธิบายรูปนี้'; lastImgs = got; continue; } // ข้อความล่าสุดต้องเป็นข้อความล้วน (ส่วนอื่นอ่าน .content เป็นสตริง): รูปส่งผ่าน images
+    x.content = got.length ? [{ type: 'text', text: text || '(รูปที่แนบ)' }, ...got.map(url => ({ type: 'image_url', image_url: { url } }))] : (text || '(รูปที่แนบ)') + label;
+  }
+  return lastImgs;
+}
 export async function putImage(env, uid, mime, b64s) {
   if (b64s.length > IMG_MAX) throw new Error('รูปที่ได้ใหญ่เกินไป');
   const ext = mime === 'image/png' ? 'png' : 'jpg', key = rand(12);
@@ -514,7 +539,7 @@ export async function chat(req, env, u, ctx) {
   // ลำดับรอฐานข้อมูลก่อนเริ่มตอบ (เดิมรอทีละคำสั่ง ~15 รอบ): 1) แพลน + โมเดล 2) ตรวจสิทธิ์/เพดาน/ลิมิต/ล็อก/โปรเจกต์/แชตพร้อมกัน 3) บันทึก+อ่านประวัติใน batch เดียว
   const autoPick = b.model_id === 'auto', modelQ = id => env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(id).first();
   const [plan, mPre] = await Promise.all([planOf(env, u), autoPick ? null : modelQ(b.model_id)]);
-  if (autoPick) b.model_id = await autoModel(env, plan, u, { text, images, files, effort, regenerate: b.regenerate });
+  if (autoPick) b.model_id = await autoModel(env, plan, u, { text, images, files, effort, regenerate: b.regenerate, code: !!b.project_id });
   const mRow = autoPick ? await modelQ(b.model_id) : mPre;
   const pid = b.project_id || null; // โหมด Code
   let cid = ephemeral ? null : b.chat_id;
@@ -558,7 +583,10 @@ export async function chat(req, env, u, ctx) {
 
   // ไฟล์เก็บในข้อความ โมเดลจึงจำได้ในข้อความถัดไป (รูปแบบเดียวกับฝั่งเว็บ)
   // shortcut: ไม่เก็บรูปไว้ในประวัติ (โมเดลเห็นรูปแค่ข้อความนี้) ถ้าต้องการให้จำรูป ให้เก็บใน R2
-  const saved = text + files.map(f => `\n\n[[file:${f.name.replace(/[[\]\r\n]/g, '')}]]\n${f.text}\n[[/file]]`).join('') + (images.length ? `\n\n[แนบรูป ${images.length} รูป]` : '');
+  // รูปที่แนบเก็บไว้ (R2 หรือ D1) แล้วอ้างในข้อความ: ข้อความถัดไปโมเดลยังเห็นรูปเดิมได้ (เดิมเห็นแค่ข้อความที่แนบ) · เก็บไม่ได้ = ใช้ป้ายข้อความแบบเดิม
+  const imgRefs = [];
+  if (images.length && !ephemeral) for (const d of images) { try { const mime = d.slice(5, d.indexOf(';')); imgRefs.push(await putImage(env, u.id, mime, d.slice(d.indexOf(',') + 1))); } catch { /* เก็บไม่ได้: ข้าม */ } }
+  const saved = text + files.map(f => `\n\n[[file:${f.name.replace(/[[\]\r\n]/g, '')}]]\n${f.text}\n[[/file]]`).join('') + (imgRefs.length === images.length && imgRefs.length ? imgRefs.map(src => `\n\n![รูปที่แนบ](${src})`).join('') : images.length ? `\n\n[แนบรูป ${images.length} รูป]` : '');
   let hist, chatRow = null;
   if (ephemeral) hist = [{ role: 'user', content: saved }];
   else {
@@ -597,7 +625,8 @@ export async function chat(req, env, u, ctx) {
     hist = hist.map(x => ({ ...x, content: stripMarkers(String(x.content || '').replace(/⁣/g, '')) })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
     while (hist.length && hist[0].role !== 'user') hist.shift();
     if (!pid) { const q = text; hist.forEach(x => { if (x.role === 'user' && x.content.length > FILE_FULL) x.content = excerptFiles(x.content, q); }); }
-    if (pid) hist.forEach((x, i) => { if (i < hist.length - 1 && x.role === 'user') x.content = stripOpenFile(x.content); }); // เนื้อหาไฟล์ที่เปิดอยู่ส่งเฉพาะข้อความล่าสุด (ไม่ซ้ำทุกรอบ ประหยัด token)
+    if (pid) hist.forEach((x, i) => { if (i < hist.length - 1 && x.role === 'user') x.content = stripOpenFile(x.content); });
+    { const past = await withPastImages(env, u.id, hist, !!m.vision, images.length > 0); if (!images.length && past.length) images.push(...past); } // รูปในข้อความก่อนหน้า (และรูปเดิมตอนกดตอบใหม่) // เนื้อหาไฟล์ที่เปิดอยู่ส่งเฉพาะข้อความล่าสุด (ไม่ซ้ำทุกรอบ ประหยัด token)
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
@@ -697,7 +726,7 @@ export async function runChat(env, J, send, st) {
     if (!touched.size && !probs.length) return `[Automatic check] You stopped before doing the work. Your checklist still has unfinished items:\n${open.map(x => '- ' + x).join('\n')}\nDo not just describe the next step: call the tools now and keep going until every item is done, then update the checklist and give a short summary. If an item truly cannot be done, say why in one line.`;
     return `[Automatic check before you finish]\n${probs.length ? 'Problems found in the files you changed:\n' + probs.map(x => '- ' + x).join('\n') + '\n' : ''}${open.length ? 'Your checklist still has unfinished items:\n' + open.map(x => '- ' + x).join('\n') + '\n' : ''}Fix these now with the tools (read the exact lines first if needed), then update the checklist and give a short summary. If an item is truly not needed, say why in one line.`;
   };
-  let ctxUsed = 0, lastCtx = 0, cumIn = 0, capped = false, trimmedSent = false; // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
+  let ctxUsed = 0, lastCtx = 0, cumIn = 0, capped = false, trimmedSent = false, roundsOut = false; // roundsOut = หยุดเพราะครบรอบทั้งที่ยังมีงานต่อ (หน้า Code สั่งทำต่อเอง) // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     round_ = round + 1;
     let part = '', ru = null;
@@ -774,8 +803,9 @@ export async function runChat(env, J, send, st) {
       usage = usage ? { fresh: usage.fresh + ru.fresh, read: usage.read + ru.read, write: usage.write + ru.write, out: usage.out + ru.out } : { ...ru };
       usage.long = L.fresh + L.read + L.write + L.out ? L : null;
     }
-    const toolCalls = [...tcs.values()];
-    if (toolCalls.length && !st.gone && round < (ws && useTools ? maxRounds + 2 : zipTools.length ? 12 : 5)) {
+    const toolCalls = [...tcs.values()], roundCap = ws && useTools ? maxRounds + 2 : zipTools.length ? 12 : 5;
+    if (toolCalls.length && !st.gone && round >= roundCap && pid) roundsOut = true;
+    if (toolCalls.length && !st.gone && round < roundCap) {
       msgs = [...msgs, { role: 'assistant', content: part || null, tool_calls: toolCalls }];
       imgs = [];
       let onlyWrites = true, allOk = true, wrote = false; const doing = [];
@@ -845,6 +875,7 @@ export async function runChat(env, J, send, st) {
       continue;
     }
     const reqs = pid && !st.gone && round < maxRounds && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
+    if (!reqs.length && pid && !st.gone && round >= maxRounds && toolReqs(part).length) roundsOut = true; // ขออ่าน/รันต่อแต่ครบรอบแล้ว
     if (!reqs.length) { // โมเดลตอบจบ: ตรวจไฟล์ที่แก้ในคำตอบนี้ก่อน ถ้าเจอปัญหา/งานค้างให้แก้ต่ออีกรอบ
       const note = round < maxRounds + 2 ? await reviewNote(round) : '';
       if (!note) break;
@@ -878,7 +909,7 @@ export async function runChat(env, J, send, st) {
   await unlimit(env, lock);
   const fin = await usageStatus(env, u, plan);
   if (J.task && cid) await import('./push.js').then(p => p.sendPush(env, u.id, { title: (lastTodo || []).some(x => x.status !== 'completed') ? 'งานหยุดก่อนเสร็จ · แตะเพื่อดู' : 'งานเสร็จแล้ว', body: String(hist.at(-1)?.content || '').replace(/\[\[[^\]]*\]\]/g, '').slice(0, 120), url: '/chat?id=' + cid })).catch(() => {}); // โหมดงาน: แจ้งเตือนเมื่อจบ (ลูกค้าอาจปิดเว็บไปแล้ว)
-  await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), rounds: round_, ctx: { used: lastCtx || ctxUsed, max: ctxMax(model), real: !!lastCtx }, ...fin });
+  await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), ...(roundsOut ? { more: true } : {}), rounds: round_, ctx: { used: lastCtx || ctxUsed, max: ctxMax(model), real: !!lastCtx }, ...fin });
   for (const lv of [100, 80]) if (J.pw0 < lv && fin.pctWeek >= lv) { // ข้ามเส้น 80% / 100% ของลิมิตสัปดาห์: อีเมลครั้งเดียวตอนข้าม
     await mail(env, u.email, `AstraCode: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', siteUrl(env) + '/plans')).catch(() => {});
     break;
@@ -891,9 +922,10 @@ export async function runChat(env, J, send, st) {
 }
 
 // ---------- ลดต้นทุน: เลือกโมเดลอัตโนมัติ + ย่อแชตยาว ----------
+export const BUILD_RE = /\b(game|website|web ?app|landing page|dashboard|3d|three\.?js|webgl|canvas|animation|html|css|tailwind|ui|ux|app|api|database|deploy|script|bot)\b|เกม|เว็บ|แอป|หน้าเว็บ|ฉาก|แอนิเมชัน|ออกแบบ|สร้าง(ระบบ|โปรแกรม|บอท|ไฟล์|สไลด์|เอกสาร)|ทำ(ระบบ|โปรแกรม|บอท)|สไลด์|พรีเซนต์|สัญญา|แผนการ|แปลเอกสาร/i;
 export const HARD_RE = /```|\b(debug|bug|error|refactor|algorithm|optimi[sz]e|architecture|prove|proof|regex|sql|typescript|python|javascript|react)\b|โค้ด|เขียนโปรแกรม|แก้บั๊ก|วิเคราะห์|พิสูจน์|คำนวณ|สมการ|ออกแบบระบบ|เปรียบเทียบ|กลยุทธ์|แผนธุรกิจ|เรียงความ|รายงาน/i;
 // shortcut: แยกง่าย/ยากด้วยกฎ (ไม่เสีย token เพิ่ม) ถ้าอยากแม่นขึ้นค่อยให้โมเดลเล็กช่วยจัดประเภท
-export async function autoModel(env, plan, u, { text, images, files, effort, regenerate }) {
+export async function autoModel(env, plan, u, { text, images, files, effort, regenerate, code = false }) {
   const all = (await allowedModels(env, plan.id)).filter(m => m.provider !== 'image' && m.provider !== 'embedding'); if (!all.length) return null; // โมเดลสร้างรูปไม่ใช่ตัวเลือกของ Auto
   const ok = [], healthy = [];
   for (const m of all) if (!(await capHit(env, u, plan, m))) { ok.push(m); if (!await modelDown(env, m.id)) healthy.push(m); }
@@ -905,7 +937,8 @@ export async function autoModel(env, plan, u, { text, images, files, effort, reg
   const ms = liked(ms1);
   const cheap = ms.find(m => m.id === +s.auto_cheap_model) || [...ms].sort(by)[0];
   const strong = ms.find(m => m.id === +s.auto_strong_model) || [...ms].sort(by).at(-1);
-  let m = regenerate || images.length || files.length || ['high', 'xhigh', 'max'].includes(effort) || text.length > 1200 || HARD_RE.test(text) ? strong : cheap;
+  // งานยาก/งานสร้าง → ตัวเก่ง: โหมด Code ทุกข้อความ, ตอบใหม่ (ไม่พอใจคำตอบเดิม), แนบรูป/ไฟล์, คิดระดับสูง, ข้อความยาว, คำสั่งโค้ด/วิเคราะห์/สร้างเว็บ-เกม-แอป · เดิมโหมด Code และงานสร้างสั้นๆ ได้ตัวถูกสุด
+  let m = code || regenerate || images.length || files.length || ['high', 'xhigh', 'max'].includes(effort) || text.length > 600 || HARD_RE.test(text) || BUILD_RE.test(text) ? strong : cheap;
   if (images.length && !m.vision) m = ms.find(x => x.vision) || m;
   return m.id;
 }
@@ -1032,7 +1065,7 @@ export const TASK_SYS = `\n\nTASK MODE: the user handed you a whole piece of wor
 2. Do every step with your tools, updating the checklist as you go. Do not stop to ask unless something is truly impossible to decide; make sensible assumptions and say what you assumed at the end.
 3. Put every deliverable in a real file: create_file (.xlsx with live formulas, .docx, .pptx for slides, .pdf) or edit_account_file to change the user's files. Files the user attached are listed with their file_id. Use run_python for heavy calculations; files Python writes to /out/ are saved into this task's folder.
 4. Finish with a short summary: what you made (file names), key numbers, and anything the user should check.`;
-export const TOOL_ROUNDS = 25, READ_MAX = 100e3, ANSWER_IN_MAX = 1.2e6; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
+export const TOOL_ROUNDS = 40, READ_MAX = 100e3, ANSWER_IN_MAX = 1.2e6; // ANSWER_IN_MAX = input token รวมทุกรอบของคำตอบเดียว
 // หน้า Code แนบเนื้อหาไฟล์ที่เปิดอยู่และข้อความที่เลือกท้ายข้อความ ([เนื้อหาไฟล์ที่เปิดอยู่] … ถึงท้ายสุด)
 // ข้อความเก่าของผู้ใช้ในโหมด Code: ตัดรายชื่อไฟล์ทั้งโปรเจกต์ (สูงสุด 15,000 ตัวอักษร) และเนื้อหาไฟล์ที่แนบไว้ออก เหลือเฉพาะในข้อความล่าสุด
 // เดิมรายชื่อไฟล์ถูกส่งซ้ำทุกข้อความในประวัติ = context โตเร็วและเสีย token ทุกครั้งที่ส่ง

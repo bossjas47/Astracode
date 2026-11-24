@@ -382,7 +382,9 @@ export const creditsOf = async (env, uid) => (await creditList(env, uid)).reduce
 export const estTokens = s => { s = String(s || ''); const ascii = s.replace(/[^\x00-\x7f]/g, '').length; return Math.ceil(ascii / 4 + (s.length - ascii) / 1.5); };
 // ขนาด context ของโมเดล (token) · ตั้งต่อโมเดลในหลังบ้าน (ctx_k = พัน token) ไม่ตั้ง = 128k
 export const ctxMax = m => (m?.ctx_k > 0 ? m.ctx_k : 128) * 1000;
-const msgTok = x => estTokens(typeof x.content === 'string' ? x.content : JSON.stringify(x.content ?? '')) + (x.tool_calls ? estTokens(JSON.stringify(x.tool_calls)) : 0) + 4;
+// รูปในข้อความ (image_url / image) นับเหมาตัวละ ~1,600 token ตามจริงของผู้ให้บริการ · เดิมนับความยาว base64 ทั้งก้อน (รูปเดียว = หลายแสน token) ทำให้ประวัติถูกตัดทิ้งเกินจริง
+const partTok = p => p?.type === 'text' ? estTokens(p.text) : p?.type === 'image_url' || p?.type === 'image' || p?.type === 'input_image' ? 1600 : estTokens(JSON.stringify(p ?? ''));
+const msgTok = x => (typeof x.content === 'string' ? estTokens(x.content) : Array.isArray(x.content) ? x.content.reduce((a, p) => a + partTok(p), 0) : estTokens(JSON.stringify(x.content ?? ''))) + (x.tool_calls ? estTokens(JSON.stringify(x.tool_calls)) : 0) + 4;
 // ให้ system + ข้อความพอดี context: ทิ้งข้อความเก่าสุดก่อน (ข้อความแรกต้องเป็นของผู้ใช้) ถ้ายังเกินค่อยตัดเนื้อหาที่ยาวสุด · เผื่อที่ให้คำตอบ 15% (ไม่เกิน 16k)
 export function fitContext(system, msgs, max) {
   const budget = max - Math.min(16000, max * 0.15) - estTokens(system);

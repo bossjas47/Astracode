@@ -45,13 +45,25 @@ export async function notify(env, text) {
 }
 export async function event(env, kind, model_id, detail) {
   await env.DB.prepare('INSERT INTO events (kind,model_id,detail,created_at) VALUES (?,?,?,?)').bind(kind, model_id ?? null, detail ?? null, Date.now()).run();
-  if (kind === 'error') { // แจ้งแอดมินครั้งแรกของแต่ละโมเดลในรอบ 30 นาที
+  if (kind === 'error') { // แจ้งแอดมินครั้งแรกของแต่ละโมเดลในรอบ 30 นาที · ปัญหาฝั่งต้นทาง (เงินหมด/คีย์/ช่องทางปิด) แจ้งซ้ำทุก 6 ชม. จนกว่าจะแก้ (เดิมล่มยาวแจ้งครั้งเดียว)
+    const d = String(detail), sup = supplyIssue(d);
     const n = await env.DB.prepare("SELECT COUNT(*) n FROM events WHERE kind='error' AND model_id IS ? AND created_at>?").bind(model_id ?? null, Date.now() - 1800e3).first();
-    if (n.n === 1) {
-      const d = String(detail), hint = /insufficient_credit|402|quota|balance|เครดิต/i.test(d) ? '💳 เครดิตของผู้ขายน่าจะหมด: เติมเครดิต' : /not bound|403|invalid.?api.?key|401|unauthor/i.test(d) ? '🔑 คีย์ใช้ไม่ได้/ไม่ผูกช่องทาง: ตรวจ Worker secret ของโมเดลนี้' : /timeout|timed out|หมดเวลา|stall/i.test(d) ? '⏱️ ผู้ขายตอบช้า/ไม่ตอบ' : '';
-      await notify(env, `⚠️ AstraCode: โมเดล #${model_id} ตอบไม่ได้${hint ? '\n' + hint : ''}\n${d.slice(0, 300)}`);
+    const again = sup && !(await limited(env, `supply:${model_id ?? 0}:${sup.type}`, 1, 6 * 3600e3));
+    if (n.n === 1 || again) {
+      const hint = sup?.hint || (/timeout|timed out|หมดเวลา|stall|ไม่ตอบภายใน/i.test(d) ? '⏱️ ผู้ขายตอบช้า/ไม่ตอบ' : '');
+      const name = model_id ? (await env.DB.prepare('SELECT name FROM models WHERE id=?').bind(model_id).first().catch(() => null))?.name : null;
+      await notify(env, `⚠️ AstraCode: ${name ? name + ` (#${model_id})` : 'โมเดล #' + (model_id ?? '-')} ตอบไม่ได้${hint ? '\n' + hint : ''}\n${d.slice(0, 300)}`);
     }
   }
+}
+// error ที่แก้ได้ฝั่งเราหรือผู้ขายเท่านั้น (ลูกค้าลองใหม่กี่ครั้งก็ไม่หาย): เงิน/เครดิตต้นทางหมด · คีย์ไม่มี/ผิด · ช่องทางหรือกลุ่มคีย์ถูกปิด
+export function supplyIssue(d) {
+  d = String(d || '');
+  if (/missing key/i.test(d)) return { type: 'nokey', hint: `🔑 Worker ไม่มีคีย์ ${(d.match(/missing key (\w+)/i) || [])[1] || ''}: ตั้ง secret ใน Cloudflare หรือปิดโมเดลนี้`, label: 'ไม่มีคีย์ใน Worker' };
+  if (/insufficient[_ ]?(credit|balance|funds|quota)|\b402\b|exceeded your current quota|available credit|เครดิต/i.test(d)) return { type: 'credit', hint: '💳 เงิน/เครดิตที่ผู้ขายต้นทางหมด: เติมเงินกับผู้ขาย', label: 'เงินต้นทางหมด' };
+  if (/GROUP_DISABLED|channel is currently disabled|分组已停用|account (is )?(disabled|suspended)/i.test(d)) return { type: 'channel', hint: '⛔ ผู้ขายปิดช่องทาง/กลุ่มคีย์นี้: ติดต่อผู้ขาย หรือปิดโมเดล/เปลี่ยนช่องทาง', label: 'ต้นทางปิดช่องทาง' };
+  if (/invalid.?api.?key|\b401\b|unauthori[sz]ed|not bound/i.test(d)) return { type: 'key', hint: '🔑 คีย์ใช้ไม่ได้/ไม่ผูกช่องทาง: ตรวจ Worker secret ของโมเดลนี้', label: 'คีย์ใช้ไม่ได้' };
+  return null;
 }
 export async function audit(env, u, action, detail) {
   await env.DB.prepare('INSERT INTO audit (admin_id,admin_email,action,detail,created_at) VALUES (?,?,?,?,?)').bind(u.id, u.email, action, JSON.stringify(detail ?? null).slice(0, 2000), Date.now()).run();

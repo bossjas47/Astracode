@@ -213,7 +213,7 @@ test('wallet: up to 8 requests can run at once; a 9th waits; the balance never g
 });
 
 test('api: OpenRouter-style /v1/credits and /v1/key answer instead of 404; /v1/models/<id> works', async () => {
-  const t = await makeEnv(), m = addModel(t.DB, { name: 'Flash X', provider: 'openai', base_url: 'http://x' }), u = await t.user();
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Flash X', provider: 'openai', base_url: 'http://x' }), u = await t.user();
   t.DB.raw.prepare('UPDATE users SET balance=50 WHERE id=?').run(u.id);
   const { data: k } = await t.json('/api/keys', { method: 'POST', cookie: u.cookie, body: { name: 'cline' } });
   const h = { authorization: 'Bearer ' + k.key };

@@ -408,6 +408,17 @@ const FLOWS = [
     return [!errs.length || errs.join(' | '), pane === 'ai' || 'phone did not open on the chat: ' + pane, r.file?.trim() === '<h1>new</h1>' || 'edit not applied: ' + r.file, /อ่าน 1/.test(r.steps) && /แก้ 1/.test(r.steps) || 'steps: ' + r.steps,
       /เปลี่ยนหัวข้อเป็น new/.test(push?.body || '') && /index\.html/.test(push?.body || '') || 'push message: ' + push?.body, /main/.test(r.push) && /abc1234/.test(r.push) || 'push note: ' + r.push];
   }],
+  ['Code: a task that stops at the round limit (more: true) is continued automatically, at most twice, without the user typing', async () => {
+    let n = 0;
+    const { page, errs, calls } = await open('/code?p=9', {
+      '/api/projects/9': { id: 9, name: 'Big', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] },
+      chat: () => [{ chat_id: 90 }, { t: 'ทำไปส่วนหนึ่ง ' + (++n) }, { done: true, more: true, pct4h: 1, pctWeek: 1, mid: n }], // ครบรอบทุกครั้ง: ต้องหยุดที่ 1 + ทำต่อ 2 ครั้ง
+    });
+    await page.fill('#ct', 'ทำเว็บใหญ่'); await page.click('#cgo');
+    await page.waitForFunction(() => (IDE.cont ?? 0) >= 2 && !IDE.busy, null, { timeout: 15000 }).catch(() => {}); await page.waitForTimeout(800);
+    const sends = calls.filter(c => c.m === 'POST' && c.p === '/api/chat' && !/"resume"|"stop"/.test(c.body));
+    return [!errs.length || errs.join(' | '), sends.length === 3 || 'chat requests: ' + sends.length, /ทำต่ออัตโนมัติ/.test(sends[1]?.body || '') || 'no continue prompt: ' + (sends[1]?.body || '').slice(0, 120)];
+  }],
   ['Code: attach an image and a .md file to a message; they go with the request, not into the project', async () => {
     const { page, errs, calls } = await open('/code?p=8', {
       '/api/projects/8': { id: 8, name: 'Site', instructions: '', gh: null, files: [{ path: 'index.html', content: '<h1>x</h1>' }] },

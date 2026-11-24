@@ -354,7 +354,7 @@ export const ipAllowed = (list, addr) => list.split(',').some(e => {
 // รายการโมเดล/โมเดลในแพลน เปลี่ยนไม่บ่อย: จำไว้ใน isolate 30 วินาที (แก้ในหลังบ้านมีผลภายใน 30 วิ)
 const memo = new Map();
 const cached = async (key, ms, load) => { const h = memo.get(key); if (h && h.exp > Date.now()) return h.v; const v = await load(); memo.set(key, { v, exp: Date.now() + ms }); return v; };
-const modelsCached = env => cached('models', 30e3, async () => (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results);
+const modelsCached = env => cached('models', 30e3, async () => (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results.filter(m => env[m.key_name])); // ไม่มีคีย์ใน Worker = เรียกไปก็ error (missing key): ไม่แสดงใน /v1/models เหมือนหน้าเว็บ
 const planModelsCached = (env, pid) => cached('pm:' + pid, 30e3, async () => new Set((await env.DB.prepare('SELECT model_id FROM plan_models WHERE plan_id=?').bind(pid).all()).results.map(x => x.model_id)));
 export async function v1(req, env, ctx, path) {
   if (path.length > 4 && path.endsWith("/")) path = path.replace(/\/+$/, ""); // /v1/credits/ = /v1/credits (บางโปรแกรมเติม / ท้าย)

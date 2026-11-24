@@ -52,7 +52,8 @@ test('code chat: ASTRA.md reaches the system prompt, edit-block rules are taught
   const r1 = await send('แก้ a.js\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\na.js\nASTRA.md\n\n[เนื้อหาไฟล์ที่เปิดอยู่]\na.js:\nlet a = 1;'); const ev = await readSSE(r1); await Promise.all(t.ctx.pending);
   const sys = fm.hits[0].body.messages[0].content;
   assert.match(sys, /Always use semicolons/); assert.match(sys, /ใช้ tab/); assert.match(sys, /SEARCH[\s\S]*REPLACE/);
-  assert.ok(ev.some(e => e.round === 2 && e.of === 26), 'round event sent'); // TOOL_ROUNDS 25 + 1
+  const { TOOL_ROUNDS } = await import('../src/ai.js');
+  assert.ok(ev.some(e => e.round === 2 && e.of === TOOL_ROUNDS + 1), 'round event sent'); // TOOL_ROUNDS + 1
   assert.equal(ev.at(-1).rounds, 2);
   const cid = ev.find(e => e.chat_id).chat_id;
   fm.hits.length = 0;
