@@ -158,3 +158,17 @@ test('CheckSlip: an empty reply is retried; a top-up is credited with the amount
   assert.equal(ap.status, 200, JSON.stringify(ap.data)); assert.equal(b.bal(), 10); assert.equal(b.t.DB.raw.prepare('SELECT amount FROM payments WHERE id=?').get(pid).amount, 10);
   b.fm.close();
 });
+
+test('CheckSlip shows only the last digits of the receiving account: name + last 4 digits auto-approve; no number or wrong name waits for the admin', async () => {
+  const { judgeSlip, receiverTailMatches } = await import(new URL('../src/billing.js', import.meta.url).href);
+  const s = { easyslip_receiver: '0629708835', easyslip_receiver_names: 'ณัฐภูมินทร์ จูบ้ง, ณัฐภูมินทร์', promptpay_id: '0629708835', bank_account: '193-1-13233-0' };
+  const slip = (account, name = 'นาย ณัฐภูมินทร์ จ') => ({ provider: 'checkslip', success: true, data: { transRef: 'T' + Math.random(), date: new Date().toISOString(), amount: { amount: 69 }, receiver: { account: { name: { th: name, en: null }, bank: { account } } } } });
+  assert.equal(judgeSlip(s, slip('8835'), 200, '', 69, false).code, '200000'); // พร้อมเพย์ 0629708835
+  assert.equal(judgeSlip(s, slip('2330'), 200, '', 69, false).code, '200000'); // บัญชี 193-1-13233-0
+  assert.equal(judgeSlip(s, slip(null), 200, '', 69, false).code, 'receiver_unverified'); // ไม่มีเลข: แอดมินตรวจ (ตามที่เจ้าของเลือก)
+  assert.equal(judgeSlip(s, slip('1111'), 200, '', 69, false).code, 'receiver_unverified'); // หลักท้ายไม่ตรง: ไม่อนุมัติเอง
+  assert.equal(judgeSlip(s, slip('8835', 'นาย สมชาย ใจดี'), 200, '', 69, false).code, '200401'); // ชื่อไม่ตรง: ปฏิเสธ
+  assert.equal(judgeSlip(s, slip('8835'), 200, '', 70, false).code, '200402'); // ยอดไม่ตรง
+  assert.equal(judgeSlip({ ...s, easyslip_receiver_names: '' }, slip('8835'), 200, '', 69, false).code, 'receiver_unverified'); // ไม่ได้ตั้งชื่อร้าน: หลักท้ายอย่างเดียวไม่พอ
+  assert.equal(receiverTailMatches(slip('835'), ['0629708835']), false); // สั้นเกิน
+});

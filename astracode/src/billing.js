@@ -126,6 +126,13 @@ export function receiverMatches(slip, expected) {
   }
   return comparable ? false : null;
 }
+// ผู้ให้บริการบางราย (CheckSlip) ส่งเลขบัญชีผู้รับมาแค่หลักท้าย เช่น "8835" (ไม่มี x ปิดหลักหน้า) จึงเทียบความยาวเต็มไม่ได้
+// true = หลักท้าย 4–6 หลักตรงกับเลขพร้อมเพย์/บัญชีร้าน · ใช้คู่กับชื่อผู้รับที่ตรงเท่านั้น (หลักท้ายอย่างเดียวไม่พอยืนยัน)
+export function receiverTailMatches(slip, expected) {
+  const wants = [].concat(expected || []).map(e => String(e || '').replace(/\D/g, '')).filter(w => w.length >= 6);
+  const found = []; (function walk(o, k) { if (typeof o === 'string' && /account$/i.test(k || '')) found.push(o); else if (o && typeof o === 'object') for (const [kk, v] of Object.entries(o)) walk(v, kk); })(slip?.receiver ?? slip?.rawSlip?.receiver, '');
+  return found.some(c => { c = String(c).replace(/[\s-]/g, ''); return /^\d{4,6}$/.test(c) && wants.some(w => w.endsWith(c)); });
+}
 export const SLIP_MAX_AGE = 15 * 60e3; // สลิปใช้ได้ภายใน 15 นาทีหลังโอนเท่านั้น
 const nameKey = x => String(x || '').normalize('NFC').replace(/(?:นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.|mr\.?|mrs\.?|miss|ms\.?)/gi, '').replace(/[\s.]/g, '').toLowerCase();
 // ชื่อผู้รับในสลิป (ไทย) เทียบกับรายชื่อที่อนุญาต · true = ตรงอย่างน้อยหนึ่งชื่อ · false = มีชื่อไทยแต่ไม่ตรง · null = สลิปไม่มีชื่อไทยให้เทียบ
@@ -192,7 +199,12 @@ export function judgeSlip(s, d, st, msg, amount, flex) {
   const dg = receiverMatches(slip, [...wantAcc, s.promptpay_id, s.bank_account].filter(Boolean)) /* พร้อมเพย์และเลขบัญชีร้านนับเสมอ: ลูกค้าโอนเข้าเลขบัญชีตรงๆ ก็ต้องผ่าน */, nm = names.length ? receiverNameMatches(slip, names) : null;
   // มีรายชื่อผู้รับที่อนุญาต: ชื่อตรง (เต็มหรือเฉพาะชื่อต้นที่สำรองไว้) แล้วเลขบัญชีต้องไม่ขัดแย้ง · ชื่อไม่ตรง = ปฏิเสธ · ชื่อในสลิปเทียบไม่ได้ ใช้เลขบัญชีตัดสินแทน
   // ชื่อตรงอย่างเดียวไม่พอ (เทียบแบบ "มีคำนี้ในชื่อ" · คนร้ายโอนเข้าบัญชีตัวเองที่ชื่อคล้ายร้านได้): อนุมัติเองเมื่อเลขบัญชี/พร้อมเพย์ตรงด้วยเท่านั้น · เลขเทียบไม่ได้ = ให้แอดมินตรวจ
-  if (names.length) { if (nm === false || dg === false) return out('200401'); return dg === true ? out('200000') : out('receiver_unverified'); }
+  if (names.length) {
+    if (nm === false || dg === false) return out('200401');
+    if (dg === true) return out('200000');
+    if (nm === true && receiverTailMatches(slip, [...wantAcc, s.promptpay_id, s.bank_account].filter(Boolean))) return out('200000'); // ชื่อตรง + หลักท้ายบัญชีตรง (CheckSlip)
+    return out('receiver_unverified'); // ไม่มีเลขบัญชีในสลิป: แอดมินตรวจ
+  }
   if (dg === false) return out('200401');
   if (dg === null) return out('receiver_unverified'); // ตั้งผู้รับไว้แต่สลิปไม่มีเลขที่เทียบได้ → ให้แอดมินตรวจ
   return out('200000');
@@ -377,7 +389,7 @@ async function pay0(req, env, u) {
   }
   const fail = SLIP_FAIL[c.code];
   if (c.code != null) { // ระบบตรวจสลิปอัตโนมัติพัง (คีย์/URL/รูปแบบคำขอผิด) ติดกัน 3 ครั้ง = เตือนแอดมินชัดๆ ไม่ใช่ปล่อยค้างรอเงียบๆ
-    const broken = !fail && !['200000', '200200'].includes(c.code), n = broken ? (+(await getSetting(env, 'slip_fail_streak')) || 0) + 1 : 0;
+    const broken = !fail && !['200000', '200200', 'receiver_unverified', 'date_missing', 'amount_missing'].includes(c.code) /* อ่านสลิปได้แต่ต้องให้แอดมินดู ≠ ระบบตรวจพัง */, n = broken ? (+(await getSetting(env, 'slip_fail_streak')) || 0) + 1 : 0;
     await env.DB.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').bind('slip_fail_streak', String(n)).run();
     if (n === 3) await notify(env, `⚠️ ตรวจสลิปอัตโนมัติไม่สำเร็จ 3 ครั้งติดกัน (ล่าสุด: ${String(c.code).slice(0, 120)}) สลิปค้างรออนุมัติเอง · เช็คคีย์/URL ในหน้าตั้งค่า แล้วกด Test connection`);
   }
