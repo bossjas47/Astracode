@@ -2027,7 +2027,7 @@ async function codeView(id, prompt) {
   ct.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#cf').requestSubmit(); } };
   $('#cf').onsubmit = e => { e.preventDefault(); codeSend(); };
   const answer = e => { const a = askAnswer(e); if (a != null && !IDE.busy) { e.preventDefault?.(); ct.value = a; codeSend(); } return a != null; };
-  $('#cmsgs').onkeydown = answer;
+  $('#cmsgs').onkeydown = e => { answer(e); }; // ห้าม return ค่า: on-handler ที่คืน false = ยกเลิกปุ่มที่กด → ช่องพิมพ์ในรายการข้อความพิมพ์ไม่ได้
   $('#cmsgs').onclick = async e => {
     if (answer(e)) return;
     if (e.target.closest('[data-opengit]')) return $('#git').click();

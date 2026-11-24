@@ -258,6 +258,25 @@ const FLOWS = [
     const log = await page.evaluate(() => window.__desk.slice());
     return [!errs.length || errs.join(' | '), /ทำรายงานเป็นไฟล์อะไร/.test(askText) || 'ask not shown', log.some(x => x[0] === 'answer' && x[2] === 'Excel') || 'answer not sent', log.some(x => x[0] === 'open' && x[1] === 'รายงาน.xlsx') || 'output not opened', log.some(x => x[0] === 'run' && x[1] === 'work') || 'work style not passed', log.some(x => x[0] === 'sched' && x[2] === '07:30') || 'schedule not saved: ' + JSON.stringify(log)];
   }],
+  ['desktop app: the agent "or type your answer" box can be typed into and sent, even while other agent events keep arriving', async () => {
+    const init = () => { try { localStorage.setItem('pc', '1'); localStorage.setItem('pcAgent', '1'); localStorage.setItem('pcAgentMode', 'edits'); localStorage.setItem('agTour', '1'); } catch { return; } const subs = new Set(), log = window.__desk = [];
+      window.astraDesktop = { notify: async () => false, fs: { linked: async k => k === 'chat' ? { name: 'งาน', path: 'C:/work' } : null }, mcp: { tools: async () => [] }, screen: { state: async () => false },
+        agent: { needKey: async () => false, commands: async () => [], onEvent: f => (subs.add(f), () => subs.delete(f)), stop: async () => true,
+          answer: async (sid, id, t) => { log.push(['answer', id, t]); subs.forEach(f => f({ sid, type: 'answered', id, text: t })); window.__ans?.(); return true; },
+          run: async o => { const ev = d => subs.forEach(f => f({ sid: o.sid, ...d }));
+            ev({ type: 'tool', id: 't1', name: 'ask_user', args: { question: 'โดเมนอะไร' } });
+            ev({ type: 'ask', id: 'q1', question: 'ขอชื่อโดเมนที่จะใช้กับเว็บ', options: [] });
+            const iv = setInterval(() => ev({ type: 'cost', charge: 0.01, pct: 0.02 }), 250); // งานอื่นยังส่งความคืบหน้าเข้ามาระหว่างรอคำตอบ
+            await new Promise(r => { window.__ans = r; }); clearInterval(iv);
+            ev({ type: 'tool_result', id: 't1', ok: true }); ev({ type: 'delta', text: 'รับทราบ' }); ev({ type: 'done', changed: [], outputs: [] }); return true; } } }; };
+    const { page, errs } = await open('/chat', { init, '/api/chats/append': { chat_id: 67 } });
+    await page.fill('#t', 'ติดตั้งเว็บบน VPS'); await page.press('#t', 'Enter'); await page.waitForTimeout(700);
+    await page.click('.agask input'); await page.keyboard.type('panel.example.com Ubuntu 24.04', { delay: 40 });
+    const typed = await page.locator('.agask input').inputValue().catch(() => '');
+    await page.click('.agask form button'); await page.waitForTimeout(500);
+    const log = await page.evaluate(() => window.__desk.slice());
+    return [!errs.length || errs.join(' | '), typed === 'panel.example.com Ubuntu 24.04' || 'typed text lost: "' + typed + '"', log.some(x => x[0] === 'answer' && x[2] === 'panel.example.com Ubuntu 24.04') || 'answer not sent: ' + JSON.stringify(log)];
+  }],
   ['phone: new sidebar switches to Code projects; the account menu and settings keep plans, top-up, API, desktop app, pricing and support', async () => {
     const { page, errs } = await open('/chat', { '/api/projects': [{ id: 7, name: 'โปรเจกต์ทดสอบ', updated_at: Date.now(), files: 3, shared: 0 }] });
     await page.click('#menu'); await page.waitForTimeout(200);

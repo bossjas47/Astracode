@@ -296,7 +296,7 @@ async function chatView(id) {
   comp.ondrop = e => { e.preventDefault(); comp.classList.remove('drop'); addFiles([...e.dataTransfer.files]); };
   t.onpaste = e => { const fs = [...e.clipboardData.files]; if (fs.length) { e.preventDefault(); addFiles(fs); } };
   const answer = e => { const a = askAnswer(e); if (a != null && !chat.busy) { e.preventDefault?.(); t.value = a; t.oninput(); send(); } return a != null; };
-  $('#msgs').onkeydown = answer;
+  $('#msgs').onkeydown = e => { answer(e); }; // ห้าม return ค่า: on-handler ที่คืน false = ยกเลิกปุ่มที่กด → พิมพ์ในช่องใดๆ ในรายการข้อความไม่ได้ (เช่นช่องตอบคำถามของ Agent)
   $('#msgs').onscroll = () => { const b = $('#msgs'), sd = $('#sdown'); if (b && sd) sd.hidden = nearBottom(b); };
   $('#sdown').onclick = () => { const b = $('#msgs'); b?.scrollTo({ top: b.scrollHeight, behavior: 'smooth' }); };
   $('#msgs').onclick = e => {
@@ -1311,7 +1311,15 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   const ai = { role: 'assistant', content: '', thinking: '', model: m.name + ' · Agent', streaming: true, agent: true, mode, steps: [], todos: null, tin: 0, tout: 0 }; chat.msgs.push(ai); appendMsg(ai);
   const sid = agSid(), t0 = Date.now(); let raf = 0;
   setBusy(true); chat.agentBusy = true; chat.ctrl = { abort: () => PCD.agent.stop(sid) }; // ปุ่มหยุดเดิม = หยุด Agent · Enter = พิมพ์แทรก
-  const paint = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; const box = $('#msgs'), el = box?.lastElementChild, stick = box && nearBottom(box); if (el) el.outerHTML = msgHTML(ai, chat.msgs.length - 1); if (stick) box.scrollTop = box.scrollHeight; }); };
+  // วาดข้อความ Agent ใหม่ทุกเหตุการณ์ (เครื่องมือ/ค่าใช้จ่าย/ข้อความ) · ช่อง "พิมพ์คำตอบ" ต้องคงข้อความ โฟกัส และตำแหน่งเคอร์เซอร์ไว้ (เดิมถูกสร้างใหม่ทุกครั้ง พิมพ์ไม่ติด)
+  const paint = () => { if (raf) return; raf = requestAnimationFrame(() => {
+    raf = 0; const box = $('#msgs'), el = box?.lastElementChild, stick = box && nearBottom(box) && !el?.querySelector('.agask input:focus'); if (!el) return;
+    const inp = el.querySelector('.agask input'), keep = inp && { v: inp.value, f: document.activeElement === inp, a: inp.selectionStart, b: inp.selectionEnd };
+    el.outerHTML = msgHTML(ai, chat.msgs.length - 1);
+    const n = keep && box.lastElementChild?.querySelector('.agask input');
+    if (n) { n.value = keep.v; if (keep.f) { n.focus({ preventScroll: true }); try { n.setSelectionRange(keep.a, keep.b); } catch { /* ช่องชนิดนี้ไม่มีเคอร์เซอร์ */ } } }
+    if (stick) box.scrollTop = box.scrollHeight;
+  }); };
   agSub?.(); agSub = PCD.agent.onEvent(d => {
     if (d.sid !== sid) return;
     if (d.type === 'delta') { ai.content += d.text; if (d.text.includes('[[uf:')) ufLive(ai.content); }
