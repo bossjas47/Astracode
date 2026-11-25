@@ -11,9 +11,9 @@ const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { setupTool, SETUP_TOOLS } = require('./setuptools');
 const { projectMap, makeReviewer, AGENT_TOOLS, ASK_TOOL, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin, wantsAndroid, toolsFor } = require('./agenttools');
 
-const SITE = 'https://astracode.panderx.xyz';
+const SITE = 'https://kyber.hypatir.dev', OLD_SITE = 'https://astracode.panderx.xyz'; // ย้ายโดเมน 25 พ.ย. 2569 · โดเมนเดิมยังรับ /api และ /v1 ตลอด
 // โดเมนที่เชื่อถือ (ช่วงย้ายแบรนด์เป็น Kyber): หน้าจากโดเมนเหล่านี้เท่านั้นที่เรียกสะพานไฟล์/คำสั่งได้ · แอปยังเปิดโดเมนเดิม (SITE) เป็นหลัก
-const SITES = [SITE]; // ย้ายโดเมนใหม่เมื่อไร เพิ่ม origin ใหม่ที่นี่ (และใน AUTH_HOSTS) ก่อนปล่อยแอป
+const SITES = [SITE, OLD_SITE]; // เชื่อถือทั้งโดเมนใหม่และเดิม (ช่วงย้าย: หน้าเดิมพาล็อกอินมาที่โดเมนใหม่)
 // productName เปลี่ยนเป็น "Kyber Desktop": ใช้โฟลเดอร์ข้อมูลเดิม ("AstraCode Desktop") ถ้ามี ไม่งั้นผู้ใช้เดิมหลุดล็อกอินและการตั้งค่า (key, โฟลเดอร์ที่ผูก, ปลั๊กอิน) หาย
 { const old = path.join(app.getPath('appData'), 'AstraCode Desktop'); try { if (fs.existsSync(old)) app.setPath('userData', old); } catch { /* ใช้โฟลเดอร์ใหม่ */ } }
 let settings, mcp = null;
@@ -22,7 +22,7 @@ const load = () => { try { return JSON.parse(fs.readFileSync(setFile(), 'utf8'))
 const save = () => fs.writeFileSync(setFile(), JSON.stringify(settings, null, 2));
 
 // หน้าต่างแอป = เว็บ AstraCode ตัวจริง (แชต สตรีม ประวัติ ลิมิต เหมือนเว็บทุกอย่าง อัปเดตตามเว็บเอง)
-const AUTH_HOSTS = /^(astracode\.panderx\.xyz|accounts\.google\.com|[\w-]+\.firebaseapp\.com|access\.line\.me|challenges\.cloudflare\.com)$/; // หน้าเว็บ + หน้าล็อกอินที่ต้องเปิดในหน้าต่างแอป
+const AUTH_HOSTS = /^(kyber\.hypatir\.dev|astracode\.panderx\.xyz|accounts\.google\.com|[\w-]+\.firebaseapp\.com|access\.line\.me|challenges\.cloudflare\.com)$/; // หน้าเว็บ + หน้าล็อกอินที่ต้องเปิดในหน้าต่างแอป
 let web, tray = null, quitting = false;
 // หน้าออฟไลน์: เน็ตหลุด/เว็บล่ม แทนจอขาว ลองใหม่เองทุก 10 วินาที
 const OFFLINE = 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><meta charset="utf-8"><body style="margin:0;height:100vh;display:grid;place-items:center;background:#111;color:#ddd;font:15px system-ui,sans-serif;text-align:center"><div><h2 style="margin:0 0 8px">ต่ออินเทอร์เน็ตไม่ได้</h2><p style="color:#999;margin:0 0 16px">เช็กเน็ตแล้วลองใหม่ · แอปจะลองเองทุก 10 วินาที</p><button onclick="location.href='${SITE}/chat'" style="padding:10px 18px;border-radius:10px;border:0;background:#c25b3a;color:#fff;font:inherit;cursor:pointer">ลองใหม่</button><script>setTimeout(()=>location.href='${SITE}/chat',10000)</script></div>`);
@@ -47,7 +47,10 @@ function openWeb() {
     else t.push({ label: 'ย้อนกลับ', enabled: web.webContents.canGoBack(), click: () => web.webContents.goBack() }, { role: 'reload', label: 'รีเฟรช' });
     Menu.buildFromTemplate(t).popup({ window: web });
   });
-  web.loadURL(SITE + (settings.openPath || '/chat')); settings.openPath = null;
+  const first = !settings.siteMoved; // เปิดครั้งแรกหลังย้ายโดเมน: ผ่านหน้าเดิมด้วย ?handoff=1 เพื่อพาล็อกอินมาที่โดเมนใหม่ (cookie แยกตามโดเมน)
+  // จำว่าย้ายแล้วเมื่อไปถึงโดเมนใหม่จริงเท่านั้น (ถ้าเว็บยังไม่เปิดย้าย หน้าเดิมแสดงตามปกติ แล้วรอบหน้าลองใหม่)
+  if (first) web.webContents.on('did-navigate', (e, u) => { if (!settings.siteMoved && u.startsWith(SITE + '/')) { settings.siteMoved = true; save(); } });
+  web.loadURL((first ? OLD_SITE : SITE) + (settings.openPath || '/chat') + (first ? ((settings.openPath || '/chat').includes('?') ? '&' : '?') + 'handoff=1' : '')); settings.openPath = null;
 }
 // ปุ่มลัด (เมนูซ่อนอยู่ แต่ปุ่มลัดยังทำงาน): Ctrl+R รีเฟรช · Ctrl+F ค้นในหน้า · Ctrl +/-/0 ซูม · F11 เต็มจอ
 function appMenu() {

@@ -9,7 +9,7 @@ const fs = require('fs');
 const { runAgent } = require('./agent');
 const { AGENT_TOOLS, READ_ONLY, Workspace, agentSystem, projectRules, projectHooks, projectMap } = require('./agenttools');
 
-const SITE = process.env.ASTRA_SITE || 'https://astracode.panderx.xyz';
+const SITE = process.env.KYBER_SITE || process.env.ASTRA_SITE || 'https://kyber.hypatir.dev'; // โดเมนเดิม astracode.panderx.xyz ยังใช้ได้
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i > 0 ? process.argv[i + 1] : d; };
 const keyFile = path.join(os.homedir(), '.astra', 'key');
 let key = process.env.ASTRA_KEY || arg('key') || (fs.existsSync(keyFile) ? fs.readFileSync(keyFile, 'utf8').trim() : '');
