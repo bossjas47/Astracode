@@ -73,7 +73,7 @@ function repairHistory(messages) {
 //   spill(text, info) → path ของไฟล์ที่เก็บผลเต็ม · onCheckpoint({ round, messages, state }) · retryWaits (ระบุเอง = ไม่สุ่ม ใช้ในเทสต์)
 async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {},
   retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000,
-  verifyGate = true, checks = [], review = null, advisor = null, pinned = null, seeImages = true }) {
+  verifyGate = true, checks = [], review = null, advisor = null, pinned = null, seeImages = true, slimOld = true }) {
   const url = base.replace(/\/$/, '') + '/chat/completions', t0 = Date.now();
   const post = (body, sig = signal) => fetchImpl(url, { method: 'POST', signal: sig, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
   // นาฬิกาเฝ้าคำขอ: ไม่ได้คำตอบเลยภายใน firstByteMs หรือสตรีมเงียบ (ไม่มีข้อมูลแม้แต่ ping) เกิน stallMs → ตัดการเชื่อมต่อ
@@ -100,7 +100,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (maxDurationMs && Date.now() - t0 > maxDurationMs) { stop(`ทำงานครบเวลา ${Math.round(maxDurationMs / 60000)} นาทีแล้ว`); return finish(); }
     if (maxTokens && stats.promptTokens + stats.outTokens > maxTokens) { stop(`ใช้ token ครบเพดาน ${maxTokens.toLocaleString()} แล้ว`); return finish(); }
     for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
-    stats.slimmed = (stats.slimmed || 0) + slim(messages);
+    if (slimOld) stats.slimmed = (stats.slimmed || 0) + slim(messages); // slimOld=false: ใช้วัดเทียบกับโปรแกรม AI ทั่วไปที่ไม่ย่อ
     if (JSON.stringify(messages).length > compactAt) await compact({ post, model, messages, onEvent, state, pinned });
     // ที่ปรึกษาโมเดลแรง: วางแผนให้ครั้งเดียวต่อคำสั่งผู้ใช้ (ก่อนรอบแรก) · เรียกไม่ได้ = ทำงานต่อตามปกติ
     if (round === 0 && advisor?.plan && depth === 0) {
