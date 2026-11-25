@@ -247,6 +247,20 @@ function OPS.play(a)
   return "ทดสอบ " .. secs .. " วินาที (โหมด Run: สคริปต์ฝั่งเซิร์ฟเวอร์ · LocalScript/GUI ต้องกด Play เอง)\n" .. (s ~= "" and s or "(ไม่มีข้อความใน Output)")
 end
 
+-- เลือกของแล้วหันกล้องไปหา (ใช้ก่อนแอปจับภาพหน้าจอ Studio ให้ AI ดู)
+function OPS.focus(a)
+  local x = K.must(a.path)
+  Selection:Set({ x })
+  local cf, size
+  if x:IsA("Model") then cf, size = x:GetBoundingBox() elseif x:IsA("BasePart") then cf, size = x.CFrame, x.Size end
+  if cf then
+    local r = math.max(size.X, size.Y, size.Z)
+    local cam = workspace.CurrentCamera
+    cam.CFrame = CFrame.lookAt(cf.Position + Vector3.new(r, r * 0.8, r) * 1.2 + Vector3.new(4, 3, 4), cf.Position)
+  end
+  return "เลือก " .. x:GetFullName() .. (cf and " และหันกล้องไปหาแล้ว" or "")
+end
+
 local MUTATES = { write = true, edit = true, create = true, set = true, delete = true, run = true }
 function K.exec(cmd)
   local f = OPS[cmd.op]
