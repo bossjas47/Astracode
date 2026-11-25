@@ -8,7 +8,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test --test-force-exit test/localfs.test.js test/agent.test.js test/harness.test.js",
+    "test": "node --test --test-force-exit test/localfs.test.js test/agent.test.js test/harness.test.js test/eyes.test.js",
     "dist": "electron-builder --win nsis --publish never",
     "dist:linux": "electron-builder --linux AppImage --publish never"
   },
@@ -37,6 +37,7 @@
       "agent.js",
       "agenttools.js",
       "skills.js",
+      "eyes.js",
       "build/icon.png",
       "office.js",
       "android.js",

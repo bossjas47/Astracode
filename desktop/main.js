@@ -6,6 +6,7 @@ const { localTool, runCmd, isDanger, isServer, portOf } = require('./tools');
 const { execFile } = require('child_process');
 const { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel } = require('./localfs');
 const { startMcp } = require('./mcp');
+const { UIA_PS, parseUia, uiaText, pickEyes, describeScreen } = require('./eyes');
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { setupTool, SETUP_TOOLS } = require('./setuptools');
@@ -206,7 +207,7 @@ async function shot() {
 }
 // ทำทีละชุด: ย่อหน้าต่างแอปไม่ให้บังจอ → ทำตามลำดับ → รอจอนิ่ง → จับภาพส่งกลับให้ AI → เปิดหน้าต่างแอปคืน
 h('desk:screenBatch', (_, acts) => screenRun(acts));
-async function screenRun(acts) {
+async function screenRun(acts, opts = {}) {
   if (!screenOk) throw new Error('ยังไม่ได้อนุญาตให้ AI ควบคุมคอมพิวเตอร์ (หรือถูกหยุดแล้ว)');
   const log = []; let s = await shot(); const minimized = web.isMinimized(); web.minimize(); await new Promise(ok => setTimeout(ok, 400));
   try {
@@ -230,17 +231,26 @@ async function screenRun(acts) {
     }
   } catch (x) { log.push('Error: ' + x.message); }
   await new Promise(ok => setTimeout(ok, 600)); s = await shot();
+  // รายชื่อปุ่ม/ช่องจาก Windows (ก่อนเปิดหน้าต่างแอปคืน ให้หน้าต่างเป้าหมายยังอยู่หน้าสุด)
+  const uia = opts.uia ? await ps(UIA_PS).then(o => parseUia(o, s)).catch(x => ({ window: '', items: [], err: x.message })) : null;
   if (!minimized) { web.restore(); }
-  return { image: s.image, w: s.w, h: s.h, log };
+  return { image: s.image, w: s.w, h: s.h, log, uia };
 }
 // เครื่องมือ computer ของ Agent: ใช้ได้เมื่อผู้ใช้เปิด "ให้ AI ดูหน้าจอและคุมเมาส์" (ยืนยันด้วยหน้าต่าง Windows) · พิกัด = พิกเซลของภาพหน้าจอล่าสุด
-const COMPUTER_TOOL = { type: 'function', function: { name: 'computer', description: 'See and control the whole screen of the user\'s computer (any program: Excel, Blender, browsers, games). Give a list of actions; a fresh screenshot comes back after them. Start with [{"action":"screenshot"}]. Coordinates are pixels of the latest screenshot. Never type passwords or payment details, and never send messages or buy things unless the user asked in this task.', parameters: { type: 'object', properties: { actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', enum: ['screenshot', 'click', 'double_click', 'right_click', 'move', 'drag', 'type', 'key', 'scroll', 'wait', 'open'] }, x: { type: 'number' }, y: { type: 'number' }, x2: { type: 'number', description: 'drag end x' }, y2: { type: 'number', description: 'drag end y' }, target: { type: 'string', description: 'for open: program name (notepad, excel, chrome), file path or URL' }, text: { type: 'string', description: 'for type' }, keys: { type: 'string', description: 'for key, e.g. ctrl+s, enter, alt+tab' }, amount: { type: 'number', description: 'scroll notches, negative = up' }, ms: { type: 'number' } }, required: ['action'] } } }, required: ['actions'] } } };
-async function computerTool(a) {
+const COMPUTER_TOOL = { type: 'function', function: { name: 'computer', description: 'See and control the whole screen of the user\'s computer (any program: Excel, Blender, browsers, games). Give a list of actions; a fresh screenshot comes back after them. Start with [{"action":"screenshot"}]. Add {"action":"elements"} to also get the buttons/fields/menus Windows reports for the front window with exact center coordinates (most precise way to click in normal apps). Coordinates are pixels of the latest screenshot. Never type passwords or payment details, and never send messages or buy things unless the user asked in this task.', parameters: { type: 'object', properties: { actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', enum: ['screenshot', 'elements', 'click', 'double_click', 'right_click', 'move', 'drag', 'type', 'key', 'scroll', 'wait', 'open'] }, x: { type: 'number' }, y: { type: 'number' }, x2: { type: 'number', description: 'drag end x' }, y2: { type: 'number', description: 'drag end y' }, target: { type: 'string', description: 'for open: program name (notepad, excel, chrome), file path or URL' }, text: { type: 'string', description: 'for type' }, keys: { type: 'string', description: 'for key, e.g. ctrl+s, enter, alt+tab' }, amount: { type: 'number', description: 'scroll notches, negative = up' }, ms: { type: 'number' } }, required: ['action'] } } }, required: ['actions'] } } };
+// ctx.seeing=false: โมเดลหลักอ่านรูปไม่ได้ → ส่งรายชื่อปุ่มจาก Windows + คำบรรยายจากตาช่วยเป็นข้อความแทนรูป
+async function computerTool(a, ctx = {}) {
   if (!screenOk && !await askScreen().catch(() => false)) return 'Error: ผู้ใช้ไม่อนุญาตให้ควบคุมหน้าจอ (ใช้คำสั่ง bash หรือเครื่องมืออื่นแทน)';
   const map = { screenshot: 'SCREEN', click: 'CLICK', double_click: 'DOUBLE', right_click: 'RIGHT', move: 'MOVE', drag: 'DRAG', type: 'TYPE', key: 'KEY', scroll: 'SCROLL', wait: 'WAIT', open: 'OPEN' };
-  const acts = (Array.isArray(a.actions) ? a.actions : []).slice(0, 10).map(x => { const k = map[x?.action]; if (!k) return ['?']; if (k === 'TYPE') return [k, String(x.text ?? '')]; if (k === 'KEY') return [k, String(x.keys ?? '')]; if (k === 'WAIT') return [k, x.ms ?? 1000]; if (k === 'SCROLL') return [k, x.x, x.y, x.amount ?? 3]; if (k === 'DRAG') return [k, x.x, x.y, x.x2, x.y2]; if (k === 'OPEN') return [k, String(x.target ?? '')]; return [k, x.x, x.y]; });
-  const r = await screenRun(acts.length ? acts : [['SCREEN']]);
-  return { text: `หน้าจอ ${r.w}x${r.h} พิกเซล (ภาพล่าสุดแนบด้านล่าง)\n${r.log.join('\n')}`, images: [r.image] };
+  const wantUia = ctx.seeing === false || (Array.isArray(a.actions) && a.actions.some(x => x?.action === 'elements'));
+  const acts = (Array.isArray(a.actions) ? a.actions : []).filter(x => x?.action !== 'elements').slice(0, 10).map(x => { const k = map[x?.action]; if (!k) return ['?']; if (k === 'TYPE') return [k, String(x.text ?? '')]; if (k === 'KEY') return [k, String(x.keys ?? '')]; if (k === 'WAIT') return [k, x.ms ?? 1000]; if (k === 'SCROLL') return [k, x.x, x.y, x.amount ?? 3]; if (k === 'DRAG') return [k, x.x, x.y, x.x2, x.y2]; if (k === 'OPEN') return [k, String(x.target ?? '')]; return [k, x.x, x.y]; });
+  const r = await screenRun(acts.length ? acts : [['SCREEN']], { uia: wantUia });
+  const ui = r.uia ? (r.uia.err ? `(อ่านรายชื่อปุ่มจาก Windows ไม่ได้: ${r.uia.err.slice(0, 120)})` : uiaText(r.uia)) : '';
+  if (ctx.seeing === false) {
+    const seen = await describeScreen({ post: ctx.post, model: ctx.eyes, image: r.image, w: r.w, h: r.h, goal: ctx.goal, uia: ui });
+    return `หน้าจอ ${r.w}x${r.h} พิกเซล (โมเดลนี้อ่านรูปไม่ได้: ส่งเป็นข้อความแทน · พิกัดใช้คลิกได้ตรง)\n${r.log.join('\n')}\n\n${ui}${seen ? `\n\nคำบรรยายหน้าจอ (ตาช่วย ${ctx.eyes}):\n${seen}` : ctx.eyes ? '' : '\n\n(แพลนนี้ไม่มีโมเดลที่อ่านรูปได้ จึงไม่มีคำบรรยายภาพ)'}`;
+  }
+  return { text: `หน้าจอ ${r.w}x${r.h} พิกเซล (ภาพล่าสุดแนบด้านล่าง)\n${r.log.join('\n')}${ui ? '\n\n' + ui : ''}`, images: [r.image] };
 }
 h('desk:kill', (_, id) => { jobs.get(String(id))?.abort(); return true; });
 
@@ -341,7 +351,8 @@ async function htmlToPdf(html) {
   try { await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)); return await w.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'default' } }); } finally { w.destroy(); }
 }
 // Connector ออนไลน์ (Remote MCP ที่เชื่อมบนเว็บ) ผ่านเซิร์ฟเวอร์: token อยู่ที่เซิร์ฟเวอร์ ไม่ลงเครื่อง
-let rmcpCache = { at: 0, tools: [] };
+let rmcpCache = { at: 0, tools: [] }, mlist = { at: 0, data: [] };
+const modelList = async () => { if (Date.now() - mlist.at < 10 * 60e3 && mlist.data.length) return mlist.data; const r = await fetch(SITE + '/v1/models', { headers: { authorization: 'Bearer ' + settings.key } }); const d = r.ok ? await r.json() : {}; mlist = { at: Date.now(), data: d.data || [] }; return mlist.data; };
 async function remoteTools() {
   if (Date.now() - rmcpCache.at < 5 * 60e3) return rmcpCache.tools;
   const r = await fetch(SITE + '/v1/mcp/tools', { headers: { authorization: 'Bearer ' + settings.key } }).catch(() => null), d = r?.ok ? await r.json().catch(() => ({})) : {};
@@ -421,7 +432,7 @@ async function runTask(o = {}, sender) {
   a.asks = new Map(); a.outputs = new Set();
   const callTool = async (name, args) => {
     if (mode === 'plan' && !READ_ONLY.has(name) && !['ask_user', 'read_document'].includes(name)) return 'Error: โหมดวางแผน: ใช้ได้เฉพาะเครื่องมืออ่าน/ค้น (ห้ามแก้ไฟล์ รันคำสั่ง หรือเรียกเครื่องมือภายนอก) เขียนแผนให้ผู้ใช้อนุมัติก่อน';
-    if (name === 'computer') return computerTool(args);
+    if (name === 'computer') return computerTool(args, await screenCtx());
     if (name === 'ask_user') { const id = 'q' + Date.now(); tell({ type: 'ask', id, question: String(args.question || '').slice(0, 1000), options: (Array.isArray(args.options) ? args.options : []).map(String).slice(0, 6) }); const ans = await new Promise((ok, no) => { a.asks.set(id, ok); ac.signal.addEventListener('abort', () => no(new Error('หยุดแล้ว'))); }); tell({ type: 'answered', id, text: ans }); return 'คำตอบของผู้ใช้: ' + ans; }
     if (name === 'make_document' || name === 'read_document') {
       const f = a.ws.abs(args.path), out = !a.ws.inside(f), kind = name === 'make_document' ? 'edit' : 'read';
@@ -442,10 +453,13 @@ async function runTask(o = {}, sender) {
     tell(d);
   };
   const post = body => fetch(SITE + '/v1/chat/completions', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) });
+  // โมเดลอ่านรูปได้ไหม (ถามเซิร์ฟเวอร์ครั้งแรกที่ใช้หน้าจอ) · ไม่ได้ = ใช้ตาช่วยที่หักลิมิตน้อยสุด
+  let sc = null; const screenCtx = async () => sc ||= await modelList().then(ms => { const me = ms.find(m => m.id === model); const seeing = me ? me.vision !== false : true; return { seeing, eyes: seeing ? null : pickEyes(ms), post, goal: String(o.text || '').slice(0, 600) }; }).catch(() => ({ seeing: true }));
   // ที่ปรึกษาโมเดลแรง (หน้าเว็บส่งชื่อโมเดลมา เมื่อผู้ใช้เปิดไว้และแพลนมีโมเดลนั้น) · ไม่ส่ง = ปิด
   const advisorModel = typeof o.advisor === 'string' && o.advisor && o.advisor !== model && mode !== 'plan' ? o.advisor.slice(0, 120) : null, advisor = advisorModel ? makeAdvisor({ post, model: advisorModel }) : null;
   try {
-    await runAgent({ advisor, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
+    const seeImages = (await screenCtx()).seeing !== false;
+    await runAgent({ advisor, seeImages, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
       maxDurationMs: Math.min(600, Math.max(0, +o.maxMinutes || 0)) * 60e3, spill: (t, i) => a.ws.spill(t, i),
       checks: (a.map ||= await projectMap(a.ws.root).catch(() => ({ checks: [] }))).checks || [], verifyGate: o.verifyGate !== false && mode !== 'plan',
       review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model: advisorModel || model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)
