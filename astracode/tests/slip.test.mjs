@@ -165,7 +165,8 @@ test('CheckSlip shows only the last digits of the receiving account: name + last
   const slip = (account, name = 'นาย ณัฐภูมินทร์ จ') => ({ provider: 'checkslip', success: true, data: { transRef: 'T' + Math.random(), date: new Date().toISOString(), amount: { amount: 69 }, receiver: { account: { name: { th: name, en: null }, bank: { account } } } } });
   assert.equal(judgeSlip(s, slip('8835'), 200, '', 69, false).code, '200000'); // พร้อมเพย์ 0629708835
   assert.equal(judgeSlip(s, slip('2330'), 200, '', 69, false).code, '200000'); // บัญชี 193-1-13233-0
-  assert.equal(judgeSlip(s, slip(null), 200, '', 69, false).code, 'receiver_unverified'); // ไม่มีเลข: แอดมินตรวจ (ตามที่เจ้าของเลือก)
+  assert.equal(judgeSlip(s, slip(null), 200, '', 69, false).code, '200000'); // ไม่มีเลขเลย: ชื่อต้น + อักษรแรกนามสกุลตรง = อนุมัติ (เจ้าของเลือก 25 พ.ย.)
+  assert.equal(judgeSlip(s, slip(null, 'นาย ณัฐภูมินทร์'), 200, '', 69, false).code, 'receiver_unverified'); // ไม่มีนามสกุล: แอดมินตรวจ
   assert.equal(judgeSlip(s, slip('1111'), 200, '', 69, false).code, 'receiver_unverified'); // หลักท้ายไม่ตรง: ไม่อนุมัติเอง
   assert.equal(judgeSlip(s, slip('8835', 'นาย สมชาย ใจดี'), 200, '', 69, false).code, '200401'); // ชื่อไม่ตรง: ปฏิเสธ
   assert.equal(judgeSlip(s, slip('8835'), 200, '', 70, false).code, '200402'); // ยอดไม่ตรง
@@ -184,4 +185,15 @@ test('top-up: a slip waiting for the admin keeps the slip amount (not the typed 
   // ไม่ได้กรอกยอดและอ่านยอดในสลิปไม่ได้: บอกให้กรอก ไม่สร้างรายการ
   const c = await setup(() => ({ status: 404, message: 'NOT_FOUND' }), { topup_min: '1' });
   const rc = await c.topup(0); assert.equal(rc.status, 400); assert.match(rc.d.error, /กรอกจำนวนเงิน/); assert.equal(c.pay(), undefined); c.fm.close();
+});
+
+test('slip with no receiver account (CheckSlip, same-bank transfer): auto-approve only when first name + surname initial match a full configured name', async () => {
+  const names = { easyslip_receiver_names: 'ณัฐภูมินทร์ จูบ้ง, ณัฐภูมินทร์', promptpay_id: '0629708835', bank_account: '193-1-13233-0' };
+  const only = th => () => slipData({ receiver: { account: { name: { th }, bank: { account: null } } } });
+  const ok = await setup(only('นาย ณัฐภูมินทร์ จ'), names); const r = await ok.topup(200);
+  assert.equal(r.d.approved, true, JSON.stringify(r.d)); assert.equal(ok.bal(), 200); ok.fm.close();
+  const bad = await setup(only('นาย ณัฐภูมินทร์ ก'), names); const rb = await bad.topup(200); // นามสกุลขึ้นต้นต่างกัน → ไม่อนุมัติเอง
+  assert.notEqual(rb.d.approved, true); assert.equal(bad.bal(), 0); bad.fm.close();
+  const first = await setup(only('นาย ณัฐภูมินทร์'), names); const rf = await first.topup(200); // ชื่อต้นอย่างเดียว → ไม่อนุมัติเอง
+  assert.notEqual(rf.d.approved, true); assert.equal(first.bal(), 0); first.fm.close();
 });

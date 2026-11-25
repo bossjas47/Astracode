@@ -141,6 +141,19 @@ export function receiverNameMatches(slip, allowed) {
   if (!found.length) return null;
   return found.some(f => allowed.some(a => { const w = nameKey(a); return w && nameKey(f).includes(w); })); // ชื่อในสลิปมักตัดนามสกุลเหลือตัวอักษรแรก จึงรองรับ "ชื่อต้นอย่างเดียว" ที่ใส่เป็นชื่อสำรอง
 }
+// ชื่อผู้รับแบบเข้มงวด (ใช้เมื่อสลิปไม่มีเลขบัญชีให้เทียบ): ชื่อต้นต้องตรงทั้งคำ และนามสกุลในสลิป (เต็มหรือตัดเหลืออักษรแรก) ต้องเป็นส่วนต้นของนามสกุลที่ตั้งไว้
+// ใช้ได้เฉพาะชื่อที่ตั้งไว้แบบมีนามสกุล ("ณัฐภูมินทร์ จูบ้ง") · ชื่อต้นอย่างเดียวที่ใส่สำรองไว้ไม่นับ
+export function receiverHasDigits(slip) { // สลิปมีเลขบัญชี/พร้อมเพย์ผู้รับ (แม้บางส่วน) หรือไม่
+  let n = false; (function walk(o, k) { if (typeof o === 'string' && /account$/i.test(k || '') && /\d/.test(o)) n = true; else if (o && typeof o === 'object') for (const [kk, v] of Object.entries(o)) walk(v, kk); })(slip?.receiver ?? slip?.rawSlip?.receiver, '');
+  return n;
+}
+export function receiverNameStrict(slip, allowed) {
+  const raw = slip?.receiver?.account?.name ?? slip?.rawSlip?.receiver?.account?.name; const found = [];
+  (function walk(o, k) { if (typeof o === 'string' && /^(th|name)$/i.test(k || '') && /[ก-๛]/.test(o)) found.push(o); else if (o && typeof o === 'object') for (const [kk, v] of Object.entries(o)) walk(v, kk); })(raw, 'name');
+  const parts = x => String(x || '').normalize('NFC').replace(/^\s*(?:นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.)\s*/, '').replace(/\./g, '').trim().split(/\s+/).filter(Boolean);
+  const want = allowed.map(parts).filter(p => p.length >= 2);
+  return found.some(f => { const [a, ...r] = parts(f), sur = r.join(''); return a && sur && want.some(([wa, ...wr]) => wa === a && wr.join('').startsWith(sur)); });
+}
 export async function easySlip(env, s, buf, type, amount, flex = false) {
   if (!env.EASYSLIP_KEY) return { result: null, amount: null };
   const url = s.easyslip_url || EASYSLIP_URL, v2 = /\/v2(\/|$)/.test(url); // URL ที่มี /v2 = EasySlip v2 (JSON base64) ไม่งั้นใช้ v1 (multipart)
@@ -203,6 +216,7 @@ export function judgeSlip(s, d, st, msg, amount, flex) {
     if (nm === false || dg === false) return out('200401');
     if (dg === true) return out('200000');
     if (nm === true && receiverTailMatches(slip, [...wantAcc, s.promptpay_id, s.bank_account].filter(Boolean))) return out('200000'); // ชื่อตรง + หลักท้ายบัญชีตรง (CheckSlip)
+    if (dg === null && !receiverHasDigits(slip) && receiverNameStrict(slip, names)) return out('200000'); // สลิปไม่มีเลขบัญชีเลย (CheckSlip โอนในธนาคารเดียวกัน): ชื่อต้น + นามสกุล (หรืออักษรแรกนามสกุล) ต้องตรงชื่อเต็มที่ตั้งไว้
     return out('receiver_unverified'); // ไม่มีเลขบัญชีในสลิป: แอดมินตรวจ
   }
   if (dg === false) return out('200401');
