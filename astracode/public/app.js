@@ -940,10 +940,11 @@ async function ctxSheet({ chatId, modelId, projectId, skills = [], onCompact, on
     const now = d.querySelector('#cxnow'); if (now) now.onclick = async () => { now.disabled = true; now.textContent = 'กำลังย่อ...'; try { const c = await api(`/chats/${chatId}/compact`, { method: 'POST' }); toast(c.ok ? 'ย่อแชตแล้ว' : 'แชตยังสั้นเกินกว่าจะย่อ', c.ok ? 'ok' : ''); close(); if (c.ok) onCompact?.(); } catch (x) { toast(x.message, 'bad'); now.disabled = false; now.textContent = 'ย่อแชตตอนนี้'; } };
   });
 }
-function toast(msg, kind = '') {
+function toast(msg, kind = '', o = {}) { // o.onClick = กดแล้วทำอะไร (ค้างนานขึ้น) · o.ms = เวลาแสดง
   document.querySelector('.toast')?.remove();
   const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = msg;
-  document.body.append(t); setTimeout(() => t.remove(), 2800);
+  if (o.onClick) { t.style.cursor = 'pointer'; t.setAttribute('role', 'button'); t.onclick = () => { t.remove(); o.onClick(); }; }
+  document.body.append(t); setTimeout(() => t.remove(), o.ms || (o.onClick ? 9000 : 2800)); return t;
 }
 function confirmSheet(msg, { title = 'ยืนยัน', ok = 'OK', cancel = 'Cancel', danger = false } = {}) {
   return new Promise(res => {

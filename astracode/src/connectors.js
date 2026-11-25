@@ -68,12 +68,22 @@ export async function connToken(env, sv, force = false) {
 }
 // เรียกเครื่องมือ: token หมดอายุกลางทาง (401) → ต่ออายุแล้วลองอีกครั้งเดียว
 export async function connCall(env, sv, name, args) {
-  let tok = await connToken(env, sv);
-  try { return await mcpCall(sv.url, tok, name, args, env); }
-  catch (e) {
-    if (!(e.http === 401 && sv.oauth_enc)) throw e;
-    const fresh = await env.DB.prepare('SELECT * FROM mcp_servers WHERE id=?').bind(sv.id).first();
-    tok = await connToken(env, fresh, true); return await mcpCall(sv.url, tok, name, args, env);
+  // สถานะการเชื่อมต่อ: เรียกล้มเพราะเซิร์ฟเวอร์/สิทธิ์ = บันทึก last_error (หน้าแชตเตือน + หน้า Connectors มีปุ่มเชื่อมใหม่) · สำเร็จ = ล้างสถานะ
+  const mark = msg => env.DB.prepare('UPDATE mcp_servers SET last_error=? WHERE id=?').bind(msg ? String(msg).slice(0, 200) : null, sv.id).run().catch(() => {});
+  try {
+    let tok = await connToken(env, sv), out;
+    try { out = await mcpCall(sv.url, tok, name, args, env); }
+    catch (e) {
+      if (!(e.http === 401 && sv.oauth_enc)) throw e;
+      const fresh = await env.DB.prepare('SELECT * FROM mcp_servers WHERE id=?').bind(sv.id).first();
+      tok = await connToken(env, fresh, true); out = await mcpCall(sv.url, tok, name, args, env);
+    }
+    if (sv.last_error) await mark(null);
+    return out;
+  } catch (e) {
+    if (e.http === 401 || e.http === 403) await mark('ต้องเชื่อมต่อใหม่');
+    else if (e.http >= 500 || e.name === 'TypeError' || /fetch|network|timeout|ECONN/i.test(e.message)) await mark('เชื่อมต่อไม่ได้: ' + e.message);
+    throw e;
   }
 }
 const connSync = async (env, sv) => mcpSync(sv.url, await connToken(env, sv));
@@ -153,6 +163,10 @@ export async function connectorRoutes(req, env, url, path, M, u) {
   if (path.startsWith('/api/connectors/approve/')) return approvalRoutes(req, env, path, M, u);
   await ensureConnectors(env);
   const DB = env.DB, base = origin(req, env);
+  if (path === '/api/connectors/health' && M === 'GET') { // หน้าแชตเตือนเมื่อ Connector ใช้ไม่ได้ (เบา: ไม่โหลดไดเรกทอรี)
+    const rows = (await DB.prepare('SELECT id, name, last_error FROM mcp_servers WHERE user_id=? AND enabled=1 AND last_error IS NOT NULL LIMIT 10').bind(u.id).all()).results;
+    return json({ broken: rows.map(r => ({ id: r.id, name: r.name, error: r.last_error })) });
+  }
   if (path === '/api/connectors' && M === 'GET') {
     const [dir, rows, gh] = await Promise.all([dirList(env), DB.prepare('SELECT * FROM mcp_servers WHERE user_id=? OR (user_id=0 AND enabled=1) ORDER BY user_id DESC, id DESC').bind(u.id).all(), DB.prepare('SELECT gh_token IS NOT NULL g FROM users WHERE id=?').bind(u.id).first()]);
     const live = dir.filter(c => c.enabled);

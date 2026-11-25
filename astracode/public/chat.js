@@ -504,7 +504,15 @@ async function binSheet() {
     d.querySelectorAll('[data-pd]').forEach(b => b.onclick = async () => { if (!await confirmSheet('ลบแชตนี้ถาวร? กู้คืนไม่ได้', { title: 'ลบถาวร', ok: 'Delete forever', danger: true })) return; await api('/chats/' + b.dataset.pd, { method: 'DELETE' }); close(); binSheet(); });
   });
 }
-async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api('/chats').catch(() => []), api('/folders').catch(() => [])]); drawSide(); head(); }
+// Connector ใช้ไม่ได้ (token หมด/เซิร์ฟเวอร์ล่ม): เตือนครั้งเดียวต่อการเปิดเว็บ พร้อมปุ่มไปเชื่อมใหม่
+async function connHealth() {
+  try { if (sessionStorage.getItem('connWarn')) return; } catch { /* ไม่มี storage */ }
+  const r = await api('/connectors/health').catch(() => null); if (!r?.broken?.length) return;
+  try { sessionStorage.setItem('connWarn', '1'); } catch { /* ไม่มี storage */ }
+  const names = r.broken.map(x => x.name).join(', ');
+  toast(`Connector ใช้ไม่ได้: ${names} · กดเพื่อเชื่อมต่อใหม่`, 'bad', { onClick: () => openConnectors('connectors', 'mine') });
+}
+async function loadSide() { [chat.chats, chat.folders] = await Promise.all([api('/chats').catch(() => []), api('/folders').catch(() => [])]); drawSide(); head(); if (!loadSide.once) { loadSide.once = 1; setTimeout(connHealth, 1500); } }
 // หัวแชต: ชื่อ + context ที่ใช้
 function head() {
   const ctl = $('#ctl'); if (!ctl) return;
