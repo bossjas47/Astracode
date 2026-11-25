@@ -310,10 +310,10 @@ export async function runAgent(env, jobId, st = { gone: false }) {
 
 // ---------- Kyber Harness สำหรับ Agent เบื้องหลัง (ชุดเดียวกับแอปคอม: อ่านก่อนเขียนทับ · จับการวนซ้ำ · ผู้ตรวจรอบสอง) ----------
 // เขียนทับทั้งไฟล์ (ไม่ใช่ SEARCH/REPLACE) ที่มีเนื้อหาอยู่แล้ว โดยงานนี้ยังไม่เคย READ และไม่ได้สร้างเอง = เสี่ยงทับงานผู้ใช้ทิ้ง
-const STARTER_TEXT = new Set(Object.values(TEMPLATES).flatMap(t => Object.values(t))); // ไฟล์ตั้งต้นของโปรเจกต์ใหม่ที่ยังไม่มีใครแก้: เขียนทับได้เลย
+let STARTER_TEXT = null; // ไฟล์ตั้งต้นของโปรเจกต์ใหม่ที่ยังไม่มีใครแก้: เขียนทับได้เลย (สร้างตอนใช้ครั้งแรก: projects.js import วนกลับมาที่ไฟล์นี้)
 export function blindOverwrite(c, cur, read, mine) {
   if (c.edit || c.del || c.error || !cur.has(c.path)) return false;
-  const old = cur.get(c.path) || ''; if (!old.trim() || old.startsWith('data:') || STARTER_TEXT.has(old)) return false;
+  const old = cur.get(c.path) || ''; if (!old.trim() || old.startsWith('data:') || (STARTER_TEXT ??= new Set(Object.values(TEMPLATES).flatMap(t => Object.values(t)))).has(old)) return false;
   return !read.has(c.path) && !mine.has(c.path);
 }
 // คืนข้อความเตือนให้ใส่ในรอบถัดไป · 'stop' = วนซ้ำนานเกินไป · '' = ปกติ
