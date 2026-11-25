@@ -6,7 +6,7 @@ import { err, json, limited, planOf, projectFor, rand, sha } from './core.js';
 import { applyChanges } from './agent.js';
 import { slug } from './api.js';
 import { event, siteUrl } from './billing.js';
-import { coworkEvents, finishCowork } from './cowork.js';
+import { coworkEvents, finishCowork, CW_MAX_MS } from './cowork.js';
 
 const MAX_MS = 30 * 60e3, MAX_RUNNING = 5, PY_IDLE = 5 * 60e3;
 export const ensureCloud = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS cloud_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, key_id INTEGER, status TEXT NOT NULL, prompt TEXT, model TEXT, events TEXT, final TEXT, changed TEXT, error TEXT, created_at INTEGER, finished_at INTEGER)').run();
@@ -45,11 +45,11 @@ export class AgentBox {
       const d = await (await this.box('/events?from=' + job.from)).json();
       const cw = job.kind === 'cowork', done = cw ? finishCowork : finishJob;
       if (d.events?.length) { await (cw ? coworkEvents : appendEvents)(this.env, job.id, d.events); job.from += d.events.length; }
-      const over = Date.now() - job.t0 > MAX_MS;
+      const lim = job.kind === 'cowork' ? CW_MAX_MS : MAX_MS, over = Date.now() - job.t0 > lim; // Kyber Harness ทำได้นานกว่า (งานค้นคว้า/รายงานใหญ่)
       if (d.status === 'done' || d.status === 'error' || over) {
         if (over) await this.box('/stop', { method: 'POST' }).catch(() => {});
         const res = await (await this.box('/result')).json();
-        await done(this.env, job.id, over ? { ...res, status: 'error', error: 'เกินเวลา 30 นาที หยุดให้แล้ว (ไฟล์ที่ทำถึงตรงนั้นบันทึกแล้ว)' } : res);
+        await done(this.env, job.id, over ? { ...res, status: 'error', error: `เกินเวลา ${Math.round(lim / 60e3)} นาที หยุดให้แล้ว (ไฟล์ที่ทำถึงตรงนั้นบันทึกแล้ว · พิมพ์ "ทำต่อ" เพื่อทำต่อจากจุดนี้)` } : res);
         await this.s.storage.delete('job'); if (!cw) try { this.s.container.destroy?.(); } catch { /* ปิดอยู่แล้ว */ } else { const at = Date.now() + 15 * 60e3; await this.s.storage.put('idle', at); await this.s.storage.setAlarm(at); } return; // Kyber Harness: เก็บเครื่องไว้คุยต่อ (ปิดเองเมื่อว่างนาน)
       }
       job.err = 0; await this.s.storage.put('job', job); await this.s.storage.setAlarm(Date.now() + 4000);

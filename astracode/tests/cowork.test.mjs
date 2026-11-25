@@ -43,3 +43,33 @@ test('cowork: plan gate, Sonnet Eco only, files to R2, start in the sandbox, fin
   assert.equal(run.data.status, 'ok'); assert.ok(run.data.task_id > id);
   assert.match(starts.at(-1).body.run.prompt, /งาน Kyber Harness ตามเวลา: รายงานจันทร์/);
 });
+
+test('cowork queue: when machines are full new tasks wait in line with their position, start by themselves when a machine frees up; model choice (Opus) kept for follow-ups; cancel a queued task', async () => {
+  const starts = [], SLIPS = r2();
+  const AGENTBOX = { idFromName: n => n, get: n => ({ fetch: async (url, init) => { starts.push({ n, url, body: init?.body ? JSON.parse(init.body) : null }); return new Response('ok'); } }) };
+  const t = await makeEnv({ K: 'k', AGENTBOX, SLIPS }); await t.json('/api/version');
+  const sonnet = addModel(t.DB, { name: 'Claude Sonnet 5.5 Eco', base_url: 'http://x' }), opus = addModel(t.DB, { name: 'Claude Opus 5.5 Eco', base_url: 'http://x', api_model: 'opus' });
+  const pro = addPlan(t.DB, { models: [sonnet.id, opus.id], limit_4h: 1e6, limit_week: 1e6, price: 749 }); t.DB.raw.prepare('UPDATE plans SET cowork=1 WHERE id=?').run(pro.id);
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('cw_running','1')").run();
+  const mk = async () => { const u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(pro.id, Date.now() + 864e5, u.id); return u; };
+  const [a, b, c] = [await mk(), await mk(), await mk()];
+  const ra = await t.json('/api/cowork', { method: 'POST', cookie: a.cookie, body: { prompt: 'งาน A', model_id: opus.id } }); assert.equal(ra.data.queued, undefined);
+  assert.equal(starts.at(-1).body.run.model, 'claude-opus-5.5-eco', 'picked Opus');
+  const rb = await t.json('/api/cowork', { method: 'POST', cookie: b.cookie, body: { prompt: 'งาน B' } }); assert.equal(rb.data.queued, 1, 'B waits first in line');
+  const rc = await t.json('/api/cowork', { method: 'POST', cookie: c.cookie, body: { prompt: 'งาน C' } }); assert.equal(rc.data.queued, 2);
+  assert.equal((await t.json('/api/cowork', { method: 'POST', cookie: b.cookie, body: { prompt: 'อีก' } })).status, 429, 'one queued task per user');
+  const gb = (await t.json('/api/cowork/' + rb.data.id, { cookie: b.cookie })).data; assert.equal(gb.status, 'queued'); assert.equal(gb.queue, 1); assert.match(JSON.stringify(gb.events), /เข้าคิว/);
+  const n0 = starts.filter(s => s.url.endsWith('/start')).length;
+  const { finishCowork } = await import('../src/cowork.js');
+  await finishCowork(t.env, ra.data.id, { status: 'done', final: 'ok', files: [] });
+  assert.equal(starts.filter(s => s.url.endsWith('/start')).length, n0 + 1, 'B started when A finished');
+  assert.equal(t.DB.raw.prepare('SELECT status FROM cowork_tasks WHERE id=?').get(rb.data.id).status, 'running');
+  assert.equal(starts.at(-1).body.run.prompt, 'งาน B');
+  assert.equal((await t.json('/api/cowork/' + rc.data.id, { cookie: c.cookie })).data.queue, 1, 'C moved up');
+  assert.equal((await t.json(`/api/cowork/${rc.data.id}/stop`, { method: 'POST', cookie: c.cookie })).status, 200);
+  assert.equal(t.DB.raw.prepare('SELECT status FROM cowork_tasks WHERE id=?').get(rc.data.id).status, 'error');
+  // ข้อความต่อของ A ใช้ Opus เดิม (เครื่องเต็มเพราะ B ทำอยู่ → เข้าคิว)
+  const sa = await t.json(`/api/cowork/${ra.data.id}/say`, { method: 'POST', cookie: a.cookie, body: { prompt: 'ทำต่อ' } }); assert.equal(sa.data.queued, 1);
+  await finishCowork(t.env, rb.data.id, { status: 'done', final: 'ok', files: [] });
+  const last = starts.filter(s => s.url.endsWith('/start')).at(-1).body.run; assert.equal(last.model, 'claude-opus-5.5-eco'); assert.equal(last.follow, true); assert.equal(last.prompt, 'ทำต่อ');
+});
