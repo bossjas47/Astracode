@@ -34,6 +34,7 @@ export class AgentBox {
       return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json' } });
     }
     if (u.pathname === '/stop') { await this.box('/stop', { method: 'POST' }).catch(() => {}); return new Response('ok'); }
+    if (u.pathname === '/live') { const r = await this.box('/live' + u.search, req.method === 'POST' ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: await req.text() } : {}).catch(() => null); return r ? new Response(r.body, { status: r.status, headers: { 'content-type': r.headers.get('content-type') || 'application/json', 'x-url': r.headers.get('x-url') || '' } }) : new Response('gone', { status: 404 }); } // Kyber Harness: ผู้ใช้ควบคุมเบราว์เซอร์เอง
     if (u.pathname === '/answer') { const r = await this.box('/answer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await req.text() }).catch(() => null); return new Response(r?.ok ? 'ok' : 'gone', { status: r?.ok ? 200 : 404 }); } // Kyber Harness: ลูกค้าตอบคำถามของ AI
     return new Response('not found', { status: 404 });
   }

@@ -131,6 +131,14 @@ async function turn(o, before) {
       const attachments = []; for (const p of (Array.isArray(a.paths) ? a.paths : []).slice(0, 10)) attachments.push({ name: path.basename(String(p)), b64: await readB64(p), mime: mimeOf(p) });
       return mcpCall(t, { to: a.to, subject: a.subject, body: a.body, attachments });
     }
+    if (o.cowork && BROWSER && n === 'browser' && a.action === 'handoff') { // ส่งเบราว์เซอร์ให้ผู้ใช้ทำเอง แล้วรอจนกดเสร็จ (สูงสุด 15 นาที)
+      const id = 'h' + Date.now(), reason = String(a.reason || 'ทำขั้นตอนนี้ในเบราว์เซอร์').slice(0, 500); await BROWSER.browserTool({ action: 'read' }, ROOT).catch(() => {});
+      BROWSER.liveStart(id, 15 * 60e3); events.push({ type: 'handoff', id, reason, t: Date.now() });
+      const ans = await new Promise(ok => { const tm = setTimeout(() => { asks.delete(id); ok(null); }, 15 * 60e3); asks.set(id, x => { clearTimeout(tm); ok(x); }); ac.signal.addEventListener('abort', () => { clearTimeout(tm); ok(null); }, { once: true }); });
+      BROWSER.liveEnd(); events.push({ type: 'answered', id, text: ans == null ? '(ไม่ได้ทำต่อ)' : 'ทำเสร็จแล้ว', t: Date.now() });
+      if (ans == null) return 'The user did not take over the browser in time. Continue without it if you can, or explain what the user must do.';
+      return 'The user finished in the browser (e.g. logged in). Current page:\n' + await BROWSER.browserTool({ action: 'read' }, ROOT).catch(e => 'Error: ' + e.message);
+    }
     if (o.cowork && BROWSER && n === 'browser') return BROWSER.browserTool(a, ROOT, rel => events.push({ type: 'shot', path: rel, t: Date.now() }));
     return ws.call(n, a);
   };
@@ -164,6 +172,8 @@ http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
     if (u.pathname === '/answer' && req.method === 'POST') { const b = await body(req), f = asks.get(String(b.id)); if (f) { asks.delete(String(b.id)); f(String(b.text || '').slice(0, 4000)); } return json(res, f ? 200 : 404, { ok: !!f }); }
+    if (u.pathname === '/live' && req.method === 'GET') { const s = BROWSER && await BROWSER.liveShot(String(u.searchParams.get('id') || '')).catch(() => null); if (!s) return json(res, 404, { error: 'not live' }); res.writeHead(200, { 'content-type': 'image/jpeg', 'x-url': encodeURIComponent(s.url).slice(0, 1500), 'cache-control': 'no-store' }); return res.end(s.img); }
+    if (u.pathname === '/live' && req.method === 'POST') { const b = await body(req); const ok = BROWSER && await BROWSER.liveInput(String(b.id || ''), b).catch(() => false); return json(res, ok ? 200 : 404, { ok: !!ok }); }
     if (u.pathname === '/reset' && req.method === 'POST') { session = null; await BROWSER?.closeBrowser(); return json(res, 200, { ok: true }); }
     if (u.pathname === '/run' && req.method === 'POST') { if (job?.status === 'running') return json(res, 409, { error: 'มีงานทำอยู่' }); await start(await body(req)); return json(res, 200, { ok: true }); }
     if (u.pathname === '/events') { const from = +u.searchParams.get('from') || 0; return json(res, 200, { status: job?.status || 'idle', events: job ? job.events.slice(from) : [] }); }

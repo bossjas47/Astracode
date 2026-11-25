@@ -73,3 +73,20 @@ test('cowork queue: when machines are full new tasks wait in line with their pos
   await finishCowork(t.env, rb.data.id, { status: 'done', final: 'ok', files: [] });
   const last = starts.filter(s => s.url.endsWith('/start')).at(-1).body.run; assert.equal(last.model, 'claude-opus-5.5-eco'); assert.equal(last.follow, true); assert.equal(last.prompt, 'ทำต่อ');
 });
+
+test('cowork browser handoff: the owner sees the live screen and sends clicks only while the task runs; others and finished tasks are refused', async () => {
+  const sent = [], SLIPS = r2();
+  const AGENTBOX = { idFromName: n => n, get: n => ({ fetch: async (url, init) => { sent.push({ n, url, body: init?.body ? JSON.parse(init.body) : null }); if (url.includes('/live') && (!init || init.method !== 'POST')) return new Response(new Uint8Array([255, 216, 255]), { headers: { 'content-type': 'image/jpeg', 'x-url': encodeURIComponent('https://shop.example/login') } }); return new Response('{"ok":true}'); } }) };
+  const t = await makeEnv({ K: 'k', AGENTBOX, SLIPS }); await t.json('/api/version');
+  const sonnet = addModel(t.DB, { name: 'Claude Sonnet 5.5 Eco', base_url: 'http://x' }), pro = addPlan(t.DB, { models: [sonnet.id], limit_4h: 1e6, limit_week: 1e6, price: 749 });
+  t.DB.raw.prepare('UPDATE plans SET cowork=1 WHERE id=?').run(pro.id);
+  const u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(pro.id, Date.now() + 864e5, u.id);
+  const id = (await t.json('/api/cowork', { method: 'POST', cookie: u.cookie, body: { prompt: 'เข้าเว็บร้านแล้วดึงยอดขาย' } })).data.id;
+  const shot = await t.call(`/api/cowork/${id}/live?id=h1`, { cookie: u.cookie });
+  assert.equal(shot.status, 200); assert.equal(shot.headers.get('content-type'), 'image/jpeg'); assert.match(decodeURIComponent(shot.headers.get('x-url')), /shop\.example/);
+  assert.equal((await t.json(`/api/cowork/${id}/live?id=h1`, { method: 'POST', cookie: u.cookie, body: { type: 'click', x: 10, y: 20 } })).status, 200);
+  assert.deepEqual(sent.at(-1).body, { type: 'click', x: 10, y: 20, id: 'h1' }); assert.equal(sent.at(-1).n, 'cw:' + id);
+  const other = await t.user(); assert.equal((await t.call(`/api/cowork/${id}/live?id=h1`, { cookie: other.cookie })).status, 404);
+  const { finishCowork } = await import('../src/cowork.js'); await finishCowork(t.env, id, { status: 'done', final: 'ok', files: [] });
+  assert.equal((await t.call(`/api/cowork/${id}/live?id=h1`, { cookie: u.cookie })).status, 409);
+});
