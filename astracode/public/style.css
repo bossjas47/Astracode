@@ -3,8 +3,8 @@
   --ash: #a3abbd; --porcelain: #eef0f6; --blue: #8b8fff; --link: #a9acff;
   --glass: rgba(var(--bg2), .6); --hair: rgba(var(--ov), .12);
   --green: #3ccf8e; --yellow: #f5b83d; --red: #ff6b6b;
-  --font: 'Noto Sans Thai Looped', system-ui, -apple-system, ui-sans-serif, sans-serif;
-  --display: 'Noto Sans Thai Looped', system-ui, -apple-system, ui-sans-serif, sans-serif;
+  --font: system-ui, -apple-system, 'Prompt', ui-sans-serif, sans-serif;
+  --display: system-ui, -apple-system, 'Prompt', ui-sans-serif, sans-serif;
   --ov: 255, 255, 255; --bg0: 14, 17, 22; --bg1: 21, 25, 34; --bg2: 27, 32, 43; --on-porcelain: #0e1116;
   /* Prism: แสงหักผ่านผลึก ใช้เฉพาะสิ่งที่แสดงโควตา/ความคืบหน้า/สถานะที่กำลังทำงาน */
   --spectrum: linear-gradient(90deg, #14b8d9, #6b6ff5 55%, #e0509f); --accent: #8b8fff; --accent-tint: rgba(139, 143, 255, .14);

@@ -18,9 +18,9 @@ const SEO = {
   plans: `<main class="seo-static"><h1>แพลนและราคา ${BRAND}</h1><p>แพลนรายเดือนและรายปี ใช้ Claude, ChatGPT, Gemini และ DeepSeek ได้ในแพลนเดียว ลิมิตแสดงเป็น % ทุก 4 ชั่วโมงและรายสัปดาห์ จ่ายผ่าน PromptPay มีทดลองใช้ฟรี</p>${back}</main>`,
   pricing: `<main class="seo-static"><h1>ราคาต่อ token ของทุกโมเดล AI</h1><p>ตารางราคา input, output และ cache ของ Claude, GPT, Gemini และ DeepSeek ใน ${BRAND} พร้อมเครื่องคำนวณค่าใช้จ่ายเป็นเงินบาท</p>${back}</main>`,
 };
-// ฟอนต์ Noto Sans Thai Looped (ไทยแบบมีหัว อ่านง่าย) ของ UI 2.0 แนว Prism
-const FONT = 'https://fonts.googleapis.com/css2?family=Noto+Sans+Thai+Looped:wght@400;500;600;700&display=swap';
-const FONT_CODE = 'https://fonts.googleapis.com/css2?family=Noto+Sans+Thai+Looped:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap'; // หน้า Code ใช้ฟอนต์โค้ดเพิ่ม
+// ฟอนต์เดิม: ฟอนต์ของเครื่อง + Prompt (ไทย) · Inter (ละติน)
+const FONT = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&display=swap';
+const FONT_CODE = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Prompt:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; // หน้า Code ใช้ฟอนต์โค้ดเพิ่ม
 // [ชื่อหน้า, title, สคริปต์ของหน้า, description, index ได้ไหม]
 const PAGES = {
   home: ['home', `${BRAND} (เดิมคือ ${OLD}) — AI ทุกตัวในที่เดียว · สร้างโดย ${MAKER}`, [], DESC, true], // หน้าแรก: เปิดที่ / (ไฟล์ชื่อ home.html)
