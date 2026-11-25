@@ -427,3 +427,16 @@ test('slim: old file contents, old long outputs and old screenshots leave the co
   assert.equal(m.filter(x => Array.isArray(x.content)).length, 1); // ภาพเหลือภาพล่าสุดภาพเดียว
   assert.equal(slim(m), 0); // ทำซ้ำไม่เปลี่ยนอีก (prompt cache คงที่)
 });
+
+test('advisor plan: skipped for short follow-ups (saves limits), used again for a long new request; old run_code arguments are trimmed', async () => {
+  const { slim } = require('../agent'); const asked = [];
+  const advisor = { model: 'opus', plan: async t => { asked.push(t); return 'plan'; }, unstuck: async () => null };
+  const msgs = [{ role: 'system', content: 's' }, { role: 'user', content: 'ทำเกม Roblox' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'แก้สีปุ่มหน่อย' }];
+  let s = script([{ text: 'done' }]); await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: msgs, tools, advisor, verifyGate: false, fetchImpl: s.fetch, callTool: async () => 'ok' });
+  assert.equal(asked.length, 0);
+  msgs.push({ role: 'user', content: 'ฟีเจอร์ใหม่: '.padEnd(300, 'ก') }); s = script([{ text: 'done' }]);
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: msgs, tools, advisor, verifyGate: false, fetchImpl: s.fetch, callTool: async () => 'ok' });
+  assert.equal(asked.length, 1);
+  const m = [{ role: 'user', content: 't' }]; for (let i = 0; i < 5; i++) m.push({ role: 'assistant', content: null, tool_calls: [{ id: 'r' + i, type: 'function', function: { name: 'mcp_roblox_run_code', arguments: JSON.stringify({ code: 'print(1)\n'.repeat(400) }) } }] }, { role: 'tool', tool_call_id: 'r' + i, content: 'ok' });
+  slim(m); assert.match(JSON.parse(m[1].tool_calls[0].function.arguments).code, /already run/); assert.ok(!/already run/.test(JSON.parse(m.at(-2).tool_calls[0].function.arguments).code));
+});

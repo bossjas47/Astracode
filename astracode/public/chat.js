@@ -136,10 +136,10 @@ async function chatView(id) {
       </div>
       <div class="side-pane" id="paneChat" ${sideMode === 'chat' ? '' : 'hidden'}>
         <div class="work-tiles${me?.plan?.artifacts ? '' : ' one'}">
-          <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
+          <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">เครื่องมือ + โฟลเดอร์งาน</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
-        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<a href="/sites">${ic('globe')}<span>เว็บของฉัน</span></a>` : ''}<a href="/meetings">${ic('mic')}<span>AI ประชุม</span></a><a href="/extract">${ic('sheet')}<span>ดึงข้อมูลเอกสาร</span></a><a href="/translate">${ic('globe')}<span>แปลทั้งไฟล์</span></a>${me?.plan?.artifacts ? `<a href="/bots">${ic('msg')}<span>บอทตอบแชตร้าน</span></a>` : ''}<button type="button" id="vidgen">${ic('play')}<span>สร้างวิดีโอ</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
+        ${deskLink() ? `<nav class="side-nav">${deskLink()}</nav>` : ''}
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
@@ -235,7 +235,7 @@ async function chatView(id) {
     $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); toast('ปิดโหมด Agent แล้ว · เปิดคืนได้ที่ปุ่ม "เปิดโหมด Agent" ใต้ช่องพิมพ์'); } if (f === 'pcagon') { localStorage.setItem('pcAgent', '1'); localStorage.setItem('pc', '1'); modelUI(); toast('เปิดโหมด Agent แล้ว', 'ok'); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
-  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; $('#ufiles').onclick = () => { $('#sclose')?.click(); filesSheet(); }; $('#vidgen').onclick = () => { $('#sclose')?.click(); videoSheet(); }; if ($('#sched')) $('#sched').onclick = () => { $('#sclose')?.click(); schedSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
+  $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
   $('#sbtn').onclick = () => { const b = $('#sbox'); b.hidden = !b.hidden; if (!b.hidden) $('#search').focus(); else { $('#search').value = ''; chat.hits = null; drawSide(); } };
     let srchT = null;
   $('#search').oninput = () => {
@@ -598,7 +598,12 @@ const WS_TPL = [
 function spacesSheet() {
   const count = id => chat.chats.filter(c => c.folder_id === id).length;
   const card = f => `<button type="button" class="ws-card" data-sp="${f.id}"><span class="ws-ic">${esc((f.name.trim()[0] || 'W').toUpperCase())}</span><span class="ws-t"><b>${esc(f.name)}${f.shared ? ' <span class="ws-team">ทีม</span>' : ''}</b><small>${f.mine === 0 ? 'แชร์โดย ' + esc((f.owner || '').split('@')[0]) + ' · ' : ''}${count(f.id)} chat${count(f.id) === 1 ? '' : 's'}${f.has_ins ? ' · instructions' : ''}${f.has_files ? ' · files' : ''}</small></span>${ic('right', 'sm')}</button>`;
+  // เครื่องมือทั้งหมดรวมไว้ที่นี่ (เดิมอยู่ในแถบข้าง ทำให้รายการแชตบนมือถือเหลือที่นิดเดียว เลื่อนไม่ได้)
+  const P = !!me?.plan?.artifacts, tools = [['files', 'sheet', 'ไฟล์ของฉัน', 'ไฟล์ที่อัปโหลดและที่ AI สร้าง'], P && ['/sites', 'globe', 'เว็บของฉัน', 'เผยแพร่เว็บ/แอปที่ AI สร้าง'], ['/meetings', 'mic', 'AI ประชุม', 'ถอดเสียง สรุป งานที่ต้องทำ'], ['/extract', 'sheet', 'ดึงข้อมูลเอกสาร', 'ใบเสร็จ สลิป ใบกำกับ → Excel'], ['/translate', 'globe', 'แปลทั้งไฟล์', 'Word / PowerPoint / Excel คงรูปแบบ'], P && ['/bots', 'msg', 'บอทตอบแชตร้าน', 'ใส่ในเว็บร้าน ตอบลูกค้าแทน'], ['video', 'play', 'สร้างวิดีโอ', 'คลิป 5 วินาที 1080p'], P && ['sched', 'clock', 'Scheduled tasks', 'ให้ AI ทำงานตามเวลา']].filter(Boolean);
   sheet('Workspace', `<div class="sheet-form ws">
+    <h4 class="sp-h" style="margin-top:0">เครื่องมือ</h4>
+    <div class="ws-tpls">${tools.map(([k, i, n, dsc]) => k.startsWith('/') ? `<a class="ws-tpl" href="${k}"><span class="ws-tpl-ic">${ic(i)}</span><b>${n}</b><small>${dsc}</small></a>` : `<button type="button" class="ws-tpl" data-tool="${k}"><span class="ws-tpl-ic">${ic(i)}</span><b>${n}</b><small>${dsc}</small></button>`).join('')}</div>
+    <h4 class="sp-h">โฟลเดอร์งาน</h4>
     <p class="sheet-msg">Group related chats by client, project or subject. Every chat in a workspace shares the same instructions and reference files.</p>
     <button type="button" class="ws-new" data-new>${ic('plus')}<span><b>New workspace</b><small>Name it now, add instructions and files later</small></span></button>
     <h4 class="sp-h">Start from a template</h4>
@@ -606,6 +611,7 @@ function spacesSheet() {
     ${chat.folders.length ? '<h4 class="sp-h">Your workspaces</h4>' : ''}
     ${chat.folders.length > 5 ? '<input type="search" id="wsq" placeholder="Search workspaces" aria-label="Search workspaces">' : ''}
     <div class="ws-grid" id="wsl">${chat.folders.map(card).join('') || '<p class="muted">No workspaces yet</p>'}</div></div>`, (d, close) => {
+    d.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { close(); ({ files: filesSheet, video: videoSheet, sched: schedSheet })[b.dataset.tool](); });
     d.querySelector('[data-new]').onclick = async () => {
       close(); const name = await promptSheet('Workspace name', '', { title: 'New workspace', ok: 'Create' }); if (!name?.trim()) return;
       const f = await api('/folders', { method: 'POST', body: { name } }).catch(x => { toast(x.message, 'bad'); return null; }); if (!f) return;
@@ -641,7 +647,7 @@ function spaceSheet(id) {
   });
 }
 function drawSide() {
-  const wn = $('#spcN'); if (wn) wn.textContent = chat.folders?.length ? chat.folders.length + (chat.folders.length > 1 ? ' workspaces' : ' workspace') : 'Organize your work';
+  const wn = $('#spcN'); if (wn) wn.textContent = chat.folders?.length ? chat.folders.length + (chat.folders.length > 1 ? ' workspaces' : ' workspace') + ' · เครื่องมือ' : 'เครื่องมือ + โฟลเดอร์งาน';
   const q = ($('#search')?.value || '').toLowerCase(), list = $('#list'); if (!list) return;
   const item = c => `<div class="item ${c.id === chat.id ? 'on' : ''}" data-id="${c.id}">${c.pinned ? `<button class="bm-star" data-unbm="${c.id}" aria-label="Remove bookmark" title="Remove bookmark">${ic('star', 'sm bm-on')}</button>` : ''}<a href="/chat?id=${c.id}" data-chat="${c.id}">${c.pinned ? '' : ic( { '🤖': 'server', '⏰': 'bell', '📥': 'inbox', '🎨': 'palette' }[[...c.title][0]] || (c.has_code ? 'code' : 'msg'), 'sm ci')}<span>${esc(c.title.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''))}</span></a>
     <button data-cmenu="${c.id}" aria-label="Chat options">${ic('more')}</button></div>`;
