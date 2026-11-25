@@ -1,0 +1,212 @@
+{
+  "model": "deepseek-4.1-flash-1017",
+  "advisor": "claude-opus-5.5-eco",
+  "task": "สร้างเว็บแอปหน้าเดียวสำหรับร้านอาหารไทย \"ครัวบ้านนก\" (HTML/CSS/JS ล้วน ไม่มี build step เปิดจาก index.html ได้เลย) ต้องทำงานได้จริงครบทุกข้อ:\n1) เมนูอาหาร 8 รายการ ข้อมูลอยู่ใน JS (ชื่อ, หมวด: ต้ม/ผัด/แกง/ของหวาน, ราคาเป็นบาท, เผ็ดหรือไม่) แสดงเป็นการ์ด\n2) ปุ่มกรองตามหมวด (ทั้งหมด/ต้ม/ผัด/แกง/ของหวาน) และช่องค้นหาชื่อเมนู ใช้ร่วมกันได้\n3) ตะกร้า: กดเพิ่มเมนูได้ ปรับจำนวน +/- ได้ (ถึง 0 = ลบออก) แสดงยอดรวมก่อนภาษี, VAT 7%, ยอดสุทธิ (ปัดเศษ 2 ตำแหน่ง)\n4) ฟอร์มจองโต๊ะ: ชื่อ, เบอร์โทร (ตัวเลข 10 หลักขึ้นต้นด้วย 0), วันที่, เวลา, จำนวนคน (1-12) ห้ามจองวันที่ผ่านมาแล้ว ห้ามจองวันจันทร์ (ร้านปิด) เวลาเปิด 10:00-21:00 ผิดเงื่อนไขต้องแสดงข้อความ error ภาษาไทยใต้ฟอร์ม จองสำเร็จแสดงข้อความยืนยัน\n5) ตะกร้าและรายการจองบันทึกใน localStorage รีเฟรชหน้าแล้วต้องยังอยู่ และมีส่วน \"รายการจองของฉัน\" แสดงรายการจองทั้งหมด\n6) ปุ่มสลับโหมดมืด/สว่าง (จำค่าไว้ด้วย)\n7) สวย ใช้งานดีทั้งมือถือและคอม ภาษาไทยทั้งหมด\nต้องใส่ data-testid ตามนี้ (เทสต์อัตโนมัติจะใช้): การ์ดเมนูแต่ละใบ data-testid=\"menu-item\" (ปุ่มเพิ่มในการ์ด data-testid=\"add\"), ปุ่มหมวด data-testid=\"filter-<หมวด>\" เช่น filter-ต้ม และ filter-all, ช่องค้นหา data-testid=\"search\", แต่ละแถวในตะกร้า data-testid=\"cart-row\" (ปุ่ม data-testid=\"inc\" / \"dec\"), ยอดก่อนภาษี data-testid=\"subtotal\", VAT data-testid=\"vat\", ยอดสุทธิ data-testid=\"total\" (แสดงเป็นตัวเลข เช่น 107.00), ฟอร์มจอง data-testid=\"booking-form\" ช่อง name=\"name\" name=\"phone\" name=\"date\" name=\"time\" name=\"guests\", ข้อความ error data-testid=\"booking-error\", ข้อความสำเร็จ data-testid=\"booking-ok\", แต่ละรายการจอง data-testid=\"booking-row\", ปุ่มโหมดมืด data-testid=\"theme-toggle\" (เปิดโหมดมืดแล้ว <html> ต้องมี class \"dark\")",
+  "runs": {
+    "plain": {
+      "ms": 94797,
+      "usage": {
+        "prompt_tokens": 709,
+        "completion_tokens": 21346,
+        "total_tokens": 22055,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "astra": {
+          "charge_thb": 0,
+          "week_pct": 0.0396
+        }
+      },
+      "finish": "stop"
+    },
+    "harness": {
+      "ms": 1007315,
+      "usage": {
+        "in": 1594309,
+        "out": 61039
+      },
+      "tools": [
+        "list_dir",
+        "bash",
+        "todo_write",
+        "write_file",
+        "write_file",
+        "write_file",
+        "check_syntax",
+        "bash",
+        "write_file",
+        "bash",
+        "edit_file",
+        "bash",
+        "bash",
+        "edit_file",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "check_page",
+        "bash",
+        "bash",
+        "multi_edit",
+        "read_file",
+        "edit_file",
+        "read_file",
+        "edit_file",
+        "bash",
+        "bash",
+        "check_page",
+        "bash",
+        "check_page",
+        "bash",
+        "check_page",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "read_file",
+        "todo_write",
+        "bash",
+        "check_page",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "bash",
+        "check_page",
+        "notes"
+      ],
+      "toolCount": 58,
+      "checks": 6,
+      "infos": [
+        "ที่ปรึกษากำลังวางแผนงาน…",
+        "ที่ปรึกษาวางแผนให้แล้ว",
+        "บทสนทนายาวแล้ว กำลังย่อส่วนเก่า…",
+        "ตรวจงานยังไม่ผ่าน: ให้ AI แก้ก่อนสรุป",
+        "ตรวจงานยังไม่ผ่าน: ให้ AI แก้ก่อนสรุป",
+        "บทสนทนายาวแล้ว กำลังย่อส่วนเก่า…",
+        "ผู้ตรวจรอบสองกำลังอ่านสิ่งที่แก้…"
+      ],
+      "final": "## สรุปงาน\n\n**สาเหตุที่คำสั่งตรวจยัง fail ไม่ใช่บั๊กของแอป** — เป็นเรื่อง path ของเครื่องนี้ล้วน ๆ:\n- เบราว์เซอร์ไม่ได้อยู่ที่ `/root/.cache/ms-playwright` แต่ installer วางไว้ที่ `/opt/pw-browsers`\n- ไม่มีไฟล์ชื่อ `chromium` ใน `PATH`\n\n**แก้ด้วย symlink แบบเพิ่มอย่างเดียว (ไม่ลบ/ไม่ทับอะไรเดิม):**\n- `/root/.cache/ms-playwright` → `/opt/pw-browsers`\n- `/root/.local/bin/chromium` → `/opt/pw-browsers/chromium-1243/chrome-linux64/chrome`\n- `/root/.local/bin/chromium-browser` → ไฟล์เดียวกัน\n\n**ยืนยันผล:**\n| รายการ | ผล |\n|---|---|\n| คำสั่งเดิม (`node --check` + `ls ms-playwright` + `npm ls -g` + `which chromium`) | **exit 0** ✅ |\n| `chromium --version` | Google Chrome for Testing 158.0.8127.36 ✅ (เรียกใช้งานได้จริง) |\n| `node test/verify.js` | **84/84 passed**, ไม่มี console error ✅ |\n| `check_page index.html` | เรนเดอร์ถูกต้อง ไม่มี console error ✅ |\n\n**ไฟล์แอปไม่ได้ถูกแตะเลยในรอบนี้** — `index.html`, `style.css`, `app.js`, `test/verify.js` ยังเหมือนเดิม (ภาพหน้าจอยืนยันว่าหน้าตาและฟังก์ชันครบ: ค้นหา, ฟิลเตอร์, ตะกร้า, ฟอร์มจองโต๊ะ, ปุ่มโหมดมืด)\n\n**เหลือให้ผู้ใช้:** ไม่มี — แอปพร้อมใช้ เปิด `index.html` ได้เลยครับ (หมายเหตุ: symlink ที่สร้างอยู่ในเครื่องนี้ ถ้าย้ายไปเครื่องอื่นแล้ว `which chromium` ไม่เจออีก ให้สร้าง symlink แบบเดียวกัน หรือชี้ path ไปยังเบราว์เซอร์ของเครื่องนั้น)"
+    }
+  },
+  "score": {
+    "plain": [
+      {
+        "name": "มีเมนู 8 รายการ",
+        "ok": true
+      },
+      {
+        "name": "กรองหมวด \"ต้ม\" ได้",
+        "ok": true
+      },
+      {
+        "name": "ค้นหาชื่อเมนูได้",
+        "ok": true
+      },
+      {
+        "name": "เพิ่มลงตะกร้า + ยอดรวมถูก (VAT 7%)",
+        "ok": true
+      },
+      {
+        "name": "ปุ่ม + / − ปรับจำนวน และลดถึง 0 แล้วลบออก",
+        "ok": true
+      },
+      {
+        "name": "จองวันที่ผ่านมาแล้ว → แสดง error",
+        "ok": true
+      },
+      {
+        "name": "จองวันจันทร์ → แสดง error",
+        "ok": true
+      },
+      {
+        "name": "เบอร์ผิด / เวลานอกเวลาเปิด → error",
+        "ok": true
+      },
+      {
+        "name": "จองถูกต้อง → สำเร็จ + ขึ้นในรายการจอง",
+        "ok": true
+      },
+      {
+        "name": "รีเฟรชแล้วตะกร้าและการจองยังอยู่",
+        "ok": true
+      },
+      {
+        "name": "โหมดมืด สลับได้และจำค่า",
+        "ok": true
+      },
+      {
+        "name": "ไม่มี error ใน console",
+        "ok": true
+      },
+      {
+        "name": "มือถือไม่ล้นจอแนวนอน",
+        "ok": true
+      }
+    ],
+    "harness": [
+      {
+        "name": "มีเมนู 8 รายการ",
+        "ok": true
+      },
+      {
+        "name": "กรองหมวด \"ต้ม\" ได้",
+        "ok": true
+      },
+      {
+        "name": "ค้นหาชื่อเมนูได้",
+        "ok": true
+      },
+      {
+        "name": "เพิ่มลงตะกร้า + ยอดรวมถูก (VAT 7%)",
+        "ok": true
+      },
+      {
+        "name": "ปุ่ม + / − ปรับจำนวน และลดถึง 0 แล้วลบออก",
+        "ok": true
+      },
+      {
+        "name": "จองวันที่ผ่านมาแล้ว → แสดง error",
+        "ok": true
+      },
+      {
+        "name": "จองวันจันทร์ → แสดง error",
+        "ok": true
+      },
+      {
+        "name": "เบอร์ผิด / เวลานอกเวลาเปิด → error",
+        "ok": true
+      },
+      {
+        "name": "จองถูกต้อง → สำเร็จ + ขึ้นในรายการจอง",
+        "ok": true
+      },
+      {
+        "name": "รีเฟรชแล้วตะกร้าและการจองยังอยู่",
+        "ok": true
+      },
+      {
+        "name": "โหมดมืด สลับได้และจำค่า",
+        "ok": true
+      },
+      {
+        "name": "ไม่มี error ใน console",
+        "ok": true
+      },
+      {
+        "name": "มือถือไม่ล้นจอแนวนอน",
+        "ok": true
+      }
+    ]
+  }
+}

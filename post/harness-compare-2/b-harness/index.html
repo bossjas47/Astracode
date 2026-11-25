@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="ครัวบ้านนก ร้านอาหารไทยต้นตำรับ เมนูต้ม ผัด แกง และของหวาน พร้อมระบบจองโต๊ะออนไลน์">
+<title>ครัวบ้านนก · อาหารไทยต้นตำรับ</title>
+<script>
+  /* ตั้งธีมก่อนวาดหน้า เพื่อไม่ให้จอกระพริบ */
+  (function () {
+    try {
+      if (localStorage.getItem('kbn.theme') === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (e) { /* localStorage ถูกปิดใช้งาน */ }
+  })();
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">🍲</span>
+      <div>
+        <h1 class="brand-name">ครัวบ้านนก</h1>
+        <p class="brand-tag">อาหารไทยต้นตำรับ · เปิดทุกวัน 10:00–21:00 (หยุดวันจันทร์)</p>
+      </div>
+    </div>
+    <button type="button" class="theme-toggle" data-testid="theme-toggle" id="theme-toggle" aria-pressed="false">
+      <span class="theme-icon" aria-hidden="true">🌙</span>
+      <span class="theme-label" id="theme-label">โหมดมืด</span>
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ── เมนู ───────────────────────────────────────────── -->
+  <section class="panel panel-menu" aria-labelledby="menu-title">
+    <h2 id="menu-title" class="panel-title">เมนูอาหาร</h2>
+
+    <div class="menu-tools">
+      <div class="search-wrap">
+        <span class="search-icon" aria-hidden="true">🔍</span>
+        <label class="sr-only" for="search">ค้นหาชื่อเมนู</label>
+        <input
+          type="search"
+          id="search"
+          data-testid="search"
+          class="search-input"
+          placeholder="ค้นหาชื่อเมนู เช่น ต้มยำ, กะเพรา"
+          autocomplete="off">
+      </div>
+
+      <div class="filters" role="group" aria-label="กรองตามหมวดอาหาร">
+        <button type="button" class="chip is-active" data-testid="filter-all" data-cat="all" aria-pressed="true">ทั้งหมด</button>
+        <button type="button" class="chip" data-testid="filter-ต้ม" data-cat="ต้ม" aria-pressed="false">ต้ม</button>
+        <button type="button" class="chip" data-testid="filter-ผัด" data-cat="ผัด" aria-pressed="false">ผัด</button>
+        <button type="button" class="chip" data-testid="filter-แกง" data-cat="แกง" aria-pressed="false">แกง</button>
+        <button type="button" class="chip" data-testid="filter-ของหวาน" data-cat="ของหวาน" aria-pressed="false">ของหวาน</button>
+      </div>
+    </div>
+
+    <div class="menu-grid" id="menu-grid" aria-live="polite"></div>
+    <p class="empty-note" id="menu-empty" hidden>ไม่พบเมนูที่ตรงกับที่ค้นหา ลองเปลี่ยนหมวดหรือคำค้นดูนะคะ</p>
+  </section>
+
+  <div class="side-col">
+
+    <!-- ── ตะกร้า ───────────────────────────────────────── -->
+    <section class="panel panel-cart" aria-labelledby="cart-title">
+      <h2 id="cart-title" class="panel-title">
+        ตะกร้าของฉัน
+        <span class="count-badge" id="cart-count" aria-hidden="true">0</span>
+      </h2>
+
+      <div class="cart-list" id="cart-list"></div>
+      <p class="empty-note" id="cart-empty">ยังไม่มีรายการในตะกร้า กดปุ่ม “เพิ่ม” ที่เมนูได้เลย</p>
+
+      <dl class="totals">
+        <div class="total-row">
+          <dt>ยอดก่อนภาษี</dt>
+          <dd><span class="num" data-testid="subtotal">0.00</span> <span class="unit">บาท</span></dd>
+        </div>
+        <div class="total-row">
+          <dt>VAT 7%</dt>
+          <dd><span class="num" data-testid="vat">0.00</span> <span class="unit">บาท</span></dd>
+        </div>
+        <div class="total-row grand">
+          <dt>ยอดสุทธิ</dt>
+          <dd><span class="num" data-testid="total">0.00</span> <span class="unit">บาท</span></dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- ── จองโต๊ะ ──────────────────────────────────────── -->
+    <section class="panel panel-booking" aria-labelledby="booking-title">
+      <h2 id="booking-title" class="panel-title">จองโต๊ะ</h2>
+      <p class="panel-hint">ร้านปิดทุกวันจันทร์ · รับจองตั้งแต่ 10:00 ถึง 21:00 น. (ไม่เกิน 12 ท่าน)</p>
+
+      <form class="booking-form" id="booking-form" data-testid="booking-form" novalidate>
+        <div class="field">
+          <label for="bk-name">ชื่อผู้จอง</label>
+          <input type="text" id="bk-name" name="name" placeholder="เช่น คุณนก" autocomplete="name">
+        </div>
+
+        <div class="field">
+          <label for="bk-phone">เบอร์โทรศัพท์</label>
+          <input type="tel" id="bk-phone" name="phone" placeholder="0812345678" inputmode="numeric" autocomplete="tel">
+          <p class="field-hint">ตัวเลข 10 หลัก ขึ้นต้นด้วย 0</p>
+        </div>
+
+        <div class="field">
+          <label for="bk-date">วันที่</label>
+          <input type="date" id="bk-date" name="date">
+        </div>
+
+        <div class="field">
+          <label for="bk-time">เวลา</label>
+          <input type="time" id="bk-time" name="time" min="10:00" max="21:00" step="900">
+        </div>
+
+        <div class="field">
+          <label for="bk-guests">จำนวนคน</label>
+          <input type="number" id="bk-guests" name="guests" min="1" max="12" step="1" placeholder="1–12">
+        </div>
+
+        <button type="submit" class="btn-primary">ยืนยันการจอง</button>
+      </form>
+
+      <p class="form-msg error" data-testid="booking-error" id="booking-error" role="alert" hidden></p>
+      <p class="form-msg ok" data-testid="booking-ok" id="booking-ok" role="status" hidden></p>
+    </section>
+
+    <!-- ── รายการจองของฉัน ─────────────────────────────── -->
+    <section class="panel panel-bookings" aria-labelledby="bookings-title">
+      <h2 id="bookings-title" class="panel-title">รายการจองของฉัน</h2>
+      <div class="booking-list" id="booking-list"></div>
+      <p class="empty-note" id="bookings-empty">ยังไม่มีรายการจอง</p>
+    </section>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <p>ครัวบ้านนก · ครัวไทยอบอุ่น สูตรจากบ้านเรา · โทร 02-123-4567</p>
+</footer>
+
+<script src="app.js" defer></script>
+</body>
+</html>

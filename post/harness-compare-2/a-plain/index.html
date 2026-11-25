@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ครัวบ้านนก · อาหารไทยต้นตำรับ</title>
+<style>
+  :root{
+    --bg:#fbf6ef;
+    --bg-accent:#f6e7d6;
+    --card:#ffffff;
+    --text:#2b1d14;
+    --muted:#8a7669;
+    --border:#eadfd2;
+    --accent:#c0392b;
+    --on-accent:#ffffff;
+    --accent-soft:#fbe9e7;
+    --ok:#1b7a4b;
+    --ok-bg:#e4f6ec;
+    --danger:#b3261e;
+    --danger-bg:#fdecea;
+    --shadow:0 8px 24px rgba(120,80,50,.08);
+    --radius:16px;
+  }
+  html.dark{
+    color-scheme: dark;
+    --bg:#141110;
+    --bg-accent:#2a1d17;
+    --card:#211b18;
+    --text:#f5ece4;
+    --muted:#b0a096;
+    --border:#3a2f29;
+    --accent:#ff8f74;
+    --on-accent:#28120a;
+    --accent-soft:#3a231d;
+    --ok:#6fdaa3;
+    --ok-bg:#1e332a;
+    --danger:#ff9e91;
+    --danger-bg:#3a201c;
+    --shadow:0 8px 24px rgba(0,0,0,.45);
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:"Sarabun","Noto Sans Thai","IBM Plex Sans Thai","Segoe UI",system-ui,-apple-system,sans-serif;
+    background:
+      radial-gradient(1000px 520px at 5% -15%, var(--bg-accent), transparent 70%),
+      var(--bg);
+    background-attachment: fixed;
+    color:var(--text);
+    min-height:100vh;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{ font:inherit; cursor:pointer; }
+  h1,h2,h3{ margin:0; line-height:1.3; }
+
+  /* ---------- Header ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:30;
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding:14px clamp(14px,4vw,40px);
+    background:var(--bg);
+    border-bottom:1px solid var(--border);
+    box-shadow:0 2px 12px rgba(0,0,0,.04);
+  }
+  .brand{ display:flex; align-items:center; gap:12px; min-width:0; }
+  .logo{
+    width:46px; height:46px; flex:0 0 46px;
+    display:grid; place-items:center;
+    font-size:24px; border-radius:14px;
+    background:var(--accent-soft);
+  }
+  .brand h1{ font-size:clamp(1.15rem,2.6vw,1.5rem); letter-spacing:.2px; }
+  .brand p{ margin:2px 0 0; font-size:.78rem; color:var(--muted); }
+  .theme-toggle{
+    flex:0 0 auto;
+    border:1px solid var(--border);
+    background:var(--card);
+    color:var(--text);
+    padding:10px 16px; border-radius:999px;
+    font-size:.9rem; font-weight:600;
+    transition:transform .15s ease, background .2s ease;
+    white-space:nowrap;
+  }
+  .theme-toggle:hover{ transform:translateY(-1px); }
+
+  /* ---------- Layout ---------- */
+  main{
+    max-width:1120px;
+    margin:0 auto;
+    padding:22px clamp(14px,4vw,40px) 70px;
+    display:grid;
+    gap:20px;
+    grid-template-columns:minmax(0,1fr);
+    align-items:start;
+  }
+  .side{ display:flex; flex-direction:column; gap:20px; }
+  @media (min-width:940px){
+    main{ grid-template-columns:minmax(0,1.55fr) minmax(340px,1fr); }
+  }
+
+  .panel{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:18px clamp(14px,2.5vw,22px) 20px;
+  }
+  .panel-head{
+    display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+    margin-bottom:14px;
+  }
+  .panel-head h2{ font-size:1.15rem; }
+  .hint{ font-size:.8rem; color:var(--muted); }
+  .sub-title{ font-size:1rem; margin:22px 0 10px; }
+
+  /* ---------- Filters & search ---------- */
+  .filters{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  .chip{
+    border:1px solid var(--border);
+    background:transparent;
+    color:var(--text);
+    padding:8px 15px;
+    border-radius:999px;
+    font-size:.9rem;
+    transition:all .15s ease;
+  }
+  .chip:hover{ background:var(--accent-soft); }
+  .chip.active{
+    background:var(--accent);
+    color:var(--on-accent);
+    border-color:var(--accent);
+    font-weight:700;
+  }
+  .search{
+    width:100%;
+    padding:11px 14px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background:var(--bg);
+    color:var(--text);
+    font-size:.95rem;
+    outline:none;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .search:focus{
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft);
+  }
+  .search::placeholder{ color:var(--muted); }
+
+  /* ---------- Menu grid ---------- */
+  .menu-grid{
+    margin-top:16px;
+    display:grid;
+    gap:14px;
+    grid-template-columns:repeat(auto-fill,minmax(215px,1fr));
+  }
+  .card{
+    display:flex; flex-direction:column; gap:10px;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:15px;
+    transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .card:hover{
+    transform:translateY(-2px);
+    box-shadow:var(--shadow);
+    border-color:var(--accent);
+  }
+  .card-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .card-head h3{ font-size:1rem; }
+  .badge{
+    flex:0 0 auto;
+    font-size:.72rem; font-weight:700;
+    padding:3px 9px; border-radius:999px;
+    white-space:nowrap;
+  }
+  .badge.spicy{ background:var(--danger-bg); color:var(--danger); }
+  .badge.mild{ background:var(--ok-bg); color:var(--ok); }
+  .card .cat{ margin:0; font-size:.8rem; color:var(--muted); }
+  .card-foot{
+    margin-top:auto;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+  }
+  .price{ font-weight:800; font-size:1.05rem; color:var(--accent); }
+  .add-btn{
+    border:none; border-radius:10px;
+    background:var(--accent); color:var(--on-accent);
+    padding:9px 13px; font-size:.84rem; font-weight:700;
+    transition:filter .15s ease, transform .15s ease;
+  }
+  .add-btn:hover{ filter:brightness(1.08); transform:translateY(-1px); }
+  .add-btn:active{ transform:translateY(0); }
+
+  .empty{ color:var(--muted); font-style:italic; font-size:.9rem; margin:8px 0 0; }
+
+  /* ---------- Cart ---------- */
+  .cart-list{ display:flex; flex-direction:column; gap:10px; }
+  .cart-row{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto auto;
+    align-items:center;
+    gap:10px;
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--bg);
+  }
+  .cart-row .ci-name{ font-weight:600; font-size:.94rem; overflow-wrap:anywhere; }
+  .cart-row .ci-price{ display:block; font-size:.78rem; color:var(--muted); font-weight:400; }
+  .qty{ display:flex; align-items:center; gap:6px; }
+  .qty button{
+    width:30px; height:30px; padding:0;
+    display:grid; place-items:center;
+    border-radius:9px;
+    border:1px solid var(--border);
+    background:var(--card);
+    color:var(--text);
+    font-size:1rem; font-weight:700;
+    line-height:1;
+    transition:background .15s ease, transform .1s ease;
+  }
+  .qty button:hover{ background:var(--accent-soft); }
+  .qty button:active{ transform:scale(.94); }
+  .qty .qty-num{ min-width:22px; text-align:center; font-weight:700; font-size:.95rem; }
+  .line-total{ font-weight:700; font-size:.92rem; white-space:nowrap; }
+
+  .totals{
+    margin-top:16px;
+    padding-top:14px;
+    border-top:1px dashed var(--border);
+    display:flex; flex-direction:column; gap:7px;
+  }
+  .total-row{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:.94rem; color:var(--muted);
+  }
+  .total-row > span:last-child{ color:var(--text); font-variant-numeric:tabular-nums; }
+  .total-row.grand{
+    margin-top:6px; padding-top:9px;
+    border-top:1px solid var(--border);
+    font-size:1.08rem; font-weight:800; color:var(--text);
+  }
+  .total-row.grand > span:last-child{ color:var(--accent); font-size:1.18rem; }
+
+  .btn{
+    border-radius:11px;
+    padding:11px 16px;
+    font-weight:700;
+    font-size:.94rem;
+    border:1px solid transparent;
+    transition:filter .15s ease, background .15s ease, transform .15s ease;
+  }
+  .btn.primary{
+    background:var(--accent); color:var(--on-accent);
+  }
+  .btn.primary:hover{ filter:brightness(1.08); transform:translateY(-1px); }
+  .btn.ghost{
+    background:transparent; color:var(--muted);
+    border-color:var(--border);
+  }
+  .btn.ghost:hover{ background:var(--accent-soft); color:var(--text); }
+  .btn.full{ grid-column:1 / -1; width:100%; }
+  #clear-cart{ margin-top:14px; width:100%; }
+
+  /* ---------- Booking form ---------- */
+  .booking-form{
+    display:grid;
+    gap:12px;
+    grid-template-columns:1fr 1fr;
+  }
+  .field{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .field > span{ font-size:.82rem; color:var(--muted); font-weight:600; }
+  .field input{
+    width:100%;
+    padding:10px 12px;
+    border-radius:11px;
+    border:1px solid var(--border);
+    background:var(--bg);
+    color:var(--text);
+    font-size:.95rem;
+    outline:none;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .field input:focus{
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft);
+  }
+  @media (max-width:620px){
+    .booking-form{ grid-template-columns:1fr; }
+  }
+
+  .msg{
+    margin-top:12px;
+    padding:11px 14px;
+    border-radius:11px;
+    font-size:.9rem;
+    line-height:1.55;
+  }
+  .msg:empty{ display:none; padding:0; margin:0; }
+  .msg.error{ background:var(--danger-bg); color:var(--danger); font-weight:600; }
+  .msg.ok{ background:var(--ok-bg); color:var(--ok); font-weight:600; }
+  .msg div + div{ margin-top:3px; }
+
+  /* ---------- Booking list ---------- */
+  .booking-list{ display:flex; flex-direction:column; gap:10px; }
+  .booking-row{
+    padding:11px 13px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--bg);
+    font-size:.9rem;
+  }
+  .brow-top{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    margin-bottom:4px;
+  }
+  .brow-top strong{ font-size:.96rem; }
+  .pill{
+    flex:0 0 auto;
+    background:var(--accent-soft);
+    color:var(--accent);
+    font-size:.75rem; font-weight:700;
+    padding:2px 10px; border-radius:999px;
+  }
+  .brow-meta{ color:var(--muted); font-size:.85rem; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">🍲</span>
+    <div>
+      <h1>ครัวบ้านนก</h1>
+      <p>อาหารไทยต้นตำรับ · เปิด 10:00 – 21:00 น. (ปิดวันจันทร์)</p>
+    </div>
+  </div>
+  <button type="button" id="theme-toggle" data-testid="theme-toggle" class="theme-toggle">🌙 โหมดมืด</button>
+</header>
+
+<main>
+  <!-- ================= เมนู ================= -->
+  <section class="panel menu-panel">
+    <div class="panel-head">
+      <h2>เมนูอาหาร</h2>
+      <span class="hint" id="menu-count"></span>
+    </div>
+
+    <div class="filters" id="filters">
+      <button type="button" class="chip active" data-cat="all" data-testid="filter-all">ทั้งหมด</button>
+      <button type="button" class="chip" data-cat="ต้ม" data-testid="filter-ต้ม">ต้ม</button>
+      <button type="button" class="chip" data-cat="ผัด" data-testid="filter-ผัด">ผัด</button>
+      <button type="button" class="chip" data-cat="แกง" data-testid="filter-แกง">แกง</button>
+      <button type="button" class="chip" data-cat="ของหวาน" data-testid="filter-ของหวาน">ของหวาน</button>
+    </div>
+
+    <input type="search" id="search" data-testid="search" class="search"
+           placeholder="ค้นหาชื่อเมนู เช่น ต้มยำ..." autocomplete="off" aria-label="ค้นหาชื่อเมนู">
+
+    <div id="menu-grid" class="menu-grid"></div>
+    <p id="menu-empty" class="empty" hidden>ไม่พบเมนูที่ตรงกับเงื่อนไข ลองเปลี่ยนคำค้นหรือหมวดหมู่อื่น</p>
+  </section>
+
+  <div class="side">
+    <!-- ================= ตะกร้า ================= -->
+    <section class="panel cart-panel">
+      <div class="panel-head">
+        <h2>ตะกร้าของฉัน</h2>
+      </div>
+
+      <div id="cart-list" class="cart-list"></div>
+
+      <div class="totals">
+        <div class="total-row">
+          <span>ยอดรวมก่อนภาษี</span>
+          <span><span data-testid="subtotal">0.00</span> บาท</span>
+        </div>
+        <div class="total-row">
+          <span>VAT 7%</span>
+          <span><span data-testid="vat">0.00</span> บาท</span>
+        </div>
+        <div class="total-row grand">
+          <span>ยอดสุทธิ</span>
+          <span><span data-testid="total">0.00</span> บาท</span>
+        </div>
+      </div>
+
+      <button type="button" id="clear-cart" class="btn ghost">ล้างตะกร้า</button>
+    </section>
+
+    <!-- ================= จองโต๊ะ ================= -->
+    <section class="panel booking-panel">
+      <div class="panel-head">
+        <h2>จองโต๊ะ</h2>
+      </div>
+
+      <form id="booking-form" data-testid="booking-form" class="booking-form" novalidate>
+        <label class="field">
+          <span>ชื่อผู้จอง</span>
+          <input type="text" name="name" placeholder="เช่น สมชาย ใจดี" autocomplete="name">
+        </label>
+
+        <label class="field">
+          <span>เบอร์โทรศัพท์ (10 หลัก เริ่มด้วย 0)</span>
+          <input type="tel" name="phone" placeholder="0812345678"
+                 inputmode="numeric" maxlength="10" autocomplete="tel">
+        </label>
+
+        <label class="field">
+          <span>วันที่</span>
+          <input type="date" name="date">
+        </label>
+
+        <label class="field">
+          <span>เวลา (10:00 – 21:00)</span>
+          <input type="time" name="time" min="10:00" max="21:00" step="900">
+        </label>
+
+        <label class="field">
+          <span>จำนวนคน (1 – 12)</span>
+          <input type="number" name="guests" min="1" max="12" step="1" value="2">
+        </label>
+
+        <button type="submit" class="btn primary full">ยืนยันการจอง</button>
+      </form>
+
+      <div id="booking-error" data-testid="booking-error" class="msg error" role="alert"></div>
+      <div id="booking-ok" data-testid="booking-ok" class="msg ok" role="status"></div>
+
+      <h3 class="sub-title">รายการจองของฉัน</h3>
+      <div id="booking-list" class="booking-list"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =========================================================
+     1) ข้อมูลเมนู (อยู่ใน JS ตามข้อกำหนด)
+     ========================================================= */
+  const MENU = [
+    { id: 'm1', name: 'ต้มยำกุ้ง',         category: 'ต้ม',     price: 120, spicy: true  },
+    { id: 'm2', name: 'ต้มข่าไก่',          category: 'ต้ม',     price: 100, spicy: false },
+    { id: 'm3', name: 'ผัดไทยกุ้งสด',       category: 'ผัด',     price: 90,  spicy: false },
+    { id: 'm4', name: 'ผัดกะเพราไก่',       category: 'ผัด',     price: 80,  spicy: true  },
+    { id: 'm5', name: 'แกงเขียวหวานไก่',    category: 'แกง',     price: 110, spicy: true  },
+    { id: 'm6', name: 'แกงมัสมั่นเนื้อ',     category: 'แกง',     price: 130, spicy: false },
+    { id: 'm7', name: 'ข้าวเหนียวมะม่วง',   category: 'ของหวาน', price: 85,  spicy: false },
+    { id: 'm8', name: 'ทับทิมกรอบ',         category: 'ของหวาน', price: 65,  spicy: false }
+  ];
+  const MENU_BY_ID = new Map(MENU.map(function (m) { return [m.id, m]; }));
+
+  /* =========================================================
+     2) localStorage helpers
+     ========================================================= */
+  const STORE = {
+    cart:     'kruabannok.cart.v1',
+    bookings: 'kruabannok.bookings.v1',
+    theme:    'kruabannok.theme.v1'
+  };
+
+  function readJSON(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return fallback;
+      const val = JSON.parse(raw);
+      return (val === null || val === undefined) ? fallback : val;
+    } catch (err) {
+      return fallback;
+    }
+  }
+
+  function writeJSON(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (err) { /* ignore */ }
+  }
+
+  function loadCart() {
+    const raw = readJSON(STORE.cart, {});
+    const cart = {};
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      Object.keys(raw).forEach(function (key) {
+        const item = MENU_BY_ID.get(String(key));
+        const qty = Math.floor(Number(raw[key]));
+        if (item && isFinite(qty) && qty > 0) cart[item.id] = qty;
+      });
+    }
+    return cart;
+  }
+
+  function loadBookings() {
+    const raw = readJSON(STORE.bookings, []);
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter(function (b) { return b && typeof b === 'object'; })
+      .map(function (b) {
+        return {
+          id: String(b.id || (Date.now() + '-' + Math.random().toString(36).slice(2))),
+          name: String(b.name || ''),
+          phone: String(b.phone || ''),
+          date: String(b.date || ''),
+          time: String(b.time || ''),
+          guests: Number(b.guests) || 0
+        };
+      });
+  }
+
+  /* =========================================================
+     3) State + DOM refs
+     ========================================================= */
+  const state = {
+    category: 'all',
+    search: '',
+    cart: loadCart(),
+    bookings: loadBookings()
+  };
+
+  const el = {
+    grid:        document.getElementById('menu-grid'),
+    menuEmpty:   document.getElementById('menu-empty'),
+    menuCount:   document.getElementById('menu-count'),
+    filters:     document.getElementById('filters'),
+    search:      document.getElementById('search'),
+    cartList:    document.getElementById('cart-list'),
+    subtotal:    document.querySelector('[data-testid="subtotal"]'),
+    vat:         document.querySelector('[data-testid="vat"]'),
+    total:       document.querySelector('[data-testid="total"]'),
+    clearCart:   document.getElementById('clear-cart'),
+    form:        document.getElementById('booking-form'),
+    error:       document.getElementById('booking-error'),
+    ok:          document.getElementById('booking-ok'),
+    bookingList: document.getElementById('booking-list'),
+    themeBtn:    document.getElementById('theme-toggle'),
+    dateInput:   document.querySelector('input[name="date"]'),
+    timeInput:   document.querySelector('input[name="time"]')
+  };
+
+  /* =========================================================
+     4) Utilities
+     ========================================================= */
+  function esc(str) {
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function isoLocal(d) {
+    const p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  function parseISO(str) {
+    const parts = String(str).split('-');
+    if (parts.length !== 3) return null;
+    const y = Number(parts[0]), m = Number(parts[1]), d = Number(parts[2]);
+    if (!isFinite(y) || !isFinite(m) || !isFinite(d)) return null;
+    const date = new Date(y, m - 1, d);
+    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+    return date;
+  }
+
+  function formatThaiDate(iso) {
+    const d = parseISO(iso);
+    if (!d) return iso;
+    try {
+      return d.toLocaleDateString('th-TH', {
+        weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'
+      });
+    } catch (err) {
+      return iso;
+    }
+  }
+
+  function saveCart() { writeJSON(STORE.cart, state.cart); }
+
+  function saveBookings() { writeJSON(STORE.bookings, state.bookings); }
+
+  /* =========================================================
+     5) โหมดมืด / สว่าง
+     ========================================================= */
+  function applyTheme(isDark, persist) {
+    document.documentElement.classList.toggle('dark', !!isDark);
+    el.themeBtn.textContent = isDark ? '☀️ โหมดสว่าง' : '🌙 โหมดมืด';
+    el.themeBtn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+    if (persist !== false) writeJSON(STORE.theme, isDark ? 'dark' : 'light');
+  }
+
+  el.themeBtn.addEventListener('click', function () {
+    const isDark = !document.documentElement.classList.contains('dark');
+    applyTheme(isDark);
+  });
+
+  /* =========================================================
+     6) เมนู + ตัวกรอง + ช่องค้นหา (ใช้ร่วมกัน)
+     ========================================================= */
+  function getVisibleMenu() {
+    const q = state.search.trim().toLowerCase();
+    return MENU.filter(function (m) {
+      const matchCat = (state.category === 'all') || (m.category === state.category);
+      const matchName = q === '' || m.name.toLowerCase().indexOf(q) !== -1;
+      return matchCat && matchName;
+    });
+  }
+
+  function renderMenu() {
+    const items = getVisibleMenu();
+
+    el.grid.innerHTML = items.map(function (m) {
+      return '' +
+        '<article class="card" data-testid="menu-item" data-id="' + m.id + '">' +
+          '<div class="card-head">' +
+            '<h3>' + esc(m.name) + '</h3>' +
+            '<span class="badge ' + (m.spicy ? 'spicy' : 'mild') + '">' +
+              (m.spicy ? 'เผ็ด' : 'ไม่เผ็ด') +
+            '</span>' +
+          '</div>' +
+          '<p class="cat">หมวด: ' + esc(m.category) + '</p>' +
+          '<div class="card-foot">' +
+            '<span class="price">฿' + m.price + '</span>' +
+            '<button type="button" class="add-btn" data-testid="add" data-action="add" data-id="' + m.id + '">เพิ่มลงตะกร้า</button>' +
+          '</div>' +
+        '</article>';
+    }).join('');
+
+    el.menuEmpty.hidden = items.length !== 0;
+    el.menuCount.textContent = 'แสดง ' + items.length + ' จาก ' + MENU.length + ' เมนู';
+  }
+
+  el.filters.addEventListener('click', function (e) {
+    const btn = e.target.closest('button[data-cat]');
+    if (!btn) return;
+    state.category = btn.dataset.cat;
+    Array.prototype.forEach.call(el.filters.querySelectorAll('button[data-cat]'), function (b) {
+      b.classList.toggle('active', b === btn);
+    });
+    renderMenu();
+  });
+
+  el.search.addEventListener('input', function () {
+    state.search = el.search.value;
+    renderMenu();
+  });
+
+  el.grid.addEventListener('click', function (e) {
+    const btn = e.target.closest('button[data-action="add"]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (!MENU_BY_ID.has(id)) return;
+    state.cart[id] = (state.cart[id] || 0) + 1;
+    saveCart();
+    renderCart();
+  });
+
+  /* =========================================================
+     7) ตะกร้า + ยอดรวม / VAT
+     ========================================================= */
+  function round2(n) { return Math.round(n * 100) / 100; }
+
+  function renderCart() {
+    const rows = Object.keys(state.cart)
+      .filter(function (id) { return state.cart[id] > 0 && MENU_BY_ID.has(id); })
+      .map(function (id) { return { item: MENU_BY_ID.get(id), qty: state.cart[id] }; });
+
+    if (rows.length === 0) {
+      el.cartList.innerHTML = '<p class="empty">ยังไม่มีสินค้าในตะกร้า — เลือกเมนูที่ชอบแล้วกด “เพิ่มลงตะกร้า”</p>';
+    } else {
+      el.cartList.innerHTML = rows.map(function (r) {
+        return '' +
+          '<div class="cart-row" data-testid="cart-row" data-id="' + r.item.id + '">' +
+            '<div class="ci-name">' + esc(r.item.name) +
+              '<span class="ci-price">฿' + r.item.price + ' × ' + r.qty + '</span>' +
+            '</div>' +
+            '<div class="qty">' +
+              '<button type="button" data-testid="dec" data-action="dec" data-id="' + r.item.id + '" aria-label="ลดจำนวน ' + esc(r.item.name) + '">−</button>' +
+              '<span class="qty-num">' + r.qty + '</span>' +
+              '<button type="button" data-testid="inc" data-action="inc" data-id="' + r.item.id + '" aria-label="เพิ่มจำนวน ' + esc(r.item.name) + '">+</button>' +
+            '</div>' +
+            '<div class="line-total">฿' + (r.item.price * r.qty).toFixed(2) + '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    const subtotal = round2(rows.reduce(function (sum, r) {
+      return sum + r.item.price * r.qty;
+    }, 0));
+    const vat = round2(subtotal * 0.07);
+    const total = round2(subtotal + vat);
+
+    el.subtotal.textContent = subtotal.toFixed(2);
+    el.vat.textContent = vat.toFixed(2);
+    el.total.textContent = total.toFixed(2);
+  }
+
+  el.cartList.addEventListener('click', function (e) {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const action = btn.dataset.action;
+    if (!MENU_BY_ID.has(id)) return;
+
+    const current = state.cart[id] || 0;
+
+    if (action === 'inc') {
+      state.cart[id] = current + 1;
+    } else if (action === 'dec') {
+      const next = current - 1;
+      if (next <= 0) {
+        delete state.cart[id];      // ถึง 0 = ลบออกจากตะกร้า
+      } else {
+        state.cart[id] = next;
+      }
+    } else {
+      return;
+    }
+
+    saveCart();
+    renderCart();
+  });
+
+  el.clearCart.addEventListener('click', function () {
+    state.cart = {};
+    saveCart();
+    renderCart();
+  });
+
+  /* =========================================================
+     8) ฟอร์มจองโต๊ะ + ตรวจสอบเงื่อนไข
+     ========================================================= */
+  function showErrors(messages) {
+    el.error.innerHTML = messages.map(function (m) {
+      return '<div>• ' + esc(m) + '</div>';
+    }).join('');
+  }
+
+  function clearMessages() {
+    el.error.innerHTML = '';
+    el.ok.innerHTML = '';
+  }
+
+  el.form.addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    const data = new FormData(el.form);
+    const name   = String(data.get('name')   || '').trim();
+    const phone  = String(data.get('phone')  || '').trim();
+    const date   = String(data.get('date')   || '').trim();
+    const time   = String(data.get('time')   || '').trim();
+    const guestsRaw = String(data.get('guests') || '').trim();
+
+    const errors = [];
+
+    // ---- ชื่อ ----
+    if (name === '') {
+      errors.push('กรุณากรอกชื่อผู้จอง');
+    }
+
+    // ---- เบอร์โทร: ตัวเลข 10 หลัก ขึ้นต้นด้วย 0 ----
+    if (!/^0\d{9}$/.test(phone)) {
+      errors.push('เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลัก และขึ้นต้นด้วย 0 (เช่น 0812345678)');
+    }
+
+    // ---- วันที่ ----
+    let chosenDate = null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (date === '') {
+      errors.push('กรุณาเลือกวันที่จอง');
+    } else {
+      chosenDate = parseISO(date);
+      if (!chosenDate) {
+        errors.push('รูปแบบวันที่ไม่ถูกต้อง');
+      } else {
+        if (chosenDate.getTime() < today.getTime()) {
+          errors.push('ไม่สามารถจองวันที่ผ่านมาแล้วได้ กรุณาเลือกวันที่ตั้งแต่วันนี้เป็นต้นไป');
+        }
+        if (chosenDate.getDay() === 1) {
+          errors.push('ร้านปิดทุกวันจันทร์ กรุณาเลือกวันอื่น');
+        }
+      }
+    }
+
+    // ---- เวลา 10:00 - 21:00 ----
+    if (time === '') {
+      errors.push('กรุณาเลือกเวลาที่ต้องการจอง');
+    } else if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      errors.push('รูปแบบเวลาไม่ถูกต้อง');
+    } else if (time < '10:00' || time > '21:00') {
+      errors.push('เวลาเปิดให้บริการคือ 10:00 – 21:00 น. กรุณาเลือกเวลาภายในช่วงนี้');
+    }
+
+    // ---- จำนวนคน 1 - 12 ----
+    const guests = Number(guestsRaw);
+    if (guestsRaw === '' || !isFinite(guests) || Math.floor(guests) !== guests || guests < 1 || guests > 12) {
+      errors.push('จำนวนคนต้องอยู่ระหว่าง 1 – 12 คน');
+    }
+
+    if (errors.length > 0) {
+      el.ok.innerHTML = '';
+      showErrors(errors);
+      return;
+    }
+
+    // ---- บันทึกการจอง ----
+    const booking = {
+      id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      name: name,
+      phone: phone,
+      date: date,
+      time: time,
+      guests: guests
+    };
+
+    state.bookings.unshift(booking);
+    saveBookings();
+    renderBookings();
+
+    el.error.innerHTML = '';
+    el.ok.innerHTML = '✅ จองโต๊ะสำเร็จ! คุณ' + esc(name) +
+      ' จำนวน ' + guests + ' คน วันที่ ' + esc(formatThaiDate(date)) +
+      ' เวลา ' + esc(time) + ' น. — ร้านจะติดต่อกลับที่ ' + esc(phone);
+
+    el.form.reset();
+    renderCart();
+  });
+
+  /* =========================================================
+     9) รายการจองของฉัน
+     ========================================================= */
+  function renderBookings() {
+    if (state.bookings.length === 0) {
+      el.bookingList.innerHTML = '<p class="empty">ยังไม่มีรายการจอง</p>';
+      return;
+    }
+
+    el.bookingList.innerHTML = state.bookings.map(function (b) {
+      return '' +
+        '<div class="booking-row" data-testid="booking-row">' +
+          '<div class="brow-top">' +
+            '<strong>' + esc(b.name) + '</strong>' +
+            '<span class="pill">' + b.guests + ' คน</span>' +
+          '</div>' +
+          '<div class="brow-meta">📅 ' + esc(formatThaiDate(b.date)) + ' · 🕒 ' + esc(b.time) + ' น.</div>' +
+          '<div class="brow-meta">📞 ' + esc(b.phone) + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  /* =========================================================
+     10) เริ่มต้นการทำงาน
+     ========================================================= */
+  function init() {
+    // ธีม
+    const savedTheme = readJSON(STORE.theme, 'light');
+    applyTheme(savedTheme === 'dark', false);
+
+    // วันที่ขั้นต่ำ = วันนี้
+    el.dateInput.min = isoLocal(new Date());
+
+    renderMenu();
+    renderCart();
+    renderBookings();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
