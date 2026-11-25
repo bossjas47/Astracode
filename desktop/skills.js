@@ -36,12 +36,22 @@ Use this whenever the task involves 3D, WebGL, three.js, a 3D model (.glb/.gltf)
 - Mobile: touch works with OrbitControls; set body { margin:0; overflow:hidden } and canvas { display:block; touch-action:none }.
 - VERIFY: after writing the page, call check_page on the HTML file. Fix every console error, and if the screenshot is blank/black: check the camera position/lookAt, lights, object scale, and that the render loop runs. Repeat until the scene is visible and correct.`;
 
+const ROBLOX_SKILL = `## Skill: Roblox Studio (Luau) with the roblox tool
+- Start with roblox op=info, then op=tree on the parts you need (not the whole game). Use op=find to locate scripts/objects; op=read before you edit a script.
+- Edit scripts with op=edit (exact unique snippet) for small changes, op=write for new scripts or full rewrites. Pick the right class: Script (server, ServerScriptService), LocalScript (client, StarterPlayerScripts/StarterGui/StarterCharacterScripts), ModuleScript (shared code, ReplicatedStorage/ServerScriptService).
+- Build or change many objects in ONE op=run with a Luau loop (Instance.new, set Anchored/Size/Position/Color/Material, Parent last) instead of many op=create calls. Name things clearly and group them in Folders/Models.
+- Luau rules: use task.wait/task.spawn/task.delay (not wait/spawn/delay), game:GetService(...), WaitForChild for objects that load later on the client, :Connect for events and Disconnect when done. Server owns game state; the client sends requests through RemoteEvent/RemoteFunction in ReplicatedStorage and the server validates them (never trust the client for money, damage or items). Use DataStoreService with pcall for saving. Avoid infinite loops without task.wait.
+- VERIFY: after script changes run op=play (seconds 5-15) and read the Output; fix every [error] line (it names the script and line), then play again. LocalScript/GUI behaviour needs the user to press Play: say what to check. Use op=output to read errors the user saw.
+- Keep the user's work safe: do not delete objects you did not create unless asked; every change can be undone with Ctrl+Z in Studio.`;
+const ROBLOX_RE = /roblox|โรบล็อก|โรบลอก|\bluau\b|\brbx/i;
+
 const THREE_RE = /three\.?js|\bthree\b.*\b(scene|mesh)\b|webgl|\b3d\b|\.glb\b|\.gltf\b|gltf|โมเดล\s*3|สามมิติ|แอนิเมชัน\s*3|อนิเมชัน\s*3/i;
 // เลือกสกิลที่ใส่ใน prompt: วินัยเขียนโค้ดเสมอ (งานโค้ด) · Three.js เมื่อคำสั่งหรือโปรเจกต์เกี่ยวกับ 3D
-function builtinSkills({ text = '', deps = '', code = true } = {}) {
+function builtinSkills({ text = '', deps = '', code = true, roblox = false } = {}) {
   const out = [];
   if (code) out.push(CODING_SKILL);
   if (THREE_RE.test(text) || /"three"\s*:/.test(deps)) out.push(THREE_SKILL);
+  if (roblox || ROBLOX_RE.test(text)) out.push(ROBLOX_SKILL);
   return out.join('\n\n');
 }
 
@@ -82,4 +92,4 @@ function makeAdvisor({ post, model }) {
   };
 }
 
-module.exports = { CODING_SKILL, THREE_SKILL, THREE_RE, builtinSkills, memoryRead, memoryBlock, memoryLearn, makeAdvisor, MEM_FILE };
+module.exports = { CODING_SKILL, THREE_SKILL, THREE_RE, ROBLOX_SKILL, ROBLOX_RE, builtinSkills, memoryRead, memoryBlock, memoryLearn, makeAdvisor, MEM_FILE };

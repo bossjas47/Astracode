@@ -7,10 +7,11 @@ const { execFile } = require('child_process');
 const { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel } = require('./localfs');
 const { startMcp } = require('./mcp');
 const { UIA_PS, parseUia, uiaText, pickEyes, describeScreen } = require('./eyes');
+const { ROBLOX_TOOL, ROBLOX_RE, startBridge, robloxTool, installPlugin, pluginDir, newToken } = require('./roblox');
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { setupTool, SETUP_TOOLS } = require('./setuptools');
-const { builtinSkills, THREE_RE, THREE_SKILL, memoryRead, memoryBlock, memoryLearn, makeAdvisor } = require('./skills');
+const { builtinSkills, THREE_RE, THREE_SKILL, ROBLOX_SKILL, memoryRead, memoryBlock, memoryLearn, makeAdvisor } = require('./skills');
 const { projectMap, makeReviewer, AGENT_TOOLS, ASK_TOOL, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin, wantsAndroid, toolsFor } = require('./agenttools');
 
 const SITE = 'https://kyber.hypatir.dev', OLD_SITE = 'https://astracode.panderx.xyz'; // ย้ายโดเมน 25 พ.ย. 2569 · โดเมนเดิมยังรับ /api และ /v1 ตลอด
@@ -272,6 +273,15 @@ async function ensureNode() {
   process.env.PATH = `${process.env.PATH};${process.env.ProgramFiles || 'C:\\Program Files'}\\nodejs;${process.env.APPDATA || ''}\\npm`;
   mcpLog.push(x.code === 0 ? 'ติดตั้ง Node.js แล้ว' : 'ติดตั้ง Node.js ไม่สำเร็จ: ' + String(x.stderr || x.stdout).slice(0, 200));
 }
+// Roblox Studio ในตัว: ติดตั้งปลั๊กอิน Kyber Studio (ไฟล์ .lua ในโฟลเดอร์ปลั๊กอินของ Studio) แล้วเปิดสะพาน 127.0.0.1 · ไม่ต้องตั้ง MCP
+let rbx = null;
+const rbxUp = () => { if (!rbx && settings.robloxToken) rbx = startBridge({ token: settings.robloxToken, log: m => mcpLog.push(m) }); return rbx; };
+h('desk:robloxState', () => { const f = path.join(pluginDir(), 'KyberStudio.lua'); rbxUp(); return { installed: !!settings.robloxToken && fs.existsSync(f), connected: !!rbx?.connected(), place: rbx?.place() || '', file: f }; });
+h('desk:robloxInstall', async () => {
+  const a = await dialog.showMessageBox(web, { type: 'question', title: 'ติดตั้งปลั๊กอิน Kyber Studio', message: 'ติดตั้งปลั๊กอินให้ Roblox Studio?', detail: `ไฟล์: ${path.join(pluginDir(), 'KyberStudio.lua')}\n\nปลั๊กอินคุยกับแอป Kyber ในเครื่องนี้เท่านั้น (127.0.0.1) ให้ Agent อ่าน/แก้สคริปต์ สร้างชิ้นส่วน และกดทดสอบเกมใน Studio ที่เปิดอยู่ · ทุกการแก้ Ctrl+Z ย้อนได้\n\nหลังติดตั้ง: ปิดแล้วเปิด Studio ใหม่ และกด "Allow" เมื่อ Studio ถามสิทธิ์ให้ปลั๊กอินต่อ 127.0.0.1`, buttons: ['ติดตั้ง', 'ยกเลิก'], defaultId: 0, cancelId: 1 });
+  if (a.response !== 0) return null;
+  settings.robloxToken ||= newToken(); save(); const file = installPlugin(settings.robloxToken); rbxUp(); return { file };
+});
 h('desk:mcpGet', () => ({ config: settings.mcp || '', log: mcpLog }));
 h('desk:mcpSet', async (_, text) => {
   const cfg = JSON.parse(text || '{}'), list = Object.entries(cfg.mcpServers || {}).map(([n, c]) => `• ${n}: ${c.command} ${(c.args || []).join(' ')}`).join('\n');
@@ -417,6 +427,7 @@ async function runTask(o = {}, sender) {
   let text = String(o.text || '').slice(0, 100000);
   const refs = [...new Set([...text.matchAll(/(?:^|\s)@([\w./\\-]+)/g)].map(m => m[1]))].slice(0, 5);
   for (const p of refs) { const f = path.resolve(a.ws.root, p); if (f.startsWith(a.ws.root) && fs.existsSync(f) && fs.statSync(f).isFile() && fs.statSync(f).size < 300e3) text += `\n\n[ไฟล์ ${p}]\n${fs.readFileSync(f, 'utf8').slice(0, 30000)}`; }
+  if (!a.rbxOn && settings.robloxToken && (ROBLOX_RE.test(text) || rbxUp()?.connected())) { a.rbxOn = true; text += `\n\n[Kyber skill]\n${ROBLOX_SKILL}${rbx?.connected() ? `\n(Roblox Studio is connected now: place "${rbx.place()}")` : '\n(Roblox Studio is not connected yet: if the roblox tool says so, ask the user to open Studio with the Kyber Studio plugin and allow 127.0.0.1.)'}`; } // งาน Roblox: ใส่สกิลครั้งแรก
   if (!a.threeOn && THREE_RE.test(text)) { a.threeOn = true; text += '\n\n[Kyber skill]\n' + THREE_SKILL; } // งาน 3D: ใส่สกิล Three.js ครั้งแรกที่เจอ (ไม่ใส่ซ้ำทุกข้อความ)
   if (o.style === 'work') text += '\n\n[โหมดงานทั่วไป] ผู้ใช้ไม่ใช่โปรแกรมเมอร์: อธิบายด้วยภาษาง่าย ไม่โชว์โค้ดถ้าไม่จำเป็น ทำผลลัพธ์เป็นไฟล์ที่เปิดใช้ได้เลย (Word/Excel/PowerPoint/PDF ด้วย make_document) บอกชื่อไฟล์ที่ได้ตอนจบ ถามด้วย ask_user เมื่อข้อมูลไม่พอ';
   if (mode === 'plan') text += '\n\n[โหมดวางแผน] ห้ามแก้ไฟล์หรือรันคำสั่ง: สำรวจโค้ดด้วยเครื่องมืออ่าน แล้วเขียนแผนเป็นขั้นตอนชัดเจน (ไฟล์ที่จะแก้ แก้อะไร ตรวจผลอย่างไร) ให้ผู้ใช้อนุมัติก่อนลงมือ';
@@ -429,6 +440,7 @@ async function runTask(o = {}, sender) {
   a.android ||= await wantsAndroid(a.ws.root, text).catch(() => false);
   let tools = [...toolsFor({ android: a.android }), ...OFFICE_TOOLS, ASK_TOOL, ...rtools, ...(process.platform === 'win32' && settings.screenNever !== true ? [COMPUTER_TOOL] : [])];
   if (hasMcp()) { try { await mcpUp(); tools = [...tools, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
+  if (rbxUp() && (a.rbxOn || rbx.connected() || ROBLOX_RE.test(text))) tools = [...tools, ROBLOX_TOOL]; // Roblox: ใส่เครื่องมือเมื่อ Studio ต่ออยู่หรือคำสั่งพูดถึง Roblox
   a.asks = new Map(); a.outputs = new Set();
   const callTool = async (name, args) => {
     if (mode === 'plan' && !READ_ONLY.has(name) && !['ask_user', 'read_document'].includes(name)) return 'Error: โหมดวางแผน: ใช้ได้เฉพาะเครื่องมืออ่าน/ค้น (ห้ามแก้ไฟล์ รันคำสั่ง หรือเรียกเครื่องมือภายนอก) เขียนแผนให้ผู้ใช้อนุมัติก่อน';
@@ -441,6 +453,7 @@ async function runTask(o = {}, sender) {
       if (kind === 'read') return readDocument(f);
       await a.ws.keep(f); const r = await makeDocument(f, args, { pdf: htmlToPdf, root: a.ws.root }); a.outputs.add(a.ws.rel(f)); return r;
     }
+    if (name === 'roblox') return robloxTool(rbx, args);
     if (name.startsWith('rmcp_')) return remoteCall(name, args);
     if (mcp?.has(name)) return mcp.call(name, args);
     return a.ws.call(name, args);
@@ -554,4 +567,4 @@ else {
 }
 app.on('before-quit', () => { quitting = true; for (const s of servers.values()) s.kill(); });
 app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch { /* ยังไม่พร้อม */ } });
-app.on('window-all-closed', async () => { await mcp?.close(); app.quit(); });
+app.on('window-all-closed', async () => { await mcp?.close(); await rbx?.close(); app.quit(); });
