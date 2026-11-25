@@ -5,6 +5,7 @@ import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, 
 import { b64, projects, unb64, unseal } from './projects.js';
 import { createAccountFile, fileTool } from './files.js';
 import { videoConf, videoToolDef, videoTool } from './video.js';
+import { blindOverwrite, stuckHint } from './harness.js';
 import { CHAT_TOOL_NAMES, CODE_TOOLS, CODE_TOOLS_NOTE, CODE_TOOL_NAMES, FILE_EXT, PLAN_NOTE, WEB_TOOL_NAMES, WRITE_TOOLS, chatTools, codeTool, codeWorkspace, dlMarker, nativeTools, pyMarker, stripMarkers, todosOf, verifyWork, webTools } from './codetools.js';
 import { GOOGLE_TOOLS, GOOGLE_URL, googleCall } from './google.js';
 import { askApproval, connCall, connTools } from './connectors.js';
@@ -732,6 +733,7 @@ export async function runChat(env, J, send, st) {
     return `[Automatic check before you finish]\n${probs.length ? 'Problems found in the files you changed:\n' + probs.map(x => '- ' + x).join('\n') + '\n' : ''}${open.length ? 'Your checklist still has unfinished items:\n' + open.map(x => '- ' + x).join('\n') + '\n' : ''}Fix these now with the tools (read the exact lines first if needed), then update the checklist and give a short summary. If an item is truly not needed, say why in one line.`;
   };
   let ctxUsed = 0, lastCtx = 0, cumIn = 0, capped = false, trimmedSent = false, roundsOut = false; // roundsOut = หยุดเพราะครบรอบทั้งที่ยังมีงานต่อ (หน้า Code สั่งทำต่อเอง) // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
+  const H = { read: new Set(), sigs: [], probs: [], hinted: new Set() }; // Kyber Harness: ไฟล์ที่อ่านแล้ว (กันเขียนทับ) · ลายเซ็นแต่ละรอบ (จับการวนซ้ำ)
   for (let round = 0; ; round++) { // โหมด Code + Remote MCP
     round_ = round + 1;
     let part = '', ru = null;
@@ -824,7 +826,13 @@ export async function runChat(env, J, send, st) {
           else if (tname === 'generate_video') r = ++vids > 2 ? { result: 'Error: at most 2 videos per answer', ok: false, label: 'สร้างวิดีโอ' } : await videoTool(env, u, cid, args, { images: J.images });
           else if (tname === 'todo_write') { const todo = todosOf(args); lastTodo = todo; await send({ todo }); r = { result: todo.length ? 'Checklist updated.' : 'Error: todos is empty.', ok: todo.length > 0, label: '' }; }
           else if (J.perm === 'plan' && WRITE_TOOLS.has(tname)) r = { result: 'Error: plan mode is on, files cannot be changed. Reply with the plan instead.', ok: false, label: 'ข้าม (โหมด Plan)' };
-          else if (ws && CODE_TOOL_NAMES.has(tname)) { r = codeTool(ws, tname, args); if (r.ok && WRITE_TOOLS.has(tname) && args.path) touched.add(String(args.path).replace(/^\.?\//, '')); }
+          else if (ws && CODE_TOOL_NAMES.has(tname)) {
+            const p0 = String(args.path || '').replace(/^\.?\//, '');
+            // เขียนทับทั้งไฟล์ที่มีอยู่แล้วโดยยังไม่ได้อ่านในคำตอบนี้ = ไม่ยอม (กันทับงานเดิมของผู้ใช้) · edit_file ต้องรู้ข้อความเดิมอยู่แล้วจึงผ่านได้
+            if (tname === 'write_file' && p0 && blindOverwrite({ path: p0, content: args.content }, ws.files, H.read, touched)) r = { result: `Error: ${p0} already exists and you have not read it in this task, so it was NOT overwritten. Call read_file on it first, then change it with edit_file (or write_file with the complete new content).`, emit: '', ok: false, label: 'ไม่ได้เขียนทับ ' + p0 + ' (ยังไม่ได้อ่าน)' };
+            else { r = codeTool(ws, tname, args); if (r.ok && WRITE_TOOLS.has(tname) && args.path) touched.add(p0); }
+            if (r.ok && tname === 'read_file' && p0) H.read.add(p0);
+          }
           else if (CHAT_TOOL_NAMES.has(tname)) r = await chatTool(env, u, cid, tname, args, { imgUsed, pyStop, image: !!imgPrompt, plan: J.plan });
           else if (tname === 'web_search') {
             const q = String(args.query || '').slice(0, 400), pre = spec; spec = null; // ผลค้นล่วงหน้าใช้กับการค้นครั้งแรกเท่านั้น
@@ -870,6 +878,12 @@ export async function runChat(env, J, send, st) {
       }
       await env.DB.prepare('UPDATE rate SET reset=? WHERE key=?').bind(Date.now() + LOCK_MS, lock).run();
       lastKind = 't';
+      if (ws && useTools) { // ตรวจการวนซ้ำ: เรียกเครื่องมือเดิมด้วยค่าเดิม / พลาดแบบเดิม ติดกัน 3 รอบ = เตือน · 5 รอบ = หยุด (ไม่เผาลิมิตจนครบรอบ)
+        const errs = msgs.slice(-toolCalls.length).filter(x => x.role === 'tool' && /^Error/.test(String(x.content))).map(x => String(x.content).slice(0, 200));
+        const h = stuckHint(H, toolCalls.map(tc => ({ op: tc.function?.name || '', arg: String(tc.function?.arguments || '').slice(0, 400) })), { applied: [], problems: errs });
+        if (h === 'stop') { const t = '\n\n_Agent ทำสิ่งเดิมซ้ำหลายรอบโดยไม่คืบหน้า จึงหยุดไว้ก่อน (ไฟล์ที่แก้แล้วยังอยู่) · ลองอธิบายงานให้ชัดขึ้น หรือเปลี่ยนโมเดล_'; out += t; await send({ t }); break; }
+        if (h) msgs.push({ role: 'user', content: /วนซ้ำ/.test(h) ? '[Kyber Harness · loop] You called the same tools with the same arguments 3 rounds in a row and nothing changed. Stop repeating: read the results above, try a different approach (another part of the file, a shorter exact old_string, or write the whole file), or explain what blocks you.' : '[Kyber Harness · same error] The same tool error happened 3 rounds in a row. Re-read the file with read_file, copy old_string exactly from it, or rewrite the whole file with write_file.' });
+      }
       // รอบที่มีแต่การแก้ไฟล์และสำเร็จทุกอัน = งานเสร็จ (โมเดลเขียนสรุปมาในรอบเดียวกันแล้ว) ไม่ต้องเรียกโมเดลอีกรอบให้ผู้ใช้รอ
       if (ws && useTools && onlyWrites && wrote && allOk) { // รอบที่มีแต่การแก้ไฟล์: เดิมจบทันที → ตอนนี้ตรวจก่อน ถ้ายังมีปัญหา/งานค้างให้ทำต่อ
         const note = await reviewNote(round); if (!note) break;

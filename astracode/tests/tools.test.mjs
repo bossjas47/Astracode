@@ -344,3 +344,29 @@ test('account files: sheet and doc ops apply in order and fail as a whole', asyn
   assert.throws(() => F.applyDocOps({ md: 'a' }, [{ op: 'replace', find: 'zz', with: 'y' }]), /not found/);
   assert.equal(F.colName(27), 'AB'); assert.equal(F.colNum('AB'), 27);
 });
+
+test('Code mode harness: write_file over an unread existing file is refused until read_file; a loop of the same call is warned at 3 and stopped at 5', async () => {
+  let n = 0;
+  const { t, m, u, fm } = await setup((fm, res, body) => {
+    n++; const tools = body.messages.filter(x => x.role === 'tool');
+    if (tools.length === 0) return toolSSE(res, [['write_file', { path: 'a.js', content: 'let a = 2\n' }]]);
+    if (tools.length === 1) return toolSSE(res, [['read_file', { path: 'a.js' }]]);
+    return toolSSE(res, [['write_file', { path: 'a.js', content: 'let a = 2\n' }]], 'เขียนใหม่แล้ว');
+  });
+  const pid = (await t.json('/api/projects', { method: 'POST', cookie: u.cookie, body: { name: 'p', empty: true } })).data.id;
+  await t.json(`/api/projects/${pid}/file`, { method: 'PUT', cookie: u.cookie, body: { path: 'a.js', content: 'let a = 1 // งานผู้ใช้\n' } });
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'เปลี่ยน a เป็น 2', model_id: m.id, project_id: pid } }));
+  assert.match(fm.hits[1].body.messages.find(x => x.role === 'tool').content, /NOT overwritten/);
+  assert.ok(ev.some(e => e.mcp && !e.mcp.ok && /ยังไม่ได้อ่าน/.test(e.mcp.tool)), 'the user sees why');
+  assert.deepEqual(changesOf(ev.filter(e => e.t).map(e => e.t).join(''), () => null).map(c => c.path), ['a.js'], 'written once, after reading');
+  fm.close();
+
+  const L = await setup((fm, res) => toolSSE(res, [['read_file', { path: 'a.js' }]]));
+  const pid2 = (await L.t.json('/api/projects', { method: 'POST', cookie: L.u.cookie, body: { name: 'p', empty: true } })).data.id;
+  await L.t.json(`/api/projects/${pid2}/file`, { method: 'PUT', cookie: L.u.cookie, body: { path: 'a.js', content: 'x\n' } });
+  const ev2 = await readSSE(await L.t.call('/api/chat', { method: 'POST', cookie: L.u.cookie, body: { text: 'ทำงาน', model_id: L.m.id, project_id: pid2 } }));
+  assert.equal(L.fm.hits.length, 5, 'stopped at 5 identical rounds instead of 40');
+  assert.ok(L.fm.hits[3].body.messages.some(x => x.role === 'user' && /Kyber Harness · loop/.test(x.content)), 'warned after 3');
+  assert.match(ev2.filter(e => e.t).map(e => e.t).join(''), /ทำสิ่งเดิมซ้ำหลายรอบ/);
+  L.fm.close();
+});

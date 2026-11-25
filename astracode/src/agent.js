@@ -6,7 +6,7 @@ import { bundleProject, callModel, doingOf, familyHint, imagePrompt, logUsage, r
 import { b64 } from './projects.js';
 import { sendPush } from './push.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, siteUrl } from './billing.js';
-import { FILE_LIMIT, FILES_PER_PROJECT, PATH_RE, PROJECT_LIMIT, TEMPLATES, snapshot } from './projects.js';
+import { FILE_LIMIT, FILES_PER_PROJECT, PATH_RE, PROJECT_LIMIT, snapshot } from './projects.js';
 import { changesOf, problemOf, syntaxWarning } from './edits.js';
 
 export const AGENT_MAX_ROUNDS = 20, AGENT_MAX_IN = 1.5e6, AGENT_MAX_MS = 12 * 60e3;
@@ -310,23 +310,8 @@ export async function runAgent(env, jobId, st = { gone: false }) {
 
 // ---------- Kyber Harness สำหรับ Agent เบื้องหลัง (ชุดเดียวกับแอปคอม: อ่านก่อนเขียนทับ · จับการวนซ้ำ · ผู้ตรวจรอบสอง) ----------
 // เขียนทับทั้งไฟล์ (ไม่ใช่ SEARCH/REPLACE) ที่มีเนื้อหาอยู่แล้ว โดยงานนี้ยังไม่เคย READ และไม่ได้สร้างเอง = เสี่ยงทับงานผู้ใช้ทิ้ง
-let STARTER_TEXT = null; // ไฟล์ตั้งต้นของโปรเจกต์ใหม่ที่ยังไม่มีใครแก้: เขียนทับได้เลย (สร้างตอนใช้ครั้งแรก: projects.js import วนกลับมาที่ไฟล์นี้)
-export function blindOverwrite(c, cur, read, mine) {
-  if (c.edit || c.del || c.error || !cur.has(c.path)) return false;
-  const old = cur.get(c.path) || ''; if (!old.trim() || old.startsWith('data:') || (STARTER_TEXT ??= new Set(Object.values(TEMPLATES).flatMap(t => Object.values(t)))).has(old)) return false;
-  return !read.has(c.path) && !mine.has(c.path);
-}
-// คืนข้อความเตือนให้ใส่ในรอบถัดไป · 'stop' = วนซ้ำนานเกินไป · '' = ปกติ
-export function stuckHint(H, reqs, res) {
-  const sig = JSON.stringify([reqs.map(r => r.op + ' ' + r.arg).sort(), [...res.applied].sort(), [...res.problems].sort()]), prob = res.problems.length ? JSON.stringify([...res.problems].sort()) : '';
-  H.sigs.push(sig); H.probs.push(prob);
-  const same = (arr, n) => arr.length >= n && arr.slice(-n).every(x => x && x === arr.at(-1));
-  if (same(H.sigs, 5)) return 'stop';
-  if (same(H.sigs, 3) && !H.hinted.has(sig)) { H.hinted.add(sig); return '[Kyber Harness · วนซ้ำ] คุณทำสิ่งเดิมซ้ำ 3 รอบติดกันโดยผลไม่เปลี่ยน หยุดทำแบบเดิม: อ่านผลด้านบนให้ดี ลองวิธีอื่น (เช่น READ ส่วนอื่นของไฟล์ ใช้ SEARCH ที่สั้นลงและตรงเป๊ะ หรือเขียนทั้งไฟล์ใหม่) หรือสรุปสิ่งที่ทำไม่ได้พร้อมเหตุผล'; }
-  if (same(H.probs, 3) && !H.hinted.has('p' + prob)) { H.hinted.add('p' + prob); return '[Kyber Harness · ปัญหาเดิมซ้ำ] การเขียนไฟล์ล้มด้วยปัญหาเดิม 3 รอบติดกัน: READ ไฟล์นั้นใหม่ก่อน แล้วใช้ข้อความ SEARCH ที่คัดลอกจากไฟล์จริงทุกตัวอักษร หรือส่งทั้งไฟล์แทน';
-  }
-  return '';
-}
+export { blindOverwrite, stuckHint } from './harness.js';
+import { blindOverwrite, stuckHint } from './harness.js';
 const REVIEW_NOTE = 'You are a strict second reviewer for a coding agent. Read the user request and the changed files. Reply with LGTM if the change does what was asked and has no real defect. Otherwise list only real defects (bugs, broken references, missing parts of the request, syntax errors), one per line, each with the file and what to fix. No style nitpicks. Reply in the user\'s language. Be brief.';
 async function reviewChanges(env, u, plan, m, jobId, prompt, changed) {
   const rows = (await env.DB.prepare(`SELECT path,content FROM project_files WHERE project_id=(SELECT project_id FROM agent_jobs WHERE id=?) AND path IN (${changed.slice(0, 12).map(() => '?').join(',')})`).bind(jobId, ...changed.slice(0, 12)).all()).results.filter(f => !String(f.content).startsWith('data:'));
