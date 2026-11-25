@@ -369,3 +369,8 @@ CREATE TABLE IF NOT EXISTS site_versions (site_id INTEGER NOT NULL, ver INTEGER 
 CREATE TABLE IF NOT EXISTS site_forms (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER NOT NULL, data TEXT NOT NULL, seen INTEGER, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS site_forms_site ON site_forms(site_id, id);
 CREATE TABLE IF NOT EXISTS site_views (site_id INTEGER NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (site_id, day));
+
+-- AI ประชุม: เสียงแบ่งช่วงใน R2 meet/<uid>/<id>/<n>.wav (ลบหลัง 30 วัน) · บทถอดความต่อช่วง (lines = JSON [{t,s,x}])
+CREATE TABLE IF NOT EXISTS meetings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'recording', segs INTEGER NOT NULL DEFAULT 0, dur REAL NOT NULL DEFAULT 0, speakers TEXT, summary TEXT, error TEXT, audio_gone INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS meetings_user ON meetings(user_id, created_at);
+CREATE TABLE IF NOT EXISTS meeting_segs (meeting_id INTEGER NOT NULL, n INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', dur REAL NOT NULL DEFAULT 0, lines TEXT, error TEXT, tries INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY (meeting_id, n));

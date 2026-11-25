@@ -1,6 +1,7 @@
 import { ART_TABLES } from './artifacts.js';
 import { UF_TABLES } from './files.js';
 import { SITE_TABLES } from './sites.js';
+import { MEET_TABLES } from './meetings.js';
 import { event, getSettings, mail, mailBox, origin } from './billing.js';
 import { projects } from './projects.js';
 import { admin } from './admin.js';
@@ -379,7 +380,7 @@ const PERF = [
   "UPDATE chats SET has_code=1 WHERE has_code IS NULL AND id IN (SELECT DISTINCT chat_id FROM messages WHERE instr(content, '```') > 0)", // เติมย้อนหลังครั้งเดียว
 ];
 // เพิ่มเมื่อแก้ NEW_COLS / PERF / ตารางที่สร้างเอง: isolate ใหม่เห็นเลขตรงกันแล้วข้ามทั้งหมด (เดิมสั่ง CREATE ~15 คำสั่งทีละรอบทุก isolate ก่อนตอบคำขอแรก)
-export const SCHEMA_VER = '2026-11-25b';
+export const SCHEMA_VER = '2026-11-25c';
 export const ensureCols = env => colsDone ||= (async () => {
   try { if ((await env.DB.prepare("SELECT value FROM settings WHERE key='schema_ver'").first())?.value === SCHEMA_VER) return; } catch { /* ยังไม่มีตาราง settings: ทำต่อ */ }
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
@@ -395,7 +396,7 @@ export const ensureCols = env => colsDone ||= (async () => {
     todo.push(API_LOG, 'CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id)');
   }
   todo.push(...PAY_UQ, ...ART_TABLES, ...UF_TABLES, 'CREATE TABLE IF NOT EXISTS team_log (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at INTEGER NOT NULL)', 'CREATE INDEX IF NOT EXISTS team_log_team ON team_log(team_id, id)'); // ถ้ามีข้อมูลซ้ำอยู่แล้วคำสั่งจะล้ม (ถูก catch ด้านล่าง) · ตรวจซ้ำที่หลังบ้านแล้วค่อยสร้างเอง
-  todo.push(...PERF, SUBS_TABLE, SUBS_INDEX, ...SITE_TABLES);
+  todo.push(...PERF, SUBS_TABLE, SUBS_INDEX, ...SITE_TABLES, ...MEET_TABLES);
   let ok = true;
   for (const q of todo) try { await env.DB.prepare(q).run(); } catch (e) { if (!/duplicate column|already exists/i.test(e.message)) { ok = false; console.log('ensureCols', q.slice(0, 80), e.message); } } // มีอยู่แล้ว = ปกติ
   if (ok) await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('schema_ver',?)").bind(SCHEMA_VER).run().catch(() => {}); // มีคำสั่งล้ม (เช่นดัชนี unique ชนข้อมูลซ้ำ): ไม่จำเลข ลองใหม่ใน isolate ถัดไป
