@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('astraDesktop', {
   agent: { needKey: () => inv('desk:agentNeedKey'), setKey: k => inv('desk:agentSetKey', String(k)), run: o => inv('desk:agentRun', o), stop: sid => inv('desk:agentStop', sid), steer: (sid, t) => inv('desk:agentSteer', sid, String(t)), undo: (sid, step) => inv('desk:agentUndo', sid, step ?? null), reset: sid => inv('desk:agentReset', sid), commands: k => inv('desk:agentCommands', k), git: (k, action, msg) => inv('desk:agentGit', k, action, msg), answer: (sid, id, t) => inv('desk:agentAnswer', sid, id, String(t)), open: (k, p) => inv('desk:agentOpen', k, String(p)), schedules: () => inv('desk:schedules'), setSchedules: list => inv('desk:setSchedules', list), onEvent: f => on(subs.agent, f) },
   screen: { on: () => inv('desk:screenOn'), off: () => inv('desk:screenOff'), state: () => inv('desk:screenState'), batch: acts => inv('desk:screenBatch', acts) },
   plugins: { list: () => inv('desk:plugins'), install: (src, env) => inv('desk:pluginInstall', src, env || {}), remove: n => inv('desk:pluginRemove', String(n)) },
+  roblox: { state: () => inv('desk:robloxState'), install: () => inv('desk:robloxInstall') },
   mcp: { get: () => inv('desk:mcpGet'), set: t => inv('desk:mcpSet', String(t ?? '')), tools: () => inv('desk:mcpTools'), call: (n, a) => inv('desk:mcpCall', n, a) },
 });
 

@@ -1190,7 +1190,7 @@ async function pcInit() { if (!PCD) return; chat.pc = await PCD.fs.linked('chat'
 function pcSheet() {
   sheet('ใช้คอมเครื่องนี้', `<div class="sheet-form"><p class="sheet-msg">AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP ในเครื่องนี้ได้ <b>เฉพาะในโฟลเดอร์ที่เลือก</b> · เขียนไฟล์ได้เองในโฟลเดอร์นี้ · รันคำสั่งถามในหน้าต่างของ Windows (เลือก "รันอัตโนมัติ" ได้ คำสั่งลบ/อันตรายยังถามเสมอ)</p>
     <p style="margin:0">${chat.pc ? `โฟลเดอร์: <b>${esc(chat.pc.path)}</b>${chat.pc.auto ? '<br>รันคำสั่งอัตโนมัติ: <b>เปิด</b> (ยกเว้นคำสั่งอันตราย) <button type="button" class="btn out sm" id="pcauto">ปิด</button>' : ''}` : 'ยังไม่ได้เลือกโฟลเดอร์'}</p>
-    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button>${PCD.plugins ? `<button type="button" class="btn out sm" id="pcplug">${ic('layers', 'sm')} ปลั๊กอิน</button>` : ''}${PCD.agent?.schedules ? `<button type="button" class="btn out sm" id="pcsch">${ic('bell', 'sm')} งานตั้งเวลา</button>` : ''}</div>
+    <div class="row"><button type="button" class="btn blue sm" id="pcpick">${ic('folder', 'sm')} ${chat.pc ? 'เปลี่ยนโฟลเดอร์' : 'เลือกโฟลเดอร์'}</button>${chat.pc ? `<button type="button" class="btn ${pcOn() ? 'red' : 'blue'} sm" id="pctog">${pcOn() ? 'ปิดใช้' : 'เปิดใช้'}</button><button type="button" class="btn out sm" id="pcopen">เปิดโฟลเดอร์</button>` : ''}<button type="button" class="btn out sm" id="pcmcp">${ic('server', 'sm')} MCP ในเครื่อง</button>${PCD.roblox ? `<button type="button" class="btn out sm" id="pcrbx">${ic('play', 'sm')} Roblox Studio</button>` : ''}${PCD.plugins ? `<button type="button" class="btn out sm" id="pcplug">${ic('layers', 'sm')} ปลั๊กอิน</button>` : ''}${PCD.agent?.schedules ? `<button type="button" class="btn out sm" id="pcsch">${ic('bell', 'sm')} งานตั้งเวลา</button>` : ''}</div>
     ${chat.pc && PCD.agent ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="pcag" ${localStorage.getItem('pcAgent') !== '0' ? 'checked' : ''}><span></span></span> <span><b>โหมด Agent</b> · ทำงานเองต่อเนื่องแบบ Claude Code (อ่าน/แก้ไฟล์ รันคำสั่ง ค้นเว็บ จนเสร็จ) · ใช้ลิมิต/Wallet ผ่าน API</span></label>
       <div id="pcagopt" style="display:grid;gap:8px" ${localStorage.getItem('pcAgent') !== '0' ? '' : 'hidden'}><div class="row"><select id="pcagm" style="width:auto">${AG_MODES.map(([k, l]) => `<option value="${k}" ${agMode() === k ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="pcagr" style="width:auto">${[30, 80, 150].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentMax') || 80) === n ? 'selected' : ''}>สูงสุด ${n} รอบ</option>`).join('')}</select>
         <select id="pcags" style="width:auto"><option value="code" ${localStorage.getItem('pcAgentStyle') !== 'work' ? 'selected' : ''}>งานโค้ด</option><option value="work" ${localStorage.getItem('pcAgentStyle') === 'work' ? 'selected' : ''}>งานทั่วไป / เอกสาร</option></select><select id="pcagb" style="width:auto">${[0, 5, 20, 50, 100].map(n => `<option value="${n}" ${(+localStorage.getItem('pcAgentBudget') || 0) === n ? 'selected' : ''}>${n ? `เพดาน ฿${n}/งาน` : 'ไม่จำกัดเงินต่องาน'}</option>`).join('')}</select></div>
@@ -1219,6 +1219,7 @@ function pcSheet() {
     d.querySelector('#pcopen')?.addEventListener('click', () => PCD.fs.open('chat'));
     d.querySelector('#pcauto')?.addEventListener('click', async () => { await PCD.fs.autoOff('chat'); chat.pc.auto = false; close(); toast('ปิดรันอัตโนมัติแล้ว ต่อไปจะถามทุกคำสั่ง'); });
     d.querySelector('#pcmcp').onclick = () => { close(); mcpLocalSheet(); };
+    const rb = d.querySelector('#pcrbx'); if (rb) rb.onclick = () => { close(); robloxSheet(); };
     d.querySelector('#pcplug')?.addEventListener('click', () => { close(); pluginSheet(); });
     d.querySelector('#pcsch')?.addEventListener('click', () => { close(); scheduleSheet(); });
   });
@@ -1238,6 +1239,19 @@ function mcpHub() {
     if (!pcOn()) { toast('เลือกโฟลเดอร์งานก่อน แล้วกดปุ่ม ' + (v === 'plug' ? 'ปลั๊กอิน' : 'MCP ในเครื่อง') + ' ในหน้านี้'); return pcSheet(); }
     return v === 'plug' ? pluginSheet() : mcpLocalSheet();
   }));
+}
+// Roblox Studio ในตัว: ติดตั้งปลั๊กอิน Kyber Studio ครั้งเดียว ไม่ต้องตั้ง MCP · Agent อ่าน/แก้สคริปต์ สร้างชิ้นส่วน และทดสอบเกมได้
+async function robloxSheet() {
+  const draw = s => `<div class="sheet-form"><p class="sheet-msg">ให้ Agent ทำงานใน Roblox Studio ที่เปิดอยู่: เขียน/แก้สคริปต์ Luau, สร้างแมปและชิ้นส่วน, กดทดสอบแล้วอ่าน Output เพื่อแก้บั๊กเอง · ไม่ต้องตั้ง MCP · แก้อะไรไป Ctrl+Z ใน Studio ย้อนได้</p>
+    <div class="row"><span>${s.connected ? `${ic('check', 'sm')} <b>เชื่อมแล้ว</b> · ${esc(s.place || 'Studio')}` : s.installed ? `${ic('clock', 'sm')} ติดตั้งแล้ว · รอ Studio เชื่อม` : `${ic('x', 'sm')} ยังไม่ได้ติดตั้ง`}</span></div>
+    ${s.installed ? `<ol class="muted" style="margin:0;padding-left:18px"><li>ปิดแล้วเปิด Roblox Studio ใหม่ และเปิดเกมที่จะทำ</li><li>Studio ถามสิทธิ์ปลั๊กอิน Kyber ให้ต่อ 127.0.0.1 → กด <b>Allow</b></li><li>ปุ่ม Kyber AI บนแถบ Plugins ต้องเป็นสีฟ้า (กดเปิด/ปิดได้)</li><li>สั่ง Agent ในแชตได้เลย เช่น "ทำระบบเงินกับร้านค้าในเกมนี้ แล้วทดสอบให้"</li></ol>` : ''}
+    <div class="row"><button type="button" class="btn blue" id="rbi">${s.installed ? 'ติดตั้งใหม่' : 'ติดตั้งปลั๊กอิน Kyber Studio'}</button><button type="button" class="btn out" id="rbr">ตรวจสถานะ</button></div></div>`;
+  let s = await PCD.roblox.state().catch(() => ({}));
+  sheet('Roblox Studio', draw(s), function bind(d) {
+    const redo = async () => { s = await PCD.roblox.state().catch(() => s); d.querySelector('.sheet-b').innerHTML = draw(s); bind(d); };
+    d.querySelector('#rbi').onclick = async () => { try { const r = await PCD.roblox.install(); if (r) toast('ติดตั้งแล้ว · เปิด Studio ใหม่แล้วกด Allow', 'ok'); redo(); } catch (x) { toast(x.message, 'bad'); } };
+    d.querySelector('#rbr').onclick = redo;
+  });
 }
 async function mcpLocalSheet() {
   const cur = await PCD.mcp.get(); let cfg = {}; try { cfg = JSON.parse(cur.config || '{}'); } catch { cfg = {}; }
