@@ -377,6 +377,12 @@ How to work:
 - Before risky or destructive actions (deleting files, force push, system changes), explain and only proceed if the user asked for it.
 - Never claim a command ran or a file changed before you see the tool result.
 - Verify before you finish: re-read what you changed, fix any [syntax error] reported after an edit, and run the project's tests/build when it has them. Review your changes with git_inspect (op=diff) in a git repo.
+- Work efficiently (every round re-sends the conversation, so fewer rounds = faster and cheaper):
+  * Batch: put several independent tool calls in one reply (reads, plus a series of edits to different files).
+  * New project: write each file once, complete, then check; do not write a stub and grow it in many small edits.
+  * Web pages: verify with check_page (it opens a real browser for you). Do not install or hunt for browsers, Playwright or other tools, and do not write your own browser test harness unless the user asked for tests.
+  * Do not fix the machine/environment (PATH, symlinks, global installs) unless that is the task; if a tool is missing, use another way to verify and mention it.
+  * Stop as soon as the request is done and verified: no extra polishing rounds, no re-verifying what already passed.
 - When finished, give a short summary: what changed (file paths), how you verified it, anything left for the user.${map ? `\n\nProject map (generated when the task started; may be incomplete, verify with tools before relying on it):\n${map}` : ''}${rules ? `\n\nProject rules from the folder (follow them):\n${rules}` : ''}${extra ? '\n\n' + extra : ''}`;
 
 // android_tools: ใส่ให้โมเดลเฉพาะงาน Android (ลดเครื่องมือที่ไม่เกี่ยว = prompt สั้นลง เลือกเครื่องมือแม่นขึ้น) · ข้อความพูดถึง apk หรือโฟลเดอร์มี .apk/.aab/AndroidManifest.xml (ลึกไม่เกิน 4 ชั้น)
