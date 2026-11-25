@@ -434,3 +434,14 @@ test('/v1 stream sends keepalive pings while the model is slow', async () => {
   assert.match(text, /^: ping$/m); assert.match(text, /hello/); assert.match(text, /data: \[DONE\]\s*$/);
   fm.close();
 });
+
+test('context guard: a very long agent history gets old tool results trimmed before the model (OpenCode with a 1M context setting)', async () => {
+  const { fm, v1 } = await setup({ balance: 1000 }), big = 'L'.repeat(60000), messages = [{ role: 'user', content: 'fix the bot' }];
+  for (let i = 0; i < 14; i++) messages.push({ role: 'assistant', content: '', tool_calls: [{ id: 'c' + i, type: 'function', function: { name: 'read', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'c' + i, content: big });
+  messages.push({ role: 'user', content: 'go on' });
+  const r = await v1('/v1/chat/completions', { model: 'chat-one', messages }); assert.equal(r.status, 200);
+  const sent = globalThis.__lastBody.messages.filter(m => m.role === 'tool');
+  assert.ok(sent[0].content.startsWith('[old]') && sent[0].content.length < 2500, 'old result trimmed');
+  assert.equal(sent.at(-1).content, big, 'recent results stay whole');
+  fm.close();
+});

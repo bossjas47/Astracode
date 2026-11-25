@@ -63,7 +63,7 @@ if (P.tool === 'Codex') {
   save(file, JSON.stringify(j, null, 2) + '\\n');
 } else {
   file = path.join(home, '.config', 'opencode', 'opencode.json'); const j = readJson(file);
-  j.provider = { ...(j.provider || {}), astra: { npm: '@ai-sdk/openai-compatible', name: 'Kyber', options: { baseURL: P.site + '/v1', apiKey: P.key }, models: Object.fromEntries(P.models.map(m => [m, { limit: { context: 1050000, output: 128000 } }])) } };
+  j.provider = { ...(j.provider || {}), astra: { npm: '@ai-sdk/openai-compatible', name: 'Kyber', options: { baseURL: P.site + '/v1', apiKey: P.key }, models: Object.fromEntries(P.models.map(m => [m, { limit: { context: 160000, output: 32000 } }])) } };
   j.model = 'astra/' + P.model; save(file, JSON.stringify(j, null, 2) + '\\n');
 }
 console.log('\\n✅ ตั้งค่า ' + P.tool + ' ให้ใช้ Kyber แล้ว');
