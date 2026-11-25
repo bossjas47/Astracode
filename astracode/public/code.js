@@ -490,8 +490,8 @@ async function uploadFiles(list) {
   importReport('อัปโหลดไฟล์', out.length ? await writeChunks(out, skip) : 0, skip);
 }
 // ไฟล์ไบนารีอื่นที่ไม่ใช่รูป (ฟอนต์ เสียง วิดีโอ PDF ...) เก็บเป็น data URL ถ้าไม่ใหญ่เกิน ไม่ให้หายตอนนำเข้า · ส่งออก zip เป็นไฟล์จริงเหมือนเดิม
-const BIN_MIME = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf', eot: 'application/vnd.ms-fontobject', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', pdf: 'application/pdf', wasm: 'application/wasm', zip: 'application/zip' };
-const BIN_RE = /\.(woff2?|ttf|otf|eot|mp3|wav|ogg|m4a|mp4|webm|mov|pdf|wasm|zip|gz|tgz|rar|7z|jar|class|exe|dll|so|dylib|bin|dat|db|sqlite3?|psd|ai|sketch|fig|xlsx?|docx?|pptx?|keystore|jks|p12|pfx)$/i;
+const BIN_MIME = { glb: 'model/gltf-binary', hdr: 'application/octet-stream', woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf', eot: 'application/vnd.ms-fontobject', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', pdf: 'application/pdf', wasm: 'application/wasm', zip: 'application/zip' };
+const BIN_RE = /\.(glb|hdr|woff2?|ttf|otf|eot|mp3|wav|ogg|m4a|mp4|webm|mov|pdf|wasm|zip|gz|tgz|rar|7z|jar|class|exe|dll|so|dylib|bin|dat|db|sqlite3?|psd|ai|sketch|fig|xlsx?|docx?|pptx?|keystore|jks|p12|pfx)$/i;
 const BIN_MAX = 370e3; // base64 แล้วยังไม่เกิน 500KB ต่อไฟล์
 const isDataBin = t => typeof t === 'string' && /^data:[\w.+/-]*;base64,/.test(t);
 const b64u8 = u => { let x = ''; for (let i = 0; i < u.length; i += 0x8000) x += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(x); };

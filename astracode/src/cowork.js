@@ -15,6 +15,12 @@ export const ensureCowork = async env => { await env.DB.batch([env.DB.prepare(TA
 // เครื่องพร้อมกันทั้งเว็บ (ตั้งในหลังบ้าน cw_running · ต้องไม่เกิน max_instances ของ container)
 const cwCap = async env => Math.max(1, +(await getSetting(env, 'cw_running')) || CW_RUNNING);
 // โมเดลที่เลือกใช้ใน Kyber Harness: ชื่อใน cw_models (คั่น ,) ที่อยู่ในแพลนของผู้ใช้ · ค่าเริ่มต้น Sonnet Eco (มาตรฐาน) + Opus (งานยาก)
+// ที่ปรึกษาของ Agent: Opus ที่อยู่ในแพลน (ไม่ใช้ถ้าโมเดลหลักเป็น Opus อยู่แล้ว หรือผู้ใช้ปิด) · คืน slug สำหรับ /v1
+export async function advisorSlug(env, plan, m, off = false) {
+  if (off || /opus/i.test(m?.name || '') || !plan) return null;
+  const a = (await allowedModels(env, plan._planIds || plan.id)).find(x => /opus/i.test(x.name) && !['image', 'embedding'].includes(x.provider));
+  return a ? (await import('./api.js')).slug(a) : null;
+}
 export async function cwModels(env, plan) {
   const names = String((await getSetting(env, 'cw_models')) || `${COWORK_MODEL},Claude Opus 5.5 Eco,Claude Opus 5.5`).split(',').map(x => x.trim()).filter(Boolean);
   const mine = plan ? new Set((await allowedModels(env, plan._planIds || plan.id)).map(m => m.id)) : null;
@@ -76,7 +82,7 @@ async function startTurn(env, u, t, prompt, m, follow, fromQueue = false) {
   if (env.SLIPS) for (const f of JSON.parse(t.files || '[]').slice(0, CW_FILES)) { if ((total += f.size || 0) > CW_IN_MAX) break; const o = await env.SLIPS.get(r2key(t, f.path)); if (!o) continue; const buf = await o.arrayBuffer(); files.push({ path: f.path, content: /^(text|application\/json)/.test(mimeOf(f.path)) ? new TextDecoder().decode(buf) : 'data:application/octet-stream;base64,' + toB64(buf) }); }
   const skills = (await env.DB.prepare('SELECT name, content FROM skills WHERE user_id=? AND enabled=1 ORDER BY id LIMIT 20').bind(u.id).all().catch(() => ({ results: [] }))).results.map(s => `## ${s.name}\n${s.content}`).join('\n\n').slice(0, 30000); // Skills ของลูกค้าใช้ใน Kyber Harness ด้วย
   const stub = env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id));
-  const r = await stub.fetch('https://box/start', { method: 'POST', body: JSON.stringify({ id: t.id, kind: 'cowork', run: { cowork: true, follow, site: siteUrl(env), key, model: slug(m), prompt, files, skills, history: hist.slice(-30), maxRounds: CW_ROUNDS, effort: null } }) });
+  const r = await stub.fetch('https://box/start', { method: 'POST', body: JSON.stringify({ id: t.id, kind: 'cowork', run: { cowork: true, follow, site: siteUrl(env), key, model: slug(m), prompt, files, skills, history: hist.slice(-30), maxRounds: CW_ROUNDS, effort: null, advisor: await advisorSlug(env, await planOf(env, u), m) } }) });
   if (!r.ok) throw new Error((await r.text()).slice(0, 300));
 }
 

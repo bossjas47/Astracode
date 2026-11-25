@@ -6,7 +6,7 @@ import { err, json, limited, planOf, projectFor, rand, sha } from './core.js';
 import { applyChanges } from './agent.js';
 import { slug } from './api.js';
 import { event, siteUrl } from './billing.js';
-import { coworkEvents, finishCowork, CW_MAX_MS } from './cowork.js';
+import { coworkEvents, finishCowork, CW_MAX_MS, advisorSlug } from './cowork.js';
 
 const MAX_MS = 30 * 60e3, MAX_RUNNING = 5, PY_IDLE = 5 * 60e3;
 export const ensureCloud = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS cloud_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, key_id INTEGER, status TEXT NOT NULL, prompt TEXT, model TEXT, events TEXT, final TEXT, changed TEXT, error TEXT, created_at INTEGER, finished_at INTEGER)').run();
@@ -118,7 +118,7 @@ export async function cloudApi(req, env, u, path, M) {
     const id = (await DB.prepare("INSERT INTO cloud_jobs (user_id,project_id,key_id,status,prompt,model,events,created_at) VALUES (?,?,?,'running',?,?,'[]',?) RETURNING id").bind(u.id, pid, kid, prompt, m.name, now).first()).id;
     try {
       const stub = env.AGENTBOX.get(env.AGENTBOX.idFromName('job:' + id));
-      const r = await stub.fetch('https://box/start', { method: 'POST', body: JSON.stringify({ id, run: { site: siteUrl(env), key, model: slug(m), prompt, files, maxRounds: Math.min(150, +b.max_rounds || 80), effort: b.effort || null } }) });
+      const r = await stub.fetch('https://box/start', { method: 'POST', body: JSON.stringify({ id, run: { site: siteUrl(env), key, model: slug(m), prompt, files, maxRounds: Math.min(150, +b.max_rounds || 80), effort: b.effort || null, advisor: await advisorSlug(env, plan, m, b.advisor === false), memory: b.memory !== false } }) });
       if (!r.ok) throw new Error(await r.text());
     } catch (e) { await finishJob(env, id, { status: 'error', error: 'เปิดเครื่องบนคลาวด์ไม่สำเร็จ: ' + String(e.message).slice(0, 300), changed: [], deleted: [] }); return err('เปิดเครื่องบนคลาวด์ไม่สำเร็จ ลองใหม่อีกครั้ง', 502); }
     return json({ id });

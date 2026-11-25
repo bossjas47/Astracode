@@ -9,6 +9,7 @@ const { startMcp } = require('./mcp');
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { setupTool, SETUP_TOOLS } = require('./setuptools');
+const { builtinSkills, THREE_RE, THREE_SKILL, memoryRead, memoryBlock, memoryLearn, makeAdvisor } = require('./skills');
 const { projectMap, makeReviewer, AGENT_TOOLS, ASK_TOOL, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin, wantsAndroid, toolsFor } = require('./agenttools');
 
 const SITE = 'https://kyber.hypatir.dev', OLD_SITE = 'https://astracode.panderx.xyz'; // ย้ายโดเมน 25 พ.ย. 2569 · โดเมนเดิมยังรับ /api และ /v1 ตลอด
@@ -348,10 +349,10 @@ async function remoteTools() {
 }
 const remoteCall = async (name, args) => { const r = await fetch(SITE + '/v1/mcp/call', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ name, args }) }); const d = await r.json().catch(() => ({})); return d.text ?? ('Error: ' + (d.error?.message_th || d.error?.message || 'HTTP ' + r.status)); };
 // จับภาพหน้าเว็บ (เช่น dev server) ในหน้าต่างซ่อน ให้ Agent ตรวจ UI ด้วยตา
-async function shotUrl(url, width) {
+async function shotUrl(url, width, wait = 1500) {
   const w = new BrowserWindow({ show: false, width, height: 900, webPreferences: { partition: 'preview', sandbox: true, contextIsolation: true, offscreen: true } });
   const logs = []; w.webContents.on('console-message', (e, level, message, line, src) => { if (level >= 2 && logs.length < 30) logs.push(`[${level === 3 ? 'error' : 'warn'}] ${String(message).slice(0, 300)}${src ? ` (${String(src).split('/').pop()}:${line})` : ''}`); }); // error/warning ในหน้าเว็บ ให้ Agent เห็นโดยไม่ต้องให้ผู้ใช้แคป
-  try { const res = w.loadURL(url).catch(x => logs.push('[load] ' + x.message)); await Promise.race([res, new Promise((_, no) => setTimeout(() => no(new Error('โหลดหน้าเว็บไม่ทันใน 20 วินาที')), 20e3))]); await new Promise(ok => setTimeout(ok, 1500)); const img = await w.webContents.capturePage(); return { image: 'data:image/jpeg;base64,' + img.resize({ width: Math.min(width, 1280) }).toJPEG(75).toString('base64'), logs }; }
+  try { const res = w.loadURL(url).catch(x => logs.push('[load] ' + x.message)); await Promise.race([res, new Promise((_, no) => setTimeout(() => no(new Error('โหลดหน้าเว็บไม่ทันใน 20 วินาที')), 20e3))]); await new Promise(ok => setTimeout(ok, wait)); const img = await w.webContents.capturePage(), jpg = img.resize({ width: Math.min(width, 1280) }).toJPEG(75); const canvases = await w.webContents.executeJavaScript('document.querySelectorAll("canvas").length').catch(() => null); return { image: 'data:image/jpeg;base64,' + jpg.toString('base64'), logs, bytes: jpg.length, canvases }; }
   finally { w.destroy(); }
 }
 h('desk:agentRun', (e, o = {}) => runTask(o, e.sender));
@@ -383,7 +384,7 @@ async function runTask(o = {}, sender) {
       const r = await dialog.showMessageBox(web, { type: 'warning', title: 'โปรเจกต์นี้มี hook', message: 'ให้รันคำสั่งนี้เองทุกครั้งหลัง Agent แก้ไฟล์?', detail: hooks.after_edit, buttons: ['อนุญาต', 'ไม่ใช้ hook'], defaultId: 1, cancelId: 1, noLink: true });
       if (r.response === 0) { settings.trustedHooks = { ...settings.trustedHooks, [path.resolve(root)]: hooks.after_edit }; save(); } else hooks = null;
     }
-    a.ws = new Workspace(root, { hooks, ask: req => approve(a, req), onTodos: t => tell({ type: 'todos', todos: t }), shot: shotUrl,
+    a.ws = new Workspace(root, { hooks, ask: req => approve(a, req), onTodos: t => tell({ type: 'todos', todos: t }), shot: shotUrl, pageCheck: (u, wait) => shotUrl(u, 1280, wait), // check_page: เปิดไฟล์ HTML/three.js จริง ดู error + ภาพ
       search: async q => { const r = await fetch(SITE + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ query: q }) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error?.message_th || d.error?.message || 'ค้นเว็บไม่ได้'); return d.results || []; },
       // ผู้ช่วยค้น: บทสนทนาแยก เครื่องมืออ่านอย่างเดียว ใช้โมเดลประหยัดถ้าหน้าเว็บส่งมา
       subagent: async (title, prompt) => {
@@ -393,7 +394,8 @@ async function runTask(o = {}, sender) {
       } });
     a.map = await projectMap(a.ws.root).catch(() => ({ text: '', checks: [] })); // แผนที่โปรเจกต์ + คำสั่งตรวจงาน (ใส่ใน system ตอนเริ่ม session)
     if (!a.messages.length) {
-      a.messages.push({ role: 'system', content: agentSystem({ root: a.ws.root, os: `${process.platform} ${require('os').release()}`, map: a.map.text, rules: [await projectRules(a.ws.root), ...Object.values(settings.plugins || {}).filter(p => p.rules).map(p => `(ปลั๊กอิน ${p.title})\n${p.rules}`)].filter(Boolean).join('\n\n') }) });
+      const deps = await fs.promises.readFile(path.join(a.ws.root, 'package.json'), 'utf8').catch(() => ''); a.threeOn = /"three"\s*:/.test(deps);
+      a.messages.push({ role: 'system', content: agentSystem({ extra: builtinSkills({ text: '', deps, code: o.style !== 'work' }) + memoryBlock(await memoryRead(a.ws.root)), root: a.ws.root, os: `${process.platform} ${require('os').release()}`, map: a.map.text, rules: [await projectRules(a.ws.root), ...Object.values(settings.plugins || {}).filter(p => p.rules).map(p => `(ปลั๊กอิน ${p.title})\n${p.rules}`)].filter(Boolean).join('\n\n') }) });
       for (const m of (Array.isArray(o.history) ? o.history : []).slice(-10)) if (['user', 'assistant'].includes(m?.role) && typeof m.content === 'string') a.messages.push({ role: m.role, content: m.content.slice(0, 8000) }); // แชตเดิมที่ยังไม่เคยมีไฟล์ session
     }
     agents.set(sid, a);
@@ -404,6 +406,7 @@ async function runTask(o = {}, sender) {
   let text = String(o.text || '').slice(0, 100000);
   const refs = [...new Set([...text.matchAll(/(?:^|\s)@([\w./\\-]+)/g)].map(m => m[1]))].slice(0, 5);
   for (const p of refs) { const f = path.resolve(a.ws.root, p); if (f.startsWith(a.ws.root) && fs.existsSync(f) && fs.statSync(f).isFile() && fs.statSync(f).size < 300e3) text += `\n\n[ไฟล์ ${p}]\n${fs.readFileSync(f, 'utf8').slice(0, 30000)}`; }
+  if (!a.threeOn && THREE_RE.test(text)) { a.threeOn = true; text += '\n\n[Kyber skill]\n' + THREE_SKILL; } // งาน 3D: ใส่สกิล Three.js ครั้งแรกที่เจอ (ไม่ใส่ซ้ำทุกข้อความ)
   if (o.style === 'work') text += '\n\n[โหมดงานทั่วไป] ผู้ใช้ไม่ใช่โปรแกรมเมอร์: อธิบายด้วยภาษาง่าย ไม่โชว์โค้ดถ้าไม่จำเป็น ทำผลลัพธ์เป็นไฟล์ที่เปิดใช้ได้เลย (Word/Excel/PowerPoint/PDF ด้วย make_document) บอกชื่อไฟล์ที่ได้ตอนจบ ถามด้วย ask_user เมื่อข้อมูลไม่พอ';
   if (mode === 'plan') text += '\n\n[โหมดวางแผน] ห้ามแก้ไฟล์หรือรันคำสั่ง: สำรวจโค้ดด้วยเครื่องมืออ่าน แล้วเขียนแผนเป็นขั้นตอนชัดเจน (ไฟล์ที่จะแก้ แก้อะไร ตรวจผลอย่างไร) ให้ผู้ใช้อนุมัติก่อนลงมือ';
   const imgs = (Array.isArray(o.images) ? o.images : []).filter(x => typeof x === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(x) && x.length < 4e6).slice(0, 4);
@@ -438,13 +441,17 @@ async function runTask(o = {}, sender) {
     if (d.type === 'usage' && d.usage?.astra) { a.cost.charge += d.usage.astra.charge_thb || 0; a.cost.pct += d.usage.astra.week_pct || 0; tell({ type: 'cost', ...a.cost }); if (budget && a.cost.charge >= budget && !ac.signal.aborted) { tell({ type: 'info', text: `ถึงเพดานงานนี้ ฿${budget} แล้ว หยุดให้ก่อน (สั่ง "ทำต่อ" ได้)` }); ac.abort(); } }
     tell(d);
   };
+  const post = body => fetch(SITE + '/v1/chat/completions', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) });
+  // ที่ปรึกษาโมเดลแรง (หน้าเว็บส่งชื่อโมเดลมา เมื่อผู้ใช้เปิดไว้และแพลนมีโมเดลนั้น) · ไม่ส่ง = ปิด
+  const advisorModel = typeof o.advisor === 'string' && o.advisor && o.advisor !== model && mode !== 'plan' ? o.advisor.slice(0, 120) : null, advisor = advisorModel ? makeAdvisor({ post, model: advisorModel }) : null;
   try {
-    await runAgent({ base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
+    await runAgent({ advisor, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
       maxDurationMs: Math.min(600, Math.max(0, +o.maxMinutes || 0)) * 60e3, spill: (t, i) => a.ws.spill(t, i),
       checks: (a.map ||= await projectMap(a.ws.root).catch(() => ({ checks: [] }))).checks || [], verifyGate: o.verifyGate !== false && mode !== 'plan',
-      review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)
+      review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model: advisorModel || model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)
         post: body => fetch(SITE + '/v1/chat/completions', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) }) }),
       onCheckpoint: () => { if (Date.now() - (a.savedAt || 0) > 5000) { a.savedAt = Date.now(); agentSave(a); } } }); // บันทึกระหว่างทำ (ทุก ≥5 วินาที): แอปปิด/ค้างกลางงาน เปิดใหม่ทำต่อได้
+    if (mode !== 'plan' && mode !== 'ask' && o.memory !== false && a.ws.changed().length) memoryLearn({ post, model, root: a.ws.root, task: String(o.text || ''), messages: a.messages }).then(l => { if (l?.length) tell({ type: 'info', text: `จำบทเรียนของโปรเจกต์ไว้ ${l.length} ข้อ (.kyber/memory.md)` }); }).catch(() => {}); // ความจำโปรเจกต์: จบงานที่แก้ไฟล์ → สรุปบทเรียนเก็บไว้ใช้งานหน้า
     tell({ type: 'done', changed: a.ws.changed(), outputs: [...new Set([...a.outputs, ...a.ws.changed()])].filter(p => !/\.(js|ts|py|css|json|lock|map)$/i.test(p) || a.outputs.has(p)).slice(0, 20), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
   } catch (x) {
     tell({ type: 'error', text: ac.signal.aborted ? 'หยุดแล้ว' : x.message, changed: a.ws.changed(), runFrom: a.ws.runFrom });

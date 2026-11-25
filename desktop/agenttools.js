@@ -28,10 +28,12 @@ const AGENT_TOOLS = [
   fn('multi_edit', 'Make several exact replacements in ONE file atomically: every edit must match or nothing is written. Edits apply in order, each on the result of the previous one. Prefer this over many edit_file calls on the same file.', { path: S('File path'), edits: { type: 'array', description: 'Replacements, applied in order', items: { type: 'object', properties: { old_string: S('Exact existing text'), new_string: S('Replacement text'), replace_all: B('Replace every occurrence') }, required: ['old_string', 'new_string'] } } }, ['path', 'edits']),
   fn('git_inspect', 'Read-only git information for the working folder (never changes the repo): status, diff (working tree, or staged=true), log, or show a commit. Use it to review your own changes before you finish.', { op: { type: 'string', enum: ['status', 'diff', 'log', 'show'], description: 'What to show' }, path: S('Limit to this file or folder'), staged: B('diff: show staged changes'), ref: S('Commit/branch, e.g. HEAD~1 (show, log, or diff against it)'), limit: N('log: number of commits, default 20') }, ['op']),
   fn('check_syntax', 'Check one file for syntax errors without running it: JavaScript (node --check), JSON, Python (ast). TypeScript/JSX use the project\'s own typescript package when installed. Files you edit are checked automatically; use this for other files.', { path: S('File path') }, ['path']),
+  fn('check_page', 'Open a local HTML file (or http URL) in a real browser, wait for it to render, and return the console errors plus a screenshot. Use it to verify web pages, games and three.js 3D scenes after you write them; fix every error and blank screen it reports.', { path: S('HTML file in the project, e.g. index.html (or a full http URL)'), wait_ms: N('Extra wait for animations/models to load, default 1500') }, ['path']),
+  fn('notes', 'Your working memory for this task. action=add saves a short note (decision, file role, command that works, what is left); action=list shows all notes. Notes are kept even when the conversation is summarized.', { action: { type: 'string', enum: ['add', 'list'] }, text: S('For add: the note (one or two lines)') }, ['action']),
   fn('todo_write', 'Keep a short task list for multi-step work; the user sees it live. Send the whole list each time.', { todos: { type: 'array', items: { type: 'object', properties: { content: S('Task'), status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] } }, required: ['content', 'status'] } } }, ['todos']),
 ];
-const KIND = { read_file: 'read', list_dir: 'read', glob: 'read', grep: 'read', web_fetch: 'net', web_search: 'net', screenshot_url: 'net', task: 'none', todo_write: 'none', android_tools: 'bash', bash_output: 'none', kill_bash: 'none', write_file: 'edit', edit_file: 'edit', multi_edit: 'edit', bash: 'bash', git_inspect: 'read', check_syntax: 'read' };
-const READ_ONLY = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax', 'web_fetch', 'web_search', 'screenshot_url', 'todo_write', 'task']); // โหมดวางแผน
+const KIND = { read_file: 'read', list_dir: 'read', glob: 'read', grep: 'read', web_fetch: 'net', web_search: 'net', screenshot_url: 'net', task: 'none', todo_write: 'none', notes: 'none', check_page: 'read', android_tools: 'bash', bash_output: 'none', kill_bash: 'none', write_file: 'edit', edit_file: 'edit', multi_edit: 'edit', bash: 'bash', git_inspect: 'read', check_syntax: 'read' };
+const READ_ONLY = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax', 'web_fetch', 'web_search', 'screenshot_url', 'todo_write', 'task', 'notes', 'check_page']); // โหมดวางแผน
 const SUB_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax', 'web_fetch', 'web_search']); // ผู้ช่วยค้น (subagent)
 // ถามผู้ใช้ (ใช้ร่วมกันในแอป: main.js จัดการคำตอบเอง · เครื่องเสมือนบนคลาวด์มีของตัวเองใน COWORK_TOOLS)
 const ASK_TOOL = fn('ask_user', 'Ask the user ONE question when the task is unclear or a decision is theirs (which file, which option, missing info). Prefer 2-4 short options. Waits for the answer. Do not ask about things you can find out yourself.', { question: S('The question, in the user\'s language'), options: { type: 'array', items: { type: 'string' }, description: '2-4 short choices (optional)' } }, ['question']);
@@ -75,9 +77,9 @@ function diffLines(a, b, ctx = 2, max = 160) {
 const globRe = g => new RegExp('^' + String(g).replace(/\\/g, '/').replace(/[.+^$()|[\]]/g, '\\$&').replace(/\{([^}]+)\}/g, (_, x) => '(' + x.split(',').join('|') + ')').replace(/\*\*\/?/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\u0000/g, '(?:.*/)?') + '$', 'i');
 
 class Workspace {
-  constructor(root, { ask = async () => true, fetchImpl = fetch, search = async () => [], onTodos = () => {}, shot = null, subagent = null, hooks = null, requireRead = true } = {}) {
+  constructor(root, { ask = async () => true, fetchImpl = fetch, search = async () => [], onTodos = () => {}, shot = null, subagent = null, hooks = null, requireRead = true, pageCheck = null } = {}) {
     this.root = path.resolve(root); this.cwd = this.root; this.ask = ask; this.fetchImpl = fetchImpl; this.search = search; this.onTodos = onTodos;
-    this.shot = shot; this.subagent = subagent; this.hooks = hooks; // hooks: { after_edit: "npx prettier --write {file}" } (ผู้ใช้ยืนยันแล้วใน main)
+    this.shot = shot; this.pageCheck = pageCheck; this.subagent = subagent; this.hooks = hooks; // hooks: { after_edit: "npx prettier --write {file}" } (ผู้ใช้ยืนยันแล้วใน main)
     this.hist = []; this.step = 0; this.runFrom = 0; this.bg = new Map(); this.n = 0; this.askQ = Promise.resolve();
     this.seen = new Map(); this.requireRead = requireRead; // ไฟล์ที่อ่านแล้ว → mtime ตอนอ่าน: แก้ไฟล์เดิมได้เฉพาะไฟล์ที่อ่านแล้วและยังไม่ถูกเปลี่ยนจากที่อื่น (กันโมเดลเดาเนื้อหาไฟล์)
   }
@@ -264,9 +266,47 @@ class Workspace {
     return { text: `ภาพหน้าจอของ ${u} (แนบด้านล่าง)${logs.length ? '\nข้อความใน console ของหน้าเว็บ:\n' + logs.join('\n') : '\nconsole ไม่มี error'}`, images: [img] };
   }
   async task(a) { if (!this.subagent) return 'Error: ไม่มีผู้ช่วย'; return await this.subagent(String(a.description || 'งานย่อย').slice(0, 60), String(a.prompt || '')); }
+  async notes(a) {
+    this.notesList ||= [];
+    if (a.action === 'add') { const t = String(a.text || '').trim().slice(0, 500); if (!t) return 'Error: text is empty'; this.notesList.push(t); if (this.notesList.length > 40) this.notesList.shift(); return `บันทึกโน้ตแล้ว (${this.notesList.length} ข้อ)`; }
+    return this.notesList.length ? this.notesList.map((x, i) => `${i + 1}. ${x}`).join('\n') : '(ยังไม่มีโน้ต)';
+  }
+  pinnedNotes() { return (this.notesList || []).length ? 'Your notes so far (notes tool):\n' + this.notesList.map(x => '- ' + x).join('\n') : ''; }
+  async check_page(a) {
+    const p = String(a.path || ''), wait = Math.min(15000, Math.max(0, +a.wait_ms || 1500));
+    if (!this.pageCheck && !this.shot) return 'Error: ตรวจหน้าเว็บด้วยเบราว์เซอร์ใช้ได้ในแอปคอมและ Kyber Harness บนคลาวด์';
+    let target, srv = null;
+    if (/^https?:\/\//i.test(p)) target = p;
+    else { // ไฟล์ในโปรเจกต์: เปิดผ่านเว็บเซิร์ฟเวอร์ชั่วคราวในเครื่อง (file:// โหลด ES module / import map / fetch ไม่ได้ เพราะ CORS)
+      const f = this.abs(p); if (!this.inside(f)) return 'Error: path must be inside the working folder'; if (!await fs.access(f).then(() => true, () => false)) return `Error: ไม่พบไฟล์ ${p}`;
+      srv = await serveDir(this.root); target = srv.origin + '/' + path.relative(this.root, f).split(path.sep).map(encodeURIComponent).join('/');
+    }
+    try {
+      if (this.pageCheck) { const r = await this.pageCheck(target, wait, srv?.origin); return { text: pageReport(p, r), images: r.image ? [r.image] : [] }; }
+      const r = await this.shot(target, 1280, wait); const img = typeof r === 'string' ? r : r.image; return { text: pageReport(p, { logs: r?.logs || [], bytes: r?.bytes || (img ? img.length * 0.75 : 0), canvases: r?.canvases }), images: img ? [img] : [] };
+    } finally { srv?.close(); }
+  }
   async todo_write(a) { const t = (Array.isArray(a.todos) ? a.todos : []).slice(0, 30).map(x => ({ content: String(x.content || '').slice(0, 200), status: ['pending', 'in_progress', 'completed'].includes(x.status) ? x.status : 'pending' })); this.onTodos(t); return 'บันทึกรายการงานแล้ว'; }
 }
 
+// เว็บเซิร์ฟเวอร์ชั่วคราวสำหรับ check_page: เสิร์ฟเฉพาะไฟล์ในโฟลเดอร์งาน ที่ 127.0.0.1 พอร์ตสุ่ม ปิดทันทีหลังตรวจ
+const PAGE_MIME = { html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8', js: 'text/javascript', mjs: 'text/javascript', css: 'text/css', json: 'application/json', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', glb: 'model/gltf-binary', gltf: 'model/gltf+json', bin: 'application/octet-stream', wasm: 'application/wasm', hdr: 'application/octet-stream', mp3: 'audio/mpeg', mp4: 'video/mp4', woff2: 'font/woff2', ttf: 'font/ttf', txt: 'text/plain; charset=utf-8' };
+function serveDir(root) {
+  const http = require('http');
+  const srv = http.createServer(async (q, r) => {
+    let rel; try { rel = decodeURIComponent(new URL(q.url, 'http://x').pathname); } catch { r.writeHead(400); return r.end(); }
+    const f = path.resolve(root, '.' + rel); if (f !== root && !f.startsWith(root + path.sep)) { r.writeHead(403); return r.end(); }
+    const file = (await fs.stat(f).catch(() => null))?.isDirectory() ? path.join(f, 'index.html') : f;
+    const buf = await fs.readFile(file).catch(() => null); if (!buf) { r.writeHead(404); return r.end('not found'); }
+    r.writeHead(200, { 'content-type': PAGE_MIME[path.extname(file).slice(1).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' }); r.end(buf);
+  });
+  return new Promise(ok => srv.listen(0, '127.0.0.1', () => ok({ origin: 'http://127.0.0.1:' + srv.address().port, close: () => { srv.closeAllConnections?.(); srv.close(); } })));
+}
+// รายงานผลตรวจหน้าเว็บ: error ใน console · ภาพเกือบสีเดียว (ไฟล์ภาพเล็กมาก) = จอว่าง/ดำ เช่นฉาก 3D ไม่แสดง
+function pageReport(p, r = {}) {
+  const logs = (r.logs || []).filter(l => !/GL Driver Message|favicon\.ico/.test(l)).slice(0, 30), errs = logs.filter(l => /error|failed|uncaught|404|not defined|cannot/i.test(l)), blank = r.bytes > 0 && r.bytes < 9000;
+  return [`ตรวจหน้า ${p} ในเบราว์เซอร์จริงแล้ว (ภาพหน้าจอด้านล่าง)`, errs.length ? `พบ error ${errs.length} รายการ:\n${errs.join('\n')}` : 'console ไม่มี error', logs.length > errs.length ? 'คำเตือนอื่น:\n' + logs.filter(l => !errs.includes(l)).join('\n') : '', blank ? 'คำเตือน: หน้าจอดูเหมือนว่าง/สีเดียว (ฉาก 3D หรือเนื้อหาอาจไม่แสดง) ตรวจกล้อง แสง ขนาดวัตถุ และลูปเรนเดอร์' : '', r.canvases != null ? `canvas บนหน้า: ${r.canvases}` : ''].filter(Boolean).join('\n\n');
+}
 // แผนที่โปรเจกต์ตอนเริ่มงาน: โครงไฟล์ 2 ชั้น + คำสั่ง build/test + ไลบรารีหลัก → โมเดลเดาน้อยลงและเรียกเครื่องมือสำรวจน้อยลง
 // checks = คำสั่งตรวจงานของโปรเจกต์ (ใช้กับ "ตรวจงานก่อนจบ") · โฟลเดอร์ home ของผู้ใช้: ไม่ทำแผนที่ (ไฟล์ส่วนตัว/ไม่ใช่โปรเจกต์)
 async function projectMap(root) {
@@ -321,7 +361,7 @@ function makeReviewer({ ws, post, model, task = '' }) {
   };
 }
 
-const agentSystem = ({ root, os, rules, map = '' }) => `You are Kyber Agent (Kyber Harness by Hypatia), an autonomous coding and computer agent running on the user's computer through the Kyber Desktop app. Reply in the user's language. Never name the API provider that serves you.
+const agentSystem = ({ root, os, rules, map = '', extra = '' }) => `You are Kyber Agent (Kyber Harness by Hypatia), an autonomous coding and computer agent running on the user's computer through the Kyber Desktop app. Reply in the user's language. Never name the API provider that serves you.
 Working folder: ${root}
 OS: ${os}
 
@@ -337,7 +377,7 @@ How to work:
 - Before risky or destructive actions (deleting files, force push, system changes), explain and only proceed if the user asked for it.
 - Never claim a command ran or a file changed before you see the tool result.
 - Verify before you finish: re-read what you changed, fix any [syntax error] reported after an edit, and run the project's tests/build when it has them. Review your changes with git_inspect (op=diff) in a git repo.
-- When finished, give a short summary: what changed (file paths), how you verified it, anything left for the user.${map ? `\n\nProject map (generated when the task started; may be incomplete, verify with tools before relying on it):\n${map}` : ''}${rules ? `\n\nProject rules from the folder (follow them):\n${rules}` : ''}`;
+- When finished, give a short summary: what changed (file paths), how you verified it, anything left for the user.${map ? `\n\nProject map (generated when the task started; may be incomplete, verify with tools before relying on it):\n${map}` : ''}${rules ? `\n\nProject rules from the folder (follow them):\n${rules}` : ''}${extra ? '\n\n' + extra : ''}`;
 
 // android_tools: ใส่ให้โมเดลเฉพาะงาน Android (ลดเครื่องมือที่ไม่เกี่ยว = prompt สั้นลง เลือกเครื่องมือแม่นขึ้น) · ข้อความพูดถึง apk หรือโฟลเดอร์มี .apk/.aab/AndroidManifest.xml (ลึกไม่เกิน 4 ชั้น)
 async function wantsAndroid(root, text = '') {

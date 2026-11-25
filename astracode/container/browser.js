@@ -12,7 +12,7 @@ let br = null, page = null, marks = [];
 async function ensure() {
   if (page && !page.isClosed()) return page;
   const { chromium } = require('playwright-core');
-  br ||= await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  br ||= await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] }); // WebGL บนเครื่องไม่มีการ์ดจอ (three.js)
   const ctx = await br.newContext({ viewport: { width: 1280, height: 860 }, locale: 'th-TH', userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36 KyberCowork' });
   await ctx.route('**/*', route => {
     const u = route.request().url();
@@ -71,4 +71,20 @@ async function liveInput(id, x) {
   else return false;
   await p.waitForTimeout(250); return true;
 }
-module.exports = { BROWSER_TOOL, browserTool, htmlToPdf, closeBrowser, liveStart, liveEnd, liveShot, liveInput };
+// check_page: เปิดไฟล์ HTML (file://) หรือเว็บในบริบทแยก เก็บ error ใน console / หน้าโหลดไม่ขึ้น แล้วจับภาพ (WebGL ใช้ SwiftShader)
+async function pageCheck(url, wait = 1500, local = null) { // local = origin ของเซิร์ฟเวอร์ไฟล์ชั่วคราว (127.0.0.1) ที่อนุญาตเฉพาะรอบตรวจนี้
+  await ensure(); const ctx = await br.newContext({ viewport: { width: 1280, height: 800 } }); const logs = [];
+  await ctx.route('**/*', r => { const u = r.request().url(); return /^(data:|blob:)/.test(u) || (local && u.startsWith(local + '/')) || okUrl(u) ? r.continue() : r.abort('blockedbyclient'); });
+  const pg = await ctx.newPage();
+  pg.on('console', m => { const t = m.text(); if (['error', 'warning'].includes(m.type()) && logs.length < 30 && !/GL Driver Message|Failed to load resource/.test(t)) logs.push(`[${m.type() === 'error' ? 'error' : 'warn'}] ${t.slice(0, 300)}`); }); // เสียงรบกวนของ WebGL ซอฟต์แวร์ / 404 รายงานแยกพร้อม URL ด้านล่าง
+  pg.on('response', q => { if (q.status() >= 400 && !/favicon\.ico$/.test(q.url()) && logs.length < 30) logs.push(`[error] ${q.status()} ${q.url().replace(local || '#', '').slice(0, 200)}`); });
+  pg.on('pageerror', e => logs.length < 30 && logs.push('[error] Uncaught ' + String(e.message).slice(0, 300)));
+  pg.on('requestfailed', q => logs.length < 30 && logs.push(`[error] failed to load ${q.url().slice(0, 200)} (${q.failure()?.errorText || ''})`));
+  try {
+    await pg.goto(url, { waitUntil: 'load', timeout: 20000 }).catch(e => logs.push('[error] ' + e.message.slice(0, 200)));
+    await pg.waitForTimeout(wait);
+    const img = await pg.screenshot({ type: 'jpeg', quality: 70 }), canvases = await pg.evaluate(() => document.querySelectorAll('canvas').length).catch(() => null);
+    return { image: 'data:image/jpeg;base64,' + img.toString('base64'), logs, bytes: img.length, canvases };
+  } finally { await ctx.close().catch(() => {}); }
+}
+module.exports = { pageCheck, BROWSER_TOOL, browserTool, htmlToPdf, closeBrowser, liveStart, liveEnd, liveShot, liveInput };
