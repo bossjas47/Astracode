@@ -5,7 +5,7 @@
 import { err, json, limited, planOf, projectFor, rand, sha } from './core.js';
 import { applyChanges } from './agent.js';
 import { slug } from './api.js';
-import { siteUrl } from './billing.js';
+import { event, siteUrl } from './billing.js';
 import { coworkEvents, finishCowork } from './cowork.js';
 
 const MAX_MS = 30 * 60e3, MAX_RUNNING = 5, PY_IDLE = 5 * 60e3;
@@ -89,8 +89,10 @@ export async function pyApi(req, env, u) {
   if (JSON.stringify(b.files).length > 25e6) return err('ไฟล์รวมใหญ่เกินไป (สูงสุด ~20MB)', 413);
   const stub = env.AGENTBOX.get(env.AGENTBOX.idFromName('py:' + u.id));
   const r = await stub.fetch('https://box/py', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ files: b.files, main: String(b.main || 'main.py'), timeoutMs: 90e3 }) }).catch(e => ({ ok: false, status: 503, text: async () => e.message }));
-  if (!r.ok) return err('เครื่องคลาวด์ไม่พร้อม: ' + String(await r.text()).slice(0, 160), 503);
-  return new Response(r.body, { headers: { 'content-type': 'application/json' } });
+  if (!r.ok) { await event(env, 'pyrun', null, JSON.stringify({ u: u.id, ok: 0, down: 1 })).catch(() => {}); return err('เครื่องคลาวด์ไม่พร้อม: ' + String(await r.text()).slice(0, 160), 503); }
+  const txt = await r.text(); let d = {}; try { d = JSON.parse(txt); } catch { /* ส่งต่อแบบเดิม */ }
+  await event(env, 'pyrun', null, JSON.stringify({ u: u.id, ok: d.code === 0 ? 1 : 0, ms: Math.round(+d.ms || 0), pip: /^\[ติดตั้งแพ็กเกจให้แล้ว/.test(d.out || '') ? 1 : 0 })).catch(() => {}); // สถิติหลังบ้าน (หน้า คุณภาพ)
+  return new Response(txt, { headers: { 'content-type': 'application/json' } });
 }
 export async function cloudApi(req, env, u, path, M) {
   const DB = env.DB; await ensureCloud(env);
