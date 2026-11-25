@@ -2373,3 +2373,7 @@ a.fi b::after { content: ' →'; color: var(--blue); }
 .meet-ts { grid-row: 1 / span 2; align-self: start; font: 500 12px var(--font); font-variant-numeric: tabular-nums; color: var(--accent); background: none; border: 1px solid var(--hair); border-radius: 999px; padding: 3px 8px; cursor: pointer; min-width: 52px; }
 .meet-ts:disabled { color: var(--muted, #5b6170); cursor: default; }
 .meet-start label.btn { margin: 0; width: auto; }
+.bot-cv { border-top: 1px solid var(--hair); padding: 10px 0; }
+.bot-cv summary { cursor: pointer; }
+.bot-cv p { margin: 6px 0; overflow-wrap: anywhere; }
+input[type="color"] { padding: 4px; height: 44px; }
