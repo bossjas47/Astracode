@@ -92,9 +92,14 @@ end
 
 -- ---------- คำสั่ง ----------
 local OPS = {}
-local function lines(src)
+local function lines(src, from, count)
   local out, i = {}, 0
-  for line in string.gmatch(src .. "\n", "(.-)\n") do i = i + 1; table.insert(out, i .. "\t" .. line) end
+  from = tonumber(from) or 1; count = tonumber(count) or 400
+  for line in string.gmatch(src .. "\n", "(.-)\n") do
+    i = i + 1
+    if i >= from and i < from + count then table.insert(out, i .. "\t" .. line) end
+  end
+  if i >= from + count then table.insert(out, "…(" .. i .. " บรรทัด · อ่านต่อด้วย start=" .. (from + count) .. ")") end
   return table.concat(out, "\n")
 end
 local function setSource(s, src)
@@ -154,7 +159,7 @@ end
 
 function OPS.read(a)
   local x = K.must(a.path)
-  if isScript(x) then return x:GetFullName() .. " [" .. x.ClassName .. "]\n" .. lines(x.Source) end
+  if isScript(x) then return x:GetFullName() .. " [" .. x.ClassName .. "]\n" .. lines(x.Source, a.start, a.lines) end
   local props, out = { "Name", "ClassName", "Position", "Size", "CFrame", "Color", "Material", "Anchored", "CanCollide", "Transparency", "Text", "Value", "Visible", "Enabled" }, {}
   for _, p in ipairs(props) do local ok, v = pcall(function() return x[p] end); if ok and v ~= nil then table.insert(out, p .. " = " .. tostring(v)) end end
   local attrs = x:GetAttributes()

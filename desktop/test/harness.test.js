@@ -423,13 +423,13 @@ test('slim: old file contents, old long outputs and old screenshots leave the co
     m.push({ role: 'tool', tool_call_id: 'c' + i, content: 'out ' + big });
     m.push({ role: 'user', content: [{ type: 'text', text: 'shot' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAA' } }] });
   }
-  const before = JSON.stringify(m).length, n = slim(m);
+  const before = JSON.stringify(m).length; assert.equal(slim(m), 0, 'small conversations are left alone (keeps the prompt cache)'); const n = slim(m, 0);
   assert.ok(n > 0 && JSON.stringify(m).length < before * 0.7);
   assert.equal(JSON.parse(m[2].tool_calls[0].function.arguments).path, 'f0.js'); // ยังรู้ว่าเขียนไฟล์ไหน
   assert.match(JSON.parse(m[2].tool_calls[0].function.arguments).content, /already applied/);
   assert.equal(JSON.parse(m.at(-3).tool_calls[0].function.arguments).content, big); // รอบล่าสุดเต็ม
   assert.equal(m.filter(x => Array.isArray(x.content)).length, 1); // ภาพเหลือภาพล่าสุดภาพเดียว
-  assert.equal(slim(m), 0); // ทำซ้ำไม่เปลี่ยนอีก (prompt cache คงที่)
+  assert.equal(slim(m, 0), 0); // ทำซ้ำไม่เปลี่ยนอีก (prompt cache คงที่)
 });
 
 test('advisor plan: skipped for short follow-ups (saves limits), used again for a long new request; old run_code arguments are trimmed', async () => {
@@ -442,7 +442,7 @@ test('advisor plan: skipped for short follow-ups (saves limits), used again for 
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: msgs, tools, advisor, verifyGate: false, fetchImpl: s.fetch, callTool: async () => 'ok' });
   assert.equal(asked.length, 1);
   const m = [{ role: 'user', content: 't' }]; for (let i = 0; i < 8; i++) m.push({ role: 'assistant', content: null, tool_calls: [{ id: 'r' + i, type: 'function', function: { name: 'mcp_roblox_run_code', arguments: JSON.stringify({ code: 'print(1)\n'.repeat(400) }) } }] }, { role: 'tool', tool_call_id: 'r' + i, content: 'ok' });
-  slim(m); assert.match(JSON.parse(m[1].tool_calls[0].function.arguments).code, /already run/); assert.ok(!/already run/.test(JSON.parse(m.at(-2).tool_calls[0].function.arguments).code));
+  slim(m, 0); assert.match(JSON.parse(m[1].tool_calls[0].function.arguments).code, /already run/); assert.ok(!/already run/.test(JSON.parse(m.at(-2).tool_calls[0].function.arguments).code));
 });
 
 test('wrap-up: 3 rounds before the cap the AI is told to summarize; after checks pass and 6 quiet rounds it is nudged to finish', async () => {
