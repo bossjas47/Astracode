@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['astracode/**', 'desktop/agent.js', 'desktop/agenttools.js', 'desktop/tools.js', 'desktop/localfs.js', 'desktop/android.js']
+    paths: ['astracode/**', 'desktop/agent.js', 'desktop/agenttools.js', 'desktop/tools.js', 'desktop/localfs.js', 'desktop/android.js', 'desktop/office.js']
 jobs:
   deploy:
     runs-on: ubuntu-latest

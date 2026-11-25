@@ -121,7 +121,7 @@ export async function coworkApi(req, env, u, path, M, url) {
     catch (e) { await finishCowork(env, t.id, { status: 'error', error: 'เริ่มงานไม่สำเร็จ: ' + e.message }); await DB.prepare("UPDATE cowork_tasks SET status='error', error=? WHERE id=? AND status='idle'").bind('เริ่มงานไม่สำเร็จ: ' + String(e.message).slice(0, 300), t.id).run(); return err('เริ่มงานไม่สำเร็จ: ' + e.message, e.message.includes('ใหญ่เกิน') ? 413 : 502); }
     return json({ id: t.id });
   }
-  const r = path.match(/^\/api\/cowork\/(\d+)(\/say|\/stop|\/file|\/answer)?$/); if (!r) return err('not found', 404);
+  const r = path.match(/^\/api\/cowork\/(\d+)(\/say|\/stop|\/file|\/answer|\/live)?$/); if (!r) return err('not found', 404);
   const t = await DB.prepare('SELECT * FROM cowork_tasks WHERE id=? AND user_id=?').bind(+r[1], u.id).first(); if (!t) return err('ไม่พบงาน', 404);
   if (!r[2] && M === 'GET') {
     if (t.status === 'queued') { await dispatchCowork(env).catch(() => {}); Object.assign(t, await DB.prepare('SELECT * FROM cowork_tasks WHERE id=?').bind(t.id).first()); } // หน้าเว็บที่รออยู่ช่วยปลุกคิว (ไม่ต้องรอ cron)
@@ -138,6 +138,12 @@ export async function coworkApi(req, env, u, path, M, url) {
     const b = await req.json().catch(() => ({})); if (t.status !== 'running' || !env.AGENTBOX) return err('งานนี้ไม่ได้รอคำตอบแล้ว', 409);
     const x = await env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id)).fetch('https://box/answer', { method: 'POST', body: JSON.stringify({ id: String(b.ask_id || ''), text: String(b.text || '').slice(0, 4000) }) });
     return x.ok ? json({ ok: true }) : err('คำถามนี้หมดเวลาหรือถูกตอบไปแล้ว', 409);
+  }
+  if (r[2] === '/live') { // ผู้ใช้ควบคุมเบราว์เซอร์ในเครื่องของงาน (เฉพาะตอน AI ส่งต่อ · ภาพหน้าจอ / คลิก พิมพ์ เลื่อน)
+    if (t.status !== 'running' || !env.AGENTBOX) return err('งานนี้ไม่ได้รอให้คุณใช้เบราว์เซอร์', 409);
+    const hid = String(url.searchParams.get('id') || '').slice(0, 40), stub = env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id));
+    if (M === 'GET') { const x = await stub.fetch('https://box/live?id=' + encodeURIComponent(hid)); return x.ok ? new Response(x.body, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store', 'x-url': x.headers.get('x-url') || '' } }) : err('หน้าจอเบราว์เซอร์ปิดแล้ว', 404); }
+    if (M === 'POST') { const b = await req.json().catch(() => ({})), x = await stub.fetch('https://box/live', { method: 'POST', body: JSON.stringify({ ...b, id: hid }) }); return x.ok ? json({ ok: true }) : err('ส่งคำสั่งไม่ได้ (หมดเวลาแล้ว?)', 409); }
   }
   if (r[2] === '/stop' && M === 'POST' && t.status === 'queued') { await DB.prepare("UPDATE cowork_tasks SET status='error', pending=NULL, error='ยกเลิกคิวแล้ว' WHERE id=?").bind(t.id).run(); await appendEvents(env, t.id, [{ type: 'end', status: 'error', error: 'ยกเลิกคิวแล้ว', t: Date.now() }]); return json({ ok: true }); }
   if (r[2] === '/stop' && M === 'POST') { if (t.status === 'running' && env.AGENTBOX) await env.AGENTBOX.get(env.AGENTBOX.idFromName('cw:' + t.id)).fetch('https://box/stop', { method: 'POST' }).catch(() => {}); return json({ ok: true }); }

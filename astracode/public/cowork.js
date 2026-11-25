@@ -103,6 +103,24 @@ async function cwPickModel() {
   });
 }
 try { const v = +localStorage.getItem('cwModel'); if (v) CW.modelId = v; } catch { /* ไม่มีที่เก็บ */ }
+// ผู้ใช้ควบคุมเบราว์เซอร์ของงานเอง (ล็อกอิน · แคปช่า): ภาพหน้าจอสด แตะเพื่อคลิก ช่องพิมพ์ ปุ่ม Enter/Tab/เลื่อน
+document.addEventListener('click', e => { const b = e.target.closest?.('[data-cwlive]'); if (b) cwLive(b.dataset.cwlive); });
+function cwLive(hid) {
+  const base = `/api/cowork/${CW.id}/live?id=${encodeURIComponent(hid)}`; let alive = true, busy = false;
+  sheet('เบราว์เซอร์ของงานนี้', `<div class="cw-live"><div class="cw-live-url muted" id="lvu"></div><div class="cw-live-scr"><img id="lvi" alt="หน้าจอเบราว์เซอร์ แตะเพื่อคลิก"></div>
+    <form class="row" id="lvf"><input id="lvt" autocomplete="off" placeholder="พิมพ์ลงช่องที่เลือก (แตะช่องในภาพก่อน)" aria-label="พิมพ์"><button class="btn out sm">พิมพ์</button></form>
+    <div class="row cw-live-keys">${[['Enter', 'Enter'], ['Tab', 'Tab'], ['Backspace', 'ลบ'], ['up', 'เลื่อนขึ้น'], ['down', 'เลื่อนลง'], ['back', 'ย้อนกลับ']].map(([k, l]) => `<button type="button" class="btn out sm" data-lvk="${k}">${l}</button>`).join('')}</div>
+    <button type="button" class="btn blue" id="lvd">${ic('check', 'sm')} เสร็จแล้ว ให้ AI ทำต่อ</button><small class="muted">สิ่งที่คุณพิมพ์ส่งตรงเข้าเบราว์เซอร์ ไม่ถูกบันทึกและ AI ไม่เห็น · เบราว์เซอร์นี้เป็นของงานนี้เท่านั้น</small></div>`, (d, close) => {
+    const img = d.querySelector('#lvi'), send = async x => { if (busy) return; busy = true; try { await api(base, { method: 'POST', body: x }); } catch (er) { toast(er.message, 'bad'); } busy = false; tick(); };
+    const tick = async () => { if (!alive || !document.body.contains(img)) { alive = false; return; } try { const r = await fetch(base + '&t=' + Date.now()); if (!r.ok) throw new Error(); const u = decodeURIComponent(r.headers.get('x-url') || ''); d.querySelector('#lvu').textContent = u; const old = img.src; img.src = URL.createObjectURL(await r.blob()); if (old) URL.revokeObjectURL(old); } catch { d.querySelector('#lvu').textContent = 'หน้าจอปิดแล้ว'; } };
+    const loop = async () => { while (alive && document.body.contains(img)) { await tick(); await new Promise(ok => setTimeout(ok, 1200)); } };
+    img.onclick = e => { const r = img.getBoundingClientRect(); send({ type: 'click', x: Math.round((e.clientX - r.left) / r.width * 1280), y: Math.round((e.clientY - r.top) / r.height * 860) }); };
+    d.querySelector('#lvf').onsubmit = e => { e.preventDefault(); const t = d.querySelector('#lvt'); if (t.value) { send({ type: 'type', text: t.value }); t.value = ''; } };
+    d.querySelectorAll('[data-lvk]').forEach(b => b.onclick = () => { const k = b.dataset.lvk; send(k === 'up' ? { type: 'scroll', dy: -500 } : k === 'down' ? { type: 'scroll', dy: 500 } : k === 'back' ? { type: 'back' } : { type: 'key', key: k }); });
+    d.querySelector('#lvd').onclick = async () => { alive = false; try { await api(`/cowork/${CW.id}/answer`, { method: 'POST', body: { ask_id: hid, text: 'done' } }); } catch (er) { toast(er.message, 'bad'); } close(); cwFetch(false); };
+    loop();
+  });
+}
 // ---------- ส่งงาน / ข้อความต่อ ----------
 async function cwSend() {
   const t = $('#cwt'), text = t.value.trim(); if (!text) return;
@@ -145,6 +163,8 @@ function cwPaint() {
     else if (e.type === 'info') h += `<p class="cw-info muted">${esc(e.text)}</p>`;
     else if (e.type === 'ask') { const done = CW.ev.some(x => x.type === 'answered' && x.id === e.id) || CW.status !== 'running';
       h += `<div class="cw-ask ${done ? 'done' : ''}" data-askid="${esc(e.id || '')}"><b>${ic('msg', 'sm')} ${esc(e.question)}</b>${done ? '' : `<div>${(e.options || []).map(o => `<button type="button" class="btn out sm" data-cwans="${esc(o)}">${esc(o)}</button>`).join('')}</div><form class="row" data-cwansf><input placeholder="หรือพิมพ์คำตอบ…" maxlength="2000"><button class="btn blue sm">ตอบ</button></form>`}</div>`; }
+    else if (e.type === 'handoff') { const done = CW.ev.some(x => x.type === 'answered' && x.id === e.id) || CW.status !== 'running';
+      h += `<div class="cw-ask ${done ? 'done' : ''}"><b>${ic('hand', 'sm')} AI ขอให้คุณทำในเบราว์เซอร์: ${esc(e.reason)}</b>${done ? '' : `<p class="muted" style="margin:6px 0">เช่น ล็อกอินบัญชีของคุณ แล้วกดเสร็จ AI จะทำต่อในเบราว์เซอร์ที่ล็อกอินแล้ว · สิ่งที่คุณพิมพ์ AI ไม่เห็น</p><div><button type="button" class="btn blue sm" data-cwlive="${esc(e.id)}">${ic('eye', 'sm')} เปิดเบราว์เซอร์</button></div>`}</div>`; }
     else if (e.type === 'answered') h += `<div class="msg user"><div class="b">${esc(e.text)}</div></div>`;
     else if (e.type === 'end' && e.status !== 'done') h += `<p class="cw-info bad">${esc(e.error || 'หยุดแล้ว')}</p>`;
   }
