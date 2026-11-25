@@ -8,5 +8,5 @@ class_name = "AgentBox"
 [[containers]]
 class_name = "AgentBox"
 image = "./container/Dockerfile"
-max_instances = 5
+max_instances = 20 # Kyber Harness (cw_running ค่าเริ่มต้น 15) + Agent บนคลาวด์ + Python รวมกัน · จ่ายตามเวลาที่เครื่องเปิดจริง
 instance_type = "standard-1" # Cowork: Chromium + Python ต้องใช้หน่วยความจำมากกว่า basic

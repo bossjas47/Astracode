@@ -37,7 +37,7 @@ async function coworkView(id) {
   clearTimeout(CW.poll); CW.id = id ? (CW.local ? String(id) : +id) : null; CW.ev = []; CW.files = []; CW.total = 0; CW.status = 'idle'; CW.title = '';
   host.innerHTML = `<div class="cw ${CW.id ? '' : 'cw-empty'}">
     <section class="cw-conv">
-      <div class="bar cw-bar"><button class="menu-btn" id="cwmenu" aria-label="เมนู">${ic('menu')}</button><b id="cwtitle">${CW.id ? '' : 'Kyber Harness'}</b><span class="cw-model">${ic('sparkles', 'sm')} ${CW_MODEL.replace('Claude ', '')}</span>${CW.local ? '' : `<button type="button" class="icon-btn sm ghost" id="cwsched" aria-label="ตั้งเวลาให้ทำซ้ำ" title="ตั้งเวลาให้ทำซ้ำ">${ic('clock', 'sm')}</button>`}<button type="button" class="icon-btn sm ghost cw-paneb" id="cwpane" aria-label="Progress และไฟล์">${ic('layers', 'sm')}</button></div>
+      <div class="bar cw-bar"><button class="menu-btn" id="cwmenu" aria-label="เมนู">${ic('menu')}</button><b id="cwtitle">${CW.id ? '' : 'Kyber Harness'}</b>${CW.local ? `<span class="cw-model">${ic('sparkles', 'sm')} ${CW_MODEL.replace('Claude ', '')}</span>` : `<button type="button" class="cw-model" id="cwmod" aria-label="เลือกโมเดล">${ic('sparkles', 'sm')} <span>${esc((CW.modelName || CW_MODEL).replace('Claude ', ''))}</span>${ic('down', 'sm')}</button>`}${CW.local ? '' : `<button type="button" class="icon-btn sm ghost" id="cwsched" aria-label="ตั้งเวลาให้ทำซ้ำ" title="ตั้งเวลาให้ทำซ้ำ">${ic('clock', 'sm')}</button>`}<button type="button" class="icon-btn sm ghost cw-paneb" id="cwpane" aria-label="Progress และไฟล์">${ic('layers', 'sm')}</button></div>
       <div class="cw-msgs" id="cwmsgs"></div>
       <form class="cw-box" id="cwform">
         <div class="cw-chips" id="cwchips"></div>
@@ -63,6 +63,7 @@ async function coworkView(id) {
   if (CW.local) { $('#cwfold').onclick = cwPickFolder; cwFolderName(); }
   host.ondragover = e => { if (!CW.local) e.preventDefault(); }; host.ondrop = e => { if (CW.local) return; e.preventDefault(); cwAttach([...e.dataTransfer.files]); };
   cwLoadTasks();
+  $('#cwmod')?.addEventListener('click', cwPickModel);
   if (!cwOk()) return cwLocked();
   if (!cwModel()) { $('#cwmsgs').innerHTML = `<div class="cw-hello"><h2>Kyber Harness</h2><p class="muted">ยังไม่มีโมเดล ${CW_MODEL} ในแพลนของคุณ ติดต่อแอดมิน</p></div>`; return; }
   if (!CW.id) return cwHello();
@@ -93,23 +94,34 @@ async function cwAttach(list) {
 const cwChips = () => { const c = $('#cwchips'); if (c) c.innerHTML = CW.pending.map((f, i) => `<span class="fchip">${ic(cwIcon(f.name), 'sm')}<span>${esc(f.name)}</span><button type="button" data-cwrm="${i}" aria-label="เอาออก">${ic('x', 'sm')}</button></span>`).join(''); };
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-cwrm]'); if (b) { CW.pending.splice(+b.dataset.cwrm, 1); cwChips(); } });
 
+// เลือกโมเดล: มาตรฐาน (Sonnet Eco) หรือแรงกว่าสำหรับงานยาก/รายงานใหญ่ (หักลิมิตมากกว่า)
+async function cwPickModel() {
+  let list = CW.models; if (!list) try { list = CW.models = await api('/cowork/models'); } catch (x) { return toast(x.message, 'bad'); }
+  const cur = CW.modelId || list[0]?.id;
+  sheet('โมเดลของ Kyber Harness', `<div class="opts">${list.map((m, i) => `<button type="button" class="opt ${m.id === cur ? 'on' : ''}" data-cwm="${m.id}"><b>${esc(m.name)}</b><small class="muted">${i === 0 ? 'มาตรฐาน คุ้มลิมิต เหมาะกับงานทั่วไป' : 'คิดลึกกว่า เหมาะกับรายงานใหญ่ งานวิเคราะห์ยาก · ใช้ลิมิตมากกว่า'}</small></button>`).join('')}</div>`, (d, close) => {
+    d.querySelectorAll('[data-cwm]').forEach(b => b.onclick = () => { const m = list.find(x => x.id === +b.dataset.cwm); CW.modelId = m.id; CW.modelName = m.name; try { localStorage.setItem('cwModel', m.id); } catch { /* ไม่มีที่เก็บ */ } const s = $('#cwmod span'); if (s) s.textContent = m.name.replace('Claude ', ''); close(); toast('ข้อความถัดไปใช้ ' + m.name, 'ok'); });
+  });
+}
+try { const v = +localStorage.getItem('cwModel'); if (v) CW.modelId = v; } catch { /* ไม่มีที่เก็บ */ }
 // ---------- ส่งงาน / ข้อความต่อ ----------
 async function cwSend() {
   const t = $('#cwt'), text = t.value.trim(); if (!text) return;
   if (CW.local) return cwLocalSend(text);
   const files = CW.pending.map(f => ({ name: f.name, b64: f.b64 })); cwBusy(true);
   try {
-    if (!CW.id) { const r = await api('/cowork', { method: 'POST', body: { prompt: text, files } }); CW.id = r.id; setUrl('/chat?mode=cowork&task=' + r.id); }
-    else await api('/cowork/' + CW.id + '/say', { method: 'POST', body: { prompt: text, files } });
+    if (!CW.id) { const r = await api('/cowork', { method: 'POST', body: { prompt: text, files, model_id: CW.modelId } }); CW.id = r.id; setUrl('/chat?mode=cowork&task=' + r.id); if (r.queued) toast(`เครื่องเต็มชั่วคราว · คิวที่ ${r.queued} เริ่มเองเมื่อว่าง`); }
+    else { const r = await api('/cowork/' + CW.id + '/say', { method: 'POST', body: { prompt: text, files, model_id: CW.modelId } }); if (r.queued) toast(`เครื่องเต็มชั่วคราว · คิวที่ ${r.queued} เริ่มเองเมื่อว่าง`); }
     t.value = ''; t.oninput(); CW.pending = []; cwChips(); $('.cw')?.classList.remove('cw-empty'); cwLoadTasks(); await cwFetch(true);
   } catch (x) { cwBusy(false); toast(x.message, 'bad'); }
 }
 async function cwFetch(full) {
   if (!CW.id || CW.local) return;
   let d; try { d = await api(`/cowork/${CW.id}?from=${full ? 0 : CW.total}`); } catch (x) { if (full) $('#cwmsgs').innerHTML = `<p class="muted">${esc(x.message)}</p>`; return; }
-  if (full) CW.ev = []; CW.ev.push(...d.events); CW.total = d.total; CW.files = d.files; CW.status = d.status; CW.title = d.title; CW.error = d.error;
-  cwPaint(); cwBusy(d.status === 'running');
-  clearTimeout(CW.poll); if (d.status === 'running') CW.poll = setTimeout(() => cwFetch(false), 2000); else cwLoadTasks();
+  if (full) CW.ev = []; CW.ev.push(...d.events); CW.total = d.total; CW.files = d.files; CW.status = d.status; CW.title = d.title; CW.error = d.error; CW.queue = d.queue;
+  if (d.model && !CW.modelId) { CW.modelName = d.model; const s = $('#cwmod span'); if (s) s.textContent = d.model.replace('Claude ', ''); }
+  const live = d.status === 'running' || d.status === 'queued';
+  cwPaint(); cwBusy(live);
+  clearTimeout(CW.poll); if (live) CW.poll = setTimeout(() => cwFetch(false), d.status === 'queued' ? 5000 : 2000); else cwLoadTasks();
 }
 async function cwStop() {
   if (CW.local) { window.astraDesktop.agent.stop('cw' + CW.id); return; }
@@ -137,7 +149,10 @@ function cwPaint() {
     else if (e.type === 'end' && e.status !== 'done') h += `<p class="cw-info bad">${esc(e.error || 'หยุดแล้ว')}</p>`;
   }
   if (CW.status === 'running') h += `<p class="cw-working"><span class="cw-spin"></span> กำลังทำงาน… ${CW.local ? '' : 'ปิดหน้านี้ได้ เสร็จแล้วแจ้งเตือน'}</p>`;
+  else if (CW.status === 'queued') h += `<p class="cw-working">${ic('clock', 'sm')} รอคิวที่ <b>${CW.queue || 1}</b> · เริ่มเองเมื่อมีเครื่องว่าง ปิดหน้านี้ได้</p>`;
+  else if (CW.status === 'error' && !CW.local && CW.ev.some(e => e.type === 'tool')) h += `<button type="button" class="btn out sm cw-resume" id="cwresume">${ic('play', 'sm')} ทำต่อจากที่ค้างไว้</button>`;
   box.innerHTML = h || '<p class="muted">กำลังเริ่ม…</p>'; box.onclick = null; renderRich?.(box);
+  $('#cwresume')?.addEventListener('click', () => { const t = $('#cwt'); t.value = 'ทำต่อจากที่ค้างไว้ ตรวจไฟล์ที่ทำไปแล้วก่อน แล้วทำส่วนที่เหลือให้เสร็จ'; cwSend(); });
   if (stick) box.scrollTop = box.scrollHeight;
   cwPanels();
 }
