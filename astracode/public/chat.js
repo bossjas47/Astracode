@@ -139,7 +139,7 @@ async function chatView(id) {
           <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
-        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button><button type="button" id="vidgen">${ic('play')}<span>สร้างวิดีโอ</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
+        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<a href="/sites">${ic('globe')}<span>เว็บของฉัน</span></a>` : ''}<button type="button" id="vidgen">${ic('play')}<span>สร้างวิดีโอ</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
@@ -1677,11 +1677,13 @@ function artShare() {
     <label>เวอร์ชันที่แชร์<select id="ashv"><option value="">ล่าสุดเสมอ</option>${a.versions.map(x => `<option value="${x.ver}" ${a.share_ver === x.ver ? 'selected' : ''}>ล็อกไว้ที่ v${x.ver}</option>`).join('')}</select></label>
     <button type="button" class="btn blue" id="asho">${a.share_token ? 'บันทึก' : 'เปิดลิงก์แชร์'}</button>
     ${a.share_token ? '<button type="button" class="btn out" id="ashx">ปิดการแชร์</button>' : ''}
+    <button type="button" class="btn out" id="ashw">${ic('globe', 'sm')} เผยแพร่เป็นเว็บจริง (ชื่อเว็บของคุณเอง)</button>
     <small class="muted">หน้าที่แชร์รันแยกจากบัญชีของคุณ และไม่ขึ้นใน Google</small></div>`, (d, close) => {
     const go = async on => { try { const r = await api(`/artifacts/${a.id}/share`, { method: 'POST', body: { on, ver: +d.querySelector('#ashv').value || null, gallery: d.querySelector('#ashg').checked } }); a.gallery = !!r.gallery; a.share_token = r.share_token; a.share_ver = r.share_ver ?? null; $('#cv-sh').classList.toggle('on', !!a.share_token); close(); if (on) { copy(location.origin + '/a/' + r.share_token); toast('คัดลอกลิงก์แล้ว', 'ok'); } else toast('ปิดการแชร์แล้ว ลิงก์เดิมใช้ไม่ได้'); } catch (x) { toast(x.message, 'bad'); } };
     d.querySelector('#asho').onclick = () => go(true);
     const x = d.querySelector('#ashx'); if (x) x.onclick = () => go(false);
     const c = d.querySelector('#ashc'); if (c) c.onclick = e => copy(link, e.target);
+    d.querySelector('#ashw').onclick = () => { close(); sitePublish({ src: 'artifact', src_id: a.id, title: a.title }); };
   });
 }
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-art]'); if (b) openArtifact(+b.dataset.art); });

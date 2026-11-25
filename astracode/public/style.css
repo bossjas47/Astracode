@@ -2302,3 +2302,35 @@ a.fi b::after { content: ' →'; color: var(--blue); }
 .sub-acts .sw-l { margin: 0; }
 .sub-note { display: flex; gap: 8px; align-items: flex-start; text-align: left; margin: 0 0 14px; padding: 10px 12px; border-radius: 12px; background: var(--accent-tint, rgba(75,79,224,.08)); font-size: 14px; line-height: 1.5; }
 .sub-note .ic { flex: none; margin-top: 3px; color: var(--blue); }
+
+/* ============================== Kyber Sites ============================== */
+.sites-wrap { max-width: 720px; }
+.site-quota { margin: 8px 0 0; color: var(--muted, #5b6170); }
+.site-quota b { color: var(--porcelain); font-variant-numeric: tabular-nums; }
+.site-card { padding: 18px; border-radius: 18px; box-shadow: var(--shadow-1); margin: 12px 0; }
+.site-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.site-ic { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--steel); }
+.site-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.site-name b, .site-name a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-name a { font-size: 13.5px; }
+.site-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 12px 0; font-size: 13px; }
+.site-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.site-act { display: flex; flex-wrap: wrap; gap: 8px; }
+.site-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; }
+.site-empty { text-align: center; padding: 32px 20px; }
+.site-empty .row { justify-content: center; gap: 8px; flex-wrap: wrap; }
+.site-help pre { overflow: auto; font-size: 12.5px; background: var(--steel); border-radius: 12px; padding: 12px; }
+.site-help { border-radius: 18px; padding: 18px; }
+.site-help summary { cursor: pointer; }
+.site-empty { border-radius: 18px; }
+.site-slug { display: flex; align-items: center; border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; margin-top: 4px; }
+.site-slug span { padding: 0 4px 0 12px; color: var(--muted, #5b6170); font-size: 13px; white-space: nowrap; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+.site-slug input { flex: 1; min-width: 0; border: 0 !important; box-shadow: none !important; padding-left: 0; background: transparent !important; }
+.site-chart { display: flex; align-items: flex-end; gap: 4px; height: 72px; padding: 4px 0; }
+.site-chart i { flex: 1; min-width: 6px; border-radius: 4px 4px 0 0; background: var(--spectrum); background-size: 100% 100%; }
+.site-vers .row { gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--hair); flex-wrap: nowrap; }
+.site-inbox { display: flex; flex-direction: column; gap: 8px; }
+.site-msg { margin: 0; padding: 12px 14px; border-radius: 14px; box-shadow: none; }
+.site-msg.new { border-color: var(--accent); }
+.site-msg p { margin: 4px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 640px) { .ide-pub span { display: none; } }

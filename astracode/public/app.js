@@ -281,7 +281,7 @@ const nav = () => {
   const body = me ? `<div class="mode-seg" role="group" aria-label="Mode"><a href="/chat" class="${inCode ? '' : path === '/chat' ? 'on' : ''}">${ic('msg', 'sm')}<span>Chat</span></a><a href="/code" class="${inCode ? 'on' : ''}">${ic('code', 'sm')}<span>Code</span></a><a href="/chat?mode=cowork" title="Kyber Harness">${ic('layers', 'sm')}<span>Harness</span></a></div>
     <a class="side-new" href="${inCode ? '/code' : '/chat'}">${ic('plus', 'sm')}<span>${inCode ? 'New project' : 'New chat'}</span></a>
     ${inCode ? '' : `<div class="work-tiles${me.plan?.artifacts ? '' : ' one'}"><a class="wtile" href="/chat?open=spaces">${ic('folder')}<b>Workspace</b><small>Organize your work</small></a>${me.plan?.artifacts ? `<a class="wtile" href="/chat?open=arts">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></a>` : ''}</div>
-    <nav class="side-nav"><a href="/chat?open=files">${ic('sheet')}<span>ไฟล์ของฉัน</span></a><a href="/chat?open=video">${ic('play')}<span>สร้างวิดีโอ</span></a>${me.plan?.artifacts ? `<a href="/chat?open=sched">${ic('clock')}<span>Scheduled tasks</span></a>` : ''}${deskLink()}</nav>`}
+    <nav class="side-nav"><a href="/chat?open=files">${ic('sheet')}<span>ไฟล์ของฉัน</span></a>${me.plan?.artifacts ? `<a href="/sites">${ic('globe')}<span>เว็บของฉัน</span></a>` : ''}<a href="/chat?open=video">${ic('play')}<span>สร้างวิดีโอ</span></a>${me.plan?.artifacts ? `<a href="/chat?open=sched">${ic('clock')}<span>Scheduled tasks</span></a>` : ''}${deskLink()}</nav>`}
     <div class="side-sec"><span>${inCode ? 'Projects' : 'Chats'}</span></div>
     <div class="nav-recents" data-kind="${inCode ? 'code' : 'chat'}"><p class="muted">Loading…</p></div>
     <button type="button" class="side-user" data-acct aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}"><span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span><span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan?.name || '')} · ${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}% used</small></span>${ic('up', 'sm')}</button>`
@@ -783,6 +783,32 @@ function sheet(title, html, bind) {
   d.onkeydown = e => { if (e.key === 'Escape') close(); };
   document.body.append(d); (d.querySelector('.opt.on') || d.querySelector('.sheet-b button, .sheet-b a'))?.focus();
   bind?.(d, close);
+}
+// Kyber Sites: เผยแพร่โปรเจกต์ (หน้า Code) หรือ Artifact เป็นเว็บจริงที่ /s/<ชื่อ>/ · มีเว็บจากต้นทางนี้แล้ว = อัปเดตเวอร์ชันใหม่
+async function sitePublish({ src, src_id, title = '' }) {
+  let d0; try { d0 = await api('/sites'); } catch (x) { return toast(x.message, 'bad'); }
+  const url = s => location.origin + '/s/' + s.slug + '/', ex = d0.sites.find(s => s.src === src && s.src_id === +src_id);
+  if (!d0.paid) return sheet('เผยแพร่เป็นเว็บ', `<div class="sheet-form"><p class="sheet-msg">เผยแพร่เว็บให้คนอื่นเข้าได้ ใช้ได้กับแพลนที่ชำระเงิน</p><a class="btn blue" href="/plans">ดูแพลน</a></div>`);
+  if (ex) return sheet('อัปเดตเว็บ', `<div class="sheet-form"><p class="sheet-msg">ต้นทางนี้เผยแพร่อยู่ที่</p><div class="row"><input readonly value="${esc(url(ex))}"><button type="button" class="btn out sm" id="spc">คัดลอก</button></div>
+    <button type="button" class="btn blue" id="spu">อัปเดตเว็บเป็นเวอร์ชันล่าสุด</button><a class="btn out" href="${esc(url(ex))}" target="_blank" rel="noopener">เปิดเว็บ</a><a class="btn ghost" href="/sites">จัดการเว็บทั้งหมด</a>
+    <small class="muted">ตอนนี้ v${ex.ver} · ย้อนกลับเวอร์ชันเก่าได้ที่หน้าเว็บของฉัน</small></div>`, (d, close) => {
+    d.querySelector('#spc').onclick = e => copy(url(ex), e.target);
+    d.querySelector('#spu').onclick = async e => { e.target.disabled = true; try { const r = await api(`/sites/${ex.id}/publish`, { method: 'POST' }); close(); toast(`อัปเดตเว็บแล้ว (v${r.ver})`, 'ok'); } catch (x) { e.target.disabled = false; toast(x.message, 'bad'); } };
+  });
+  const full = d0.sites.length >= d0.quota, sug = String(title).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+  sheet('เผยแพร่เป็นเว็บ', `<div class="sheet-form"><p class="sheet-msg">ได้ลิงก์ที่ใครก็เปิดได้ทันที แก้แล้วกดอัปเดตได้ตลอด</p>
+    ${full ? `<p class="bad">แพลนของคุณเผยแพร่ได้ ${d0.quota} เว็บ (ใช้ครบแล้ว) · ลบเว็บเก่าที่ <a href="/sites">เว็บของฉัน</a> ก่อน</p>` : ''}
+    <label>ชื่อเว็บ (ภาษาอังกฤษ ตัวเลข และ -)<div class="site-slug"><span>${esc(location.host)}/s/</span><input id="sps" maxlength="40" autocapitalize="off" autocomplete="off" spellcheck="false" value="${esc(sug.length >= 3 ? sug : '')}" placeholder="myshop"></div></label><small id="spm" class="muted" aria-live="polite"></small>
+    <label>ชื่อที่แสดง<input id="spt" maxlength="80" value="${esc(title)}"></label>
+    <button type="button" class="btn blue" id="spo" ${full ? 'disabled' : ''}>เผยแพร่</button>
+    <small class="muted">เว็บรันแยกจากบัญชีของคุณ (sandbox) · ฟอร์มที่ส่งไป <code>__form</code> เข้ากล่องข้อความที่หน้าเว็บของฉัน · ห้ามมีช่องรหัสผ่าน</small></div>`, (d, close) => {
+    const inp = d.querySelector('#sps'), msg = d.querySelector('#spm'), btn = d.querySelector('#spo'); let tm;
+    const check = () => { clearTimeout(tm); const v = inp.value.trim().toLowerCase(); if (!v) { msg.textContent = ''; return; } tm = setTimeout(async () => { try { const r = await api('/sites/check?slug=' + encodeURIComponent(v)); msg.textContent = r.ok ? '✓ ใช้ชื่อนี้ได้' : r.error; msg.className = r.ok ? 'ok' : 'bad'; } catch { /* ลองใหม่ตอนกด */ } }, 300); };
+    inp.oninput = check; check();
+    btn.onclick = async () => { btn.disabled = true; btn.textContent = 'กำลังเผยแพร่…';
+      try { const r = await api('/sites', { method: 'POST', body: { slug: inp.value.trim().toLowerCase(), title: d.querySelector('#spt').value, src, src_id } }); close(); copy(url(r.site)); toast('เผยแพร่แล้ว · คัดลอกลิงก์ให้แล้ว', 'ok'); open(url(r.site), '_blank', 'noopener'); }
+      catch (x) { btn.disabled = false; btn.textContent = 'เผยแพร่'; msg.textContent = x.message; msg.className = 'bad'; } };
+  });
 }
 // ดู context แบบละเอียด: อะไรกินหน้าต่าง context ของโมเดลอยู่เท่าไร + ย่อแชต + เปิด/ปิดย่ออัตโนมัติ
 const CTX_COLORS = { system: '#7aa2f7', instr: '#bb9af7', mem: '#2ac3de', skill: '#9ece6a', rules: '#e0af68', summary: '#73daca', files: '#f7768e', user: '#7dcfff', assistant: '#a9b1d6' };

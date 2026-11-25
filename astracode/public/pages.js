@@ -220,7 +220,7 @@ PAGES.security = async () => { // หน้าความปลอดภัย�
     ${S('การเก็บและการลบ', ['แชตเก็บไว้จนกว่าคุณจะลบ · แชตที่ลบอยู่ในถังขยะ 30 วัน แล้วถูกลบถาวร', 'รูปที่ AI สร้างในแชตถูกลบอัตโนมัติหลัง 30 วัน (ดาวน์โหลดเก็บไว้ได้)', 'ระบบสำรองข้อมูลวันละครั้ง และเก็บไฟล์สำรองย้อนหลัง 14 วัน', 'ต้องการลบบัญชีและข้อมูลทั้งหมด ติดต่อแอดมินได้ที่หน้า <a href="/support">ติดต่อเรา</a>'])}
     ${S('การเข้ารหัสและบัญชี', ['เชื่อมต่อผ่าน HTTPS ทุกหน้า', 'โทเคนที่คุณเชื่อมต่อ (เช่น GitHub, Connector) ถูกเข้ารหัสด้วย AES-GCM ก่อนเก็บ', 'รหัสผ่านไม่ถูกเก็บในระบบของเรา (ใช้ระบบยืนยันตัวตนของ Firebase) · รองรับยืนยันตัวตน 2 ขั้น (แอป Authenticator) และ Passkey', 'ดูอุปกรณ์ที่ล็อกอินอยู่และสั่งออกจากระบบทุกเครื่องได้ที่หน้าบัญชี'])}
     ${S('สำหรับทีมและบริษัท', ['หัวหน้าทีมเห็นสัดส่วนการใช้งานของสมาชิก ส่งออกเป็น Excel ได้ และตั้งเพดานการใช้รายคนได้', 'หัวหน้าทีมปิดสิทธิ์ใช้ API ของสมาชิก และเพิกถอน API key ได้ทันที', 'มีประวัติการจัดการทีม (เพิ่ม/ลบสมาชิก เปลี่ยนสิทธิ์) ให้หัวหน้าทีมตรวจสอบ', 'หัวหน้าทีมและสมาชิก<b>ไม่เห็นแชตส่วนตัวของกันและกัน</b> · แชร์เฉพาะ Workspace ที่เลือกแชร์ให้ทีม'])}
-    ${S('หน้าเว็บที่ AI สร้าง (Artifact)', ['เป็นส่วนตัวจนกว่าเจ้าของกดแชร์ · ปิดแชร์แล้วลิงก์ใช้ไม่ได้ทันที', 'โค้ดในหน้านั้นรันแยกจากบัญชีของคุณ (sandbox) อ่าน cookie หรือเรียกบัญชีของคุณไม่ได้'])}
+    ${S('หน้าเว็บที่ AI สร้าง (Artifact)', ['เป็นส่วนตัวจนกว่าเจ้าของกดแชร์ · ปิดแชร์แล้วลิงก์ใช้ไม่ได้ทันที', 'โค้ดในหน้านั้นรันแยกจากบัญชีของคุณ (sandbox) อ่าน cookie หรือเรียกบัญชีของคุณไม่ได้', 'เว็บที่เผยแพร่ด้วย Kyber Sites (/s/...) รันแบบ sandbox เหมือนกัน คนเข้าชมไม่เสี่ยงโดนขโมยบัญชี Kyber · เว็บที่มีช่องรหัสผ่านเผยแพร่ไม่ได้ · ทุกเว็บมีปุ่มรายงาน'])}
     <p class="muted" style="font-size:13px">มีคำถามเรื่องความปลอดภัยหรือต้องการเอกสารสำหรับฝ่ายจัดซื้อ <a href="${FB_PAGE}" target="_blank" rel="noopener">แชตกับแอดมิน</a> หรือ <a href="/support">ส่งเรื่อง</a></p>${footer()}</div>`);
 };
 PAGES.gallery = async () => { // แกลเลอรีสาธารณะ: Artifact ที่เจ้าของเลือกโชว์
@@ -283,4 +283,46 @@ PAGES.receipt = async () => {
       <p class="muted" style="font-size:12.5px">เอกสารนี้เป็นใบเสร็จรับเงิน ไม่ใช่ใบกำกับภาษี</p></details>` : ''}</div>`);
   $('#pr').onclick = () => print();
   $('#bif')?.addEventListener('submit', async e => { e.preventDefault(); try { await api('/bill-info', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('บันทึกแล้ว', 'ok'); PAGES.receipt(); } catch (x) { toast(x.message, 'bad'); } });
+};
+
+// ---------- Kyber Sites: เว็บของฉัน ----------
+PAGES.sites = async () => {
+  if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  const d = await api('/sites'), link = s => location.origin + '/s/' + s.slug + '/';
+  const ST = { live: ['ok', 'ออนไลน์'], off: ['muted', 'ปิดอยู่'], banned: ['bad', 'ถูกระงับ'] };
+  const card = s => `<article class="card site-card" data-site="${s.id}">
+    <div class="site-top"><span class="site-ic">${ic('globe')}</span><div class="site-name"><b>${esc(s.title)}</b><a href="${esc(link(s))}" target="_blank" rel="noopener">${esc(location.host)}/s/${esc(s.slug)}/</a></div><span class="pill ${ST[s.status]?.[0] || ''}">${ST[s.status]?.[1] || esc(s.status)}</span></div>
+    <div class="site-meta muted"><span>v${s.live}${s.live !== s.ver ? ` (ล่าสุด v${s.ver})` : ''}</span><span>${ic('eye', 'sm')} ${Number(s.views).toLocaleString(LOC)} ครั้ง</span><span>อัปเดต ${when(s.updated_at)}</span><span>จาก${s.src === 'project' ? 'โปรเจกต์ Code' : ' Artifact'}</span></div>
+    <div class="site-act"><button type="button" class="btn out sm" data-cp="${esc(link(s))}">${ic('copy', 'sm')} คัดลอกลิงก์</button><button type="button" class="btn out sm" data-pub="${s.id}" ${s.status === 'banned' ? 'disabled' : ''}>${ic('refresh', 'sm')} อัปเดตจากต้นทาง</button><button type="button" class="btn out sm" data-inbox="${s.id}">${ic('inbox', 'sm')} ข้อความ${s.unread ? ` <span class="site-badge">${s.unread}</span>` : ''}</button><button type="button" class="btn out sm" data-man="${s.id}">${ic('settings', 'sm')} จัดการ</button></div></article>`;
+  page(nav() + `<div class="wrap sites-wrap"><header class="shop-hero"><h1>เว็บของฉัน</h1><p class="muted">เว็บที่คุณเผยแพร่จากหน้า Code หรือ Artifact · ใครมีลิงก์ก็เปิดได้</p>
+    ${d.paid ? `<p class="site-quota">ใช้ไป <b>${d.sites.length}</b> จาก <b>${d.quota}</b> เว็บ</p>` : ''}</header>
+    ${!d.paid ? `<div class="card"><p>เผยแพร่เว็บใช้ได้กับแพลนที่ชำระเงิน</p><a class="btn blue" href="/plans">ดูแพลน</a></div>`
+      : d.sites.length ? d.sites.map(card).join('')
+      : `<div class="card site-empty"><h2>ยังไม่มีเว็บ</h2><p class="muted">ให้ AI ทำเว็บก่อน แล้วกดปุ่ม <b>เผยแพร่</b> ที่หน้า Code หรือปุ่มแชร์ของ Artifact ในแชต</p><div class="row"><a class="btn blue" href="/code">${ic('code', 'sm')} ไปหน้า Code</a><a class="btn out" href="/chat">${ic('sparkles', 'sm')} สร้างในแชต</a></div></div>`}
+    <details class="card site-help"><summary><b>ฟอร์มติดต่อทำยังไง</b></summary><p class="muted">ฟอร์มในเว็บที่ส่งไปที่ <code>__form</code> จะเข้ากล่องข้อความของเว็บนั้น เช่น</p><pre><code>${esc('<form method="post" action="__form">\n  <input name="email" type="email" required>\n  <textarea name="message"></textarea>\n  <input name="_gotcha" style="display:none">\n  <input type="hidden" name="_next" value="thanks.html">\n  <button>ส่ง</button>\n</form>')}</code></pre><p class="muted">บอก AI ว่า "ทำฟอร์มติดต่อส่งไปที่ __form" ก็ได้ · เว็บรันแยกจากบัญชี Kyber (sandbox) ข้อมูลที่เก็บใน localStorage / cookie จึงหายเมื่อปิดหน้า และห้ามมีช่องรหัสผ่าน</p></details>
+    ${footer()}</div>`);
+  const find = id => d.sites.find(s => s.id === +id);
+  app.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => copy(b.dataset.cp, b));
+  app.querySelectorAll('[data-pub]').forEach(b => b.onclick = async () => { b.disabled = true; try { const r = await api(`/sites/${b.dataset.pub}/publish`, { method: 'POST' }); toast(`อัปเดตแล้ว v${r.ver} · ${r.files} ไฟล์`, 'ok'); PAGES.sites(); } catch (x) { b.disabled = false; toast(x.message, 'bad'); } });
+  app.querySelectorAll('[data-inbox]').forEach(b => b.onclick = async () => {
+    const s = find(b.dataset.inbox); let list; try { list = await api(`/sites/${s.id}/forms`); } catch (x) { return toast(x.message, 'bad'); }
+    sheet('ข้อความจาก ' + s.title, list.length ? `<div class="site-inbox">${list.map(f => `<div class="card site-msg${f.seen ? '' : ' new'}" data-f="${f.id}"><div class="row"><small class="muted">${when(f.created_at)}</small><span class="sp"></span><button type="button" class="icon-btn sm ghost" data-fdel="${f.id}" aria-label="ลบข้อความ">${ic('trash', 'sm')}</button></div>${Object.entries(f.data).map(([k, v]) => `<p><b>${esc(k)}</b> ${esc(v)}</p>`).join('')}</div>`).join('')}</div>` : '<p class="muted">ยังไม่มีข้อความ · ฟอร์มที่ส่งไป <code>__form</code> จะมาอยู่ที่นี่</p>', dd => {
+      dd.querySelectorAll('[data-fdel]').forEach(x => x.onclick = async () => { try { await api(`/sites/${s.id}/forms/${x.dataset.fdel}`, { method: 'DELETE' }); x.closest('.site-msg').remove(); } catch (e) { toast(e.message, 'bad'); } });
+    });
+    if (s.unread) { await api(`/sites/${s.id}/forms/seen`, { method: 'POST' }).catch(() => {}); s.unread = 0; b.querySelector('.site-badge')?.remove(); }
+  });
+  app.querySelectorAll('[data-man]').forEach(b => b.onclick = async () => {
+    const s = find(b.dataset.man); let x; try { x = await api('/sites/' + s.id); } catch (e) { return toast(e.message, 'bad'); }
+    const max = Math.max(1, ...x.days.map(v => v.n)), days = x.days.slice().reverse();
+    sheet('จัดการเว็บ', `<div class="sheet-form"><label>ชื่อที่แสดง<input id="smt" maxlength="80" value="${esc(s.title)}"></label><button type="button" class="btn out sm" id="sms">บันทึกชื่อ</button>
+      ${s.status !== 'banned' ? `<label class="sw-row"><span class="sw"><input type="checkbox" id="smo" ${s.status === 'live' ? 'checked' : ''}><span></span></span> เปิดให้คนเข้าชม</label>` : '<p class="bad">เว็บนี้ถูกผู้ดูแลระงับ ติดต่อ <a href="/support">ฝ่ายช่วยเหลือ</a></p>'}
+      <b>คนเข้าชม 14 วันล่าสุด</b>${days.length ? `<div class="site-chart" role="img" aria-label="ยอดเข้าชมรายวัน">${days.map(v => `<i style="height:${Math.max(4, v.n / max * 100)}%" title="${esc(v.day)} · ${v.n} ครั้ง"></i>`).join('')}</div>` : '<small class="muted">ยังไม่มีคนเข้าชม</small>'}
+      <b>เวอร์ชัน</b><div class="site-vers">${x.versions.map(v => `<div class="row"><span>v${v.ver}</span><small class="muted">${when(v.created_at)} · ${Math.max(1, Math.round(v.size / 1024))}KB</small><span class="sp"></span><button type="button" class="btn out sm" data-rb="${v.ver}">ใช้เวอร์ชันนี้</button></div>`).join('')}</div>
+      <button type="button" class="btn red" id="smd">${ic('trash', 'sm')} ลบเว็บนี้</button></div>`, (dd, close) => {
+      dd.querySelector('#sms').onclick = async () => { try { await api('/sites/' + s.id, { method: 'PATCH', body: { title: dd.querySelector('#smt').value } }); toast('บันทึกแล้ว', 'ok'); close(); PAGES.sites(); } catch (e) { toast(e.message, 'bad'); } };
+      const o = dd.querySelector('#smo'); if (o) o.onchange = async () => { try { await api('/sites/' + s.id, { method: 'PATCH', body: { status: o.checked ? 'live' : 'off' } }); toast(o.checked ? 'เปิดเว็บแล้ว' : 'ปิดเว็บแล้ว · ลิงก์ยังเก็บไว้', 'ok'); PAGES.sites(); } catch (e) { o.checked = !o.checked; toast(e.message, 'bad'); } };
+      dd.querySelectorAll('[data-rb]').forEach(r => r.onclick = async () => { try { await api(`/sites/${s.id}/rollback`, { method: 'POST', body: { ver: +r.dataset.rb } }); toast(`เว็บแสดง v${r.dataset.rb} แล้ว`, 'ok'); close(); } catch (e) { toast(e.message, 'bad'); } });
+      dd.querySelector('#smd').onclick = async () => { if (!confirm(`ลบเว็บ ${s.slug} ถาวร? ลิงก์จะใช้ไม่ได้ทันที และข้อความในฟอร์มจะหายด้วย`)) return; try { await api('/sites/' + s.id, { method: 'DELETE' }); toast('ลบเว็บแล้ว', 'ok'); close(); PAGES.sites(); } catch (e) { toast(e.message, 'bad'); } };
+    });
+  });
 };
