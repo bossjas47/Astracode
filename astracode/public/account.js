@@ -47,9 +47,15 @@ PAGES.account = async function account() {
     </div>
     <nav class="acc-nav" aria-label="ส่วนในหน้านี้"><a href="#sec-limit">ลิมิต</a><a href="#sec-usage">การใช้งาน</a><a href="#sec-team">ทีม</a><a href="#sec-wallet">Wallet</a><a href="#sec-look">การแสดงผล</a><a href="#sec-ai">AI ของคุณ</a><a href="#sec-security">ความปลอดภัย</a><a href="#sec-data">ข้อมูล</a></nav>
 
-    <div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
+    ${me.subs?.length > 1 ? `<div class="card acc-c" id="sec-limit">${h3('แพลนของฉัน · ' + me.subs.length + ' ใบ')}
+      <p class="muted" style="margin:-4px 0 12px;font-size:13.5px">แต่ละใบมีลิมิตของตัวเอง ใช้ใบหลักก่อน ใบไหนเต็มสลับไปใบถัดไปเอง · เลือกใบที่ใช้ได้ที่ปุ่มลิมิตบนแชต</p>
+      ${me.subs.map(x => `<div class="sub-card${x.primary ? ' prim' : ''}"><div class="sub-h"><b>${esc(x.name)}</b>${x.primary ? '<span class="pill">ใบหลัก</span>' : ''}<span class="sp"></span><small class="muted">หมดอายุ ${when(x.expires)}</small></div>
+        ${x.use4h === false ? '' : meterRow('รอบ 4 ชม.', x.pct4h, x.reset4h ? 'รีเซ็ต ' + when(x.reset4h) : 'เริ่มนับเมื่อใช้ใบนี้ครั้งแรก')}${meterRow('รอบสัปดาห์', x.pctWeek, x.resetWeek ? 'รีเซ็ต ' + when(x.resetWeek) : 'เริ่มนับเมื่อใช้ใบนี้ครั้งแรก')}
+        <div class="sub-acts"><label class="sw-l"><span class="sw"><input type="checkbox" data-subrenew="${x.id}" ${x.auto_renew ? 'checked' : ''}><span></span></span>ต่ออายุอัตโนมัติจาก Wallet</label><span class="sp"></span>
+          <a class="btn out sm" href="/plans?plan=${x.plan_id}&sub=${x.id}">ต่ออายุใบนี้</a>${x.primary ? '' : `<button type="button" class="btn out sm" data-subprim="${x.id}">ตั้งเป็นใบหลัก</button>`}</div></div>`).join('')}
+      <a class="btn blue sm" href="/plans" style="margin-top:6px">${ic('plus', 'sm')} ซื้อแพลนเพิ่ม</a></div>` : `<div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
       ${u.use4h === false ? '' : meterRow('รอบ 4 ชม.', u.pct4h, u.reset4h ? 'รีเซ็ต ' + when(u.reset4h) : 'เริ่มนับเมื่อส่งข้อความแรก')}
-      ${meterRow('รอบสัปดาห์', u.pctWeek, 'รีเซ็ต ' + when(u.resetWeek))}</div>
+      ${meterRow('รอบสัปดาห์', u.pctWeek, 'รีเซ็ต ' + when(u.resetWeek))}</div>`}
     <div class="acc-ov">
       <div class="acc-big"><span class="muted">Wallet</span><b>฿${baht(w.balance)}</b><a class="btn blue sm" href="/plans?topup=1">Top up</a></div>
       <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span>${(me.model_credits || []).map(c => `<span class="cc-pill">เครดิตโมเดล ฿${c.left} · ใช้ได้กับ ${esc(c.names)} · ถึง ${when(c.expires_at)}</span>`).join('')}${me.claude_credit ? `<span class="cc-pill">🎁 แถม Claude Eco เหลือ ≈ $${me.claude_credit.usd} · ใช้ได้ถึง ${when(me.claude_credit.exp)}<label class="cc-sw"><input type="checkbox" id="ccfirst" ${me.claude_credit.first ? 'checked' : ''}> ใช้เครดิตแถมก่อนลิมิต <small>(ปิด = ใช้ลิมิตก่อน เครดิตไว้ใช้ตอนลิมิตเต็ม · ใช้กับ API ด้วย)</small></label></span>` : ''}</div>
@@ -134,6 +140,8 @@ PAGES.account = async function account() {
 
   const doOut = async () => { await api('/logout', { method: 'POST' }); me = null; go('/'); };
   $('#outTop').onclick = doOut;
+  app.querySelectorAll('[data-subrenew]').forEach(c => c.onchange = async () => { try { await api(`/subs/${c.dataset.subrenew}/renew`, { method: 'POST', body: { on: c.checked } }); toast(c.checked ? 'เปิดต่ออายุอัตโนมัติใบนี้แล้ว' : 'ปิดต่ออายุอัตโนมัติใบนี้แล้ว', 'ok'); } catch (e) { c.checked = !c.checked; toast(e.message, 'bad'); } });
+  app.querySelectorAll('[data-subprim]').forEach(b => b.onclick = async () => { try { await api(`/subs/${b.dataset.subprim}/primary`, { method: 'POST' }); toast('ตั้งเป็นใบหลักแล้ว', 'ok'); await loadMe(); go('/account'); } catch (e) { toast(e.message, 'bad'); } });
   { // เมนูหมวดด้านบน: ไฮไลต์หมวดที่กำลังดูอยู่
     const links = [...app.querySelectorAll('.acc-nav a')], secs = links.map(a => $(a.getAttribute('href'))).filter(Boolean);
     if ('IntersectionObserver' in window && secs.length) { const io = new IntersectionObserver(es => es.forEach(x => { if (!x.isIntersecting) return; links.forEach(a => { const on = a.getAttribute('href') === '#' + x.target.id; a.classList.toggle('on', on); if (on) a.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }); }), { rootMargin: '-120px 0px -60% 0px' }); secs.forEach(x => io.observe(x)); }

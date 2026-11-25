@@ -1,6 +1,6 @@
 import { CC, claudeCreditLeft } from './credits.js';
 import { trialOffer } from './trial.js';
-import { FREE_DAY_CAP, freeIds, DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy, WALLET_MIN } from './core.js';
+import { subsStatus, mirrorPrimary, FREE_DAY_CAP, freeIds, DAY, allowedModels, flat, limitBoost, walletModels, creditList, creditsOf, emailAuth, ensureCols, err, getUser, ip, json, limMult, limited, msgCost, planOf, rand, startSession, usageStatus, viaProxy, WALLET_MIN } from './core.js';
 import { callModel, chat, compact, ensureFb, logUsage } from './ai.js';
 import { topupPromo, event, getSetting, getSettings, mail, mailBox, notify, origin, pay, priceOf, promoOn, useToken } from './billing.js';
 import { gh, github, projects, seal, unseal } from './projects.js';
@@ -288,8 +288,15 @@ export async function route(req, env, ctx, url, path, M) {
           balance: u.balance, ref_code: u.ref_code, email_verified: !!u.email_verified, totp_on: !!u.totp_on, google: !!u.google_id, line: !!u.line_id, has_password: !!u.has_password,
           instructions: u.instructions, webhook_url: u.webhook_url || '', auto_compact: u.auto_compact !== 0, auto_memory: u.auto_memory ? 1 : 0, digest: !u.digest_off, wallet_overflow: !!u.wallet_overflow, wallet_day_cap: u.wallet_day_cap || null, auto_renew: !!u.auto_renew,
           usage, reset_credits: credits.reduce((a, x) => a + x.n, 0), reset_list: credits, model_credits: mcList.filter(c => c.active).map(({ names, left, expires_at, models: ids }) => ({ names, left, expires_at, models: ids })), models: [...models, ...walletList.filter(w => !models.some(x => x.id === w.id)).map(w => ({ ...w, wallet: !mcLeft.has(w.id), locked: !mcLeft.has(w.id) && !(u.balance >= WALLET_MIN) }))].map(({ cost_in, cost_out, cost_cache, ...m }) => mcLeft.has(m.id) ? { ...m, mcredit: Math.round(mcLeft.get(m.id) * 100) / 100 } : m), // มียอด Wallet: ใช้ได้ทุกโมเดล โมเดลนอกแพลนตัดเงินตามราคาขาย
+          subs: plan._subs?.length ? await subsStatus(env, u, plan) : null, // หลายแพลน: ทุกใบพร้อมลิมิตของแต่ละใบ
           promptpay_id: pay.promptpay_id, pay_info: { bank_name: pay.bank_name, bank_account: pay.bank_account, bank_holder: pay.bank_holder },
         });
+      }
+      if ((r = path.match(/^\/api\/subs\/(\d+)\/(primary|renew)$/)) && M === 'POST') { // หลายแพลน: ตั้งใบหลัก · เปิด/ปิดต่ออายุอัตโนมัติรายใบ
+        const sub = await env.DB.prepare("SELECT *, id sid FROM subscriptions WHERE id=? AND user_id=? AND status='active' AND expires_at>?").bind(+r[1], u.id, Date.now()).first().catch(() => null); if (!sub) return err('ไม่พบแพลนใบนี้', 404);
+        if (r[2] === 'primary') await mirrorPrimary(env, u.id, sub);
+        else await env.DB.prepare('UPDATE subscriptions SET auto_renew=? WHERE id=?').bind((await req.json().catch(() => ({}))).on ? 1 : 0, sub.id).run();
+        return json({ ok: true });
       }
       if (path === '/api/chat' && M === 'POST') return await chat(req, env, u, ctx);
       if (path === '/api/context' && M === 'GET') return await contextApi(req, env, u);

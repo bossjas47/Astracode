@@ -1633,7 +1633,7 @@ async function codeSend(auto) {
   IDE.busy = true; IDE.ctrl = new AbortController(); $('#cgo').innerHTML = ic('stop'); $('#cgo').classList.add('stop');
   let raf = 0, started = false, netLost = false, reload = false;
   try {
-    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps, agent: !!IDE.agent, perm: IDE.perm || 'auto', local: IDE.local ? { os: navigator.userAgentData?.platform || navigator.platform } : undefined };
+    const reqBody = resume ? { resume: true, chat_id: IDE.chatId } : { ...(subSel() ? { sub_id: subSel() } : {}), project_id: IDE.pid, chat_id: IDE.chatId, model_id: m.id, text: full, files, images, effort: m.effort !== 'none' ? $('#ceffort').value || null : null, skill_ids: IDE.skills, mcp_ids: IDE.mcps, agent: !!IDE.agent, perm: IDE.perm || 'auto', local: IDE.local ? { os: navigator.userAgentData?.platform || navigator.platform } : undefined };
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: IDE.ctrl.signal, body: JSON.stringify(reqBody) });
     if (!r.ok) { const d = await r.json(); throw new Error(r.status === 429 && d.pct4h != null ? 'ลิมิตเต็มแล้ว' : d.error); }
     started = true;
