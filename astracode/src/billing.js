@@ -303,7 +303,8 @@ export async function applyPayment(env, p) {
       const target = p.sub_id && await env.DB.prepare("SELECT * FROM subscriptions WHERE id=? AND user_id=? AND status='active'").bind(p.sub_id, u.id).first();
       if (target) await env.DB.prepare('UPDATE subscriptions SET expires_at=?, period=? WHERE id=?').bind(Math.max(target.expires_at, now) + days * DAY, p.period, target.id).run();
       else await env.DB.prepare("INSERT INTO subscriptions (user_id,plan_id,period,starts_at,expires_at,status,payment_id,auto_renew,created_at) VALUES (?,?,?,?,?,'active',?,0,?)").bind(u.id, p.plan_id, p.period, now, now + days * DAY, p.id, now).run();
-      const fresh = await subsOf(env, u), prim = fresh.find(x => x.primary) || fresh[0];
+      const fresh = await subsOf(env, u, { sync: false }), prim = fresh.find(x => x.primary) || fresh[0];
+      if (!target && fresh.length >= 4) await notify(env, `👀 ${u.email} ถือแพลน ${fresh.length} ใบพร้อมกัน (${fresh.map(x => '#' + x.plan_id).join(', ')}) · ตรวจว่าแชร์บัญชี/ขายต่อหรือไม่ที่หลังบ้าน → ผู้ใช้`).catch(() => {});
       if (prim) await mirrorPrimary(env, u.id, prim); // users.plan_* = ใบหลักเสมอ (ไม่มีใบหลักเดิม = ใบที่เพิ่งซื้อ)
     } else {
       let base = u.plan_id === p.plan_id && u.plan_expires > now ? u.plan_expires : now; // ต่ออายุแพลนเดิมต่อท้าย

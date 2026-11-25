@@ -1,5 +1,5 @@
 import { connectorRoutes, pluginRoutes } from './connectors.js';
-import { BKK, DAY, getUser, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus, WALLET_MIN } from './core.js';
+import { multiOn, BKK, DAY, getUser, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus, WALLET_MIN } from './core.js';
 import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
@@ -91,6 +91,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
       if (w && !safe) return err('Webhook ต้องเป็นลิงก์ https ที่เปิดสู่สาธารณะเท่านั้น');
       await DB.prepare('UPDATE users SET webhook_url=? WHERE id=?').bind(safe || null, u.id).run();
     }
+    if ('auto_renew' in b && await multiOn(env)) await DB.prepare('UPDATE subscriptions SET auto_renew=? WHERE id=(SELECT primary_sub_id FROM users WHERE id=?)').bind(b.auto_renew ? 1 : 0, u.id).run().catch(() => {}); // หลายแพลน: สวิตช์เดิมของบัญชี = ใบหลัก
     if (b.auto_renew === false && typeof b.reason === 'string' && b.reason.trim()) await event(env, 'cancel', null, `${u.email}: ${b.reason.trim().slice(0, 300)}`); // เหตุผลที่ปิดต่ออายุ ให้แอดมินดูในเหตุการณ์ระบบ
     return json({ ok: true });
   }

@@ -57,8 +57,8 @@ test('multi-plan: charges the primary slot, falls through to the next when full,
 
 test('multi-plan: "renew this slot" extends only that slot; switch off = old behaviour (buying the same plan adds days)', async () => {
   const S = await setup(); await S.buy(S.plus); await S.buy(S.plus);
-  const [s1, s2] = S.subs(); await S.buy(S.plus, { sub_id: s2.id });
-  const after = S.subs(); assert.equal(after.length, 2, 'renewal is not a new slot'); assert.equal(after[1].expires_at, s2.expires_at + 30 * DAY); assert.equal(after[0].expires_at, s1.expires_at);
+  const [s1, s2] = S.subs(); await S.buy(S.plus, { sub_id: s2.id }); await S.buy(S.plus, { sub_id: s1.id }); // ต่ออายุทั้งใบรองและใบหลัก
+  const after = S.subs(); assert.equal(after.length, 2, 'renewal is not a new slot'); assert.equal(after[1].expires_at, s2.expires_at + 30 * DAY); assert.equal(after[0].expires_at, s1.expires_at + 30 * DAY, 'renewing the primary slot sticks'); assert.equal(S.row().plan_expires, s1.expires_at + 30 * DAY);
   S.fm.close();
   const O = await setup({ multi: false }); await O.buy(O.plus); const e1 = O.row().plan_expires; await O.buy(O.plus);
   assert.ok(Math.abs(O.row().plan_expires - (e1 + 30 * DAY)) < 5000); assert.equal(O.subs().length, 0, 'switch off: no slots are created');
@@ -100,4 +100,28 @@ test('multi-plan UI data: /api/me lists every slot with its own limits; set prim
   const other = await S.t.user(); assert.equal((await S.t.json(`/api/subs/${s1.id}/primary`, { method: 'POST', cookie: other.cookie })).status, 404);
   const one = await setup(); await one.buy(one.plus); assert.equal((await one.t.json('/api/me', { cookie: one.u.cookie })).data.subs.length, 1);
   S.fm.close(); one.fm.close();
+});
+
+test('multi-plan admin: per-slot auto-renew charges once; refund ends only that slot; admin extend/end a slot keeps the mirror right', async () => {
+  const { cron } = await import('../src/jobs.js');
+  const S = await setup(); await S.buy(S.plus); await S.buy(S.pro);
+  let [s1, s2] = S.subs(); const soon = Date.now() + 3600e3;
+  S.t.DB.raw.prepare('UPDATE subscriptions SET expires_at=?, auto_renew=1 WHERE id=?').run(soon, s2.id);
+  const bal0 = S.row().balance; await cron(S.t.env); await cron(S.t.env);
+  assert.equal(S.t.DB.raw.prepare('SELECT expires_at FROM subscriptions WHERE id=?').get(s2.id).expires_at, soon + 30 * DAY, 'renewed once even if the job runs twice');
+  assert.equal(S.row().balance, bal0 - 300); assert.ok(S.t.DB.raw.prepare("SELECT 1 FROM payments WHERE sub_id=? AND slip_key='wallet'").get(s2.id));
+  // คืนเงินรายการที่ซื้อ Pro → ปิดเฉพาะใบ Pro · Plus ยังใช้ได้
+  const adm = await S.t.user({ role: 'admin' }); const pay = S.t.DB.raw.prepare('SELECT id FROM payments WHERE id=(SELECT payment_id FROM subscriptions WHERE id=?)').get(s2.id);
+  assert.equal((await S.t.json(`/api/admin/payments/${pay.id}/refund`, { method: 'POST', cookie: adm.cookie, body: {} })).status, 200);
+  [s1, s2] = S.subs(); assert.equal(s2.status, 'refunded'); assert.equal(s1.status, 'active'); assert.ok(S.row().plan_expires > Date.now(), 'Plus still active');
+  // แอดมินเพิ่มวัน / ปิดใบ
+  assert.equal((await S.t.json(`/api/admin/subs/${s1.id}`, { method: 'POST', cookie: adm.cookie, body: { action: 'extend', days: 10 } })).status, 200);
+  assert.equal(S.subs()[0].expires_at, s1.expires_at + 10 * DAY); assert.equal(S.row().plan_expires, s1.expires_at + 10 * DAY, 'mirror follows');
+  assert.equal((await S.t.json(`/api/admin/subs/${s1.id}`, { method: 'POST', cookie: adm.cookie, body: { action: 'end' } })).status, 200);
+  assert.ok(S.row().plan_expires <= Date.now(), 'no slots left → no plan');
+  const det = (await S.t.json('/api/admin/users/' + S.u.id, { cookie: adm.cookie })).data; assert.equal(det.subs.length, 2);
+  S.t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(S.plus.id, Date.now() + 5 * DAY, S.u.id); // แอดมินให้แพลนแบบเดิมหลังใบหมดทุกใบ
+  const g = await planOf(S.t.env, S.row()); assert.equal(g._sub.legacy, 0, 'adopted as a fresh slot (old usage not counted)'); assert.equal(g.name, 'Plus');
+  assert.equal((await S.t.json(`/api/admin/subs/${s1.id}`, { method: 'POST', cookie: S.u.cookie, body: { action: 'extend', days: 10 } })).status, 403, 'users cannot use admin routes');
+  S.fm.close();
 });

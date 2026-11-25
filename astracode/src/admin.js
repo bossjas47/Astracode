@@ -1,4 +1,4 @@
-import { BKK, DAY, creditsInit, err, esc, hex, json, limitBoost, limited, logReset, planOf, rand, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
+import { resyncPrimary, multiOn, BKK, DAY, creditsInit, err, esc, hex, json, limitBoost, limited, logReset, planOf, rand, resetUsage, same, slipGet, unlimit, usageStatus } from './core.js';
 import { callModel, ensureFb, isSafeMcpUrl, logUsage, mcpSync } from './ai.js';
 import { applyPayment, audit, promoOn, supplyIssue, releaseCoupon, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl as siteUrlOf, slipLooksOk, topupPromo, walletAdd } from './billing.js';
 import { seal } from './projects.js';
@@ -144,6 +144,16 @@ export async function admin(req, env, path, url, me) {
     else await releaseCoupon(env, p.coupon, p.user_id); // ปฏิเสธ: คืนสิทธิ์คูปองที่จองไว้ตอนส่งสลิป
     return json({ ok: true });
   }
+  if ((r = path.match(/^\/api\/admin\/subs\/(\d+)$/)) && M === 'POST') { // หลายแพลน: แอดมินเพิ่มวัน / ปิดใบ ทีละใบ
+    const b = await req.json().catch(() => ({})), s = await DB.prepare('SELECT * FROM subscriptions WHERE id=?').bind(+r[1]).first(); if (!s) return err('ไม่พบแพลนใบนี้', 404);
+    const now = Date.now();
+    if (b.action === 'extend') { const d = Math.round(+b.days); if (!(d >= 1 && d <= 3650)) return err('จำนวนวันไม่ถูกต้อง'); await DB.prepare("UPDATE subscriptions SET expires_at=MAX(expires_at, ?)+?, status='active' WHERE id=?").bind(now, d * DAY, s.id).run(); }
+    else if (b.action === 'end') await DB.prepare("UPDATE subscriptions SET status='expired', expires_at=? WHERE id=?").bind(now, s.id).run();
+    else return err('action ไม่ถูกต้อง');
+    await ctxAudit('sub ' + b.action, { id: s.id, user: s.user_id, days: b.days || null });
+    await resyncPrimary(env, s.user_id);
+    return json({ ok: true });
+  }
   if ((r = path.match(/^\/api\/admin\/payments\/(\d+)\/refund$/)) && M === 'POST') { // คืนเงิน: ปิดแพลน/หักยอดเติม · wallet=1 = คืนเป็นเครดิต ไม่งั้นแอดมินโอนคืนเอง
     const b = await req.json().catch(() => ({}));
     const p = await DB.prepare("UPDATE payments SET status='refunded' WHERE id=? AND status='approved' RETURNING *").bind(r[1]).first();
@@ -154,6 +164,12 @@ export async function admin(req, env, path, url, me) {
     else {
       const now = Date.now(), pl = await DB.prepare('SELECT seats FROM plans WHERE id=?').bind(p.plan_id).first();
       if (pl?.seats > 1) await DB.prepare('UPDATE teams SET expires=? WHERE owner_id=? AND plan_id=? AND expires>?').bind(now, p.user_id, p.plan_id, now).run();
+      else if (await multiOn(env) && (p.sub_id || await DB.prepare('SELECT 1 FROM subscriptions WHERE payment_id=?').bind(p.id).first().catch(() => null))) { // หลายแพลน: ปิดเฉพาะใบที่ซื้อด้วยรายการนี้ · รายการต่ออายุ = หักวันที่เพิ่มคืน
+        const days = (p.period === 'year' ? 365 : (await DB.prepare('SELECT days FROM plans WHERE id=?').bind(p.plan_id).first())?.days || 30) * DAY;
+        if (p.sub_id) await DB.prepare('UPDATE subscriptions SET expires_at=MAX(?, expires_at-?) WHERE id=?').bind(now, days, p.sub_id).run();
+        else await DB.prepare("UPDATE subscriptions SET status='refunded', expires_at=? WHERE payment_id=?").bind(now, p.id).run();
+        await resyncPrimary(env, p.user_id);
+      }
       else await DB.prepare('UPDATE users SET plan_expires=? WHERE id=? AND plan_id=? AND plan_expires>?').bind(now, p.user_id, p.plan_id, now).run();
       if (b.wallet) await walletAdd(env, p.user_id, p.amount, 'refund', ref);
     }
@@ -259,7 +275,8 @@ export async function admin(req, env, path, url, me) {
     u.recent = (await DB.prepare("SELECT x.created_at,x.tokens_in tin,x.tokens_out tout,x.tokens_cache tc,x.cost,x.ms,x.src,x.charge,COALESCE(m.name,'รูปภาพ') name FROM usage x LEFT JOIN models m ON m.id=x.model_id WHERE x.user_id=? ORDER BY x.id DESC LIMIT 30").bind(u.id).all()).results;
     u.keys = (await DB.prepare('SELECT COUNT(*) n FROM api_keys WHERE user_id=? AND revoked=0').bind(u.id).first()).n;
     const plan = await planOf(env, u);
-    return json({ ...u, usage: await usageStatus(env, u, plan), current_plan: plan.name, models: models.results, payments: pays.results, chats: chats.n });
+    const subs = await multiOn(env) ? (await DB.prepare("SELECT s.id, s.plan_id, s.status, s.starts_at, s.expires_at, s.auto_renew, s.payment_id, s.legacy, p.name FROM subscriptions s LEFT JOIN plans p ON p.id=s.plan_id WHERE s.user_id=? ORDER BY (s.status='active' AND s.expires_at>?) DESC, s.expires_at DESC LIMIT 20").bind(u.id, Date.now()).all().catch(() => ({ results: [] }))).results : null;
+    return json({ ...u, usage: await usageStatus(env, u, plan), current_plan: plan.name, models: models.results, payments: pays.results, chats: chats.n, subs });
   }
   if (path === '/api/admin/settings') {
     if (M === 'PUT') await ctxAudit('update settings', Object.keys(await req.clone().json()));

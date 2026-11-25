@@ -1,4 +1,4 @@
-import { BKK, DAY, ensureCols, err, esc, json, limited, unlimit } from './core.js';
+import { BKK, DAY, ensureSubs, mirrorPrimary, multiOn, ensureCols, err, esc, json, limited, unlimit } from './core.js';
 import { SSE, callModel, ensureImgTable, runChat } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
 import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl, walletAdd } from './billing.js';
@@ -23,7 +23,7 @@ export async function cron(env) {
   await ensureCols(env).catch(() => {}); // cron ไม่ผ่านเส้นทาง /api จึงต้องให้คอลัมน์ใหม่มีก่อนใช้
   const step = async (name, fn) => { try { await fn(); } catch (e) { console.log('cron ' + name, e.message); log.push('ERR ' + name); } }; // ขั้นหนึ่งพัง ขั้นอื่นต้องไปต่อ (โดยเฉพาะสำรองข้อมูลและล้างข้อมูลเก่า)
   // 1) ต่ออายุอัตโนมัติจาก Wallet เมื่อเหลือไม่ถึง 24 ชม.
-  await step('renew', async () => { for (const u of (await DB.prepare('SELECT u.*,p.price,p.price_year,p.name pname,p.days pdays FROM users u JOIN plans p ON p.id=u.plan_id WHERE COALESCE(p.once,0)=0 AND u.auto_renew=1 AND u.banned=0 AND u.plan_expires BETWEEN ? AND ?').bind(now, now + DAY).all()).results) {
+  await step('renew', async () => { if (await multiOn(env)) return renewSubs(env, now, log); for (const u of (await DB.prepare('SELECT u.*,p.price,p.price_year,p.name pname,p.days pdays FROM users u JOIN plans p ON p.id=u.plan_id WHERE COALESCE(p.once,0)=0 AND u.auto_renew=1 AND u.banned=0 AND u.plan_expires BETWEEN ? AND ?').bind(now, now + DAY).all()).results) {
     const year = u.plan_period === 'year' && u.price_year, price = year ? u.price_year : u.price;
     // หักเงินกับขยายวันใน statement เดียว (atomic) · เงื่อนไขช่วง plan_expires ทำให้รันซ้ำ/cron ซ้อนกันก็หักได้ครั้งเดียว เพราะหลังขยายแล้วหลุดช่วง
     const took = u.balance >= price && await DB.prepare('UPDATE users SET balance=ROUND(balance-?1,4), plan_expires=plan_expires+?2 WHERE id=?3 AND balance>=?1 AND plan_expires BETWEEN ?4 AND ?5 RETURNING balance').bind(price, (year ? 365 : u.pdays || 30) * DAY, u.id, now, now + DAY).first();
@@ -305,4 +305,20 @@ export async function cleanShared(env, now = Date.now()) {
     if (!r.truncated) break; cursor = r.cursor;
   }
   return n;
+}
+
+// หลายแพลน: ต่ออายุอัตโนมัติรายใบ (เปิดที่หน้าบัญชี) · จองการต่ออายุก่อน (ขยายวันแบบมีเงื่อนไข) แล้วค่อยหักเงิน ถ้าเงินไม่พอ คืนวันกลับ → รันซ้ำ/cron ซ้อนก็หักครั้งเดียว
+async function renewSubs(env, now, log) {
+  const DB = env.DB; await ensureSubs(env);
+  const rows = (await DB.prepare("SELECT s.id, s.user_id, s.plan_id, s.period, s.expires_at, u.email, u.primary_sub_id, p.price, p.price_year, p.name pname, p.days pdays FROM subscriptions s JOIN users u ON u.id=s.user_id JOIN plans p ON p.id=s.plan_id WHERE s.status='active' AND s.auto_renew=1 AND COALESCE(p.once,0)=0 AND p.price>0 AND u.banned=0 AND s.expires_at BETWEEN ? AND ?").bind(now, now + DAY).all()).results;
+  for (const s of rows) {
+    const year = s.period === 'year' && s.price_year, price = year ? s.price_year : s.price, add = (year ? 365 : s.pdays || 30) * DAY;
+    if (!(await DB.prepare('UPDATE subscriptions SET expires_at=expires_at+?1 WHERE id=?2 AND expires_at BETWEEN ?3 AND ?4').bind(add, s.id, now, now + DAY).run()).meta.changes) continue;
+    const took = await DB.prepare('UPDATE users SET balance=ROUND(balance-?1,4) WHERE id=?2 AND balance>=?1 RETURNING balance').bind(price, s.user_id).first();
+    if (!took) { await DB.prepare('UPDATE subscriptions SET expires_at=expires_at-? WHERE id=?').bind(add, s.id).run(); continue; } // เงินไม่พอ: คืนวัน (ระบบเตือนเติมเงินแยกอยู่แล้ว)
+    await DB.prepare('INSERT INTO wallet_tx (user_id,amount,balance_after,kind,ref,created_at) VALUES (?,?,?,?,?,?)').bind(s.user_id, -price, took.balance, 'renew', s.pname, now).run();
+    await DB.prepare("INSERT INTO payments (user_id,plan_id,amount,slip_key,status,kind,period,created_at,approved_at,sub_id) VALUES (?,?,?,'wallet','approved','plan',?,?,?,?)").bind(s.user_id, s.plan_id, price, year ? 'year' : 'month', now, now, s.id).run();
+    if (s.id === s.primary_sub_id) await mirrorPrimary(env, s.user_id, { sid: s.id, plan_id: s.plan_id, expires_at: s.expires_at + add, period: s.period });
+    await mail(env, s.email, 'Kyber: ต่ออายุแพลนแล้ว', mailBox('ต่ออายุแพลนแล้ว', `ตัดเงินจาก Wallet ฿${price} ต่ออายุ ${s.pname} (ใบนี้) เรียบร้อย`)); log.push('renew sub ' + s.id);
+  }
 }
