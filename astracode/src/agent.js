@@ -1,6 +1,7 @@
 // Agent เบื้องหลัง: ทำงานแก้โค้ดบนเซิร์ฟเวอร์ทั้งชุดโดยผู้ใช้ไม่ต้องเปิดหน้าค้างไว้ (รันใน Durable Object ของ ChatRun)
 // วนรอบ: ให้โมเดลคิด → อ่านไฟล์ที่ขอ (READ/GREP/LIST) → เขียนไฟล์ที่แก้ลงโปรเจกต์ → ส่งผลกลับให้โมเดล จนไม่มีอะไรต้องทำ
 // ข้อจำกัด: เซิร์ฟเวอร์รันโค้ดและจับภาพหน้าจอไม่ได้ Agent จึงตรวจงานด้วยการอ่านไฟล์กลับ ผู้ใช้ควรเปิดดูผลเองตอนจบ
+import { webSkills, memoryBlockWeb, MEM_PATH } from './skills.js';
 import { DAY, SYSTEM_CODE, pickBucket, allowedModels, projectFor, ctxMax, err, esc, fitContext, flat, json, limMult, limited, planOf, touchWindows, usageStatus } from './core.js';
 import { bundleProject, callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs, webSearch } from './ai.js';
 import { b64 } from './projects.js';
@@ -247,7 +248,8 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     if (J.role === 'lead') { const r = await runLead(env, J, u, plan, m); if (!r) return; status = r.status; usageNote = r.note; return await finish(); } // แบ่งงานสำเร็จ: ทีมทำต่อ (ผู้ตรวจสรุปตอนจบ)
     const files = () => DB.prepare('SELECT path,length(content) n FROM project_files WHERE project_id=? ORDER BY path').bind(J.project_id).all().then(r => r.results);
     const astra = (await DB.prepare("SELECT content FROM project_files WHERE project_id=? AND path IN ('ASTRA.md','AGENTS.md') ORDER BY path LIMIT 1").bind(J.project_id).first())?.content?.slice(0, 3000) || '';
-    const system = SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + (proj.instructions ? '\n\nProject-specific instructions (follow them):\n' + proj.instructions.slice(0, 3000) : '') + (astra ? '\n\nFrom the project file ASTRA.md:\n' + astra : '') + (await imagePrompt(env, true)) + '\n\n' + AGENT_NOTE;
+    const projMem = (await DB.prepare('SELECT content FROM project_files WHERE project_id=? AND path=?').bind(J.project_id, MEM_PATH).first().catch(() => null))?.content || '';
+    const system = SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + webSkills(J.prompt) + memoryBlockWeb(projMem) + (proj.instructions ? '\n\nProject-specific instructions (follow them):\n' + proj.instructions.slice(0, 3000) : '') + (astra ? '\n\nFrom the project file ASTRA.md:\n' + astra : '') + (await imagePrompt(env, true)) + '\n\n' + AGENT_NOTE;
     let msgs = [{ role: 'user', content: `${J.prompt}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${(await files()).map(f => `${f.path} (${f.n})`).join('\n').slice(0, 15000)}` }];
     // ผู้ตรวจทีม: ถ่ายภาพหน้าเว็บจริงแนบไปรอบแรก (ต้องตั้ง CF_ACCOUNT_ID + CF_BR_TOKEN และโมเดลอ่านรูปได้)
     let shot = J.role === 'review' && m.vision ? await pageShot(env, J.project_id) : null;

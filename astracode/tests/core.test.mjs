@@ -686,3 +686,12 @@ test('background agent harness: blind overwrite refused until READ, a looping ag
   assert.match(t.DB.raw.prepare("SELECT content FROM project_files WHERE project_id=? AND path='app.js'").get(pid).content, /init\(\);/);
   assert.match(job.summary, /แก้แล้ว/); fm.close();
 });
+
+test('built-in skills: web copy of the Three.js and coding skills stays in step with the app version (same CDN version and key rules)', async () => {
+  const { THREE_SKILL_WEB, CODING_SKILL_WEB, THREE_RE, webSkills } = await import('../src/skills.js');
+  const { createRequire } = await import('node:module'); const d = createRequire(import.meta.url)('../../desktop/skills.js');
+  const ver = s => s.match(/three@([\d.]+)/g); assert.deepEqual(ver(THREE_SKILL_WEB), ver(d.THREE_SKILL));
+  for (const k of ['AnimationMixer', 'GLTFExporter', 'HemisphereLight', 'setAnimationLoop']) { assert.ok(THREE_SKILL_WEB.includes(k)); assert.ok(d.THREE_SKILL.includes(k)); }
+  assert.equal(String(THREE_RE), String(d.THREE_RE));
+  assert.ok(webSkills('ทำเว็บแอนิเมชัน 3D หมุนได้').includes('Three.js')); assert.ok(!webSkills('แก้บั๊กหน้า login').includes('Three.js')); assert.ok(webSkills('x').includes(CODING_SKILL_WEB));
+});

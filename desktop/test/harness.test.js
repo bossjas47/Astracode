@@ -364,3 +364,49 @@ test('tools: write_file append builds a big file in parts without re-reading', a
   fs.writeFileSync(path.join(dir, 'user.py'), 'old');
   assert.match(await ws.call('write_file', { path: 'user.py', content: 'x', append: true }), /read user\.py with read_file/, 'appending to an unread user file still needs a read');
 });
+
+test('skills: coding discipline always for code work, Three.js only for 3D work or three projects', () => {
+  const { builtinSkills } = require('../skills');
+  assert.match(builtinSkills({ text: 'แก้บั๊ก' }), /coding discipline/); assert.doesNotMatch(builtinSkills({ text: 'แก้บั๊ก' }), /Three\.js/);
+  assert.match(builtinSkills({ text: 'ทำแอนิเมชัน 3D ด้วย three.js' }), /Three\.js[\s\S]*check_page/);
+  assert.match(builtinSkills({ text: 'x', deps: '{"dependencies":{"three":"^0.170.0"}}' }), /GLTFLoader/);
+  assert.equal(builtinSkills({ text: 'สรุปรายงาน', code: false }), '');
+});
+
+test('tools: check_page reports console errors and a blank screen with the screenshot; notes survive and are pinned', async () => {
+  const dir = tmp(); fs.writeFileSync(path.join(dir, 'index.html'), '<canvas></canvas>');
+  const seen = [];
+  const ws = new Workspace(dir, { pageCheck: async (u, w) => { seen.push([u, w]); return { image: 'data:image/jpeg;base64,AA', logs: ['[error] Uncaught ReferenceError: THREE is not defined'], bytes: 3000, canvases: 1 }; } });
+  const r = await ws.call('check_page', { path: 'index.html' });
+  assert.match(seen[0][0], /^http:\/\/127\.0\.0\.1:\d+\/index\.html$/, 'served over a temporary local web server (file:// blocks ES modules)'); assert.equal(seen[0][1], 1500);
+  assert.match(r.text, /พบ error 1[\s\S]*THREE is not defined[\s\S]*ดูเหมือนว่าง/); assert.equal(r.images.length, 1);
+  assert.match(await ws.call('check_page', { path: 'nope.html' }), /ไม่พบไฟล์/);
+  assert.match(await ws.call('check_page', { path: '../x.html' }), /inside the working folder/);
+  await ws.call('notes', { action: 'add', text: 'ใช้ three@0.170.0 จาก CDN' });
+  assert.match(await ws.call('notes', { action: 'list' }), /three@0\.170\.0/); assert.match(ws.pinnedNotes(), /Your notes so far/);
+});
+
+test('harness: advisor plans once per request and helps when stuck; failed page check blocks finishing until fixed', async () => {
+  const asked = [];
+  const advisor = { model: 'opus', plan: async t => { asked.push('plan:' + t.slice(0, 10)); return '1. read index.html 2. fix camera'; }, unstuck: async () => { asked.push('unstuck'); return 'the import map points to a missing file'; } };
+  const s = script([
+    { calls: [['read_file', { path: 'a.js' }]] }, { calls: [['read_file', { path: 'a.js' }]] }, { calls: [['read_file', { path: 'a.js' }]] },
+    { calls: [['check_page', { path: 'index.html' }]] }, { text: 'เสร็จแล้ว' }, { calls: [['check_page', { path: 'index.html' }]] }, { text: 'แก้แล้ว ผ่าน' }]);
+  let pageOk = false; const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'ทำฉาก 3D' }];
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools, advisor, fetchImpl: s.fetch, callTool: async n => n === 'check_page' ? (pageOk ? 'ตรวจหน้า index.html\nconsole ไม่มี error' : 'ตรวจหน้า index.html\nพบ error 1 รายการ') : 'same' });
+  assert.equal(asked[0], 'plan:ทำฉาก 3D'); assert.match(JSON.stringify(s.seen[0].messages), /advisor plan[\s\S]*fix camera/);
+  assert.ok(asked.includes('unstuck')); assert.match(JSON.stringify(s.seen[3].messages), /advisor opus\] the import map/);
+  assert.match(JSON.stringify(s.seen[5].messages), /last checks still fail/, 'finishing with a failing page check is pushed back');
+  pageOk = true;
+  assert.equal(asked.filter(x => x.startsWith('plan')).length, 1);
+});
+
+test('memory: lessons from a task are written to .kyber/memory.md, deduped by the model, and read back', async () => {
+  const { memoryLearn, memoryRead, memoryBlock } = require('../skills'); const dir = tmp();
+  const post = async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '- Run tests with `npm test -- --runInBand` (jest hangs otherwise)\n- three.js is loaded from the import map in index.html\nnot a bullet' } }] }) });
+  const l = await memoryLearn({ post, model: 'm', root: dir, task: 'fix', messages: [{ role: 'user', content: 'x' }] });
+  assert.equal(l.length, 2);
+  const mem = await memoryRead(dir); assert.match(mem, /# Kyber project memory[\s\S]*runInBand[\s\S]*import map/); assert.match(memoryBlock(mem), /Project memory/);
+  const none = async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: 'NONE' } }] }) });
+  assert.equal(await memoryLearn({ post: none, model: 'm', root: dir }), null);
+});

@@ -70,7 +70,7 @@ function repairHistory(messages) {
 //   spill(text, info) → path ของไฟล์ที่เก็บผลเต็ม · onCheckpoint({ round, messages, state }) · retryWaits (ระบุเอง = ไม่สุ่ม ใช้ในเทสต์)
 async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {},
   retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000,
-  verifyGate = true, checks = [], review = null }) {
+  verifyGate = true, checks = [], review = null, advisor = null, pinned = null }) {
   const url = base.replace(/\/$/, '') + '/chat/completions', t0 = Date.now();
   const post = (body, sig = signal) => fetchImpl(url, { method: 'POST', signal: sig, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
   // นาฬิกาเฝ้าคำขอ: ไม่ได้คำตอบเลยภายใน firstByteMs หรือสตรีมเงียบ (ไม่มีข้อมูลแม้แต่ ping) เกิน stallMs → ตัดการเชื่อมต่อ
@@ -97,7 +97,16 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (maxDurationMs && Date.now() - t0 > maxDurationMs) { stop(`ทำงานครบเวลา ${Math.round(maxDurationMs / 60000)} นาทีแล้ว`); return finish(); }
     if (maxTokens && stats.promptTokens + stats.outTokens > maxTokens) { stop(`ใช้ token ครบเพดาน ${maxTokens.toLocaleString()} แล้ว`); return finish(); }
     for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
-    if (JSON.stringify(messages).length > compactAt) await compact({ post, model, messages, onEvent, state });
+    if (JSON.stringify(messages).length > compactAt) await compact({ post, model, messages, onEvent, state, pinned });
+    // ที่ปรึกษาโมเดลแรง: วางแผนให้ครั้งเดียวต่อคำสั่งผู้ใช้ (ก่อนรอบแรก) · เรียกไม่ได้ = ทำงานต่อตามปกติ
+    if (round === 0 && advisor?.plan && depth === 0) {
+      const lastUser = [...messages].reverse().find(m => m.role === 'user'), task = typeof lastUser?.content === 'string' ? lastUser.content : JSON.stringify(lastUser?.content || '');
+      if (lastUser && !String(task).startsWith('[Kyber Harness')) {
+        onEvent({ type: 'info', text: 'ที่ปรึกษากำลังวางแผนงาน…' });
+        const plan = await Promise.resolve(advisor.plan(task, messages[0]?.role === 'system' ? String(messages[0].content).match(/Project map[\s\S]{0,3500}/)?.[0] || '' : '')).catch(() => null);
+        if (plan) { messages.push({ role: 'user', content: `[Kyber Harness · advisor plan] A senior engineer (${advisor.model}) suggests this plan. Use it as guidance, verify against the real files, and adapt if the code says otherwise:\n${plan.slice(0, 4000)}` }); stats.advised = (stats.advised || 0) + 1; onEvent({ type: 'info', text: 'ที่ปรึกษาวางแผนให้แล้ว' }); }
+      }
+    }
     const body = { model, messages, stream: true, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) };
     const tReq = Date.now(); let r, attempt = 0, msg = null, stalls = 0;
     const onEv = e => { if (e.type === 'usage') { const u = e.usage || {}; stats.promptTokens += u.prompt_tokens || 0; stats.outTokens += u.completion_tokens || 0; stats.cachedTokens += u.prompt_tokens_details?.cached_tokens || 0; } onEvent(e); };
@@ -144,8 +153,14 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (!msg.tool_calls.length) {
       // ตรวจงานก่อนจบ (ครั้งเดียว): แก้โค้ดแล้วยังไม่ได้รันเทสต์/บิลด์หลังแก้ครั้งล่าสุด หรืออ้างว่า "ผ่าน" ทั้งที่ไม่ได้รันอะไรเลย → ให้ตรวจจริงก่อน
       const unverified = state.codeEditRound >= 0 && state.verifyRound < state.codeEditRound, claim = CLAIM_RE.test(msg.content || '') && state.verifyRound < 0;
+      const stillBad = state.pageBad || [...state.errors.keys()].some(k => /^(bash|check_page):/.test(k)); // ตรวจแล้วยังพัง (เทสต์/บิลด์ exit ≠ 0 หรือหน้าเว็บมี error/จอว่าง)
+      if (verifyGate && depth === 0 && (state.badGates || 0) < 2 && stillBad && state.verifyRound >= 0 && round < maxRounds - 1) {
+        state.badGates = (state.badGates || 0) + 1; stats.gated = (stats.gated || 0) + 1;
+        messages.push({ role: 'user', content: `[Kyber Harness] The last checks still fail:\n${[...state.errors.values()].slice(-4).join('\n') || 'check_page reported errors or a blank page'}\nFix the cause and run the check again. Only finish when it passes; if it truly cannot pass, explain exactly why.` });
+        onEvent({ type: 'info', text: 'ตรวจงานยังไม่ผ่าน: ให้ AI แก้ก่อนสรุป' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
+      }
       if (verifyGate && depth === 0 && !state.gated && (unverified || claim) && round < maxRounds - 1) {
-        state.gated = true; stats.gated = (stats.gated || 0) + 1;
+        state.gated = 1; stats.gated = (stats.gated || 0) + 1;
         const how = checks.length ? `The project's checks: ${checks.slice(0, 4).map(c => '`' + c + '`').join(', ')}.` : 'Find the project\'s test/build command (package.json scripts, Makefile, pytest, etc.).';
         messages.push({ role: 'user', content: `[Kyber Harness] ${claim && !unverified ? 'You said it passes, but you have not run any test or build in this task.' : 'You changed code but have not run any test or build since your last change.'} Before finishing, verify your work: ${how} Run the relevant check now with bash, fix real failures, then give the final summary. If there is genuinely nothing to run (no tests, no build step), say that plainly instead of claiming it passes.` });
         onEvent({ type: 'info', text: 'ตรวจงานก่อนจบ: ให้ AI รันเทสต์/บิลด์ก่อนสรุป' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
@@ -206,7 +221,11 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     let hint = '';
     if (loop && !hinted.has('s:' + loop)) { hinted.add('s:' + loop); hint = `You have called ${loop.split('|')[0]} with the same arguments ${STUCK_N} times in a row and keep getting the same result. Stop repeating it: read the result above, then change your approach (different arguments, another tool, or ask the user).`; }
     else if (errLoop && !hinted.has('e:' + errLoop)) { hinted.add('e:' + errLoop); hint = `The same error has happened ${STUCK_N} times in a row (${errLoop.split('|')[0]}). Do not retry the same thing: find the root cause (read the file/output again, check paths and exact text) or try a different method.`; }
-    if (hint) { stats.stuck++; results.at(-1).content += `\n\n[Kyber Harness] ${hint}`; onEvent({ type: 'info', text: 'ตรวจพบการวนซ้ำ: เตือนโมเดลให้เปลี่ยนวิธี' }); }
+    if (hint) {
+      stats.stuck++; let adv = null;
+      if (advisor?.unstuck && depth === 0) { onEvent({ type: 'info', text: 'ติดวนซ้ำ: ถามที่ปรึกษา…' }); adv = await Promise.resolve(advisor.unstuck([...messages, ...results.map(({ _sig, _err, ...m }) => m)])).catch(() => null); }
+      results.at(-1).content += `\n\n[Kyber Harness] ${hint}${adv ? `\n\n[advisor ${advisor.model}] ${adv.slice(0, 2000)}` : ''}`; onEvent({ type: 'info', text: adv ? 'ที่ปรึกษาแนะนำทางแก้แล้ว' : 'ตรวจพบการวนซ้ำ: เตือนโมเดลให้เปลี่ยนวิธี' });
+    }
     messages.push(...results.map(({ _sig, _err, ...m }) => m));
     if (images.length) messages.push({ role: 'user', content: [{ type: 'text', text: 'ภาพจากเครื่องมือด้านบน' }, ...images.slice(0, 4).map(url => ({ type: 'image_url', image_url: { url } }))] }); // tool message ส่งรูปไม่ได้ จึงแนบเป็นข้อความถัดไป
     onCheckpoint?.({ round, messages, state: snapshot(state) }); // บันทึกทุกรอบ: แอป/เครื่องเสมือนรีสตาร์ตแล้วทำต่อได้
@@ -220,14 +239,15 @@ function track(state, name, args, out, ok) {
   if (name === 'todo_write' && ok && Array.isArray(args.todos)) state.todos = args.todos.slice(0, 30).map(t => ({ content: String(t.content || '').slice(0, 200), status: t.status }));
   const target = String(args.path || args.command || args.url || '').slice(0, 200), k = name + ':' + target;
   if (EDIT_TOOLS.has(name) && ok && args.path) { state.changed.add(String(args.path)); if (CODE_RE.test(String(args.path))) state.codeEditRound = state.round; }
-  if (name === 'bash' && VERIFY_RE.test(String(args.command || ''))) state.verifyRound = state.round; // รันตรวจแล้ว (ผ่านหรือไม่ผ่านก็นับ: โมเดลเห็นผลจริงแล้ว)
+  if ((name === 'bash' && VERIFY_RE.test(String(args.command || ''))) || name === 'check_page') state.verifyRound = state.round; // check_page = เปิดหน้าเว็บจริงตรวจ
+  if (name === 'check_page') { state.pageBad = !ok || /พบ error|ดูเหมือนว่าง/.test(out); } // รันตรวจแล้ว (ผ่านหรือไม่ผ่านก็นับ: โมเดลเห็นผลจริงแล้ว)
   const failed = !ok || (name === 'bash' && /^exit [1-9]\d*/.test(out)); // คำสั่งที่ exit ไม่ใช่ 0 (เทสต์/บิลด์พัง) = error ที่ยังค้าง
   if (failed) state.errors.set(k, `${name} ${target}: ${out.slice(0, 300)}`); else state.errors.delete(k);
   if (state.errors.size > 8) state.errors.delete(state.errors.keys().next().value);
 }
 
 // ย่อบทสนทนาเมื่อยาวเกิน: ให้โมเดลสรุปงานส่วนเก่า แล้วเก็บ system + สรุป + สถานะงานที่บังคับคง (todo / ไฟล์ที่แก้ / error ค้าง) + 4 รอบล่าสุดเต็มข้อความ
-async function compact({ post, model, messages, onEvent, state = null }) {
+async function compact({ post, model, messages, onEvent, state = null, pinned = null }) {
   const sys = messages[0]?.role === 'system' ? messages[0] : null, body = messages.slice(sys ? 1 : 0);
   const asst = body.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0);
   let start = asst.length >= 4 ? asst[asst.length - 4] : Math.max(0, body.length - 8);
@@ -240,7 +260,7 @@ async function compact({ post, model, messages, onEvent, state = null }) {
   const d = await r.json().catch(() => ({})), sum = d.choices?.[0]?.message?.content;
   if (!r.ok || !sum) return; // ย่อไม่สำเร็จ: ทำต่อแบบเดิม
   const s = state ? snapshot(state) : null;
-  const facts = s ? [s.todos?.length ? 'Current todo list:\n' + s.todos.map(t => `- [${t.status}] ${t.content}`).join('\n') : '', s.changed.length ? 'Files already changed in this task: ' + s.changed.join(', ') : '', s.errors.length ? 'Unresolved errors:\n' + s.errors.map(e => '- ' + e).join('\n') : ''].filter(Boolean).join('\n\n') : '';
+  const facts = s ? [s.todos?.length ? 'Current todo list:\n' + s.todos.map(t => `- [${t.status}] ${t.content}`).join('\n') : '', s.changed.length ? 'Files already changed in this task: ' + s.changed.join(', ') : '', s.errors.length ? 'Unresolved errors:\n' + s.errors.map(e => '- ' + e).join('\n') : '', pinned?.() || ''].filter(Boolean).join('\n\n') : '';
   messages.splice(0, messages.length, ...(sys ? [sys] : []), { role: 'user', content: '[สรุปงานก่อนหน้า]\n' + sum + (facts ? '\n\n[สถานะงานที่ต้องคงไว้]\n' + facts : '') }, { role: 'assistant', content: 'รับทราบ ทำงานต่อจากสรุปนี้' }, ...keep);
 }
 

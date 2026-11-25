@@ -7,6 +7,7 @@ const lib = process.env.AGENT_LIB || path.join(__dirname, 'app');
 const { runAgent } = require(path.join(lib, 'agent'));
 const { AGENT_TOOLS, SUB_TOOLS, Workspace, agentSystem, projectRules, wantsAndroid, toolsFor, projectMap, makeReviewer } = require(path.join(lib, 'agenttools'));
 const { scanFolder } = require(path.join(lib, 'localfs'));
+const { builtinSkills, THREE_RE, THREE_SKILL, memoryRead, memoryBlock, memoryLearn, makeAdvisor } = require(path.join(lib, 'skills'));
 const COWORK_SYS = `\n\nCOWORK MODE: you are working for a non-programmer on an office task. First call todo_write with a short plan, then do the work yourself until it is done. Make deliverables as real files with make_document (.docx/.xlsx with live formulas/.pptx/.pdf) or with python (pandas, matplotlib → PNG). Use web_search / web_fetch / browser for information from the web. Use the user's connectors (tools named rmcp_..., e.g. Gmail, Google Drive/Sheets/Calendar) when the task involves their email, files or calendar; save_to_drive / email_files send finished files; look_at_image reads photos and scans; generate_image makes pictures for slides or posts. Explain progress in plain Thai when the user writes Thai; do not show code unless asked. Before deleting or overwriting the user's own uploaded files, ask with ask_user. For big research (many files or many web pages) hand parts to helpers with the task tool; several task calls in one reply run in parallel. Finish with a short summary listing the files you made.
 QUALITY BAR (the user judges you by the files):
 - Research: for facts and numbers, open at least 3-5 good sources (web_search then web_fetch/browser), prefer primary/official ones, note the date of each number, and cross-check numbers that matter. If sources disagree, say so.
@@ -67,14 +68,17 @@ async function turn(o, before) {
     await runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages: sub, tools: AGENT_TOOLS.filter(x => SUB_TOOLS.has(x.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? sws.call(n, x) : 'Error: read-only helper', signal: ac.signal, maxRounds: 25, depth: 1, spill: (t, i) => sws.spill(t, i) }).catch(e => sub.push({ role: 'assistant', content: 'ผู้ช่วยหยุด: ' + e.message }));
     return sub.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '(ผู้ช่วยไม่ได้รายงานอะไร)';
   } : null;
-  const ws = session?.ws && o.follow ? session.ws : new Workspace(ROOT, { subagent, ask: async () => true, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
+  const ws = session?.ws && o.follow ? session.ws : new Workspace(ROOT, { subagent, ask: async () => true, pageCheck: BROWSER ? (u, w) => BROWSER.pageCheck(u, w) : null, onTodos: t => events.push({ type: 'todos', todos: t, t: Date.now() }),
     search: async q => { const r = await fetch(o.site + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key }, body: JSON.stringify({ query: q }) }); return (await r.json()).results || []; } });
   ws.signal = ac.signal;
   let pmap = { text: '', checks: [] }; // แผนที่โปรเจกต์ (โหมดโค้ด) + คำสั่งตรวจงาน
-  const sys = o.cowork ? agentSystem({ root: ROOT, os: 'Linux cloud sandbox (node, npm, python3 + pip, git, Chromium). This is the user\'s Kyber Harness task folder: put every deliverable (reports, spreadsheets, slides, PDFs, charts) as real files in this folder; the user sees and downloads them from the Artifacts panel', rules: '' }) + COWORK_SYS + (o.skills ? '\n\nThe user\'s Skills (follow them whenever they apply):\n' + String(o.skills).slice(0, 30000) : '')
-    : agentSystem({ root: ROOT, os: 'Linux (cloud sandbox: node, npm, python3, pip, git available; changes to files under the working folder are saved back to the user\'s project)', rules: await projectRules(ROOT), map: (pmap = await projectMap(ROOT).catch(() => ({ text: '', checks: [] }))).text });
+  const deps = await fs.readFile(path.join(ROOT, 'package.json'), 'utf8').catch(() => ''), mem = o.cowork ? '' : await memoryRead(ROOT);
+  const skillText = builtinSkills({ text: String(o.prompt || ''), deps, code: !o.cowork || THREE_RE.test(String(o.prompt || '')) }) + memoryBlock(mem); // วินัยโค้ด + Three.js (งาน 3D) + ความจำโปรเจกต์
+  const sys = o.cowork ? agentSystem({ extra: skillText, root: ROOT, os: 'Linux cloud sandbox (node, npm, python3 + pip, git, Chromium). This is the user\'s Kyber Harness task folder: put every deliverable (reports, spreadsheets, slides, PDFs, charts) as real files in this folder; the user sees and downloads them from the Artifacts panel', rules: '' }) + COWORK_SYS + (o.skills ? '\n\nThe user\'s Skills (follow them whenever they apply):\n' + String(o.skills).slice(0, 30000) : '')
+    : agentSystem({ extra: skillText, root: ROOT, os: 'Linux (cloud sandbox: node, npm, python3, pip, git available; changes to files under the working folder are saved back to the user\'s project)', rules: await projectRules(ROOT), map: (pmap = await projectMap(ROOT).catch(() => ({ text: '', checks: [] }))).text });
   const messages = o.follow && session?.messages ? session.messages : (o.history?.length ? [{ role: 'system', content: sys }, ...o.history.slice(-40)] : [{ role: 'system', content: sys }]);
-  messages.push({ role: 'user', content: String(o.prompt || '').slice(0, 100000) });
+  const sysText = String(messages[0]?.content || '');
+  messages.push({ role: 'user', content: String(o.prompt || '').slice(0, 100000) + (o.follow && THREE_RE.test(String(o.prompt || '')) && !sysText.includes('Skill: Three.js') && !messages.some(m => String(m.content || '').includes('Skill: Three.js')) ? '\n\n[Kyber skill]\n' + THREE_SKILL : '') });
   const android = !!session?.android || await wantsAndroid(ROOT, o.prompt).catch(() => false); // android_tools เฉพาะงาน Android
   if (o.cowork) session = { messages, ws, android };
   const api = (p, init = {}) => fetch(o.site + p, { ...init, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + o.key, ...(init.headers || {}) } });
@@ -142,9 +146,10 @@ async function turn(o, before) {
     if (o.cowork && BROWSER && n === 'browser') return BROWSER.browserTool(a, ROOT, rel => events.push({ type: 'shot', path: rel, t: Date.now() }));
     return ws.call(n, a);
   };
-  runAgent({ base: o.site + '/v1', key: o.key, model: o.model, messages, tools: [...toolsFor({ android }).filter(t => !['screenshot_url', ...(o.cowork ? [] : ['task'])].includes(t.function.name)), ...extra], callTool: call, onEvent, signal: ac.signal, maxRounds: Math.min(150, +o.maxRounds || 80), onStep: () => ++ws.step, effort: o.effort || null, spill: (t, i) => ws.spill(t, i),
-    checks: pmap.checks, review: o.cowork || o.review === false ? null : makeReviewer({ ws, model: o.model, task: String(o.prompt || '').slice(0, 4000), post: body => api('/v1/chat/completions', { method: 'POST', signal: ac.signal, body: JSON.stringify(body) }) }) })
-    .then(() => { if (text) { events.push({ type: 'text', text: text.slice(0, 4000), t: Date.now() }); job.final = text; } job.status = 'done'; })
+  const post = body => api('/v1/chat/completions', { method: 'POST', signal: ac.signal, body: JSON.stringify(body) }), advisorModel = typeof o.advisor === 'string' && o.advisor && o.advisor !== o.model ? o.advisor : null;
+  runAgent({ advisor: advisorModel ? makeAdvisor({ post, model: advisorModel }) : null, pinned: () => ws.pinnedNotes(), base: o.site + '/v1', key: o.key, model: o.model, messages, tools: [...toolsFor({ android }).filter(t => !['screenshot_url', ...(o.cowork ? [] : ['task'])].includes(t.function.name)), ...extra], callTool: call, onEvent, signal: ac.signal, maxRounds: Math.min(o.cowork ? 300 : 150, +o.maxRounds || 80), onStep: () => ++ws.step, effort: o.effort || null, spill: (t, i) => ws.spill(t, i),
+    checks: pmap.checks, review: o.cowork || o.review === false ? null : makeReviewer({ ws, model: advisorModel || o.model, task: String(o.prompt || '').slice(0, 4000), post: body => api('/v1/chat/completions', { method: 'POST', signal: ac.signal, body: JSON.stringify(body) }) }) })
+    .then(async () => { if (text) { events.push({ type: 'text', text: text.slice(0, 4000), t: Date.now() }); job.final = text; } if (!o.cowork && o.memory !== false && ws.changed().length) { const l = await memoryLearn({ post, model: o.model, root: ROOT, task: String(o.prompt || ''), messages }).catch(() => null); if (l?.length) events.push({ type: 'info', text: `จำบทเรียนของโปรเจกต์ไว้ ${l.length} ข้อ (.kyber/memory.md)`, t: Date.now() }); } job.status = 'done'; })
     .catch(e => { job.error = ac.signal.aborted ? 'หยุดแล้ว' : String(e.message).slice(0, 500); job.status = 'error'; })
     .finally(() => { if (!o.cowork) ws.stopAll(); });
 }
