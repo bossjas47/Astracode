@@ -15,6 +15,7 @@ import { schedApi } from './schedules.js';
 import { filesApi } from './files.js';
 import { artPaid, artApi, artAdmin, artGallery, artPublic, artReport, artShell } from './artifacts.js';
 import { meetApi } from './meetings.js';
+import { botsApi, widgetServe } from './bots.js';
 import { sitesApi, sitesAdmin, siteServe, siteReport, reportPage } from './sites.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 import { handoff, moveSite } from './move.js';
@@ -69,6 +70,7 @@ export default {
     if (url.protocol === 'http:' && (M === 'GET' || M === 'HEAD') && !/^\/(v1|api)\//.test(path) && !/^(localhost|127\.0\.0\.1)$/.test(url.hostname)) { url.protocol = 'https:'; return Response.redirect(url.toString(), 301); }
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
     if (path.startsWith('/s/') || path === '/s') { await ensureCols(env); const sr = await siteServe(req, env, ctx, url, path, M); if (sr) return sr; } // Kyber Sites: เว็บของผู้ใช้ (sandbox · ไม่ผ่าน secure() เพราะมี CSP ของตัวเอง)
+    if (path.startsWith('/w/')) { await ensureCols(env); const wr = await widgetServe(req, env, url, path, M); if (wr) return wr; } // บอทตอบแชตของร้าน (ฝังบนเว็บอื่น)
     if (path === '/sites/report' && M === 'GET') return secure(reportPage(url));
     if (path === '/handoff' && M === 'GET') return secure(await handoff(req, env, url)); // ย้ายโดเมน: รับตั๋วล็อกอินจากโดเมนเดิม
     if ((r = await moveSite(req, env, url, path, M, getUser))) return r; // ย้ายโดเมน: หน้าเว็บที่โดเมนเดิมพาไปโดเมนใหม่ (ไม่แตะ /api /v1)
@@ -240,6 +242,7 @@ export async function route(req, env, ctx, url, path, M) {
       const art = await artApi(req, env, u, path, M, url); if (art) return art;
       const st = await sitesApi(req, env, u, path, M, url); if (st) return st;
       const mt = await meetApi(req, env, ctx, u, path, M, url); if (mt) return mt;
+      const bt = await botsApi(req, env, u, path, M, url); if (bt) return bt;
       const uf = await filesApi(req, env, u, path, M, url); if (uf) return uf;
       const sch = await schedApi(req, env, u, path, M); if (sch) return sch;
 

@@ -376,3 +376,9 @@ CREATE TABLE IF NOT EXISTS site_views (site_id INTEGER NOT NULL, day TEXT NOT NU
 CREATE TABLE IF NOT EXISTS meetings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'recording', segs INTEGER NOT NULL DEFAULT 0, dur REAL NOT NULL DEFAULT 0, speakers TEXT, summary TEXT, error TEXT, audio_gone INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS meetings_user ON meetings(user_id, created_at);
 CREATE TABLE IF NOT EXISTS meeting_segs (meeting_id INTEGER NOT NULL, n INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', dur REAL NOT NULL DEFAULT 0, lines TEXT, error TEXT, tries INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY (meeting_id, n));
+
+-- บอทตอบแชตลูกค้าแทนร้าน (ฝังด้วย /w/<token>.js)
+CREATE TABLE IF NOT EXISTS bots (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, name TEXT NOT NULL, greeting TEXT, knowledge TEXT, color TEXT, model_id INTEGER, day_cap INTEGER, contact TEXT, on_ INTEGER NOT NULL DEFAULT 1, chats INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS bots_user ON bots(user_id);
+CREATE TABLE IF NOT EXISTS bot_convos (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL, sid TEXT NOT NULL, msgs TEXT NOT NULL, lead TEXT, handoff INTEGER, seen INTEGER, page TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS bot_convos_sid ON bot_convos(bot_id, sid);

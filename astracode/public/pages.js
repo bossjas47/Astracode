@@ -434,3 +434,43 @@ async function siteAppSheet(s) {
     });
   });
 }
+
+// ---------- บอทตอบแชตลูกค้าแทนร้าน ----------
+PAGES.bots = async () => {
+  if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  const id = +qs().get('id');
+  if (id) return botEdit(id);
+  const d = await api('/bots');
+  page(nav() + `<div class="wrap sites-wrap"><header class="shop-hero"><h1>บอทตอบแชตร้าน</h1><p class="muted">AI ตอบลูกค้าบนเว็บของคุณ 24 ชม. จากข้อมูลร้านที่คุณสอน ไม่แน่ใจก็ขอเบอร์ลูกค้าส่งให้คุณทางอีเมล</p></header>
+    ${!d.paid ? `<div class="card"><p>ใช้ได้กับแพลนที่ชำระเงิน</p><a class="btn blue" href="/plans">ดูแพลน</a></div>`
+      : `${d.bots.map(b => `<a class="card meet-row" href="/bots?id=${b.id}"><span class="site-ic" style="background:${esc(b.color)};color:#fff">${ic('msg')}</span><span class="meet-name"><b>${esc(b.name)}</b><small class="muted">${b.chats.toLocaleString(LOC)} บทสนทนา${b.leads ? ` · <b class="bad">${b.leads} ลูกค้ารอติดต่อกลับ</b>` : ''}</small></span><span class="pill ${b.on ? 'ok' : ''}">${b.on ? 'เปิด' : 'ปิด'}</span></a>`).join('')}
+      ${d.bots.length < d.max ? `<button type="button" class="btn blue meet-big" id="bnew" style="width:100%;margin-top:12px">${ic('plus')} สร้างบอทใหม่</button>` : ''}`}
+    <p class="muted meet-note">หักลิมิตแพลนของคุณตามที่บอทตอบ · ลูกค้าแต่ละคนถามได้ 30 ข้อความ/ชม.</p>${footer()}</div>`);
+  $('#bnew')?.addEventListener('click', () => sheet('สร้างบอท', `<div class="sheet-form"><label>ชื่อร้าน<input id="bnn" maxlength="60" placeholder="เช่น ร้านกาแฟบ้านนก"></label><label>ข้อมูลร้าน (เวลาเปิด ราคา เมนู ที่อยู่ การจัดส่ง นโยบายคืนของ)<textarea id="bnk" rows="6" placeholder="เปิดทุกวัน 8:00-18:00&#10;ลาเต้ 60 บาท อเมริกาโน่ 50 บาท&#10;ส่งฟรีในระยะ 3 กม."></textarea></label><button type="button" class="btn blue" id="bns">สร้าง</button></div>`, (dd, close) => {
+    dd.querySelector('#bns').onclick = async e => { e.target.disabled = true; try { const b = await api('/bots', { method: 'POST', body: { name: dd.querySelector('#bnn').value, knowledge: dd.querySelector('#bnk').value } }); close(); go('/bots?id=' + b.id); } catch (x) { e.target.disabled = false; toast(x.message, 'bad'); } };
+  }));
+};
+async function botEdit(id) {
+  const [b, list] = await Promise.all([api('/bots/' + id), api('/bots')]), convos = await api(`/bots/${id}/convos`);
+  const code = `<script src="${location.origin}/w/${b.token}.js" async></script>`, leads = convos.filter(c => c.lead);
+  page(nav() + `<div class="wrap sites-wrap"><p><a href="/bots">← บอททั้งหมด</a></p><header class="meet-h"><h1>${esc(b.name)}</h1></header>
+    <section class="card meet-sum"><h2>ติดตั้งบนเว็บ</h2><p class="muted">วางโค้ดนี้ก่อน &lt;/body&gt; ในเว็บของคุณ (WordPress, Wix, Shopify, เว็บที่ทำด้วย Kyber ฯลฯ)</p>
+      <div class="row" style="flex-wrap:nowrap;gap:8px"><input readonly value="${esc(code)}" aria-label="โค้ดติดตั้ง"><button type="button" class="btn out sm" id="bcp">คัดลอก</button></div>
+      <div class="row" style="gap:8px;margin-top:10px"><a class="btn out sm" href="/w/${esc(b.token)}" target="_blank" rel="noopener">${ic('msg', 'sm')} ลองคุยกับบอท</a></div></section>
+    <section class="card meet-sum"><h2>ตั้งค่า</h2><form class="sheet-form" id="bf">
+      <label class="sw-row"><span class="sw"><input type="checkbox" name="on" ${b.on ? 'checked' : ''}><span></span></span> เปิดบอท</label>
+      <label>ชื่อร้าน<input name="name" maxlength="60" value="${esc(b.name)}"></label>
+      <label>ข้อความทักทาย<input name="greeting" maxlength="300" value="${esc(b.greeting)}"></label>
+      <label>ข้อมูลร้านที่บอทใช้ตอบ <small class="muted">(ยิ่งละเอียด ยิ่งตอบได้มาก · บอทจะไม่แต่งข้อมูลที่ไม่มีในนี้)</small><textarea name="knowledge" rows="10" maxlength="40000">${esc(b.knowledge)}</textarea></label>
+      <label>ช่องทางติดต่อพนักงานที่บอทบอกลูกค้าได้ (ไม่บังคับ)<input name="contact" maxlength="200" value="${esc(b.contact)}" placeholder="LINE @myshop · โทร 02-xxx-xxxx"></label>
+      <div class="form2"><div><label>สีหลัก<input name="color" type="color" value="${esc(b.color)}"></label></div><div><label>เพดานข้อความต่อวัน<input name="day_cap" type="number" min="1" max="5000" value="${b.day_cap}"></label></div></div>
+      <label>โมเดล<select name="model_id"><option value="">ถูกที่สุดในแพลน (แนะนำ)</option>${list.models.map(m => `<option value="${m.id}" ${m.id === b.model_id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
+      <button class="btn blue">บันทึก</button></form></section>
+    <section class="card meet-sum"><h2>ลูกค้ารอติดต่อกลับ (${leads.length})</h2>${leads.length ? leads.map(c => `<div class="site-msg card${c.seen ? '' : ' new'}"><div class="row"><b>${esc(c.lead.name || 'ไม่ระบุชื่อ')}</b><span class="sp"></span><small class="muted">${when(c.updated_at)}</small></div><p><a href="${/^[0-9+\-\s]{6,}$/.test(c.lead.contact) ? 'tel:' + esc(c.lead.contact.replace(/\s/g, '')) : '#'}">${esc(c.lead.contact)}</a></p>${c.msgs.slice(-4).map(x => `<p class="muted"><b>${x.role === 'user' ? 'ลูกค้า' : 'บอท'}:</b> ${esc(x.content)}</p>`).join('')}</div>`).join('') : '<p class="muted">ยังไม่มี · เมื่อบอทตอบไม่ได้ จะขอเบอร์ลูกค้าแล้วส่งมาที่นี่และอีเมลคุณ</p>'}</section>
+    <section class="card meet-sum"><h2>บทสนทนาล่าสุด</h2>${convos.length ? convos.slice(0, 50).map(c => `<details class="bot-cv"><summary><b>${esc((c.msgs.find(x => x.role === 'user')?.content || '(ทิ้งเบอร์อย่างเดียว)').slice(0, 60))}</b> <small class="muted">${when(c.updated_at)} · ${c.msgs.length} ข้อความ${c.handoff ? ' · ส่งต่อพนักงาน' : ''}</small></summary>${c.msgs.map(x => `<p><b>${x.role === 'user' ? 'ลูกค้า' : 'บอท'}:</b> ${esc(x.content)}</p>`).join('')}</details>`).join('') : '<p class="muted">ยังไม่มี</p>'}</section>
+    <button type="button" class="btn red" id="bdel">${ic('trash', 'sm')} ลบบอทนี้</button>${footer()}</div>`);
+  $('#bcp').onclick = e => copy(code, e.target);
+  $('#bf').onsubmit = async e => { e.preventDefault(); const f = new FormData(e.target), body = Object.fromEntries(f); body.on = f.has('on'); body.model_id = +body.model_id || null; body.day_cap = +body.day_cap; try { await api('/bots/' + id, { method: 'PATCH', body }); toast('บันทึกแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); } };
+  $('#bdel').onclick = async () => { if (!confirm('ลบบอทนี้? โค้ดที่ติดตั้งไว้จะหยุดทำงาน และบทสนทนาจะหายทั้งหมด')) return; await api('/bots/' + id, { method: 'DELETE' }); go('/bots'); };
+  if (leads.some(c => !c.seen)) api(`/bots/${id}/leads`, { method: 'POST' }).catch(() => {});
+}
