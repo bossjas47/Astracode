@@ -24,7 +24,7 @@ const modelCache = new WeakMap(); // แยกตามฐานข้อมู�
 const cachedModels = async (env, planId) => {
   let m = modelCache.get(env.DB); if (!m) modelCache.set(env.DB, m = new Map());
   const hit = m.get(planId); if (hit && hit.exp > Date.now()) return hit.body;
-  const body = planId === 'wallet' ? await walletModels(env) : await allowedModels(env, planId); m.set(planId, { exp: Date.now() + 30e3, body }); return body;
+  const body = planId === 'wallet' ? await walletModels(env) : await allowedModels(env, String(planId).includes(',') ? String(planId).split(',').map(Number) : planId); m.set(planId, { exp: Date.now() + 30e3, body }); return body;
 };
 async function pricingBody(env) {
     const [ms, ps, pm] = await Promise.all([
@@ -278,7 +278,7 @@ export async function route(req, env, ctx, url, path, M) {
         const plan = await planOf(env, u);
         const yearAsk = plan.price > 0 && !plan._team && u.plan_period !== 'year' && plan.price_year > 0 && plan.price * 12 > plan.price_year;
         // ทุกอย่างที่ไม่ขึ้นต่อกันยิงพร้อมกัน (เดิมเครดิตโมเดล, ข้อเสนอทดลอง, เครดิต Claude, นับการต่ออายุ, โมเดล Wallet รอทีละอัน = หลายรอบไป-กลับ D1 ทุกหน้า)
-        const [mcList, usage, credits, models, pay, trial, cc, paidN, walletList] = await Promise.all([import('./credits.js').then(C => C.modelCredits(env, u.id)).catch(() => []), usageStatus(env, u, plan), creditList(env, u.id), cachedModels(env, plan.id), getSettings(env, ['promptpay_id', 'bank_name', 'bank_account', 'bank_holder']),
+        const [mcList, usage, credits, models, pay, trial, cc, paidN, walletList] = await Promise.all([import('./credits.js').then(C => C.modelCredits(env, u.id)).catch(() => []), usageStatus(env, u, plan), creditList(env, u.id), cachedModels(env, plan._planIds?.length > 1 ? plan._planIds.join(',') : plan.id), getSettings(env, ['promptpay_id', 'bank_name', 'bank_account', 'bank_holder']),
           trialOffer(env, u.id).catch(() => null), claudeCreditLeft(env, u.id).catch(() => null), yearAsk ? env.DB.prepare("SELECT COUNT(*) n FROM payments WHERE user_id=? AND plan_id=? AND status='approved' AND kind='plan'").bind(u.id, plan.id).first().then(r => r.n) : 0, cachedModels(env, 'wallet')]);
         const mcLeft = new Map(); // เครดิตเฉพาะโมเดล
         for (const c of mcList) if (c.active) for (const id of c.models) mcLeft.set(id, (mcLeft.get(id) || 0) + c.left);

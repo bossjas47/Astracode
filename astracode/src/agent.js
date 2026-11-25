@@ -1,7 +1,7 @@
 // Agent เบื้องหลัง: ทำงานแก้โค้ดบนเซิร์ฟเวอร์ทั้งชุดโดยผู้ใช้ไม่ต้องเปิดหน้าค้างไว้ (รันใน Durable Object ของ ChatRun)
 // วนรอบ: ให้โมเดลคิด → อ่านไฟล์ที่ขอ (READ/GREP/LIST) → เขียนไฟล์ที่แก้ลงโปรเจกต์ → ส่งผลกลับให้โมเดล จนไม่มีอะไรต้องทำ
 // ข้อจำกัด: เซิร์ฟเวอร์รันโค้ดและจับภาพหน้าจอไม่ได้ Agent จึงตรวจงานด้วยการอ่านไฟล์กลับ ผู้ใช้ควรเปิดดูผลเองตอนจบ
-import { DAY, SYSTEM_CODE, allowedModels, projectFor, ctxMax, err, esc, fitContext, flat, json, limMult, limited, planOf, touchWindows, usageStatus } from './core.js';
+import { DAY, SYSTEM_CODE, pickBucket, allowedModels, projectFor, ctxMax, err, esc, fitContext, flat, json, limMult, limited, planOf, touchWindows, usageStatus } from './core.js';
 import { bundleProject, callModel, doingOf, familyHint, imagePrompt, logUsage, runTools, toolReqs, webSearch } from './ai.js';
 import { b64 } from './projects.js';
 import { sendPush } from './push.js';
@@ -206,16 +206,17 @@ async function runResearch(env, J, u, plan, m) {
 }
 // โมเดลลูกทีม: ตั้งใน team_worker_model (id) ไม่งั้นใช้ DeepSeek 4.1 Flash ถ้าแพลนมี สุดท้ายใช้ตัวที่ตัวคูณต่ำสุด
 export async function workerModel(env, plan, chosen = null) { // chosen = ผู้ใช้เลือกเอง (ต้องอยู่ในแพลน) · ไม่งั้นค่าที่แอดมินตั้ง → DeepSeek Flash → ถูกสุด
-  const ms = (await allowedModels(env, plan.id)).filter(x => !['image', 'embedding'].includes(x.provider)), set = +(await getSetting(env, 'team_worker_model'));
+  const ms = (await allowedModels(env, plan._planIds || plan.id)).filter(x => !['image', 'embedding'].includes(x.provider)), set = +(await getSetting(env, 'team_worker_model'));
   const pick = (chosen && ms.find(x => x.id === +chosen)) || ms.find(x => x.id === set) || ms.find(x => /deepseek.*4\.1.*flash/i.test(x.name)) || [...ms].sort((a, b) => a.multiplier - b.multiplier)[0];
   return pick && env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(pick.id).first();
 }
 export async function runAgent(env, jobId, st = { gone: false }) {
   const DB = env.DB, J = await DB.prepare('SELECT * FROM agent_jobs WHERE id=?').bind(jobId).first(); if (!J || J.status !== 'queued') return;
   await setJob(env, jobId, { status: 'running', started_at: Date.now() });
-  const u = await DB.prepare('SELECT * FROM users WHERE id=?').bind(J.user_id).first(), plan = await planOf(env, u);
+  const u = await DB.prepare('SELECT * FROM users WHERE id=?').bind(J.user_id).first(); let plan = await planOf(env, u);
   const proj = await projectFor(env, J.project_id, J.user_id);
   const m = await DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(J.model_id).first();
+  if (m && plan?._subs?.length) plan = await pickBucket(env, u, plan, m.id); // หลายแพลน: เลือกใบที่หักลิมิต
   const log = [], changedAll = new Set(); let usageNote = '', final = '', status = 'done', cumIn = 0, round = 0; const t0 = Date.now(), transcript = [];
   const lead = J.parent_id ? await DB.prepare('SELECT * FROM agent_jobs WHERE id=?').bind(J.parent_id).first() : null, scope = J.role === 'worker' && J.scope ? JSON.parse(J.scope) : null;
   const finish = async () => {
@@ -255,7 +256,8 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     for (; round < AGENT_MAX_ROUNDS; ) {
       if ((await DB.prepare('SELECT status FROM agent_jobs WHERE id=?').bind(jobId).first())?.status === 'stopping' || st.gone) { status = 'stopped'; break; }
       if (Date.now() - t0 > AGENT_MAX_MS) { status = 'timeout'; usageNote = 'ใช้เวลานานเกินกำหนด (12 นาที) หยุดไว้ก่อน'; break; }
-      const lim = await usageStatus(env, u, plan); if (lim.pct4h >= 100 || lim.pctWeek >= 100) { status = 'limit'; usageNote = 'ลิมิตของแพลนเต็ม หยุดไว้ก่อน (ไฟล์ที่แก้แล้วยังอยู่)'; break; }
+      let lim = await usageStatus(env, u, plan); if ((lim.pct4h >= 100 || lim.pctWeek >= 100) && plan?._subs?.length > 1) { plan = await pickBucket(env, u, plan, m.id); lim = await usageStatus(env, u, plan); } // ใบนี้เต็มกลางงาน: สลับใบถัดไป
+      if (lim.pct4h >= 100 || lim.pctWeek >= 100) { status = 'limit'; usageNote = 'ลิมิตของแพลนเต็ม หยุดไว้ก่อน (ไฟล์ที่แก้แล้วยังอยู่)'; break; }
       if (cumIn >= AGENT_MAX_IN) { status = 'limit'; usageNote = 'ใช้ token ครบเพดานต่อคำสั่งแล้ว (1.5 ล้าน)'; break; }
       if (lead && await teamOver(env, u, plan, lead)) { status = 'limit'; usageNote = 'ทีมใช้ลิมิตครบเพดานต่องานแล้ว หยุดไว้ก่อน (ไฟล์ที่แก้แล้วยังอยู่)'; break; }
       round++; await setJob(env, jobId, { rounds: round, doing: round === 1 ? 'กำลังอ่านงานและวางแผน' : 'กำลังดูผลรอบก่อนแล้วทำต่อ' }); const fcache = {};
@@ -418,7 +420,7 @@ export async function agentApi(req, env, u, path) {
     if (prompt.length < 10) return err('อธิบายงานให้ละเอียดขึ้นอีกหน่อย (อย่างน้อย 10 ตัวอักษร)');
     if (b.research && !(env.TAVILY_KEY && (await getSetting(env, 'search_enabled')) !== '0')) return err('ระบบค้นเว็บยังไม่เปิดใช้', 503);
     if (!b.research && !await projectFor(env, +b.project_id, u.id)) return err('ไม่พบโปรเจกต์', 404);
-    const model = (await allowedModels(env, plan.id)).find(x => x.id === +b.model_id && !['image', 'embedding'].includes(x.provider)); if (!model) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
+    const model = (await allowedModels(env, plan._planIds || plan.id)).find(x => x.id === +b.model_id && !['image', 'embedding'].includes(x.provider)); if (!model) return err('แพลนของคุณใช้โมเดลนี้ไม่ได้', 403);
     const lim = await usageStatus(env, u, plan); if (lim.pct4h >= 100 || lim.pctWeek >= 100) return err('ลิมิตเต็มแล้ว', 429);
     if (await DB.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND ((status IN ('queued','running','stopping') AND COALESCE(started_at,created_at)>?) OR status IN ('waiting','team','reviewing','plan'))").bind(u.id, Date.now() - 20 * 60e3).first()) return err('มีงาน Agent ที่กำลังทำอยู่ รอให้เสร็จหรือกดหยุดก่อน', 409);
     if (await limited(env, 'agent:' + u.id, 12, DAY)) return err('สั่ง Agent วันนี้ครบแล้ว (12 งานต่อวัน)', 429);
@@ -428,7 +430,7 @@ export async function agentApi(req, env, u, path) {
     return json({ id: job.id });
   }
   if (path === '/api/agent/estimate' && M === 'POST') { // ประเมินว่างานนี้น่าจะใช้ลิมิตสัปดาห์กี่ % (ช่วงต่ำ–สูง)
-    const plan = await planOf(env, u), b = await req.json().catch(() => ({})), ms = await allowedModels(env, plan.id);
+    const plan = await planOf(env, u), b = await req.json().catch(() => ({})), ms = await allowedModels(env, plan._planIds || plan.id);
     const lead = ms.find(x => x.id === +b.model_id), wm = b.team ? (await workerModel(env, plan, +b.worker_model_id || null)) || lead : null;
     if (!lead || !(plan.limit_week > 0)) return json({ ok: false });
     const sz = (await DB.prepare('SELECT COALESCE(SUM(length(content)),0) n, COUNT(*) c FROM project_files WHERE project_id=?').bind((await projectFor(env, +b.project_id, u.id))?.id || 0).first());

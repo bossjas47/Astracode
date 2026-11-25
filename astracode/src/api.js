@@ -1,5 +1,5 @@
 import { claudeCreditLeft, isClaudeEco, modelCreditIds, useClaudeCredit, useModelCredit } from './credits.js';
-import { BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
+import { pickBucket, BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
 import { SSE, callModel, chat, logFallback, logUsage, webSearch } from './ai.js';
 import { connCall, connTools } from './connectors.js';
 import { unseal } from './projects.js';
@@ -47,7 +47,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     // คำขอเรียกโมเดล: อ่านแพลน, นับ rate limit (คำสั่งเดียวได้ทั้งตัวนับและเวลารีเซ็ต), อ่าน body, แพ็ก Agent, เพดาน Wallet ต่อวัน พร้อมกัน · เดิมรอทีละคำสั่ง
     const isCall = req.method === 'POST' && ['/v1/chat/completions', '/v1/images/generations', '/v1/embeddings'].includes(path);
     const isAgentKey = /^(Desktop|Cloud) Agent/.test(k.kname || '');
-    const [plan, packUsed, rate, b0, dayCapped] = await Promise.all([planOf(env, k),
+    let [plan, packUsed, rate, b0, dayCapped] = await Promise.all([planOf(env, k),
       isAgentKey && k.agent_pack_until > Date.now() ? env.DB.prepare('SELECT COALESCE(SUM(pack),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(k.id, k.agent_pack_from || 0).first().then(r => r.x) : null,
       isCall ? limitedInfo(env, 'api:' + k.kid, 60, 60e3) : null, isCall ? req.json().catch(() => null) : null,
       isCall && k.balance >= WALLET_MIN ? dayCapHit(env, k.id) : false]);
@@ -56,7 +56,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (!(plan?.price > 0) && !(k.balance >= WALLET_MIN) && !(packLeft > 0) && !(await modelCreditIds(env, k.id).catch(() => new Set())).size) return fail('ยอดเงินใน Wallet ไม่พอ เติมเงินที่ /plans?topup=1 (ขั้นต่ำ ฿1)', 402, 'insufficient_quota'); // ไม่มีแพลนเสียเงิน: ใช้ได้ทุกโมเดลจาก Wallet ตามราคาขาย
     const canPlan = !!plan?.api_limit && k.use_plan !== 0 && !plan._team?.api_off; // หัวหน้าทีมปิด API ของสมาชิก = ใช้งบทีมไม่ได้ (ยังใช้ Wallet ของตัวเองได้)
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
-    const [allPublic, planIds, mcIds] = await Promise.all([modelsCached(env), canPlan ? planModelsCached(env, plan.id) : null, modelCreditIds(env, k.id).catch(() => new Set())]); // mcIds = โมเดลที่มีเครดิตเฉพาะโมเดล // จำไว้ 30 วิ ต่อ isolate: ไม่ต้องถาม D1 ทุกคำขอ (ลดเวลาก่อนเริ่มตอบ)
+    const [allPublic, planIds, mcIds] = await Promise.all([modelsCached(env), canPlan ? (plan._planIds?.length > 1 ? Promise.all(plan._planIds.map(id => planModelsCached(env, id))).then(a => new Set(a.flatMap(x => [...x]))) : planModelsCached(env, plan.id)) : null, modelCreditIds(env, k.id).catch(() => new Set())]); // mcIds = โมเดลที่มีเครดิตเฉพาะโมเดล // จำไว้ 30 วิ ต่อ isolate: ไม่ต้องถาม D1 ทุกคำขอ (ลดเวลาก่อนเริ่มตอบ)
     const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id) || mcIds.has(m.id)));
     if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
     if (path.startsWith('/v1/models/')) { const m = models.find(x => slug(x) === decodeURIComponent(path.slice(11))); return m ? out({ id: slug(m), object: 'model', created: 0, owned_by: m.provider }) : fail(`ไม่พบโมเดล "${decodeURIComponent(path.slice(11)).slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404); }
@@ -131,6 +131,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const m = pool.find(x => slug(x) === b.model || x.api_model === b.model) || ((isImg || isEmb) && !b.model ? pool[0] : null);
     if (!m) return fail(`ไม่พบโมเดล "${String(b?.model ?? '').slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404);
     // อ่านค่าล่าสุดของโมเดล + เพดานคำขอ/สัปดาห์ + ลิมิตแพลน + คำต้องห้าม + ส่วนบวกราคา พร้อมกัน · เพดานใช้ค่าจากรายการโมเดลที่จำไว้ (ค้างได้ไม่เกิน 30 วิ)
+    if (canPlan && plan._subs?.length && planIds.has(m.id)) { const feats = { agent: plan.agent, api_limit: plan.api_limit, _planIds: plan._planIds }; plan = Object.assign(await pickBucket(env, k, plan, m.id), feats); } // หลายแพลน: ใบหลักก่อน เต็มแล้วสลับใบถัดไป
     const onPlan = canPlan && planIds.has(m.id) && (!isAgentKey || plan.agent); // Agent ใช้ลิมิตแพลนได้เฉพาะแพลนที่รวม Agent
     const [fresh, reqCapped, capped, st, blockWords, markup] = await Promise.all([env.DB.prepare('SELECT * FROM models WHERE id=?').bind(m.id).first(), reqCapHit(env, k, m),
       onPlan ? capHit(env, k, plan, m) : false, onPlan ? usageStatus(env, k, plan) : null, getSetting(env, 'block_words'), getSetting(env, 'price_markup')]);

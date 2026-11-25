@@ -671,6 +671,7 @@ const ADMIN = {
       <p class="muted">ตัวอย่าง: ทุน 1.00 บาท + markup 30% = ขาย 1.30 บาท ต่อ 1M token</p>
       <label>ข้อความใต้ตารางราคา (เว้นว่างได้)</label><textarea name="price_note" rows="3">${esc(s.price_note || '')}</textarea>
       <h2 style="margin-top:28px">หน้าแพลน</h2>
+      <label class="sw-row"><span class="sw"><input type="checkbox" data-b="multi_plan" ${s.multi_plan === '1' ? 'checked' : ''}><span></span></span> หลายแพลนต่อบัญชี: ซื้อแพลนเพิ่ม = ได้อีกใบ ลิมิตแยก ใช้พร้อมกัน (ปิด = ซื้อซ้ำต่อเวลา / ซื้อแพลนอื่นอัปเกรดแบบเดิม · ใบที่ขายไปแล้วยังใช้ได้)</label>
       <label>แพลนที่ติดป้าย "แนะนำ"</label><select name="featured_plan"><option value="">ไม่มี</option>${plans.map(p => `<option value="${p.id}" ${String(p.id) === s.featured_plan ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
       <h2 style="margin-top:28px">Wallet และชวนเพื่อน</h2>
       <label>เติมเงินขั้นต่ำ (บาท)</label><input name="topup_min" type="number" min="1" value="${esc(s.topup_min || '50')}">

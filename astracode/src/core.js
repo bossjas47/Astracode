@@ -201,8 +201,85 @@ export async function limitBoost(env) {
   boostCache = { db: env.DB, exp: Date.now() + 60e3, v }; return v;
 }
 export async function planOf(env, u) {
-  const p = await planOf0(env, u), b = p?.price > 0 && !p.once && await limitBoost(env); // แพลนทดลอง (ซื้อได้ครั้งเดียว) ไม่ได้โปรเพิ่มลิมิต
-  return b && b.until > Date.now() ? Object.assign(p, { limit_4h: p.limit_4h * b.x4h, limit_week: p.limit_week * b.xweek, boost: b }) : p;
+  if (await multiOn(env)) { const m = await planOfMulti(env, u); if (m) return m; }
+  return boosted(env, await planOf0(env, u));
+}
+const boosted = async (env, p) => { const b = p?.price > 0 && !p.once && await limitBoost(env); return b && b.until > Date.now() ? Object.assign(p, { limit_4h: p.limit_4h * b.x4h, limit_week: p.limit_week * b.xweek, boost: b }) : p; }; // แพลนทดลอง (ซื้อได้ครั้งเดียว) ไม่ได้โปรเพิ่มลิมิต
+
+// ---------- หลายแพลนต่อบัญชี (Multi-Plan) ----------
+// แต่ละใบ = แถวใน subscriptions: ลิมิต 4 ชม./สัปดาห์ + นาฬิการอบของตัวเอง (usage.sub_id บอกว่าหักจากใบไหน)
+// ฟีเจอร์ (Agent, Kyber Harness, Artifacts, API หักลิมิต, โมเดลฟรี) = รวมทุกใบที่ยังไม่หมด · users.plan_id/plan_expires = สำเนาของใบหลัก (โค้ด/หลังบ้านเดิมอ่านต่อได้)
+// เปิดด้วย settings.multi_plan='1' · ปิด = ระบบเดิมทุกอย่าง (ใบที่ขายไปแล้วยังอยู่ในตาราง เปิดใหม่ใช้ต่อได้)
+const SUBS_TABLE = 'CREATE TABLE IF NOT EXISTS subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, plan_id INTEGER NOT NULL, period TEXT, starts_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT \'active\', payment_id INTEGER, auto_renew INTEGER, sess_start INTEGER, week_start INTEGER, legacy INTEGER, created_at INTEGER NOT NULL)';
+const SUBS_INDEX = 'CREATE INDEX IF NOT EXISTS subs_user ON subscriptions(user_id, expires_at)';
+let multiCache = null, subsReady = null;
+export async function multiOn(env) {
+  if (multiCache?.db === env.DB && multiCache.exp > Date.now()) return multiCache.v;
+  const v = (await env.DB.prepare("SELECT value FROM settings WHERE key='multi_plan'").first().catch(() => null))?.value === '1';
+  multiCache = { db: env.DB, exp: Date.now() + 30e3, v }; return v;
+}
+export const resetMultiCache = () => { multiCache = null; };
+export const ensureSubs = env => subsReady?.db === env.DB ? subsReady.p : (subsReady = { db: env.DB, p: (async () => {
+  await env.DB.prepare(SUBS_TABLE).run(); await env.DB.prepare(SUBS_INDEX).run();
+  for (const [t, c] of [['users', 'primary_sub_id'], ['usage', 'sub_id'], ['payments', 'sub_id']]) await env.DB.prepare(`ALTER TABLE ${t} ADD COLUMN ${c} INTEGER`).run().catch(() => {});
+})() }).p;
+// ใบที่ยังใช้ได้ของผู้ใช้ (พร้อมข้อมูลแพลน) เรียงตามวันหมดอายุ · ย้ายแพลนเดิม (users.plan_id) เข้ามาเป็นใบแรกครั้งเดียว · แอดมินแก้ users.plan_* ตรง ๆ = แก้ใบหลักตาม
+export async function subsOf(env, u) {
+  await ensureSubs(env); const now = Date.now();
+  const list = async () => (await env.DB.prepare("SELECT s.*, s.id sid FROM subscriptions s WHERE s.user_id=? AND s.status='active' AND s.expires_at>? ORDER BY s.expires_at, s.id").bind(u.id, now).all()).results;
+  let subs = await list();
+  const up = await env.DB.prepare('SELECT plan_id, plan_expires, plan_period, primary_sub_id, sess_start, week_start, auto_renew FROM users WHERE id=?').bind(u.id).first() || {};
+  if (up.plan_id && up.plan_expires > now) {
+    const pl = await env.DB.prepare('SELECT price FROM plans WHERE id=?').bind(up.plan_id).first();
+    const prim = subs.find(x => x.sid === up.primary_sub_id);
+    if (pl && !subs.length) { // ครั้งแรก: แพลนเดิมกลายเป็นใบที่ 1 (วันหมดอายุ/รอบลิมิตเดิม · การใช้งานเก่าที่ไม่มี sub_id นับเข้าใบนี้)
+      const r = await env.DB.prepare('INSERT INTO subscriptions (user_id,plan_id,period,starts_at,expires_at,status,auto_renew,sess_start,week_start,legacy,created_at) VALUES (?,?,?,?,?,\'active\',?,?,?,1,?) RETURNING id').bind(u.id, up.plan_id, up.plan_period || 'month', now, up.plan_expires, up.auto_renew ? 1 : 0, up.sess_start || null, up.week_start || null, now).first();
+      await env.DB.prepare('UPDATE users SET primary_sub_id=? WHERE id=?').bind(r.id, u.id).run(); subs = await list();
+    } else if (prim && (prim.plan_id !== up.plan_id || prim.expires_at !== up.plan_expires)) { // หลังบ้าน/ต่ออายุแบบเดิมแก้ users.plan_* → ใบหลักตาม
+      await env.DB.prepare('UPDATE subscriptions SET plan_id=?, expires_at=? WHERE id=?').bind(up.plan_id, up.plan_expires, prim.sid).run(); subs = await list();
+    }
+  }
+  if (subs.length && !subs.some(x => x.sid === up.primary_sub_id)) { await mirrorPrimary(env, u.id, subs[0]); } // ใบหลักหมดอายุ: ใบที่หมดก่อนถัดไปเป็นใบหลัก
+  return subs.map(x => ({ ...x, primary: x.sid === up.primary_sub_id || (!subs.some(y => y.sid === up.primary_sub_id) && x === subs[0]) }));
+}
+export async function mirrorPrimary(env, uid, sub) {
+  await env.DB.prepare('UPDATE users SET primary_sub_id=?, plan_id=?, plan_expires=?, plan_period=? WHERE id=?').bind(sub.sid ?? sub.id, sub.plan_id, sub.expires_at, sub.period || 'month', uid).run();
+}
+// แพลนของใบหนึ่งใบ (พร้อมโปรเพิ่มลิมิต) · _sub = ใบที่หักลิมิต · _subs = ทุกใบ (ใช้เลือก/สลับใบ)
+async function subPlan(env, sub, subs) {
+  const p = await env.DB.prepare('SELECT * FROM plans WHERE id=?').bind(sub.plan_id).first(); if (!p) return null;
+  return Object.assign(await boosted(env, p), { _sub: sub, _subs: subs });
+}
+// ฟีเจอร์รวมทุกใบ: ได้ทุกอย่างที่ใบใดใบหนึ่งมี · โมเดลฟรีรวมกัน
+async function unionFeatures(env, plan, subs) {
+  if (subs.length < 2) { plan._planIds = [plan.id]; return plan; }
+  const rows = (await env.DB.prepare(`SELECT * FROM plans WHERE id IN (${subs.map(() => '?').join(',')})`).bind(...subs.map(x => x.plan_id)).all()).results;
+  for (const k of ['agent', 'cowork', 'artifacts', 'api_limit']) if (rows.some(r => r[k])) plan[k] = Math.max(...rows.map(r => +r[k] || 0)) || 1;
+  plan.free_models = JSON.stringify([...new Set(rows.flatMap(r => freeIds(r)))]);
+  plan._planIds = [...new Set(rows.map(r => r.id))];
+  return plan;
+}
+async function planOfMulti(env, u) {
+  const subs = await subsOf(env, u); if (!subs.length) return null; // ไม่มีใบส่วนตัว: ทีม/ฟรี แบบเดิม
+  const base = await planOf0(env, u); if (base?._team) return boosted(env, base); // แพลนทีมดีกว่าใบหลัก: ใช้ทีมแบบเดิม (ระบบหลายใบใช้กับแพลนส่วนตัว)
+  const prim = subs.find(x => x.primary) || subs[0];
+  return unionFeatures(env, await subPlan(env, prim, subs), subs);
+}
+// เลือกใบที่จะหักลิมิตสำหรับโมเดลนี้: ใบที่ผู้ใช้เลือก → ใบหลัก → ใบที่หมดอายุก่อน · ใบเต็มสลับไปใบถัดไปเอง · ไม่มีใบไหนว่าง = คืนใบแรกที่มีสิทธิ์ (ผู้เรียกจัดการลิมิตเต็ม/Wallet ตามเดิม)
+export async function pickBucket(env, u, plan, modelId, subId = null) {
+  const subs = plan?._subs; if (!subs?.length || modelId == null) return plan;
+  const ids = [...new Set(subs.map(x => x.plan_id))];
+  const ok = new Set((await env.DB.prepare(`SELECT plan_id FROM plan_models WHERE model_id=? AND plan_id IN (${ids.map(() => '?').join(',')})`).bind(+modelId, ...ids).all()).results.map(r => r.plan_id));
+  const planRows = new Map((await env.DB.prepare(`SELECT id, free_models FROM plans WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results.map(r => [r.id, r]));
+  const fits = s => ok.has(s.plan_id) || freeIds(planRows.get(s.plan_id)).includes(+modelId);
+  const order = [...subs.filter(s => +subId && s.sid === +subId), ...subs.filter(s => s.primary && s.sid !== +subId), ...subs.filter(s => !s.primary && s.sid !== +subId)].filter(fits);
+  if (!order.length) return plan;
+  let first = null;
+  for (const s of order) {
+    const p = await unionFeatures(env, await subPlan(env, s, subs), subs); if (!p) continue; first ||= p;
+    const st = await usageStatus(env, u, p); if (st.pct4h < 100 && st.pctWeek < 100) return p;
+  }
+  return first || plan;
 }
 let freeCache = null;
 async function planOf0(env, u) {
@@ -240,6 +317,15 @@ export async function usageStatus(env, u, plan) {
     if (cap > 0) { const mu = (await env.DB.prepare('SELECT COALESCE(SUM(units),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(u.id, sw).first()).x; pw = Math.max(pw, pct(mu, plan.limit_week * cap / 100)); }
     return win4(plan, { pct4h: pct(r.u4, plan.limit_4h), pctWeek: pw, reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY });
   }
+  if (plan?._sub) { // หลายแพลน: นับเฉพาะการใช้งานของใบนี้ (ใบที่ย้ายมาจากแพลนเดิมนับการใช้งานเก่าที่ไม่มี sub_id ด้วย)
+    const s = await env.DB.prepare(`SELECT sess_start, week_start, legacy,
+        (SELECT COALESCE(SUM(units),0) FROM usage WHERE user_id=?1 AND (sub_id=?2 OR (sub_id IS NULL AND subscriptions.legacy=1)) AND created_at>=subscriptions.sess_start) u4,
+        (SELECT COALESCE(SUM(units),0) FROM usage WHERE user_id=?1 AND (sub_id=?2 OR (sub_id IS NULL AND subscriptions.legacy=1)) AND created_at>=subscriptions.week_start) uw
+      FROM subscriptions WHERE id=?2`).bind(u.id, plan._sub.sid ?? plan._sub.id).first() || {};
+    const s4 = s.sess_start && now < s.sess_start + H4 && s.sess_start >= r0 ? s.sess_start : null, sw = s.week_start && now < s.week_start + 7 * DAY && s.week_start >= r0 ? s.week_start : null;
+    const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 1000) / 10) : 100;
+    return win4(plan, { pct4h: pct(s4 ? s.u4 || 0 : 0, plan.limit_4h), pctWeek: pct(sw ? s.uw || 0 : 0, plan.limit_week), reset4h: s4 && s4 + H4, resetWeek: sw && sw + 7 * DAY, sub_id: plan._sub.sid ?? plan._sub.id });
+  }
   // รอบเวลา + ยอดใช้ในรอบ อ่านในคำสั่งเดียว (เดิมสองรอบไป-กลับ) · อ่านรอบใหม่เสมอ เพราะเพิ่งอาจเริ่มรอบตอนบันทึกการใช้งาน
   const w = await env.DB.prepare(`SELECT sess_start, week_start,
       (SELECT COALESCE(SUM(units),0) FROM usage WHERE user_id=?1 AND created_at>=users.sess_start) u4,
@@ -255,7 +341,7 @@ export const win4 = (plan, st) => plan?.use_4h === 0 ? { ...st, pct4h: 0, reset4
 // คอลัมน์ที่เพิ่มทีหลัง: เพิ่มเองครั้งแรกต่อ isolate (ไม่ต้องรัน migrate-19 ด้วยมือ)
 export let colsDone;
 // เดิมสั่ง ALTER ทีละคำสั่งทุกครั้งที่ isolate เริ่ม (13 รอบไป-กลับ D1 ก่อนตอบคำขอแรก) ตอนนี้ถามโครงสร้างครั้งเดียวแล้วเพิ่มเฉพาะที่ขาด
-const NEW_COLS = [['chats', 'has_code', 'INTEGER'], ['projects', 'gh_skipped', 'TEXT'], ['plans', 'min_margin', 'REAL'], ['plans', 'compare', 'TEXT'], ['plans', 'cowork', 'INTEGER'], ['chats', 'task', 'INTEGER'], ['plans', 'per_seat', 'INTEGER'], ['payments', 'seats', 'INTEGER'], ['folders', 'team_id', 'INTEGER'], ['teams', 'domain', 'TEXT'], ['artifacts', 'gallery', 'INTEGER'], ['users', 'no_report', 'INTEGER'], ['users', 'cc_first', 'INTEGER'], ['plans', 'free_models', 'TEXT'], ['skills', 'plugin', 'TEXT'], ['mcp_servers', 'connector', 'TEXT'], ['mcp_servers', 'auto', 'INTEGER'], ['mcp_servers', 'oauth_enc', 'TEXT'], ['mcp_servers', 'perms_json', 'TEXT'], ['mcp_servers', 'last_error', 'TEXT'], ['users', 'auto_memory', 'INTEGER'], ['usage', 'prep', 'INTEGER'], ['models', 'tools', 'TEXT'], ['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'long_k', 'REAL'], ['models', 'long_in', 'REAL'], ['models', 'long_out', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['users', 'webhook_url', 'TEXT'], ['users', 'auto_compact', 'INTEGER'], ['users', 'totp_last', 'INTEGER'], ['chats', 'deleted_at', 'INTEGER'], ['chats', 'archived', 'INTEGER'], ['skills', 'as_text', 'INTEGER'], ['skills', 'model_id', 'INTEGER'], ['users', 'bill_info', 'TEXT'], ['usage', 'ms', 'INTEGER'], ['posts', 'changelog', 'INTEGER'], ['models', 'new_until', 'INTEGER'], ['models', 'sys_prompt', 'TEXT'], ['plans', 'days', 'INTEGER'], ['plans', 'once', 'INTEGER'], ['users', 'wallet_day_cap', 'REAL'], ['payments', 'review', 'INTEGER'], ['folders', 'instructions', 'TEXT'], ['folders', 'files', 'TEXT'], ['messages', 'starred', 'INTEGER'], ['messages', 'tcr', 'INTEGER'], ['messages', 'applied', 'TEXT'], ['messages', 'tcw', 'INTEGER'], ['messages', 'tctx', 'INTEGER'], ['users', 'vercel_token', 'TEXT'], ['chats', 'instructions', 'TEXT'], ['usage', 'ttft', 'INTEGER'], ['usage', 'src', 'TEXT'], ['usage', 'charge', 'REAL'], ['projects', 'featured', 'INTEGER'], ['projects', 'blurb', 'TEXT'], ['projects', 'env_sealed', 'TEXT'], ['users', 'digest_off', 'INTEGER'], ['projects', 'slug', 'TEXT'], ['skills', 'share_token', 'TEXT'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT'], ['models', 'cats', 'TEXT'], ['usage', 'flag', 'TEXT'], ['usage', 'pack', 'REAL'], ['plans', 'agent', 'INTEGER'], ['users', 'agent_pack_from', 'INTEGER'], ['users', 'agent_pack_until', 'INTEGER'], ['users', 'agent_pack_units', 'REAL'], ['api_log', 'tcr', 'INTEGER'], ['api_log', 'ttft', 'INTEGER'], ['api_log', 'req_model', 'TEXT']];
+const NEW_COLS = [['chats', 'has_code', 'INTEGER'], ['projects', 'gh_skipped', 'TEXT'], ['plans', 'min_margin', 'REAL'], ['plans', 'compare', 'TEXT'], ['plans', 'cowork', 'INTEGER'], ['chats', 'task', 'INTEGER'], ['plans', 'per_seat', 'INTEGER'], ['payments', 'seats', 'INTEGER'], ['folders', 'team_id', 'INTEGER'], ['teams', 'domain', 'TEXT'], ['artifacts', 'gallery', 'INTEGER'], ['users', 'no_report', 'INTEGER'], ['users', 'cc_first', 'INTEGER'], ['plans', 'free_models', 'TEXT'], ['skills', 'plugin', 'TEXT'], ['mcp_servers', 'connector', 'TEXT'], ['mcp_servers', 'auto', 'INTEGER'], ['mcp_servers', 'oauth_enc', 'TEXT'], ['mcp_servers', 'perms_json', 'TEXT'], ['mcp_servers', 'last_error', 'TEXT'], ['users', 'auto_memory', 'INTEGER'], ['usage', 'prep', 'INTEGER'], ['models', 'tools', 'TEXT'], ['api_keys', 'ip_allow', 'TEXT'], ['plans', 'use_4h', 'INTEGER'], ['models', 'use_mult', 'REAL'], ['models', 'promo_mult', 'REAL'], ['team_members', 'cap_pct', 'REAL'], ['team_members', 'api_off', 'INTEGER'], ['models', 'first_token_s', 'REAL'], ['models', 'idle_s', 'REAL'], ['models', 'ctx_k', 'REAL'], ['models', 'long_k', 'REAL'], ['models', 'long_in', 'REAL'], ['models', 'long_out', 'REAL'], ['models', 'req_cap', 'INTEGER'], ['api_keys', 'expires_at', 'INTEGER'], ['users', 'webhook_url', 'TEXT'], ['users', 'auto_compact', 'INTEGER'], ['users', 'totp_last', 'INTEGER'], ['chats', 'deleted_at', 'INTEGER'], ['chats', 'archived', 'INTEGER'], ['skills', 'as_text', 'INTEGER'], ['skills', 'model_id', 'INTEGER'], ['users', 'bill_info', 'TEXT'], ['usage', 'ms', 'INTEGER'], ['posts', 'changelog', 'INTEGER'], ['models', 'new_until', 'INTEGER'], ['models', 'sys_prompt', 'TEXT'], ['plans', 'days', 'INTEGER'], ['plans', 'once', 'INTEGER'], ['users', 'wallet_day_cap', 'REAL'], ['payments', 'review', 'INTEGER'], ['folders', 'instructions', 'TEXT'], ['folders', 'files', 'TEXT'], ['messages', 'starred', 'INTEGER'], ['messages', 'tcr', 'INTEGER'], ['messages', 'applied', 'TEXT'], ['messages', 'tcw', 'INTEGER'], ['messages', 'tctx', 'INTEGER'], ['users', 'vercel_token', 'TEXT'], ['chats', 'instructions', 'TEXT'], ['usage', 'ttft', 'INTEGER'], ['usage', 'src', 'TEXT'], ['usage', 'charge', 'REAL'], ['projects', 'featured', 'INTEGER'], ['projects', 'blurb', 'TEXT'], ['projects', 'env_sealed', 'TEXT'], ['users', 'digest_off', 'INTEGER'], ['projects', 'slug', 'TEXT'], ['skills', 'share_token', 'TEXT'], ['models', 'bill', 'TEXT'], ['models', 'req_cost', 'REAL'], ['models', 'req_price', 'REAL'], ['sessions', 'created_at', 'INTEGER'], ['sessions', 'ua', 'TEXT'], ['sessions', 'ip', 'TEXT'], ['sessions', 'admin_ok', 'INTEGER'], ['projects', 'share_token', 'TEXT'], ['models', 'cats', 'TEXT'], ['usage', 'flag', 'TEXT'], ['usage', 'pack', 'REAL'], ['plans', 'agent', 'INTEGER'], ['users', 'agent_pack_from', 'INTEGER'], ['users', 'agent_pack_until', 'INTEGER'], ['users', 'agent_pack_units', 'REAL'], ['api_log', 'tcr', 'INTEGER'], ['api_log', 'ttft', 'INTEGER'], ['api_log', 'req_model', 'TEXT'], ['users', 'primary_sub_id', 'INTEGER'], ['usage', 'sub_id', 'INTEGER'], ['payments', 'sub_id', 'INTEGER']];
 const API_LOG = 'CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, req_model TEXT, status INTEGER, tin INTEGER, tout INTEGER, tcr INTEGER, ttft INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL)';
 const PAY_UQ = ["CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_key_uq ON payments(slip_key) WHERE slip_key LIKE 'slip/%'", "CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_ref_uq ON payments(slip_ref) WHERE slip_ref IS NOT NULL AND status<>'rejected'", "CREATE UNIQUE INDEX IF NOT EXISTS wallet_first_bonus_uq ON wallet_tx(user_id) WHERE kind='first_bonus'"]; // โบนัสเติมเงินครั้งแรกได้ครั้งเดียวต่อบัญชี แม้อนุมัติสองรายการพร้อมกัน
 // โปรเจกต์ที่ผู้ใช้เข้าถึงได้: เจ้าของ หรือสมาชิกที่ถูกเชิญให้แก้ (owner = true เฉพาะเจ้าของ)
@@ -280,7 +366,7 @@ const PERF = [
   "UPDATE chats SET has_code=1 WHERE has_code IS NULL AND id IN (SELECT DISTINCT chat_id FROM messages WHERE instr(content, '```') > 0)", // เติมย้อนหลังครั้งเดียว
 ];
 // เพิ่มเมื่อแก้ NEW_COLS / PERF / ตารางที่สร้างเอง: isolate ใหม่เห็นเลขตรงกันแล้วข้ามทั้งหมด (เดิมสั่ง CREATE ~15 คำสั่งทีละรอบทุก isolate ก่อนตอบคำขอแรก)
-export const SCHEMA_VER = '2026-11-24b';
+export const SCHEMA_VER = '2026-11-25a';
 export const ensureCols = env => colsDone ||= (async () => {
   try { if ((await env.DB.prepare("SELECT value FROM settings WHERE key='schema_ver'").first())?.value === SCHEMA_VER) return; } catch { /* ยังไม่มีตาราง settings: ทำต่อ */ }
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
@@ -296,7 +382,7 @@ export const ensureCols = env => colsDone ||= (async () => {
     todo.push(API_LOG, 'CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id)');
   }
   todo.push(...PAY_UQ, ...ART_TABLES, ...UF_TABLES, 'CREATE TABLE IF NOT EXISTS team_log (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at INTEGER NOT NULL)', 'CREATE INDEX IF NOT EXISTS team_log_team ON team_log(team_id, id)'); // ถ้ามีข้อมูลซ้ำอยู่แล้วคำสั่งจะล้ม (ถูก catch ด้านล่าง) · ตรวจซ้ำที่หลังบ้านแล้วค่อยสร้างเอง
-  todo.push(...PERF);
+  todo.push(...PERF, SUBS_TABLE, SUBS_INDEX);
   let ok = true;
   for (const q of todo) try { await env.DB.prepare(q).run(); } catch (e) { if (!/duplicate column|already exists/i.test(e.message)) { ok = false; console.log('ensureCols', q.slice(0, 80), e.message); } } // มีอยู่แล้ว = ปกติ
   if (ok) await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('schema_ver',?)").bind(SCHEMA_VER).run().catch(() => {}); // มีคำสั่งล้ม (เช่นดัชนี unique ชนข้อมูลซ้ำ): ไม่จำเลข ลองใหม่ใน isolate ถัดไป
@@ -308,6 +394,11 @@ export async function touchWindows(env, uid, now = Date.now(), plan = null) {
   await env.DB.prepare(`UPDATE users SET
     sess_start=CASE WHEN sess_start IS NULL OR sess_start+?2<=?1 OR sess_start<usage_reset_at THEN ?1 ELSE sess_start END,
     week_start=CASE WHEN week_start IS NULL OR week_start+?3<=?1 OR week_start<usage_reset_at THEN ?1 ELSE week_start END WHERE id=?4`).bind(now, H4, 7 * DAY, uid).run();
+  if (plan?._sub) { // หลายแพลน: เริ่มรอบของใบที่ถูกหัก (ใบอื่นไม่เสียรอบ)
+    await env.DB.prepare(`UPDATE subscriptions SET
+      sess_start=CASE WHEN sess_start IS NULL OR sess_start+?2<=?1 OR sess_start<?5 THEN ?1 ELSE sess_start END,
+      week_start=CASE WHEN week_start IS NULL OR week_start+?3<=?1 OR week_start<?5 THEN ?1 ELSE week_start END WHERE id=?4`).bind(now, H4, 7 * DAY, plan._sub.sid ?? plan._sub.id, (await env.DB.prepare('SELECT usage_reset_at r FROM users WHERE id=?').bind(uid).first())?.r || 0).run();
+  }
   if (plan?._team?.shared_pool) {
     await env.DB.prepare(`UPDATE teams SET
       sess_start=CASE WHEN sess_start IS NULL OR sess_start+?2<=?1 THEN ?1 ELSE sess_start END,
@@ -409,6 +500,6 @@ export const msgCost = m => flat(m) ? m.req_cost : (20000 * m.cost_cache + 1000 
 // โมเดลที่จ่ายจาก Wallet ได้ (สาธารณะ เปิดอยู่ มีคีย์) รูปแบบเดียวกับ allowedModels
 export const walletModels = env => env.DB.prepare("SELECT id,name,provider,multiplier,vision,effort,effort_levels,cost_in,cost_out,cost_cache,cap_pct,key_name,ctx_k,new_until,note,cats FROM models WHERE active=1 AND public=1 AND provider<>'embedding' ORDER BY sort,id").all()
   .then(r => r.results.filter(m => env[m.key_name]).map(({ key_name, ...m }) => m));
-export const allowedModels = (env, planId) => env.DB.prepare(
-  'SELECT m.id,m.name,m.provider,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct,m.key_name,m.ctx_k,m.new_until,m.note,m.cats FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id=? AND m.active=1 AND m.provider<>\'embedding\' ORDER BY m.sort,m.id').bind(planId).all()
-  .then(r => r.results.filter(m => env[m.key_name]).map(({ key_name, ...m }) => m)); // ซ่อนโมเดลที่ Worker ยังไม่มีคีย์ (เรียกไปก็ error)
+export const allowedModels = (env, planId) => { const ids = [...new Set([].concat(planId).filter(x => x != null))]; return env.DB.prepare( // planId = id เดียว หรือหลาย id (หลายแพลน: รวมโมเดลทุกใบ)
+  'SELECT DISTINCT m.id,m.name,m.provider,m.multiplier,m.vision,m.effort,m.effort_levels,m.cost_in,m.cost_out,m.cost_cache,m.cap_pct,m.key_name,m.ctx_k,m.new_until,m.note,m.cats FROM models m JOIN plan_models pm ON pm.model_id=m.id WHERE pm.plan_id IN (' + (ids.map(() => '?').join(',') || 'NULL') + ') AND m.active=1 AND m.provider<>\'embedding\' ORDER BY m.sort,m.id').bind(...ids).all()
+  .then(r => r.results.filter(m => env[m.key_name]).map(({ key_name, ...m }) => m)); }; // ซ่อนโมเดลที่ Worker ยังไม่มีคีย์ (เรียกไปก็ error)

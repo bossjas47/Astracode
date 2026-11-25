@@ -1,6 +1,6 @@
 import { claudeCreditLeft, isClaudeEco, modelCreditLeft, useClaudeCredit, useModelCredit } from './credits.js';
 import { artPaid, artifactTool } from './artifacts.js';
-import { FREE_CTX, FREE_DAY_CAP, isFreeModel, DAY, HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
+import { pickBucket, FREE_CTX, FREE_DAY_CAP, isFreeModel, DAY, HISTORY, HISTORY_CODE, LOCK_MS, projectFor, reqCapHit, ctxMax, fitContext, flat, SYSTEM, SYSTEM_CODE, allowedModels, capHit, err, json, limMult, limited, planOf, rand, same, touchWindows, unlimit, usageStatus, userErr, WALLET_MIN } from './core.js';
 import { blockedText, dayCapHit, event, getSetting, getSettings, mail, mailBox, notify, priceOf, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, unb64, unseal } from './projects.js';
 import { createAccountFile, fileTool } from './files.js';
@@ -505,8 +505,9 @@ export async function logUsage(env, uid, m, usage, { units = true, wallet = null
   if (units) await touchWindows(env, uid, now, plan); // เริ่มรอบก่อนบันทึก เพื่อให้แถวนี้นับอยู่ในรอบ
   let charge = 0;
   if (wallet) { const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6 + longExtra(m, L, p)) * 10000) / 10000; } // ราคาขาย context ยาวขึ้นตามสัดส่วนเดียวกับต้นทุน
-  await env.DB.prepare('INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge,flag,pack,prep) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null, flag || usage.flag || null, pk, prep).run(); // prep = ms ที่ระบบเตรียมก่อนเรียกโมเดล (แยกจาก ttft ของโมเดล)
+  const subId = units && plan?._sub ? plan._sub.sid ?? plan._sub.id : null; // หลายแพลน: หักจากใบไหน (เฉพาะแถวที่หักลิมิต)
+  await env.DB.prepare(`INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge,flag,pack,prep${subId ? ',sub_id' : ''}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?${subId ? ',?' : ''})`)
+    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null, flag || usage.flag || null, pk, prep, ...(subId ? [subId] : [])).run(); // prep = ms ที่ระบบเตรียมก่อนเรียกโมเดล (แยกจาก ttft ของโมเดล)
   // ต้นทุน/token ต่องาน Agent · ctx_peak = input ของรอบที่ใหญ่สุด (ใช้แสดง context ของทีม)
   if (job) { const tin = usage.fresh + usage.read + usage.write; await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, units=COALESCE(units,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, un, tin, usage.out, tin, job).run()
     .catch(() => env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, tin, usage.out, tin, job).run()); } // ฐานข้อมูลที่ยังไม่มีคอลัมน์ units (เพิ่มตอนเริ่มงาน Agent ครั้งแรก): บันทึกแบบเดิม
@@ -544,9 +545,10 @@ export async function chat(req, env, u, ctx) {
   const ephemeral = !!b.ephemeral; // โหมดเทียบโมเดล: ไม่บันทึกแชต
   // ลำดับรอฐานข้อมูลก่อนเริ่มตอบ (เดิมรอทีละคำสั่ง ~15 รอบ): 1) แพลน + โมเดล 2) ตรวจสิทธิ์/เพดาน/ลิมิต/ล็อก/โปรเจกต์/แชตพร้อมกัน 3) บันทึก+อ่านประวัติใน batch เดียว
   const autoPick = b.model_id === 'auto', modelQ = id => env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(id).first();
-  const [plan, mPre] = await Promise.all([planOf(env, u), autoPick ? null : modelQ(b.model_id)]);
+  let [plan, mPre] = await Promise.all([planOf(env, u), autoPick ? null : modelQ(b.model_id)]);
   if (autoPick) b.model_id = await autoModel(env, plan, u, { text, images, files, effort, regenerate: b.regenerate, code: !!b.project_id });
   const mRow = autoPick ? await modelQ(b.model_id) : mPre;
+  if (mRow && plan?._subs?.length) plan = await pickBucket(env, u, plan, mRow.id, b.sub_id); // หลายแพลน: หักจากใบที่ผู้ใช้เลือก/ใบหลัก/ใบที่ว่าง
   const pid = b.project_id || null; // โหมด Code
   let cid = ephemeral ? null : b.chat_id;
   const takeLock = k => env.DB.prepare('INSERT INTO rate (key,n,reset) VALUES (?1,1,?2) ON CONFLICT(key) DO UPDATE SET n=1, reset=?2 WHERE reset<?3 RETURNING n').bind(k, Date.now() + LOCK_MS, Date.now()).first().then(r => r ? k : null);
@@ -945,7 +947,7 @@ export const BUILD_RE = /\b(game|website|web ?app|landing page|dashboard|3d|thre
 export const HARD_RE = /```|\b(debug|bug|error|refactor|algorithm|optimi[sz]e|architecture|prove|proof|regex|sql|typescript|python|javascript|react)\b|โค้ด|เขียนโปรแกรม|แก้บั๊ก|วิเคราะห์|พิสูจน์|คำนวณ|สมการ|ออกแบบระบบ|เปรียบเทียบ|กลยุทธ์|แผนธุรกิจ|เรียงความ|รายงาน/i;
 // shortcut: แยกง่าย/ยากด้วยกฎ (ไม่เสีย token เพิ่ม) ถ้าอยากแม่นขึ้นค่อยให้โมเดลเล็กช่วยจัดประเภท
 export async function autoModel(env, plan, u, { text, images, files, effort, regenerate, code = false }) {
-  const all = (await allowedModels(env, plan.id)).filter(m => m.provider !== 'image' && m.provider !== 'embedding'); if (!all.length) return null; // โมเดลสร้างรูปไม่ใช่ตัวเลือกของ Auto
+  const all = (await allowedModels(env, plan._planIds || plan.id)).filter(m => m.provider !== 'image' && m.provider !== 'embedding'); if (!all.length) return null; // โมเดลสร้างรูปไม่ใช่ตัวเลือกของ Auto
   const ok = [], healthy = [];
   for (const m of all) if (!(await capHit(env, u, plan, m))) { ok.push(m); if (!await modelDown(env, m.id)) healthy.push(m); }
   const ms1 = healthy.length ? healthy : ok.length ? ok : all; // เลือกจากตัวที่ปกติก่อน (ข้ามโมเดลที่ล่มอยู่) ถ้าไม่เหลือใช้ตัวที่เหลือ · ติดเพดานหมดใช้ all เพื่อแจ้ง 429 ตามปกติ
