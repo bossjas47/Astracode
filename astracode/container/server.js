@@ -18,6 +18,7 @@ const ROOT = process.env.WORK || '/work';
 let OFFICE = null, BROWSER = null; // Kyber Harness: ไฟล์ออฟฟิศ + เบราว์เซอร์ (โหลดเมื่อใช้ · ถ้าไม่มีแพ็กเกจก็ทำงานต่อได้แบบไม่มีเครื่องมือนั้น)
 try { OFFICE = require(path.join(lib, 'office')); } catch {}
 try { BROWSER = require('./browser'); } catch {}
+const { pyExec } = require('./pyexec'); let pyBusy = Promise.resolve(); // รัน Python บนคลาวด์ (แชต/หน้า Code): ทีละงานต่อเครื่อง
 const S = d => ({ type: 'string', description: d }), fnT = (name, description, properties, required = []) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } });
 // เครื่องมือเพิ่มของ Kyber Harness: สร้างรูป · อ่านรูป/สแกน (OCR) · ส่งไฟล์ขึ้น Drive · ส่งอีเมลแนบไฟล์ (2 อย่างหลังใช้ Google ที่ลูกค้าเชื่อมไว้บนเว็บ)
 const asks = new Map(); // คำถามที่รอลูกค้าตอบ (ปุ่ม/พิมพ์ในหน้าเว็บ) id → resolve
@@ -167,6 +168,7 @@ http.createServer(async (req, res) => {
     if (u.pathname === '/events') { const from = +u.searchParams.get('from') || 0; return json(res, 200, { status: job?.status || 'idle', events: job ? job.events.slice(from) : [] }); }
     if (u.pathname === '/result') return json(res, 200, job ? await result() : { status: 'idle' });
     if (u.pathname === '/stop' && req.method === 'POST') { job?.ac.abort(); return json(res, 200, { ok: true }); }
+    if (u.pathname === '/exec' && req.method === 'POST') { const b = await body(req); const run = pyBusy.then(() => pyExec(b)); pyBusy = run.catch(() => {}); return json(res, 200, await run); }
     if (u.pathname === '/health') return json(res, 200, { ok: true });
     json(res, 404, { error: 'not found' });
   } catch (e) { json(res, 500, { error: e.message }); }

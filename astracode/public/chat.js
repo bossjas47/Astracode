@@ -1576,12 +1576,24 @@ async function pyOutSave(outs) {
   }
   return res;
 }
+// รัน Python บนเครื่องคลาวด์ (ต่อเน็ตได้ · ติดตั้งแพ็กเกจที่ขาดให้เอง) · ไม่ได้ (แพลนฟรี/เครื่องไม่พร้อม/ครบโควตา) = null แล้วรันในเบราว์เซอร์แทน
+let pyCloudOff = false;
+async function pyCloud(files, main) {
+  if (pyCloudOff || window.DEMO) return null;
+  try {
+    const r = await fetch('/api/py/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ files, main }), signal: AbortSignal.timeout(150e3) });
+    if (!r.ok) { if (r.status === 402 || r.status === 503) pyCloudOff = true; return null; }
+    const d = await r.json(); if (typeof d.out !== 'string') return null;
+    return { out: d.out, imgs: d.imgs || [], outs: (d.outs || []).map(o => ({ name: o.name, bytes: Uint8Array.from(atob(o.b64), c => c.charCodeAt(0)) })), cloud: true };
+  } catch { return null; }
+}
 async function pyRun(ai) {
   chat.pyRound = (chat.pyRound || 0) + 1; if (chat.pyRound > PY_MAX) return showErr(`AI รัน Python ครบ ${PY_MAX} รอบแล้ว พิมพ์สั่งต่อได้เลย`);
   const code = parseTools(ai.content).py.at(-1); if (!code) return;
   const files = chat.msgs.filter(m => m.role === 'user').flatMap(m => [...m.content.matchAll(FILE_RE)].map(x => ({ path: '/data/' + x[1].replace(/[\\/]/g, '_'), content: x[2] })));
-  ai.pyOut = { text: 'กำลังรัน Python…', imgs: [] }; renderAll(); setBusy(true);
-  const res = await new Promise(ok => {
+  ai.pyOut = { text: 'กำลังรัน Python บนคลาวด์…', imgs: [] }; renderAll(); setBusy(true);
+  const res = await pyCloud([...files, { path: 'main.py', content: code }], 'main.py') || await new Promise(ok => {
+    ai.pyOut.text = 'กำลังรัน Python ในเบราว์เซอร์…'; renderAll();
     let out = ''; const imgs = [], outs = [], w = new Worker('/pyworker.js');
     const end = extra => { clearTimeout(t); w.terminate(); ok({ out: out + (extra || ''), imgs, outs }); }, t = setTimeout(() => end('\n[หยุด: รันนานเกิน 90 วินาที]'), 90e3);
     w.onmessage = e => { const d = e.data; if (d.outFile) outs.push(d.outFile); if (d.out != null) out += d.out + '\n'; if (d.err) out += d.err + '\n'; if (d.img) imgs.push(d.img.startsWith('data:') ? d.img : 'data:image/png;base64,' + d.img); if (d.status) { ai.pyOut.text = d.status; renderAll(); } if (d.done) end(); };

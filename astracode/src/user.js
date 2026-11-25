@@ -6,7 +6,7 @@ import { b64, projects, seal, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
 import { agentQuality, ensureRemote, monthKey } from './api.js';
 import { status } from './jobs.js';
-import { cloudApi } from './cloud.js';
+import { cloudApi, pyApi } from './cloud.js';
 import { googleConnectFinish, googleConnectStart, googleDisconnect, googleStatus } from './google.js';
 export const ZIPREF_MAX = 25e6, ZIPREF_TEXT_MAX = 20e6;
 // ---------- ผู้ใช้: ตั้งค่า, ความจำ, โฟลเดอร์, wallet, คูปอง, API key, 2FA, ข้อมูลส่วนตัว, ใบเสร็จ, ซัพพอร์ต, สร้างรูป, เติมโค้ด ----------
@@ -303,6 +303,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   if (path === '/api/google/connect' && M === 'GET') return googleConnectStart(env, origin(req, env), u, url.searchParams.get('popup') === '1');
   if (path.startsWith('/api/videos')) { const { videoApi } = await import('./video.js'); const r = await videoApi(req, env, u, path, M); if (r) return r; }
   if (path.startsWith('/api/cowork')) { const { coworkApi } = await import('./cowork.js'); const r = await coworkApi(req, env, u, path, M, new URL(req.url)); if (r) return r; }
+  if (path === '/api/py/run' && M === 'POST') return pyApi(req, env, u);
   if (path.startsWith('/api/cloud-agent')) { const r = await cloudApi(req, env, u, path, M); if (r) return r; }
   if (path === '/api/agent-pack') {
     const s = await getSettings(env, ['agent_pack_enabled', 'agent_pack_price', 'agent_pack_units', 'agent_pack_days']), price = +s.agent_pack_price || 199, units = +s.agent_pack_units || 120, days = +s.agent_pack_days || 30, now = Date.now();

@@ -641,9 +641,26 @@ addEventListener('message', e => {
   if ('shotResult' in (e.data || {})) { IDE.shotWait?.(e.data); IDE.shotWait = null; }
   if (e.data?.log) { log(e.data.log === 'error' ? 'error' : e.data.log === 'warn' ? 'warn' : 'log', e.data.msg); if (e.data.log === 'error') badge(); }
 });
-function runPython(main) {
+// รัน Python บนคลาวด์ก่อน (ต่อเน็ตได้ · ติดตั้งแพ็กเกจให้เอง) · แพลนฟรี/เครื่องไม่พร้อม = รันในเบราว์เซอร์แทน (Pyodide)
+let idePyCloudOff = false;
+async function runPython(main) {
   runTab('con');
   if (window.DEMO) return log('warn', 'หน้าเดโมรัน Python ไม่ได้ (sandbox ห้ามโหลดไฟล์ Python) บนเว็บจริงใช้ได้');
+  if (!idePyCloudOff && !IDE.running) {
+    IDE.running = true; $('#run-status').textContent = 'กำลังรันบนคลาวด์...'; log('info', `▶ python ${main} (คลาวด์)`);
+    try {
+      const r = await fetch('/api/py/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ main, files: [...IDE.files.keys()].map(p => ({ path: p, content: content(p) })) }), signal: AbortSignal.timeout(150e3) });
+      if (r.ok) {
+        const d = await r.json(); IDE.running = false;
+        if (d.out) log(d.code ? 'error' : 'log', d.out.replace(/\n$/, '')); if (d.code) badge();
+        if (d.imgs?.length) { const c = $('#console'); d.imgs.forEach(src => { const i = document.createElement('img'); i.src = src; i.alt = 'กราฟจาก Python'; i.className = 'py-img'; c?.append(i); }); }
+        if (d.outs?.length) log('info', 'ไฟล์ใน /out: ' + d.outs.map(o => o.name).join(', ') + ' (สั่งในแชตให้ AI บันทึกเข้าโปรเจกต์ได้)');
+        $('#run-status').textContent = `จบการทำงาน · ${(d.ms / 1000).toFixed(1)} วิ บนคลาวด์`; return;
+      }
+      if (r.status === 402 || r.status === 503) idePyCloudOff = true; else log('warn', (await r.json().catch(() => ({}))).error || 'รันบนคลาวด์ไม่สำเร็จ ลองในเบราว์เซอร์แทน');
+    } catch { log('warn', 'เชื่อมเครื่องคลาวด์ไม่ได้ รันในเบราว์เซอร์แทน'); }
+    IDE.running = false;
+  }
   if (!IDE.worker) {
     IDE.worker = window.DEMO_PYWORKER ? new Worker(DEMO_PYWORKER) : new Worker('/pyworker.js');
     IDE.worker.onmessage = e => {
