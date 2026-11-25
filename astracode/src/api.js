@@ -1,6 +1,6 @@
 import { claudeCreditLeft, isClaudeEco, modelCreditIds, useClaudeCredit, useModelCredit } from './credits.js';
 import { pickBucket, BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
-import { SSE, callModel, chat, logFallback, logUsage, webSearch } from './ai.js';
+import { SSE, callModel, chat, logFallback, logUsage, slimTools, webSearch } from './ai.js';
 import { connCall, connTools } from './connectors.js';
 import { unseal } from './projects.js';
 import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl } from './billing.js';
@@ -10,6 +10,7 @@ export const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 
 export const WALLET_SLOTS = 8;
 export const slug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
 export const V1_CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-api-key, anthropic-version, anthropic-beta', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-expose-headers': 'retry-after, x-request-id, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-astracode-billing, x-kyber-billing, x-astracode-model, x-kyber-model' };
+export const CTX_GUARD = 600000; // ตัวอักษร (~150K token)
 export async function v1core(req, env, ctx, path, lg = {}) {
   const cors = V1_CORS, rid = 'req_' + rand(12);
   let rl = {}; // x-ratelimit-* ของคำขอนี้ (ใส่ในทุกคำตอบหลังผ่านการตรวจ key)
@@ -198,6 +199,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     }
     if (!hist.length || !['user', 'tool'].includes(hist.at(-1).role)) return fail('messages ต้องลงท้ายด้วยข้อความของ user หรือ tool', 400);
     if (hist.some(x => hasImg(x.content)) && !m.vision) return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
+    // กันลิมิตหมดไว: เครื่องมืออย่าง OpenCode ที่ตั้ง context ไว้ใหญ่ (เดิมเราแนะนำ 1M) ส่งบทสนทนา 300K+ token ทุกรอบ · ประวัติยาวเกิน ~150K token = ย่อผลเครื่องมือเก่า (เก็บ 6 รอบล่าสุดเต็ม)
+    // ผลเดิมของข้อความเดิมย่อแบบเดียวกันทุกครั้ง → prompt cache ส่วนต้นยังใช้ได้ · ปิดได้ด้วย header x-kyber-full-context: 1
+    if (req.headers.get('x-kyber-full-context') !== '1' && JSON.stringify(hist).length > CTX_GUARD) slimTools(hist, 6, 4000);
     const histLen = JSON.stringify(hist).length;
     if (histLen > 4e6) return fail('ข้อความยาวเกินไป', 413); // ~1M token: ทุกโมเดล context 1.05M (เดิม 800K ตัวอักษร = เครื่องมือแบบ Claude Code / OpenCode ชนเร็ว)
     const cacheTtl = (histLen + system.length) >= 80000 ? '1h' : null; // context ยาว (~25K+ token): ใช้ cache 1 ชม. กันหมดอายุตอนหยุดอ่านโค้ดเกิน 5 นาที (ถ้า upstream ไม่รองรับ ai.js ถอยกลับ 5 นาทีเอง)

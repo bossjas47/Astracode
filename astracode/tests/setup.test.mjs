@@ -25,7 +25,7 @@ test('setup command: paid user gets a working one-line installer; the script wri
   assert.match(toml, /^model = "claude-opus-5\.5-eco"\nmodel_provider = "astra"/); assert.match(toml, /approval_policy = "never"/); assert.match(toml, /\[mcp_servers\.x\]/);
   assert.ok(toml.includes(`experimental_bearer_token = "${c.key}"`)); assert.match(toml, /\[profiles\.astra-claude-sonnet-5-5-eco\]/); assert.ok(!toml.includes('gpt-old')); assert.ok(existsSync(join(home, '.codex', 'config.toml.bak')));
   await run('OpenCode', home); const oc = JSON.parse(readFileSync(join(home, '.config', 'opencode', 'opencode.json'), 'utf8'));
-  assert.equal(oc.model, 'astra/claude-opus-5.5-eco'); assert.equal(Object.keys(oc.provider.astra.models).length, 3); assert.equal(oc.provider.astra.models['chatgpt-6.1-sol'].limit.context, 1050000);
+  assert.equal(oc.model, 'astra/claude-opus-5.5-eco'); assert.equal(Object.keys(oc.provider.astra.models).length, 3); assert.equal(oc.provider.astra.models['chatgpt-6.1-sol'].limit.context, 160000);
   await run('Claude Code', home); const cc = JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'));
   assert.equal(cc.env.ANTHROPIC_BASE_URL, 'https://t.test'); assert.equal(cc.env.ANTHROPIC_MODEL, 'claude-opus-5.5-eco');
   // ลิงก์ใช้ได้ 3 ครั้ง แล้วหมด · key เก่าของโปรแกรมเดียวกันถูกเพิกถอนเมื่อสร้างใหม่
