@@ -52,7 +52,7 @@ export function nearEffort(errText, cur) {
   return ok.sort((a, b) => Math.abs(EFFORT_ORDER.indexOf(a) - ci) - Math.abs(EFFORT_ORDER.indexOf(b) - ci) || EFFORT_ORDER.indexOf(b) - EFFORT_ORDER.indexOf(a))[0];
 }
 // เพดาน output ตามค่ายของโมเดล (ไม่ส่ง = ผู้ให้บริการบางรายใช้ค่าน้อยจนคิดหมดก่อนตอบ) · ค่ายที่ไม่รู้เพดานไม่ส่ง เพราะค่าเกินอาจถูกปฏิเสธ
-export const gptMax = m => { const a = m.api_model || ''; return /^(gpt|o\d|gemini|qwen)/i.test(a) ? 256000 : /^deepseek/i.test(a) ? 356000 : undefined; };
+export const gptMax = m => { const a = m.api_model || ''; return /^(gpt|o\d|gemini|qwen)/i.test(a) ? 256000 : /^deepseek/i.test(a) ? 356000 : /claude|sonnet|opus|haiku/i.test(a) ? 64000 : /kimi|moonshot|glm|grok|minimax/i.test(a) ? 32000 : undefined; }; // ไม่ส่ง = ผู้ให้บริการ/gateway ใช้ค่าเริ่มต้นต่ำ (4-8K) งานเขียนไฟล์ใหญ่ถูกตัดกลาง
 const capOut = (m, want) => { const cap = gptMax(m); return want && cap ? Math.min(want, cap) : want || cap; }; // ลูกค้า API ขอเกินเพดาน: ลดให้ ไม่ปล่อยให้ผู้ให้บริการปฏิเสธ
 export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, systemBlocks = null, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false, cacheTtl = null } = {}) {
   const key = env[m.key_name];

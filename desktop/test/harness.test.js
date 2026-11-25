@@ -17,6 +17,7 @@ function script(turns) {
     const ev = [];
     if (t.text) ev.push({ choices: [{ delta: { content: t.text } }] });
     (t.calls || []).forEach(([name, args], i) => ev.push({ choices: [{ delta: { tool_calls: [{ index: i, id: 'c' + seen.length + '_' + i, type: 'function', function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) } }] } }] }));
+    if (t.finish) ev.push({ choices: [{ delta: {}, finish_reason: t.finish }] });
     if (t.usage) ev.push({ choices: [], usage: t.usage });
     const body = ev.map(e => 'data: ' + JSON.stringify(e) + '\n\n').join('') + 'data: [DONE]';
     return { ok: true, status: 200, body: (async function* () { yield enc(body); })() };
@@ -340,4 +341,26 @@ test('reviewer: reads only this task\'s diff, skips non-code work, returns the m
   assert.equal(notes, '- a.js: null.y throws'); assert.equal(sent.stream, false);
   assert.match(sent.messages[1].content, /fix x[\s\S]*=== a\.js\n[\s\S]*- let x = 1;\n\+ let x = null\.y;[\s\S]*=== b\.js \(new file\)/);
   assert.equal(await makeReviewer({ ws, post, model: 'm' })({ changed: ['notes.md'] }), null); // ไม่ใช่โค้ด: ไม่เรียก
+});
+
+test('harness: a tool call cut off by the output limit is not run and the model is told to write in parts; cut text is continued, not restarted', async () => {
+  const big = '{"path":"big.py","content":"' + 'x = 1\\n'.repeat(500); // ถูกตัดกลาง JSON
+  const s = script([{ calls: [['write_file', big]], finish: 'length' }, { text: 'ครึ่งแรก', finish: 'length' }, { text: ' ครึ่งหลัง' }]), called = [], ev = [];
+  const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'go' }];
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools, callTool: async n => { called.push(n); return 'x'; }, onEvent: e => ev.push(e), fetchImpl: s.fetch, verifyGate: false });
+  assert.deepEqual(called, [], 'cut tool call never runs');
+  assert.match(JSON.stringify(s.seen[1].messages), /hit the output length limit and the write_file call was cut off[\s\S]*append=true/);
+  assert.ok(!s.seen[1].messages.some(m => m.tool_calls), 'no dangling tool_calls in history');
+  assert.match(JSON.stringify(s.seen[2].messages.at(-1)), /Continue exactly where it stopped/);
+  assert.ok(ev.some(e => e.type === 'info' && /แบ่งเขียน/.test(e.text)));
+  assert.equal(messages.filter(m => m.role === 'assistant').map(m => m.content).join(''), '(cut off)ครึ่งแรก ครึ่งหลัง');
+});
+
+test('tools: write_file append builds a big file in parts without re-reading', async () => {
+  const dir = tmp(), ws = new Workspace(dir, { ask: async () => true, requireRead: true });
+  assert.match(await ws.call('write_file', { path: 'big.py', content: 'a = 1\n' }), /big\.py/);
+  assert.match(await ws.call('write_file', { path: 'big.py', content: 'b = 2\n', append: true }), /ต่อท้าย big\.py แล้ว/);
+  assert.equal(fs.readFileSync(path.join(dir, 'big.py'), 'utf8'), 'a = 1\nb = 2\n');
+  fs.writeFileSync(path.join(dir, 'user.py'), 'old');
+  assert.match(await ws.call('write_file', { path: 'user.py', content: 'x', append: true }), /read user\.py with read_file/, 'appending to an unread user file still needs a read');
 });
