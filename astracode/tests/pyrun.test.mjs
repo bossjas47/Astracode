@@ -17,6 +17,8 @@ test('cloud python API: paid plans are forwarded to the per-user machine; free p
   const r = await t.json('/api/py/run', { method: 'POST', cookie: a.cookie, body }); assert.equal(r.status, 200); assert.equal(r.data.out, 'hi\n');
   assert.equal(seen[0][0], 'py:' + a.id, 'one machine per user'); assert.equal(seen[0][2].main, 'main.py');
   const adm = await t.user({ role: 'admin' }), q = (await t.json('/api/admin/quality', { cookie: adm.cookie })).data;
+  t.DB.raw.prepare('CREATE TABLE IF NOT EXISTS eval_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, data TEXT NOT NULL)').run(); t.DB.raw.prepare('INSERT INTO eval_runs (at,data) VALUES (?,?)').run(Date.now(), JSON.stringify({ by: [{ model: 'M', pass: 4, total: 5, rate: 80, rounds: 6, charge: 1.2 }] }));
+  const q2 = (await t.json('/api/admin/quality', { cookie: adm.cookie })).data; assert.equal(q2.evals[0].by[0].model, 'M', 'live eval runs reach the admin page');
   assert.equal(q.py[0].n, 1); assert.equal(q.py[0].users, 1); assert.equal(q.py[0].fail, 0, 'runs are counted for the admin quality page');
   assert.equal((await t.json('/api/py/run', { method: 'POST', cookie: b.cookie, body })).status, 402);
   assert.equal((await t.json('/api/py/run', { method: 'POST', body })).status, 401);
