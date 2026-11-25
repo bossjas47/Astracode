@@ -41,7 +41,11 @@ function Inst.Destroy(self) self.Parent = nil end
 function Inst.GetAttributes(self) return {} end
 function Inst.GetService(self, n) local s = self:FindFirstChild(n); if not s then error('no service ' .. n) end return s end
 
-Vector3 = { new = function(x, y, z) return setmetatable({ X = x, Y = y, Z = z }, { __tostring = function(v) return v.X .. ', ' .. v.Y .. ', ' .. v.Z end, __type = 'Vector3' }) end }
+local V3mt = { __type = 'Vector3' }
+Vector3 = { new = function(x, y, z) return setmetatable({ X = x, Y = y, Z = z }, V3mt) end }
+V3mt.__tostring = function(v) return v.X .. ', ' .. v.Y .. ', ' .. v.Z end
+V3mt.__add = function(a, b) return Vector3.new(a.X + b.X, a.Y + b.Y, a.Z + b.Z) end
+V3mt.__mul = function(a, k) return Vector3.new(a.X * k, a.Y * k, a.Z * k) end
 Vector2 = { new = function(x, y) return { X = x, Y = y, __t = 'Vector2' } end }
 Color3 = { new = function(r, g, b) return setmetatable({ R = r, G = g, B = b }, { __type = 'Color3' }) end }
 Color3.fromRGB = function(r, g, b) return Color3.new(r / 255, g / 255, b / 255) end
@@ -123,6 +127,15 @@ ok, r = ex('fly')
 check('unknown op errors', (not ok) and 'ไม่รู้จัก' in r, r)
 log = list(L.eval('CHlog').values())
 check('changes are recorded for undo', 'begin Kyber AI: write' in log and 'finish C' in log and 'finish X' in log, log)
+L.execute('''
+local SEL = game:FindFirstChild('Selection'); rawset(SEL, 'Set', function(_, t) SELECTED = t[1] end)
+workspace = game.Workspace; workspace._p.CurrentCamera = { CFrame = nil }
+CFrame.lookAt = function(a, b) return { from = a, at = b } end
+local p = Instance.new('Part'); p.Name = 'Tower'; p.CFrame = { Position = Vector3.new(0, 10, 0) }; p.Size = Vector3.new(4, 20, 4); p.Parent = workspace
+''')
+ok, r = ex('focus', path='Workspace.Tower')
+cam = L.eval('workspace.CurrentCamera.CFrame')
+check('focus selects the object and points the camera at it', ok and L.eval('SELECTED') is not None and cam is not None and cam['at'].Y == 10 and cam['from'].Y > 10, r)
 ok, r = ex('info')
 check('info returns place', ok and r.place == 'Place1', r)
 # วงถาม-ตอบกับแอป: poll ได้คำสั่ง → ทำ → POST ผลพร้อม token

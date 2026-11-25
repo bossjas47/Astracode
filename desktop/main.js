@@ -239,6 +239,12 @@ async function screenRun(acts, opts = {}) {
 }
 // เครื่องมือ computer ของ Agent: ใช้ได้เมื่อผู้ใช้เปิด "ให้ AI ดูหน้าจอและคุมเมาส์" (ยืนยันด้วยหน้าต่าง Windows) · พิกัด = พิกเซลของภาพหน้าจอล่าสุด
 const COMPUTER_TOOL = { type: 'function', function: { name: 'computer', description: 'See and control the whole screen of the user\'s computer (any program: Excel, Blender, browsers, games). Give a list of actions; a fresh screenshot comes back after them. Start with [{"action":"screenshot"}]. Add {"action":"elements"} to also get the buttons/fields/menus Windows reports for the front window with exact center coordinates (most precise way to click in normal apps). Coordinates are pixels of the latest screenshot. Never type passwords or payment details, and never send messages or buy things unless the user asked in this task.', parameters: { type: 'object', properties: { actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', enum: ['screenshot', 'elements', 'click', 'double_click', 'right_click', 'move', 'drag', 'type', 'key', 'scroll', 'wait', 'open'] }, x: { type: 'number' }, y: { type: 'number' }, x2: { type: 'number', description: 'drag end x' }, y2: { type: 'number', description: 'drag end y' }, target: { type: 'string', description: 'for open: program name (notepad, excel, chrome), file path or URL' }, text: { type: 'string', description: 'for type' }, keys: { type: 'string', description: 'for key, e.g. ctrl+s, enter, alt+tab' }, amount: { type: 'number', description: 'scroll notches, negative = up' }, ms: { type: 'number' } }, required: ['action'] } } }, required: ['actions'] } } };
+// roblox look: หันกล้องไปที่ของ (ถ้าบอก path) → จับภาพหน้าจอ Studio · โมเดลอ่านรูปไม่ได้ = ตาช่วยบรรยายเป็นข้อความแทน
+async function robloxLook(bridge, a, ctx = {}) {
+  if (process.platform !== 'win32') return 'Error: ดูหน้าจอ Studio ได้เฉพาะ Windows ตอนนี้';
+  if (a.path) { const f = await robloxTool(bridge, { op: 'focus', path: a.path }); if (f.startsWith('Error')) return f; await new Promise(ok => setTimeout(ok, 500)); }
+  return computerTool({ actions: [{ action: 'screenshot' }] }, { ...ctx, goal: `Roblox Studio: look at ${a.path || 'the current view'} and describe what was built (shapes, colors, layout, anything broken or floating). ${ctx.goal || ''}` });
+}
 // ctx.seeing=false: โมเดลหลักอ่านรูปไม่ได้ → ส่งรายชื่อปุ่มจาก Windows + คำบรรยายจากตาช่วยเป็นข้อความแทนรูป
 async function computerTool(a, ctx = {}) {
   if (!screenOk && !await askScreen().catch(() => false)) return 'Error: ผู้ใช้ไม่อนุญาตให้ควบคุมหน้าจอ (ใช้คำสั่ง bash หรือเครื่องมืออื่นแทน)';
@@ -453,6 +459,7 @@ async function runTask(o = {}, sender) {
       if (kind === 'read') return readDocument(f);
       await a.ws.keep(f); const r = await makeDocument(f, args, { pdf: htmlToPdf, root: a.ws.root }); a.outputs.add(a.ws.rel(f)); return r;
     }
+    if (name === 'roblox' && args?.op === 'look') return robloxLook(rbx, args, await screenCtx());
     if (name === 'roblox') return robloxTool(rbx, args);
     if (name.startsWith('rmcp_')) return remoteCall(name, args);
     if (mcp?.has(name)) return mcp.call(name, args);
