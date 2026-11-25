@@ -143,7 +143,9 @@ function cwPaint() {
 const cwArg = e => { const a = e.args || {}; return String(a.command || a.path || a.url || a.query || a.action && (a.action + ' ' + (a.url || a.target || '')) || '').slice(0, 70); };
 function cwPanels() {
   const todos = CW.ev.filter(e => e.type === 'todos').at(-1)?.todos || [];
-  $('#cwprog').innerHTML = todos.length ? `<div class="cw-dots">${todos.map(t => `<span class="${t.status}" title="${esc(t.content)}">${t.status === 'completed' ? ic('check', 'sm') : ''}</span>`).join('')}</div><ol class="cw-steps">${todos.map(t => `<li class="${t.status}">${esc(t.content)}</li>`).join('')}</ol>` : '<p class="muted">ขั้นตอนจะขึ้นที่นี่ระหว่างทำงาน</p>';
+  const spent = CW.ev.filter(e => e.type === 'usage' && e.usage?.astra).reduce((a, e) => ({ pct: a.pct + (e.usage.astra.week_pct || 0), thb: a.thb + (e.usage.astra.charge_thb || 0) }), { pct: 0, thb: 0 });
+  const cost = spent.pct || spent.thb ? `<p class="cw-cost">${ic('pie', 'sm')}<span>งานนี้ใช้${spent.pct ? ` ลิมิตสัปดาห์ <b>${spent.pct < 0.1 ? '<0.1' : spent.pct.toFixed(1)}%</b>` : ''}${spent.pct && spent.thb ? ' ·' : ''}${spent.thb ? ` Wallet <b>฿${spent.thb.toFixed(2)}</b>` : ''}${CW.status === 'running' ? ' (กำลังนับ)' : ''}</span></p>` : '';
+  $('#cwprog').innerHTML = cost + (todos.length ? `<div class="cw-dots">${todos.map(t => `<span class="${t.status}" title="${esc(t.content)}">${t.status === 'completed' ? ic('check', 'sm') : ''}</span>`).join('')}</div><ol class="cw-steps">${todos.map(t => `<li class="${t.status}">${esc(t.content)}</li>`).join('')}</ol>` : '<p class="muted">ขั้นตอนจะขึ้นที่นี่ระหว่างทำงาน</p>');
   const mine = CW.files.filter(f => f.by !== 'user' && !/(^|\/)\./.test(f.path)), inputs = CW.files.filter(f => f.by === 'user');
   const link = f => CW.local ? `<button type="button" class="cw-file" data-cwopen="${esc(f.path)}">` : `<a class="cw-file" href="/api/cowork/${CW.id}/file?path=${encodeURIComponent(f.path)}${/^(png|jpe?g|pdf)$/.test(cwExt(f.path)) ? '&view=1" target="_blank' : ''}" rel="noopener">`;
   const row = f => `${link(f)}${ic(cwIcon(f.path), 'sm')}<span>${esc(f.path.split('/').pop())}</span>${f.size ? `<small>${f.size > 1e6 ? (f.size / 1e6).toFixed(1) + 'MB' : Math.ceil(f.size / 1e3) + 'KB'}</small>` : ''}${CW.local ? '</button>' : '</a>'}`;
@@ -185,6 +187,7 @@ async function cwLocalSend(text) {
     if (d.type === 'tool') L.events.push({ type: 'tool', id: d.id, name: d.name, args: d.args });
     if (d.type === 'tool_result') L.events.push({ type: 'tool_result', id: d.id, ok: d.ok, preview: d.preview });
     if (d.type === 'todos') L.events.push({ type: 'todos', todos: d.todos });
+    if (d.type === 'usage') L.events.push({ type: 'usage', usage: { astra: d.usage?.astra || null } }); // ค่าใช้จ่ายสะสม (แสดงที่แผงความคืบหน้า)
     if (d.type === 'info') L.events.push({ type: 'info', text: d.text });
     if (d.type === 'ask') { CW.askId = d.id; L.events.push({ type: 'ask', id: d.id, question: d.question, options: d.options }); }
     if (d.type === 'answered') L.events.push({ type: 'answered', id: CW.askId || '', text: d.text });

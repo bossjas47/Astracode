@@ -50,7 +50,7 @@ export async function ensureAgentTable(env) {
   if (agentReady) return;
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, model_id INTEGER NOT NULL, prompt TEXT NOT NULL, status TEXT NOT NULL, rounds INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT \'\', summary TEXT, changed TEXT, chat_id INTEGER, created_at INTEGER NOT NULL, finished_at INTEGER)').run();
   // ทีม Agent: role = lead (หัวหน้าวางแผน) / worker (ลูกทีม) / review (ผู้ตรวจรวม) · scope = ไฟล์ที่ลูกทีมแก้ได้ (JSON) · started_at = เริ่มรันจริง (ใช้กับตัวเก็บงานค้าง)
-  for (const c of ['parent_id INTEGER', 'role TEXT', 'scope TEXT', 'started_at INTEGER', 'cost REAL', 'effort TEXT', 'doing TEXT', 'worker_model_id INTEGER', 'tin INTEGER', 'tout INTEGER', 'ctx_peak INTEGER']) try { await env.DB.prepare('ALTER TABLE agent_jobs ADD COLUMN ' + c).run(); } catch { /* มีแล้ว */ }
+  for (const c of ['parent_id INTEGER', 'role TEXT', 'scope TEXT', 'started_at INTEGER', 'cost REAL', 'effort TEXT', 'doing TEXT', 'worker_model_id INTEGER', 'tin INTEGER', 'tout INTEGER', 'ctx_peak INTEGER', 'units REAL']) try { await env.DB.prepare('ALTER TABLE agent_jobs ADD COLUMN ' + c).run(); } catch { /* มีแล้ว */ }
   agentReady = true;
 }
 let agentReady = false;
@@ -420,9 +420,11 @@ export async function agentApi(req, env, u, path) {
   await ensureAgentTable(env); const DB = env.DB, M = req.method;
   if (path === '/api/agent' && M === 'GET') {
     const pj = new URL(req.url).searchParams.get('project');
-    const list = (await DB.prepare(`SELECT id,project_id,prompt,status,rounds,summary,changed,chat_id,created_at,finished_at,role,doing,model_id,worker_model_id,tin,tout,ctx_peak FROM agent_jobs WHERE user_id=? AND parent_id IS NULL${pj ? ' AND project_id=?' : ''}${new URL(req.url).searchParams.get('research') ? " AND role='research'" : ''} ORDER BY id DESC LIMIT 10`).bind(...(pj ? [u.id, +pj] : [u.id])).all()).results;
+    const list = (await DB.prepare(`SELECT id,project_id,prompt,status,rounds,summary,changed,chat_id,created_at,finished_at,role,doing,model_id,worker_model_id,tin,tout,ctx_peak,units FROM agent_jobs WHERE user_id=? AND parent_id IS NULL${pj ? ' AND project_id=?' : ''}${new URL(req.url).searchParams.get('research') ? " AND role='research'" : ''} ORDER BY id DESC LIMIT 10`).bind(...(pj ? [u.id, +pj] : [u.id])).all()).results;
     const leads = list.filter(j => j.role === 'lead').map(j => j.id);
-    if (leads.length) { const kids = (await DB.prepare(`SELECT id,parent_id,role,prompt,status,rounds,changed,scope,doing,model_id,tin,tout,ctx_peak,CASE WHEN status='planned' THEN summary END plan FROM agent_jobs WHERE parent_id IN (${leads.map(() => '?')}) ORDER BY id`).bind(...leads).all()).results; list.forEach(j => { if (j.role === 'lead') j.team = kids.filter(k => k.parent_id === j.id).map(({ prompt, ...k }) => ({ ...k, title: prompt.split('\n')[0].slice(0, 80) })); }); }
+    const plan = await planOf(env, u), lw = plan?.limit_week > 0 ? plan.limit_week : 0, pctOf = x => lw ? Math.round((x || 0) / lw * 1000) / 10 : null; // ลิมิตสัปดาห์ที่งานนี้ใช้ไป (แสดงสดระหว่างทำ)
+    if (leads.length) { const kids = (await DB.prepare(`SELECT id,parent_id,role,prompt,status,rounds,changed,scope,doing,model_id,tin,tout,ctx_peak,units,CASE WHEN status='planned' THEN summary END plan FROM agent_jobs WHERE parent_id IN (${leads.map(() => '?')}) ORDER BY id`).bind(...leads).all()).results; list.forEach(j => { if (j.role === 'lead') j.team = kids.filter(k => k.parent_id === j.id).map(({ prompt, ...k }) => ({ ...k, title: prompt.split('\n')[0].slice(0, 80) })); }); }
+    list.forEach(j => { j.used_pct = pctOf((j.units || 0) + (j.team || []).reduce((a, k) => a + (k.units || 0), 0)); delete j.units; (j.team || []).forEach(k => { k.used_pct = pctOf(k.units); delete k.units; }); });
     return json(list);
   }
   if (path === '/api/agent' && M === 'POST') {

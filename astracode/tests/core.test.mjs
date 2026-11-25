@@ -408,6 +408,7 @@ test('background agent: reads, writes the project on the server, reports a summa
   assert.ok(t.DB.raw.prepare('SELECT COUNT(*) n FROM usage WHERE user_id=?').get(a.id).n >= 3, 'usage logged per round');
   assert.match(JSON.stringify(seen[1].messages), /\[READ index\.html\]/, 'tool result fed back');
   assert.equal(reviewed, 1, 'second reviewer read the changes once');
+  assert.ok(t.DB.raw.prepare('SELECT units FROM agent_jobs WHERE id=?').get(job.id).units > 0, 'limit units summed per job'); assert.ok('used_pct' in job && !('units' in job), 'list shows % of the weekly limit, not raw units');
   t.DB.raw.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at) VALUES (?,?,?,?,'running',?)").run(a.id, pid, m.id, 'x'.repeat(20), Date.now());
   assert.equal((await t.json('/api/agent', { method: 'POST', cookie: a.cookie, body: { project_id: pid, model_id: m.id, prompt: 'งานที่สองระหว่างที่ยังมีงานค้างอยู่' } })).status, 409);
   fm.close();

@@ -2276,3 +2276,6 @@ a.fi b::after { content: ' →'; color: var(--blue); }
   .cv-h > .btn, .cv-h > #cv-dl { order: 3; }
 }
 @media (max-width: 600px) { .cv-h > .sp { display: none; } }
+.cw-cost { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; padding: 8px 12px; border-radius: 12px; background: var(--graphite); font-size: 13px; color: var(--ash); }
+.cw-cost b { color: var(--porcelain); }
+.ag-used { color: var(--porcelain); }
