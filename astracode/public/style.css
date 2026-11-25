@@ -1868,7 +1868,7 @@ svg.spark rect { fill: var(--accent, #4b4fe0); opacity: .85; }
 /* ไทล์/ชีต Workspace + Artifacts: ใช้ Inter + Prompt (ภาษาไทยสวยกว่าฟอนต์ระบบ) */
 .wtile, .ws-new, .ws-card, .art-card, .srcbox > summary, .sheet-form.ws, .sheet-form.ws .sheet-msg, .ws-ic { font-family: 'Inter', 'Prompt', system-ui, sans-serif; }
 .ws-tpls { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-.ws-tpl { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px; border: 1px solid var(--hair); border-radius: 14px; background: rgba(var(--ov), .03); color: var(--porcelain); text-align: left; cursor: pointer; font-family: 'Inter', 'Prompt', system-ui, sans-serif; }
+.ws-tpl { text-decoration: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px; border: 1px solid var(--hair); border-radius: 14px; background: rgba(var(--ov), .03); color: var(--porcelain); text-align: left; cursor: pointer; font-family: 'Inter', 'Prompt', system-ui, sans-serif; }
 .ws-tpl:hover { border-color: var(--blue); }
 .ws-tpl > span { font-size: 22px; line-height: 1; margin-bottom: 4px; }
 .ws-tpl b { font-size: 14px; } .ws-tpl small { color: var(--ash); font-size: 12px; }

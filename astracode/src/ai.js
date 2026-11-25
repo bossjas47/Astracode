@@ -15,6 +15,13 @@ import { v1 } from './api.js';
 import { cron, status } from './jobs.js';
 // ---------- AI providers ----------
 // คืน async generator: {t:text} ระหว่างทาง, {usage:{fresh,read,write,out}} ตอนจบ
+// ผลเครื่องมือ/Connector (MCP) ของรอบเก่าในคำตอบเดียวกัน: เก็บแค่หัว+ท้าย (เดิมผลยาว 20K ตัวอักษรถูกส่งซ้ำทุกรอบ = กินลิมิตเร็ว) · 2 รอบล่าสุดเต็ม · ทำซ้ำไม่เปลี่ยน (cache ส่วนต้นยังใช้ได้)
+export function slimTools(msgs, keep = 2, max = 2000) {
+  const asst = msgs.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0); if (asst.length <= keep) return 0;
+  const cut = asst[asst.length - keep]; let n = 0;
+  for (let i = 0; i < cut; i++) { const m = msgs[i]; if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > max && !m.content.startsWith('[old]')) { m.content = `[old] ${m.content.slice(0, 1200)}\n…(older result trimmed to save context; call the tool again if you need it)…\n${m.content.slice(-500)}`; n++; } }
+  return n;
+}
 export async function* sse(res) {
   const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
   const parse = line => { if (!line.startsWith('data:')) return null; const d = line.slice(5).trim(); if (!d || d === '[DONE]') return null; try { return JSON.parse(d); } catch { return null; } };
@@ -761,7 +768,7 @@ export async function runChat(env, J, send, st) {
       const firstMs = (model.first_token_s > 0 ? model.first_token_s : ['high', 'xhigh', 'max'].includes(effort) ? 150 : 90) * 1000, idleMs = (model.idle_s > 0 ? model.idle_s : 60) * 1000; // ตั้งต่อโมเดลได้ในหลังบ้าน
       arm(firstMs); let stopR = '', rawT = '';
       try {
-        const tl = toolsNow(); toolsSent = tl.length > 0;
+        slimTools(msgs); const tl = toolsNow(); toolsSent = tl.length > 0;
         for await (const e of callModel(env, model, msgs, { effort, cacheTtl: '1h', images: imgs, system: sysNow(), tools: tl.length ? tl : undefined, userId: u.id, signal: ac.signal, maxTokens: wMax, imageOpts: J.img_size ? { size: J.img_size } : {} })) {
           arm(idleMs);
           if (st.gone) break;

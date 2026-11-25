@@ -105,7 +105,9 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     // ที่ปรึกษาโมเดลแรง: วางแผนให้ครั้งเดียวต่อคำสั่งผู้ใช้ (ก่อนรอบแรก) · เรียกไม่ได้ = ทำงานต่อตามปกติ
     if (round === 0 && advisor?.plan && depth === 0) {
       const lastUser = [...messages].reverse().find(m => m.role === 'user'), task = typeof lastUser?.content === 'string' ? lastUser.content : JSON.stringify(lastUser?.content || '');
-      if (lastUser && !String(task).startsWith('[Kyber Harness')) {
+      // ประหยัดลิมิต: วางแผนเฉพาะคำสั่งแรกของบทสนทนา หรือคำสั่งที่ยาว/เป็นงานใหญ่ · คำสั่งต่อเนื่องสั้น ๆ ("ทำต่อ", "แก้ตรงนี้", งาน MCP ทีละขั้น) ไม่เรียกโมเดลแรงทุกข้อความ
+      const firstAsk = messages.filter(m => m.role === 'user' && !String(typeof m.content === 'string' ? m.content : '').startsWith('[')).length <= 1;
+      if (lastUser && !String(task).startsWith('[Kyber Harness') && (firstAsk || String(task).length >= 280)) {
         onEvent({ type: 'info', text: 'ที่ปรึกษากำลังวางแผนงาน…' });
         const plan = await Promise.resolve(advisor.plan(task, messages[0]?.role === 'system' ? String(messages[0].content).match(/Project map[\s\S]{0,3500}/)?.[0] || '' : '')).catch(() => null);
         if (plan) { messages.push({ role: 'user', content: `[Kyber Harness · advisor plan] A senior engineer (${advisor.model}) suggests this plan. Use it as guidance, verify against the real files, and adapt if the code says otherwise:\n${plan.slice(0, 4000)}` }); stats.advised = (stats.advised || 0) + 1; onEvent({ type: 'info', text: 'ที่ปรึกษาวางแผนให้แล้ว' }); }
@@ -240,7 +242,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
 // ลดขนาดบริบท (ทำทุกรอบ ไม่ต้องเรียกโมเดล): ของเก่าที่โมเดลไม่ต้องเห็นซ้ำทุกรอบ
 // 1) เนื้อหาไฟล์ใน write_file/edit_file ที่เขียนไปแล้ว (ไฟล์อยู่บนดิสก์ อ่านใหม่ได้) 2) ผลเครื่องมือยาว ๆ ของรอบเก่า 3) ภาพหน้าเว็บเก่า (เหลือภาพล่าสุด)
 // เดิมไฟล์ 50K ตัวอักษรที่เขียนตอนต้นถูกส่งซ้ำทุกรอบ = โทเคนขาเข้าหลักของงาน · แก้ในที่เดิมครั้งเดียว ข้อความเก่าไม่เปลี่ยนอีก (prompt cache ส่วนต้นยังใช้ได้)
-const SLIM_KEEP = 3, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'];
+const SLIM_KEEP = 3, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'], CODE_ARGS = ['code', 'script', 'source', 'command', 'luau', 'lua', 'python', 'query']; // CODE_ARGS: โค้ดที่ส่งไปรันแล้ว (เช่น MCP Roblox run_code, bash)
 function slim(messages) {
   const asst = messages.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0); if (asst.length <= SLIM_KEEP) return 0;
   const cut = asst[asst.length - SLIM_KEEP]; let n = 0, lastImg = -1;
@@ -252,7 +254,9 @@ function slim(messages) {
     if (m.role === 'assistant' && m.tool_calls) for (const tc of m.tool_calls) {
       const raw = tc.function?.arguments || ''; if (raw.length <= SLIM_ARG * 2) continue;
       let a; try { a = JSON.parse(raw); } catch { continue; }
-      let hit = false; for (const k of BIG_ARGS) if (a[k] != null) { const v = typeof a[k] === 'string' ? a[k] : JSON.stringify(a[k]); if (v.length > SLIM_ARG) { a[k] = `«${v.length.toLocaleString()} chars, already applied to the file; read_file to see the current text»`; hit = true; } }
+      let hit = false;
+      for (const k of BIG_ARGS) if (a[k] != null) { const v = typeof a[k] === 'string' ? a[k] : JSON.stringify(a[k]); if (v.length > SLIM_ARG) { a[k] = `«${v.length.toLocaleString()} chars, already applied to the file; read_file to see the current text»`; hit = true; } }
+      for (const k of CODE_ARGS) if (typeof a[k] === 'string' && a[k].length > SLIM_ARG * 2) { a[k] = a[k].slice(0, SLIM_ARG) + `\n…«${(a[k].length - SLIM_ARG).toLocaleString()} more chars, already run»`; hit = true; }
       if (hit) { tc.function.arguments = JSON.stringify(a); n++; }
     }
     if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > SLIM_OUT && !m.content.startsWith('[old]')) { m.content = `[old] ${m.content.slice(0, 900)}\n…(older output trimmed; re-run or read_file if you need it again)…\n${m.content.slice(-400)}`; n++; }
