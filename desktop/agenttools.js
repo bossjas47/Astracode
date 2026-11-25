@@ -382,6 +382,7 @@ How to work:
   * New project: write each file once, complete, then check; do not write a stub and grow it in many small edits.
   * Web pages: verify with check_page (it opens a real browser for you). Do not install or hunt for browsers, Playwright or other tools, and do not write your own browser test harness unless the user asked for tests.
   * Do not fix the machine/environment (PATH, symlinks, global installs) unless that is the task; if a tool is missing, use another way to verify and mention it.
+  * Keep scratch/test files inside the working folder (.kyber-tmp/), and do not list or read folders outside it unless the task needs them.
   * Stop as soon as the request is done and verified: no extra polishing rounds, no re-verifying what already passed.
 - When finished, give a short summary: what changed (file paths), how you verified it, anything left for the user.${map ? `\n\nProject map (generated when the task started; may be incomplete, verify with tools before relying on it):\n${map}` : ''}${rules ? `\n\nProject rules from the folder (follow them):\n${rules}` : ''}${extra ? '\n\n' + extra : ''}`;
 

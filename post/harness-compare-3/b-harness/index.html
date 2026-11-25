@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ครัวบ้านนก — ร้านอาหารไทย</title>
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    // ใส่คลาส dark ก่อนหน้าแสดงผล เพื่อไม่ให้หน้าจอกะพริบ
+    try {
+      if (localStorage.getItem('kbn-theme') === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">🍳</span>
+        <div>
+          <h1>ครัวบ้านนก</h1>
+          <p class="tagline">อาหารไทยรสมือบ้าน ๆ · เปิดทุกวัน 10:00–21:00 (ปิดวันจันทร์)</p>
+        </div>
+      </div>
+      <button type="button" class="theme-toggle" data-testid="theme-toggle" aria-label="สลับโหมดมืด/สว่าง">
+        <span class="theme-icon">🌙</span>
+        <span class="theme-label">โหมดมืด</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- ===== เมนู ===== -->
+    <section class="card" aria-labelledby="menu-title">
+      <h2 id="menu-title">เมนูอาหาร</h2>
+
+      <div class="search-row">
+        <label class="sr-only" for="search">ค้นหาชื่อเมนู</label>
+        <input type="search" id="search" data-testid="search" placeholder="ค้นหาชื่อเมนู…" autocomplete="off" />
+      </div>
+
+      <div class="filters" role="group" aria-label="กรองตามหมวด">
+        <button type="button" class="filter-btn is-active" data-testid="filter-all" data-category="all">ทั้งหมด</button>
+        <button type="button" class="filter-btn" data-testid="filter-ต้ม" data-category="ต้ม">ต้ม</button>
+        <button type="button" class="filter-btn" data-testid="filter-ผัด" data-category="ผัด">ผัด</button>
+        <button type="button" class="filter-btn" data-testid="filter-แกง" data-category="แกง">แกง</button>
+        <button type="button" class="filter-btn" data-testid="filter-ของหวาน" data-category="ของหวาน">ของหวาน</button>
+      </div>
+
+      <div class="menu-grid" id="menu-grid"></div>
+      <p class="empty-msg" id="menu-empty" hidden>ไม่พบเมนูที่ตรงกับเงื่อนไข</p>
+    </section>
+
+    <!-- ===== ตะกร้า ===== -->
+    <section class="card" aria-labelledby="cart-title">
+      <h2 id="cart-title">ตะกร้าของฉัน</h2>
+      <div id="cart-list" class="cart-list"></div>
+      <p class="empty-msg" id="cart-empty">ยังไม่มีรายการในตะกร้า</p>
+
+      <dl class="totals">
+        <div class="totals-row">
+          <dt>ยอดรวมก่อนภาษี</dt>
+          <dd><span data-testid="subtotal">0.00</span> บาท</dd>
+        </div>
+        <div class="totals-row">
+          <dt>VAT 7%</dt>
+          <dd><span data-testid="vat">0.00</span> บาท</dd>
+        </div>
+        <div class="totals-row grand">
+          <dt>ยอดสุทธิ</dt>
+          <dd><span data-testid="total">0.00</span> บาท</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- ===== จองโต๊ะ ===== -->
+    <section class="card" aria-labelledby="booking-title">
+      <h2 id="booking-title">จองโต๊ะ</h2>
+      <form id="booking-form" data-testid="booking-form" novalidate>
+        <div class="field">
+          <label for="bk-name">ชื่อผู้จอง</label>
+          <input type="text" id="bk-name" name="name" data-testid="booking-name" placeholder="เช่น สมชาย ใจดี" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label for="bk-phone">เบอร์โทรศัพท์</label>
+          <input type="tel" id="bk-phone" name="phone" inputmode="numeric" placeholder="0812345678" autocomplete="tel" />
+        </div>
+        <div class="field">
+          <label for="bk-date">วันที่</label>
+          <input type="date" id="bk-date" name="date" />
+        </div>
+        <div class="field">
+          <label for="bk-time">เวลา</label>
+          <input type="time" id="bk-time" name="time" min="10:00" max="21:00" step="60" />
+        </div>
+        <div class="field">
+          <label for="bk-guests">จำนวนคน</label>
+          <input type="number" id="bk-guests" name="guests" data-testid="booking-guests" min="1" max="12" step="1" value="2" />
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">ยืนยันการจอง</button>
+        </div>
+      </form>
+      <p class="msg error" id="booking-error" data-testid="booking-error" hidden></p>
+      <p class="msg ok" id="booking-ok" data-testid="booking-ok" hidden></p>
+    </section>
+
+    <!-- ===== รายการจอง ===== -->
+    <section class="card" aria-labelledby="mybook-title">
+      <h2 id="mybook-title">รายการจองของฉัน</h2>
+      <div id="booking-list" class="booking-list"></div>
+      <p class="empty-msg" id="booking-empty">ยังไม่มีรายการจอง</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>ครัวบ้านนก · โทร. 08-1234-5678 · เปิด 10:00–21:00 (ปิดวันจันทร์)</p>
+    </div>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
