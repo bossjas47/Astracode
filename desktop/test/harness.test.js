@@ -478,3 +478,12 @@ test('last round: tools are switched off so the AI must write the summary', asyn
   assert.ok(!s.seen[9].tools, 'no tools on the last round'); assert.match(JSON.stringify(s.seen[9].messages), /tools are off now/);
   assert.equal(r.messages.at(-1).content, 'สรุป: แก้แล้ว');
 });
+
+test('an error sent inside the stream before any answer is retried instead of ending the task', async () => {
+  let n = 0; const enc = new TextEncoder();
+  const body = o => ({ ok: true, status: 200, headers: new Map(), body: (async function* () { yield enc.encode('data: ' + JSON.stringify(o) + '\n\ndata: [DONE]\n\n'); })() });
+  const fetchImpl = async () => (++n === 1 ? body({ error: { message: 'model unavailable', message_th: 'โมเดลตอบไม่ได้ตอนนี้' } }) : body({ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }));
+  const messages = [{ role: 'user', content: 'hi' }];
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools: [], callTool: async () => '', fetchImpl, retryWaits: [1, 1], verifyGate: false });
+  assert.equal(n, 2); assert.equal(messages.at(-1).content, 'ok');
+});
