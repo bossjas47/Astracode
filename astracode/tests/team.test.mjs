@@ -14,6 +14,8 @@ async function setup(settings = {}) {
     if (/You lead a small team/.test(sys)) { calls.push('lead'); return fm.sse(res, '```json\n' + JSON.stringify(PLAN) + '\n```'); }
     if (/\[ผลของลูกทีม/.test(txt)) { calls.push('review'); return fm.sse(res, 'ทีมเสร็จแล้ว ตรวจรวมเรียบร้อย'); }
     const title = /^(.+)\n/.exec(body.messages.find(x => x.role === 'user')?.content || '')?.[1] || '?';
+    const turns = body.messages.filter(x => x.role === 'assistant').length;
+    if (title === 'แก้หน้าแรกต่อ' && turns < 2) { calls.push(`${body.model}:${title}:${turns ? 'write' : 'read'}`); return fm.sse(res, turns ? '```html path=a.html\n<nav>menu</nav><h1>home</h1>\n```' : 'READ path=a.html'); } // ไฟล์มีงานของลูกทีมคนแรกแล้ว: ต้อง READ ก่อนเขียนทับ
     calls.push(`${body.model}:${title}:${first ? 'write' : 'sum'}`);
     if (!first) return fm.sse(res, 'เสร็จงานย่อย ' + title);
     if (title === 'หน้าแรก') return fm.sse(res, '```html path=a.html\n<h1>home</h1>\n```\n```js path=evil.js\nalert(1)\n```');

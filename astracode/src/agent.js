@@ -6,7 +6,7 @@ import { bundleProject, callModel, doingOf, familyHint, imagePrompt, logUsage, r
 import { b64 } from './projects.js';
 import { sendPush } from './push.js';
 import { event, getSetting, getSettings, mail, mailBox, notify, siteUrl } from './billing.js';
-import { FILE_LIMIT, FILES_PER_PROJECT, PATH_RE, PROJECT_LIMIT, snapshot } from './projects.js';
+import { FILE_LIMIT, FILES_PER_PROJECT, PATH_RE, PROJECT_LIMIT, TEMPLATES, snapshot } from './projects.js';
 import { changesOf, problemOf, syntaxWarning } from './edits.js';
 
 export const AGENT_MAX_ROUNDS = 20, AGENT_MAX_IN = 1.5e6, AGENT_MAX_MS = 12 * 60e3;
@@ -250,6 +250,7 @@ export async function runAgent(env, jobId, st = { gone: false }) {
     let msgs = [{ role: 'user', content: `${J.prompt}\n\n[ไฟล์ทั้งหมดในโปรเจกต์]\n${(await files()).map(f => `${f.path} (${f.n})`).join('\n').slice(0, 15000)}` }];
     // ผู้ตรวจทีม: ถ่ายภาพหน้าเว็บจริงแนบไปรอบแรก (ต้องตั้ง CF_ACCOUNT_ID + CF_BR_TOKEN และโมเดลอ่านรูปได้)
     let shot = J.role === 'review' && m.vision ? await pageShot(env, J.project_id) : null;
+    const H = { read: new Set(), sigs: [], probs: [], hinted: new Set(), reviewed: false }; // Kyber Harness: ไฟล์ที่ READ แล้ว · ลายเซ็นแต่ละรอบ (จับการวนซ้ำ) · ผู้ตรวจรอบสอง
     if (shot) msgs[0].content += '\n\n[แนบภาพหน้าจอหน้าแรกบนมือถือ (390px) ที่ถ่ายจากไฟล์ปัจจุบัน: ตรวจว่าหน้าตาและการจัดวางถูกต้องด้วย]';
     for (; round < AGENT_MAX_ROUNDS; ) {
       if ((await DB.prepare('SELECT status FROM agent_jobs WHERE id=?').bind(jobId).first())?.status === 'stopping' || st.gone) { status = 'stopped'; break; }
@@ -267,8 +268,10 @@ export async function runAgent(env, jobId, st = { gone: false }) {
       if (usage) { await touchWindows(env, u.id, Date.now(), plan); await logUsage(env, u.id, m, usage, { units: true, plan, job: jobId }); cumIn += usage.fresh + usage.read + usage.write; }
       const reqs = toolReqs(part.replace(/```[\s\S]*?```/g, '')), imgs = imagesOf(part);
       const cur = new Map((await DB.prepare('SELECT path,content FROM project_files WHERE project_id=?').bind(J.project_id).all()).results.map(f => [f.path, f.content]));
-      const all = changesOf(part, p => cur.has(p) ? cur.get(p) : null), ch = scope ? all.filter(c => scope.includes(c.path)) : all, out = all.filter(c => !ch.includes(c)); // ลูกทีมแก้ได้เฉพาะไฟล์ในขอบเขต
+      const all = changesOf(part, p => cur.has(p) ? cur.get(p) : null), inScope = scope ? all.filter(c => scope.includes(c.path)) : all, out = all.filter(c => !inScope.includes(c)); // ลูกทีมแก้ได้เฉพาะไฟล์ในขอบเขต
+      const blind = inScope.filter(c => blindOverwrite(c, cur, H.read, changedAll)), ch = inScope.filter(c => !blind.includes(c)); // เขียนทับทั้งไฟล์ที่มีอยู่แล้วโดยยังไม่ READ = ปฏิเสธ (กันทับงานเดิมของผู้ใช้)
       const res = ch.length ? await applyChanges(env, J.project_id, ch) : { applied: [], problems: [], warnings: [] };
+      if (blind.length) res.problems.push(...blind.map(c => `${c.path}: มีไฟล์นี้อยู่แล้วแต่ยังไม่ได้ READ ในงานนี้ จึงไม่ได้เขียนทับ · READ path=${c.path} ก่อน แล้วแก้ด้วย SEARCH/REPLACE หรือส่งทั้งไฟล์ใหม่`));
       if (out.length) res.problems.push(...out.map(c => `${c.path}: อยู่นอกขอบเขตงานนี้ ไม่ได้เขียน (แก้ได้เฉพาะ ${scope.join(', ')})`));
       res.applied.forEach(p => changedAll.add(p.replace(/ \(ลบ\)$/, '')));
       log.push(`รอบ ${round}: ${[reqs.length ? doingOf(reqs) : '', imgs.length ? 'สร้างรูป ' + imgs.map(i => i.path).join(', ') : '', res.applied.length ? 'แก้ ' + res.applied.join(', ') : '', res.problems.length ? `มีปัญหา ${res.problems.length} จุด` : '', res.warnings?.length ? `เตือน syntax ${res.warnings.length} ไฟล์` : ''].filter(Boolean).join(' · ') || 'สรุปผล'}`);
@@ -281,17 +284,57 @@ export async function runAgent(env, jobId, st = { gone: false }) {
         const g = guessFiles(part, miss);
         if (g.length) { const r2 = await applyChanges(env, J.project_id, g); r2.applied.forEach(p2 => changedAll.add(p2)); if (r2.applied.length) log.push(`รอบ ${round}: บันทึกโค้ดที่ไม่มี path= ลง ${r2.applied.join(', ')}`); }
       }
-      if (!reqs.length && !imgs.length && !res.problems.length && !res.applied.length) { final = part.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim() || part.trim(); break; }
+      if (!reqs.length && !imgs.length && !res.problems.length && !res.applied.length) {
+        // ผู้ตรวจรอบสอง (งานเดี่ยว): อ่านไฟล์ที่แก้เทียบกับคำสั่ง ถ้าเจอข้อผิดพลาดจริง ให้แก้อีก 1 รอบ (ทีมมีผู้ตรวจของทีมแยกอยู่แล้ว)
+        if (!J.role && changedAll.size && !H.reviewed && round < AGENT_MAX_ROUNDS - 1) {
+          H.reviewed = true; await setJob(env, jobId, { doing: 'ผู้ตรวจรอบสองกำลังอ่านสิ่งที่แก้' }).catch(() => {});
+          const notes = await reviewChanges(env, u, plan, m, jobId, J.prompt, [...changedAll]).catch(() => '');
+          if (notes) { log.push(`รอบ ${round}: ผู้ตรวจรอบสองพบจุดที่ต้องแก้`); msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: `[Kyber Harness · review] ผู้ตรวจอีกคนอ่านไฟล์ที่คุณแก้แล้วพบปัญหาต่อไปนี้:\n${notes}\n\nแก้เฉพาะข้อที่เป็นปัญหาจริง (READ ไฟล์ก่อนถ้าจำเป็น) ถ้าข้อไหนไม่ใช่ปัญหาให้บอกเหตุผลสั้น ๆ แล้วสรุปผลงานทั้งหมดอีกครั้ง` }]; continue; }
+          log.push(`รอบ ${round}: ผู้ตรวจรอบสองไม่พบปัญหา`);
+        }
+        final = part.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim() || part.trim(); break;
+      }
+      // ตรวจการวนซ้ำ: ทำสิ่งเดิม (อ่าน/เขียน/พลาดแบบเดิม) ติดกัน 3 รอบ = เตือนให้เปลี่ยนวิธี · ติดกัน 5 รอบ = หยุด (ไม่เผาลิมิตจนครบ 20 รอบ)
+      const loop = stuckHint(H, reqs, res);
+      if (loop === 'stop') { status = 'failed'; usageNote = 'Agent ทำสิ่งเดิมซ้ำหลายรอบโดยไม่คืบหน้า จึงหยุดไว้ก่อน (ไฟล์ที่แก้แล้วยังอยู่) · ลองอธิบายงานให้ชัดขึ้นหรือเปลี่ยนโมเดล'; log.push(`รอบ ${round}: หยุดเพราะวนทำซ้ำ`); break; }
       const imgRes = imgs.length ? await makeImages(env, u, plan, J.project_id, imgs) : '';
       imgs.forEach(i => { if (imgRes.includes('สร้างแล้ว: ' + i.path)) changedAll.add(i.path); });
       const tool = reqs.length ? await runTools(env, J.project_id, reqs) : '';
-      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: [tool, imgRes, res.problems.length ? `[ผลการเขียนไฟล์]\nมีบางไฟล์เขียนไม่ได้ แก้แล้วส่งใหม่ (ส่วนที่เหลือถูกเขียนแล้ว):\n- ${res.problems.join('\n- ')}` : '', res.warnings?.length ? `[ตัวตรวจวงเล็บอัตโนมัติ] ไฟล์ที่เขียนไปน่าจะมี syntax ผิด (ตรวจแบบเดา อาจเตือนผิดได้ ให้ READ ไฟล์ตรวจแล้วแก้ถ้าผิดจริง):\n- ${res.warnings.join('\n- ')}` : '', res.applied.length ? `[เขียนแล้ว] ${res.applied.join(', ')}\nตรวจทานงานด้วย READ ถ้าจำเป็น แล้วสรุปผล (ไม่ต้องส่งไฟล์ซ้ำ)` : ''].filter(Boolean).join('\n\n') }];
+      reqs.filter(r => r.op === 'READ' && r.arg).forEach(r => H.read.add(r.arg.replace(/^\.?\//, '')));
+      msgs = [...msgs, { role: 'assistant', content: part }, { role: 'user', content: [tool, imgRes, res.problems.length ? `[ผลการเขียนไฟล์]\nมีบางไฟล์เขียนไม่ได้ แก้แล้วส่งใหม่ (ส่วนที่เหลือถูกเขียนแล้ว):\n- ${res.problems.join('\n- ')}` : '', res.warnings?.length ? `[ตัวตรวจวงเล็บอัตโนมัติ] ไฟล์ที่เขียนไปน่าจะมี syntax ผิด (ตรวจแบบเดา อาจเตือนผิดได้ ให้ READ ไฟล์ตรวจแล้วแก้ถ้าผิดจริง):\n- ${res.warnings.join('\n- ')}` : '', res.applied.length ? `[เขียนแล้ว] ${res.applied.join(', ')}\nตรวจทานงานด้วย READ ถ้าจำเป็น แล้วสรุปผล (ไม่ต้องส่งไฟล์ซ้ำ)` : '', loop || ''].filter(Boolean).join('\n\n') }];
     }
     if (status === 'done' && !final) { final = 'ครบ ' + AGENT_MAX_ROUNDS + ' รอบแล้ว Agent หยุดไว้ก่อน (งานอาจยังไม่ครบ ตรวจไฟล์และสั่งต่อได้)'; }
   } catch (x) { console.log('agent', x.stack); status = 'failed'; usageNote = 'เกิดข้อผิดพลาด: ' + String(x.message).slice(0, 120); }
   await finish();
 }
 
+// ---------- Kyber Harness สำหรับ Agent เบื้องหลัง (ชุดเดียวกับแอปคอม: อ่านก่อนเขียนทับ · จับการวนซ้ำ · ผู้ตรวจรอบสอง) ----------
+// เขียนทับทั้งไฟล์ (ไม่ใช่ SEARCH/REPLACE) ที่มีเนื้อหาอยู่แล้ว โดยงานนี้ยังไม่เคย READ และไม่ได้สร้างเอง = เสี่ยงทับงานผู้ใช้ทิ้ง
+const STARTER_TEXT = new Set(Object.values(TEMPLATES).flatMap(t => Object.values(t))); // ไฟล์ตั้งต้นของโปรเจกต์ใหม่ที่ยังไม่มีใครแก้: เขียนทับได้เลย
+export function blindOverwrite(c, cur, read, mine) {
+  if (c.edit || c.del || c.error || !cur.has(c.path)) return false;
+  const old = cur.get(c.path) || ''; if (!old.trim() || old.startsWith('data:') || STARTER_TEXT.has(old)) return false;
+  return !read.has(c.path) && !mine.has(c.path);
+}
+// คืนข้อความเตือนให้ใส่ในรอบถัดไป · 'stop' = วนซ้ำนานเกินไป · '' = ปกติ
+export function stuckHint(H, reqs, res) {
+  const sig = JSON.stringify([reqs.map(r => r.op + ' ' + r.arg).sort(), [...res.applied].sort(), [...res.problems].sort()]), prob = res.problems.length ? JSON.stringify([...res.problems].sort()) : '';
+  H.sigs.push(sig); H.probs.push(prob);
+  const same = (arr, n) => arr.length >= n && arr.slice(-n).every(x => x && x === arr.at(-1));
+  if (same(H.sigs, 5)) return 'stop';
+  if (same(H.sigs, 3) && !H.hinted.has(sig)) { H.hinted.add(sig); return '[Kyber Harness · วนซ้ำ] คุณทำสิ่งเดิมซ้ำ 3 รอบติดกันโดยผลไม่เปลี่ยน หยุดทำแบบเดิม: อ่านผลด้านบนให้ดี ลองวิธีอื่น (เช่น READ ส่วนอื่นของไฟล์ ใช้ SEARCH ที่สั้นลงและตรงเป๊ะ หรือเขียนทั้งไฟล์ใหม่) หรือสรุปสิ่งที่ทำไม่ได้พร้อมเหตุผล'; }
+  if (same(H.probs, 3) && !H.hinted.has('p' + prob)) { H.hinted.add('p' + prob); return '[Kyber Harness · ปัญหาเดิมซ้ำ] การเขียนไฟล์ล้มด้วยปัญหาเดิม 3 รอบติดกัน: READ ไฟล์นั้นใหม่ก่อน แล้วใช้ข้อความ SEARCH ที่คัดลอกจากไฟล์จริงทุกตัวอักษร หรือส่งทั้งไฟล์แทน';
+  }
+  return '';
+}
+const REVIEW_NOTE = 'You are a strict second reviewer for a coding agent. Read the user request and the changed files. Reply with LGTM if the change does what was asked and has no real defect. Otherwise list only real defects (bugs, broken references, missing parts of the request, syntax errors), one per line, each with the file and what to fix. No style nitpicks. Reply in the user\'s language. Be brief.';
+async function reviewChanges(env, u, plan, m, jobId, prompt, changed) {
+  const rows = (await env.DB.prepare(`SELECT path,content FROM project_files WHERE project_id=(SELECT project_id FROM agent_jobs WHERE id=?) AND path IN (${changed.slice(0, 12).map(() => '?').join(',')})`).bind(jobId, ...changed.slice(0, 12)).all()).results.filter(f => !String(f.content).startsWith('data:'));
+  if (!rows.length) return '';
+  let budget = 60000; const body = rows.map(f => { const t = String(f.content).slice(0, Math.max(0, Math.min(budget, 20000))); budget -= t.length; return `--- ${f.path}${t.length < f.content.length ? ' (ตัดท้าย)' : ''}\n${t}`; }).join('\n\n');
+  const out = await ask(env, u, plan, m, jobId, REVIEW_NOTE, `[คำสั่งของผู้ใช้]\n${prompt.slice(0, 3000)}\n\n[ไฟล์ที่ Agent แก้]\n${body}`, 1500);
+  return /^\W*LGTM\b/i.test(out) || !out.trim() ? '' : out.slice(0, 3000);
+}
 // จำนวนบรรทัดที่เพิ่ม/ลบต่อไฟล์ เทียบกับเวอร์ชันก่อนงานเริ่ม (file_versions แรกหลัง since) · ไฟล์ใหม่ = ลบ 0
 // shortcut: นับแบบไม่สนลำดับบรรทัด และถ้าเวอร์ชันเก่าถูกตัดทิ้งไปแล้วจะเทียบกับเวอร์ชันกลางทาง พอสำหรับสรุป ถ้าต้องดู diff จริงให้ใช้ประวัติไฟล์
 export const lineDiff = (a, b) => { const m = new Map(); for (const l of a.split('\n')) m.set(l, (m.get(l) || 0) + 1); let add = 0; for (const l of b.split('\n')) { const n = m.get(l); if (n) m.set(l, n - 1); else add++; } let del = 0; for (const n of m.values()) del += n; return [add, a ? del : 0]; };

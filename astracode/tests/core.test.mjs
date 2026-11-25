@@ -385,8 +385,9 @@ test('shared skills', async () => {
 });
 
 test('background agent: reads, writes the project on the server, reports a summary; blocks free plans and double runs', async () => {
-  let call = 0; const seen = [];
+  let call = 0, reviewed = 0; const seen = [];
   const fm = await fakeModel((q, res, body) => {
+    if (JSON.stringify(body).includes('strict second reviewer')) { reviewed++; return fm.sse(res, 'LGTM'); } // ผู้ตรวจรอบสอง
     seen.push(body); call++;
     fm.sse(res, call === 1 ? 'READ path=index.html' : call === 2 ? '```html path=index.html\n<h1>New title</h1>\n```\n```js path=app.js\nconsole.log("hi")\n```' : 'เสร็จแล้ว: เปลี่ยนหัวข้อและเพิ่ม app.js');
   });
@@ -406,6 +407,7 @@ test('background agent: reads, writes the project on the server, reports a summa
   assert.ok(t.DB.raw.prepare('SELECT 1 FROM chats WHERE id=?').get(job.chat_id), 'result saved as a chat');
   assert.ok(t.DB.raw.prepare('SELECT COUNT(*) n FROM usage WHERE user_id=?').get(a.id).n >= 3, 'usage logged per round');
   assert.match(JSON.stringify(seen[1].messages), /\[READ index\.html\]/, 'tool result fed back');
+  assert.equal(reviewed, 1, 'second reviewer read the changes once');
   t.DB.raw.prepare("INSERT INTO agent_jobs (user_id,project_id,model_id,prompt,status,created_at) VALUES (?,?,?,?,'running',?)").run(a.id, pid, m.id, 'x'.repeat(20), Date.now());
   assert.equal((await t.json('/api/agent', { method: 'POST', cookie: a.cookie, body: { project_id: pid, model_id: m.id, prompt: 'งานที่สองระหว่างที่ยังมีงานค้างอยู่' } })).status, 409);
   fm.close();
@@ -654,4 +656,32 @@ test('plan min margin: the weekly and 4h limits are worked out from the price (f
   const tm = await t.json('/api/admin/plans', { method: 'POST', cookie: adm.cookie, body: { ...base, name: 'Team 5', price: 1790, seats: 5, shared_pool: 0, min_margin: 50 } });
   assert.equal(t.DB.raw.prepare('SELECT limit_week FROM plans WHERE id=?').get(tm.data.id).limit_week, 41.77);
   assert.equal((await t.json('/api/admin/plans', { method: 'POST', cookie: adm.cookie, body: { ...base, min_margin: 120 } })).status, 400);
+});
+
+test('background agent harness: blind overwrite refused until READ, a looping agent is stopped, the reviewer sends one fix round', async () => {
+  const { blindOverwrite, stuckHint } = await import('../src/agent.js');
+  const cur = new Map([['a.js', 'let x = 1;\n'], ['img.png', 'data:image/png;base64,AA'], ['new.js', '']]);
+  assert.equal(blindOverwrite({ path: 'a.js', content: 'x' }, cur, new Set(), new Set()), true, 'existing file, not read');
+  assert.equal(blindOverwrite({ path: 'a.js', content: 'x' }, cur, new Set(['a.js']), new Set()), false, 'read first');
+  assert.equal(blindOverwrite({ path: 'a.js', content: 'x', edit: true }, cur, new Set(), new Set()), false, 'SEARCH/REPLACE is fine');
+  assert.equal(blindOverwrite({ path: 'b.js', content: 'x' }, cur, new Set(), new Set()), false, 'new file');
+  assert.equal(blindOverwrite({ path: 'a.js', content: 'x' }, cur, new Set(), new Set(['a.js'])), false, 'written earlier in this job');
+  const H = { sigs: [], probs: [], hinted: new Set() }, same = () => stuckHint(H, [{ op: 'READ', arg: 'a.js' }], { applied: [], problems: [] });
+  assert.equal(same(), ''); assert.equal(same(), ''); assert.match(same(), /วนซ้ำ/); assert.equal(same(), ''); assert.equal(same(), 'stop');
+
+  // ทั้งเส้นทาง: เขียนทับไฟล์ที่ยังไม่อ่าน → ถูกปฏิเสธ → READ → เขียน → ผู้ตรวจเจอปัญหา → แก้อีกรอบ → สรุป
+  let n = 0; const rv = []; const fm = await fakeModel((q, res, body) => {
+    if (JSON.stringify(body).includes('strict second reviewer')) { rv.push(1); return fm.sse(res, rv.length === 1 ? '- app.js: ลืมเรียก init()' : 'LGTM'); }
+    n++; fm.sse(res, ['```js path=app.js\nfunction init(){}\n```', 'READ path=app.js', '```js path=app.js\nfunction init(){}\n```', 'เสร็จแล้ว', '```js path=app.js\nfunction init(){}\ninit();\n```', 'แก้แล้ว เรียก init() แล้ว'][n - 1] || 'จบ');
+  });
+  const t = await makeEnv({ K: 'k' }); const m = addModel(t.DB, { name: 'Ag', base_url: fm.url });
+  const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 100 }), a = await t.user();
+  t.DB.raw.prepare('UPDATE users SET plan_id=?,plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, a.id);
+  const pid = (await t.json('/api/projects', { method: 'POST', cookie: a.cookie, body: { name: 'S', empty: true } })).data.id;
+  t.DB.raw.prepare("INSERT INTO project_files (project_id,path,content,updated_at) VALUES (?,?,?,?)").run(pid, 'app.js', '// งานเดิมของผู้ใช้\n', Date.now());
+  assert.equal((await t.json('/api/agent', { method: 'POST', cookie: a.cookie, body: { project_id: pid, model_id: m.id, prompt: 'เพิ่มฟังก์ชัน init ใน app.js' } })).status, 200);
+  const job = t.DB.raw.prepare('SELECT * FROM agent_jobs WHERE project_id=? ORDER BY id DESC').get(pid);
+  assert.equal(job.status, 'done', JSON.stringify(job)); assert.match(job.log, /ยังไม่ได้ READ|มีปัญหา/); assert.match(job.log, /ผู้ตรวจรอบสองพบ/); assert.equal(rv.length, 1, 'reviewer runs once');
+  assert.match(t.DB.raw.prepare("SELECT content FROM project_files WHERE project_id=? AND path='app.js'").get(pid).content, /init\(\);/);
+  assert.match(job.summary, /แก้แล้ว/); fm.close();
 });
