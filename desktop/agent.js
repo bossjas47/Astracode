@@ -107,7 +107,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
       const lastUser = [...messages].reverse().find(m => m.role === 'user'), task = typeof lastUser?.content === 'string' ? lastUser.content : JSON.stringify(lastUser?.content || '');
       // ประหยัดลิมิต: วางแผนเฉพาะคำสั่งแรกของบทสนทนา (ที่ไม่สั้นมาก) หรือคำสั่งยาว/งานใหญ่ · "ทำต่อ", "แก้สีปุ่ม" ไม่เรียกโมเดลแรง
       const firstAsk = messages.filter(m => m.role === 'user' && !String(typeof m.content === 'string' ? m.content : '').startsWith('[')).length <= 1;
-      if (lastUser && !String(task).startsWith('[Kyber Harness') && ((firstAsk && String(task).length >= 60) || String(task).length >= 280)) {
+      if (lastUser && !String(task).startsWith('[Kyber Harness') && String(task).length >= 1200) { // วัดจริง: Opus = 75% ของค่าใช้จ่ายในงานแก้บั๊กหลายไฟล์ โดยคุณภาพไม่ต่าง → วางแผนเฉพาะคำสั่งใหญ่ (ที่เหลือใช้ตอนติด/ตรวจไม่ผ่าน)
         onEvent({ type: 'info', text: 'ที่ปรึกษากำลังวางแผนงาน (AI เริ่มสำรวจไปพร้อมกัน)…' });
         // ไม่ให้โมเดลหลักนั่งรอ (Opus ใช้ ~25 วินาที): เริ่มงานเลย แผนมาเมื่อไหร่ค่อยแทรกก่อนรอบถัดไป
         state.planP = Promise.resolve(advisor.plan(task, messages[0]?.role === 'system' ? String(messages[0].content).match(/Project map[\s\S]{0,3500}/)?.[0] || '' : '')).catch(() => null).then(p => { state.plan = p || ''; });
@@ -172,7 +172,8 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
       const stillBad = state.pageBad || [...state.errors.keys()].some(k => /^(bash|check_page):/.test(k)); // ตรวจแล้วยังพัง (เทสต์/บิลด์ exit ≠ 0 หรือหน้าเว็บมี error/จอว่าง)
       if (verifyGate && depth === 0 && (state.badGates || 0) < 2 && stillBad && state.verifyRound >= 0 && round < maxRounds - 1) {
         state.badGates = (state.badGates || 0) + 1; stats.gated = (stats.gated || 0) + 1;
-        messages.push({ role: 'user', content: `[Kyber Harness] The last checks still fail:\n${[...state.errors.values()].slice(-4).join('\n') || 'check_page reported errors or a blank page'}\nFix the cause and run the check again. Only finish when it passes; if it truly cannot pass, explain exactly why.` });
+        let adv = null; if (advisor?.unstuck) { onEvent({ type: 'info', text: 'ตรวจไม่ผ่าน: ถามที่ปรึกษา…' }); adv = await Promise.resolve(advisor.unstuck(messages)).catch(() => null); } // เรียกโมเดลแรงตอนที่ช่วยได้จริง
+        messages.push({ role: 'user', content: `[Kyber Harness] The last checks still fail:\n${[...state.errors.values()].slice(-4).join('\n') || 'check_page reported errors or a blank page'}\nFix the cause and run the check again. Only finish when it passes; if it truly cannot pass, explain exactly why.${adv ? `\n\n[advisor ${advisor.model}] ${adv.slice(0, 2000)}` : ''}` });
         onEvent({ type: 'info', text: 'ตรวจงานยังไม่ผ่าน: ให้ AI แก้ก่อนสรุป' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
       }
       if (verifyGate && depth === 0 && !state.gated && (unverified || claim) && round < maxRounds - 1) {
@@ -182,7 +183,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
         onEvent({ type: 'info', text: 'ตรวจงานก่อนจบ: ให้ AI รันเทสต์/บิลด์ก่อนสรุป' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
       }
       // ผู้ตรวจรอบสอง (ครั้งเดียว): โมเดลอีกตัวอ่านสิ่งที่แก้หาบั๊ก/จุดที่ไม่ตรงคำสั่ง → ให้ Agent แก้ก่อนจบ
-      const small = state.changed.size <= 2 && (state.editChars || 0) < 2500 && state.verifyRound >= state.codeEditRound && !state.errors.size && !state.pageBad; // งานเล็กที่ตรวจผ่านแล้ว: ข้ามผู้ตรวจรอบสอง (ประหยัดลิมิตโมเดลแรง)
+      const small = state.verifyRound >= 0 && state.verifyRound >= state.codeEditRound && !state.errors.size && !state.pageBad; // เทสต์/ตรวจหน้าเว็บผ่านหลังแก้ล่าสุดแล้ว: เชื่อผลตรวจ ข้ามผู้ตรวจ Opus (วัดจริง: แพงแต่ไม่เพิ่มคุณภาพ) · ผู้ตรวจใช้เมื่อไม่มีอะไรให้ตรวจ
       if (small && review && depth === 0 && !state.reviewed && state.changed.size) { state.reviewed = true; stats.reviewSkipped = 1; }
       if (review && depth === 0 && !state.reviewed && state.changed.size && round < maxRounds - 1) {
         state.reviewed = true; onEvent({ type: 'info', text: 'ผู้ตรวจรอบสองกำลังอ่านสิ่งที่แก้…' });
