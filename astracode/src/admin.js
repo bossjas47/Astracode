@@ -310,7 +310,10 @@ export async function admin(req, env, path, url, me) {
     const selfcheck = (await DB.prepare("SELECT e.model_id, md.name, SUM(e.kind='selfcheck' AND json_extract(e.detail,'$.n')=1) found, SUM(e.kind='selfcheck_ok') fixed, SUM(e.kind='selfcheck') rounds FROM events e LEFT JOIN models md ON md.id=e.model_id WHERE e.kind IN ('selfcheck','selfcheck_ok') AND e.created_at>=? GROUP BY e.model_id ORDER BY found DESC").bind(Date.now() - 7 * DAY).all().catch(() => ({ results: [] }))).results;
     // รัน Python บนคลาวด์ (14 วัน): ครั้งต่อวัน · ผู้ใช้ · เวลาเครื่องทำงาน (ดูต้นทุนจริงที่ Cloudflare → Containers)
     const py = (await DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, COUNT(DISTINCT json_extract(detail,'$.u')) users, SUM(json_extract(detail,'$.ok')=0) fail, SUM(json_extract(detail,'$.down')=1) down, SUM(json_extract(detail,'$.pip')=1) pip, ROUND(SUM(COALESCE(json_extract(detail,'$.ms'),0))/1000.0) sec FROM events WHERE kind='pyrun' AND created_at>=? GROUP BY d ORDER BY d DESC").bind(Date.now() - 14 * DAY).all()).results;
-    return json({ votes, reports, cache, selfcheck, py });
+    // Live Eval (โมเดลจริงทำงานจริง · workflow รายสัปดาห์บันทึกลงตารางนี้): 8 รอบล่าสุด
+    await DB.prepare('CREATE TABLE IF NOT EXISTS eval_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, data TEXT NOT NULL)').run();
+    const evals = (await DB.prepare('SELECT at, data FROM eval_runs ORDER BY at DESC LIMIT 8').all()).results.map(r => { try { return { at: r.at, by: JSON.parse(r.data).by || [] }; } catch { return null; } }).filter(Boolean);
+    return json({ votes, reports, cache, selfcheck, py, evals });
   }
   if ((r = path.match(/^\/api\/admin\/reports\/(\d+)$/)) && M === 'PUT') { await ensureFb(env); await DB.prepare('UPDATE reports SET status=? WHERE id=?').bind((await req.json()).status === 'open' ? 'open' : 'done', r[1]).run(); return json({ ok: true }); }
   if (path === '/api/admin/tickets') return json((await DB.prepare("SELECT t.*,u.email,(SELECT COUNT(*) FROM ticket_msgs WHERE ticket_id=t.id) n FROM tickets t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, t.updated_at DESC LIMIT 200").all()).results);

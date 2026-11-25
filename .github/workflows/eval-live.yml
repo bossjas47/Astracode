@@ -31,3 +31,13 @@ jobs:
           KYBER_EVAL_MODELS: ${{ github.event.inputs.models || vars.KYBER_EVAL_MODELS }}
           CASES: ${{ github.event.inputs.cases }}
         run: node tests/bench/live-eval.mjs $CASES
+      - name: Save results for the admin quality page
+        if: always()
+        working-directory: astracode
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          [ -f live-eval.json ] || { echo "no results"; exit 0; }
+          node -e "const d=require('./live-eval.json');const j=JSON.stringify({by:d.by,rows:d.rows.map(r=>({case:r.case,model:r.model,pass:r.pass,rounds:r.rounds,ms:r.ms,charge:r.charge,stuck:r.stuck}))}).replace(/'/g,\"''\");require('fs').writeFileSync('eval.sql','CREATE TABLE IF NOT EXISTS eval_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, data TEXT NOT NULL);\nINSERT INTO eval_runs (at,data) VALUES ('+d.at+','+\"'\"+j+\"'\"+');\n')"
+          npx --yes wrangler@4.162.0 d1 execute astracode --remote --file eval.sql
