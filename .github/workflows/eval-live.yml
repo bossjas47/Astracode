@@ -1,0 +1,33 @@
+# Live Eval ของ Kyber Harness: ให้โมเดลจริงทำงานจริง 5 งานผ่าน /v1 ทุกสัปดาห์ แล้วสรุปอัตราผ่านต่อโมเดลไว้ในหน้าผลของ workflow
+# ต้องตั้ง secret KYBER_EVAL_KEY (API key ของ Kyber ที่มีเครดิต · ใช้เงินจริงตามจำนวน token) · ไม่ได้ตั้ง = ข้ามโดยไม่ล้ม
+# เลือกโมเดลได้ที่ Settings → Variables → KYBER_EVAL_MODELS (คั่นด้วย ,) หรือตอนกด Run workflow · ไม่ระบุ = 3 โมเดลแรกจาก /v1/models
+name: Live eval (Kyber Harness)
+on:
+  schedule:
+    - cron: '43 2 * * 1' # ทุกวันจันทร์ 09:43 น. เวลาไทย
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'ชื่อโมเดลคั่นด้วย , (เว้นว่าง = ใช้ค่าที่ตั้งไว้)'
+        required: false
+      cases:
+        description: 'ชื่องานคั่นด้วยเว้นวรรค (เว้นว่าง = ทุกงาน)'
+        required: false
+permissions:
+  contents: read
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run live eval
+        working-directory: astracode
+        env:
+          KYBER_EVAL_KEY: ${{ secrets.KYBER_EVAL_KEY }}
+          KYBER_EVAL_MODELS: ${{ github.event.inputs.models || vars.KYBER_EVAL_MODELS }}
+          CASES: ${{ github.event.inputs.cases }}
+        run: node tests/bench/live-eval.mjs $CASES
