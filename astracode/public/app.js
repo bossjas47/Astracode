@@ -1173,25 +1173,27 @@ const PAGES = {
 const OPEN_IN_MAINTENANCE = ['home', 'login', 'terms', 'status', 'blog', 'pricing'];
 const promoOn = () => site.promo?.until > Date.now();
 const promoEnd = () => new Date(site.promo.until).toLocaleString(LOC, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+// แถบประกาศหลายอัน (โปรลิมิต · โปรเติมเงิน · ทดลองใกล้หมด) เรียงในกล่องเดียว ไม่ทับกัน
+function annAdd(b) { let d = app.querySelector(':scope > .ann-dock'); if (!d) { d = document.createElement('div'); d.className = 'ann-dock'; app.prepend(d); } d.append(b); }
 function promoStrip() { // โปรเติม Wallet แถม %: แถบเล็กบนสุด ปิดได้ (จำไว้)
   const tp = site.topup_promo; if (!tp || !me || localStorage.getItem('tpromo') === String(tp.end)) return;
   const b = document.createElement('div'); b.className = 'ann promo';
   b.innerHTML = `<span>${ic('sparkles', 'sm')} ${esc(tp.label)} · เติม Wallet ตั้งแต่ ฿${tp.min} แถม ${tp.pct}% ถึง ${new Date(tp.end - 1).toLocaleDateString(LOC, { day: 'numeric', month: 'short' })} · <a href="/plans?topup=1">เติมเลย</a></span><button aria-label="ปิด">${ic('x')}</button>`;
   b.querySelector('button').onclick = () => { try { localStorage.setItem('tpromo', String(tp.end)); } catch { /* ไม่มีที่เก็บ */ } b.remove(); };
-  app.prepend(b);
+  annAdd(b);
 }
 function trialStrip() { // คนทดลองใกล้หมด/หมดแล้ว: โค้ดอัปเกรด (จาก /api/me)
   const o = me?.trial_offer; if (!o || pageName() === 'plans') return;
   const left = Math.ceil((o.trial_end - Date.now()) / 864e5), b = document.createElement('div'); b.className = 'ann promo';
   b.innerHTML = `<span>${ic('sparkles', 'sm')} ${left > 0 ? `แพลนทดลองเหลือ ${left} วัน` : 'แพลนทดลองหมดแล้ว'} · อัปเกรดลด ${o.pct}% ด้วยโค้ด <b>${esc(o.code)}</b> · <a href="/plans?coupon=${encodeURIComponent(o.code)}">เลือกแพลน</a></span>`;
-  app.prepend(b);
+  annAdd(b);
 }
 function banner() { trialStrip(); promoStrip(); // ประกาศจากแอดมิน: ปิดได้ จำไว้ว่าปิดข้อความไหน · โปรเพิ่มลิมิตที่ยังไม่หมดเขต แสดงก่อน (หายเองเมื่อหมดโปร)
   const t = promoOn() ? (site.promo.label || `โปรเดือนนี้: ทุกแพลนใช้งานได้ x${site.promo.x4h} ในรอบ 4 ชม. (ลิมิตสัปดาห์ x${site.promo.xweek})`) + ` ถึง ${promoEnd()}` : site.announcement; if (!t || localStorage.getItem('ann') === t || ['admin', 'code', 'receipt'].includes(pageName())) return;
   const b = document.createElement('div'); b.className = 'ann ' + (site.announcement_level || 'info');
   b.innerHTML = `<span>${promoOn() ? ic('sparkles', 'sm') + ' ' : ''}${inline(esc(t.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, '')))}</span><button aria-label="ปิดประกาศ">${ic('x')}</button>`;
   b.querySelector('button').onclick = () => { localStorage.setItem('ann', t); b.remove(); };
-  app.prepend(b);
+  annAdd(b);
 }
 // แสดงผล HTML/SVG จากโค้ดในแชต ใน sandbox แยก origin
 function showPreview(code) {

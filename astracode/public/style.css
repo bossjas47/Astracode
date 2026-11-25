@@ -2279,3 +2279,9 @@ a.fi b::after { content: ' →'; color: var(--blue); }
 .cw-cost { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; padding: 8px 12px; border-radius: 12px; background: var(--graphite); font-size: 13px; color: var(--ash); }
 .cw-cost b { color: var(--porcelain); }
 .ag-used { color: var(--porcelain); }
+/* แถบประกาศหลายอันเรียงต่อกัน (เดิม position fixed จุดเดียวกัน ข้อความทับกัน) */
+.ann-dock { position: fixed; left: 12px; right: 12px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 30; max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.ann-dock:empty { display: none; }
+.ann-dock .ann { position: static; left: auto; right: auto; bottom: auto; top: auto; margin: 0; width: 100%; pointer-events: auto; }
+#app:has(.chat) .ann-dock { top: calc(60px + env(safe-area-inset-top)); bottom: auto; }
+.ann.promo { background: linear-gradient(90deg, rgba(75, 79, 224, .16), rgba(75, 79, 224, .05)), var(--carbon); }
