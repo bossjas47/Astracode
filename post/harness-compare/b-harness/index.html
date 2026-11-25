@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="บ้านนก คอฟฟี่ ร้านกาแฟเล็ก ๆ ในเชียงใหม่ คั่วเอง หอมกรุ่นทุกแก้ว บรรยากาศอบอุ่น" />
+  <title>บ้านนก คอฟฟี่ — ร้านกาแฟคั่วเองในเชียงใหม่</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ===== NAVBAR ===== -->
+  <header class="site-header" id="siteHeader">
+    <div class="container nav-wrap">
+      <a href="#home" class="brand" aria-label="บ้านนก คอฟฟี่ หน้าแรก">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="30" height="30" fill="none">
+            <path d="M8 22c0-6 3.5-10 8-10s8 4 8 10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+            <circle cx="16" cy="9.5" r="3.2" stroke="currentColor" stroke-width="2.4"/>
+            <path d="M11 22h10M13 26h6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="brand-text">บ้านนก<span>คอฟฟี่</span></span>
+      </a>
+
+      <nav class="nav-links" id="navLinks" aria-label="เมนูหลัก">
+        <a href="#home">หน้าแรก</a>
+        <a href="#menu">เมนู</a>
+        <a href="#reviews">รีวิว</a>
+        <a href="#visit">เวลา &amp; ที่ตั้ง</a>
+        <a href="#contact">ติดต่อ</a>
+        <a href="#menu" class="btn btn-primary nav-cta">สั่งซื้อเลย</a>
+      </nav>
+
+      <button class="hamburger" id="hamburger" aria-label="เปิดเมนู" aria-expanded="false" aria-controls="navLinks">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== HERO ===== -->
+  <section class="hero" id="home">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <div class="hero-copy">
+        <span class="eyebrow">☕ คั่วเอง · สดใหม่ทุกวัน · เชียงใหม่</span>
+        <h1>กาแฟคั่วเอง หอมกรุ่น<br /><span class="accent">จากเชียงใหม่ถึงแก้วคุณ</span></h1>
+        <p class="hero-lead">
+          บ้านนก คอฟฟี่ ร้านกาแฟเล็ก ๆ ที่ตั้งใจคั่วเมล็ดกาแฟด้วยมือทุกสัปดาห์
+          เลือกเมล็ดจากเกษตรกรในหมู่บ้านบนดอย บรรยากาศอบอุ่นเหมือนนั่งเล่นที่บ้านเพื่อน
+        </p>
+        <div class="hero-actions">
+          <a href="#menu" class="btn btn-primary btn-lg">สั่งซื้อเลย</a>
+          <a href="#visit" class="btn btn-ghost btn-lg">มาหาเราที่ร้าน</a>
+        </div>
+        <ul class="hero-facts">
+          <li><strong>คั่วเอง</strong><span>ทุกสัปดาห์</span></li>
+          <li><strong>100%</strong><span>เมล็ดอาราบิก้า</span></li>
+          <li><strong>อบอุ่น</strong><span>แบบบ้าน ๆ</span></li>
+        </ul>
+      </div>
+
+      <div class="hero-art" aria-hidden="true">
+        <div class="art-card">
+          <div class="cup-steam">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="cup">
+            <svg viewBox="0 0 200 200" width="100%" height="100%">
+              <defs>
+                <linearGradient id="coffeeGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#c98a4b"/>
+                  <stop offset="100%" stop-color="#7c4a21"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="100" cy="168" rx="62" ry="12" fill="rgba(0,0,0,.12)"/>
+              <path d="M52 70 h96 v34 a48 48 0 0 1 -96 0 z" fill="url(#coffeeGrad)"/>
+              <path d="M52 74 h96" stroke="#e9c9a3" stroke-width="3" fill="none"/>
+              <path d="M148 82 c22 0 22 34 0 34" stroke="url(#coffeeGrad)" stroke-width="10" fill="none" stroke-linecap="round"/>
+              <ellipse cx="100" cy="72" rx="48" ry="12" fill="#5a3517"/>
+              <ellipse cx="100" cy="72" rx="40" ry="8" fill="#e9c9a3" opacity="0.85"/>
+            </svg>
+          </div>
+          <div class="art-tag">คั่วสด · หอมจริง</div>
+        </div>
+        <div class="art-badge">เบอร์ 1<br/><small>ใจคนเชียงใหม่</small></div>
+      </div>
+    </div>
+    <div class="hero-wave" aria-hidden="true">
+      <svg viewBox="0 0 1440 100" preserveAspectRatio="none"><path d="M0,60 C240,110 480,10 720,50 C960,90 1200,20 1440,60 L1440,100 L0,100 Z" fill="#fdf8f1"/></svg>
+    </div>
+  </section>
+
+  <!-- ===== MENU ===== -->
+  <section class="section menu-section" id="menu">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">เมนูของร้าน</span>
+        <h2>เครื่องดื่มที่เราภูมิใจ</h2>
+        <p>ทุกแก้วคั่วเอง บดสด ชงด้วยใจ เลือกได้ทั้งแบบร้อนและเย็น</p>
+      </div>
+
+      <div class="menu-grid">
+        <article class="menu-card">
+          <div class="menu-emoji" aria-hidden="true">☕</div>
+          <h3>เอสเพรสโซ่</h3>
+          <p>เข้มข้น หอมมัน ครีม่าหนาสวย เสิร์ฟแบบช็อตเดียว</p>
+          <div class="menu-foot">
+            <span class="price">฿55</span>
+            <button class="btn btn-sm order-btn" data-item="เอสเพรสโซ่">สั่งซื้อ</button>
+          </div>
+        </article>
+
+        <article class="menu-card featured">
+          <span class="ribbon">ขายดี</span>
+          <div class="menu-emoji" aria-hidden="true">🥛</div>
+          <h3>ลาเต้</h3>
+          <p>นมสดนุ่ม ๆ ผสานกาแฟคั่วอ่อน ดื่มง่ายทุกวัน</p>
+          <div class="menu-foot">
+            <span class="price">฿65</span>
+            <button class="btn btn-sm order-btn" data-item="ลาเต้">สั่งซื้อ</button>
+          </div>
+        </article>
+
+        <article class="menu-card">
+          <div class="menu-emoji" aria-hidden="true">🧊</div>
+          <h3>อเมริกาโน่เย็น</h3>
+          <p>กาแฟดำใส่น้ำแข็ง หอมสะอาด ดื่มแล้วสดชื่น</p>
+          <div class="menu-foot">
+            <span class="price">฿60</span>
+            <button class="btn btn-sm order-btn" data-item="อเมริกาโน่เย็น">สั่งซื้อ</button>
+          </div>
+        </article>
+
+        <article class="menu-card">
+          <div class="menu-emoji" aria-hidden="true">🍫</div>
+          <h3>มอคค่า</h3>
+          <p>กาแฟกับช็อกโกแลตเข้มข้น หวานมันกลมกล่อม</p>
+          <div class="menu-foot">
+            <span class="price">฿70</span>
+            <button class="btn btn-sm order-btn" data-item="มอคค่า">สั่งซื้อ</button>
+          </div>
+        </article>
+
+        <article class="menu-card">
+          <div class="menu-emoji" aria-hidden="true">🍵</div>
+          <h3>มัทฉะลาเต้</h3>
+          <p>ชาเขียวญี่ปุ่นแท้ หอมขมปลายลิ้น ผสานนมสด</p>
+          <div class="menu-foot">
+            <span class="price">฿75</span>
+            <button class="btn btn-sm order-btn" data-item="มัทฉะลาเต้">สั่งซื้อ</button>
+          </div>
+        </article>
+
+        <article class="menu-card">
+          <div class="menu-emoji" aria-hidden="true">🍯</div>
+          <h3>คาราเมลมัคคิอาโต้</h3>
+          <p>หวานหอมคาราเมลโฮมเมด ท็อปด้วยฟองนมเนียน</p>
+          <div class="menu-foot">
+            <span class="price">฿75</span>
+            <button class="btn btn-sm order-btn" data-item="คาราเมลมัคคิอาโต้">สั่งซื้อ</button>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== REVIEWS ===== -->
+  <section class="section reviews-section" id="reviews">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">เสียงจากลูกค้า</span>
+        <h2>ใคร ๆ ก็หลงรักบ้านนก</h2>
+        <p>รีวิวจากคนที่แวะมาดื่มกาแฟกับเรา</p>
+      </div>
+
+      <div class="reviews-grid">
+        <figure class="review-card">
+          <div class="stars" aria-label="5 ดาว">★★★★★</div>
+          <blockquote>“กาแฟหอมมาก คั่วสดจริง ๆ รสชาติกลมกล่อม บรรยากาศร้านน่านั่งสุด ๆ เจ้าของร้านเป็นกันเองเหมือนมาบ้านเพื่อน”</blockquote>
+          <figcaption>
+            <span class="avatar" aria-hidden="true">ฝ</span>
+            <span class="who"><strong>คุณฝน</strong><small>ขาประจำย่านนิมมาน</small></span>
+          </figcaption>
+        </figure>
+
+        <figure class="review-card">
+          <div class="stars" aria-label="5 ดาว">★★★★★</div>
+          <blockquote>“ลองลาเต้ร้อนแล้วติดใจ เมล็ดอาราบิก้าจากดอยหอมละมุนมาก ราคาไม่แรงด้วย กลับมาซ้ำแน่นอนครับ”</blockquote>
+          <figcaption>
+            <span class="avatar" aria-hidden="true">ก</span>
+            <span class="who"><strong>คุณกิตต์</strong><small>ทำงานแถวเมืองเชียงใหม่</small></span>
+          </figcaption>
+        </figure>
+
+        <figure class="review-card">
+          <div class="stars" aria-label="5 ดาว">★★★★★</div>
+          <blockquote>“มัทฉะลาเต้ดีงาม ชาเขียวแท้หอมชัด ร้านตกแต่งอบอุ่น ถ่ายรูปสวย เหมาะมานั่งชิลคนเดียวหรือกับเพื่อนมากค่ะ”</blockquote>
+          <figcaption>
+            <span class="avatar" aria-hidden="true">ป</span>
+            <span class="who"><strong>คุณปราง</strong><small>นักท่องเที่ยวจากกรุงเทพฯ</small></span>
+          </figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== VISIT / HOURS & LOCATION ===== -->
+  <section class="section visit-section" id="visit">
+    <div class="container visit-grid">
+      <div class="visit-info">
+        <span class="eyebrow">แวะมาหาเรา</span>
+        <h2>เวลาเปิด-ปิด &amp; ที่ตั้ง</h2>
+        <p class="visit-lead">นั่งจิบกาแฟท่ามกลางกลิ่นคั่วสด ๆ ย่านใจกลางเชียงใหม่ เดินทางสะดวก มีที่จอดรถ</p>
+
+        <div class="info-block">
+          <div class="info-icon" aria-hidden="true">🕗</div>
+          <div>
+            <h3>เวลาเปิด-ปิด</h3>
+            <ul class="hours">
+              <li><span>จันทร์ – ศุกร์</span><span>07:00 – 18:00</span></li>
+              <li><span>เสาร์ – อาทิตย์</span><span>08:00 – 19:00</span></li>
+              <li class="closed"><span>วันพุธ</span><span>หยุดร้าน</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="info-block">
+          <div class="info-icon" aria-hidden="true">📍</div>
+          <div>
+            <h3>ที่ตั้งร้าน</h3>
+            <p>123 ถนนนิมมานเหมินท์ ซอย 5<br/>ตำบลสุเทพ อำเภอเมือง<br/>จังหวัดเชียงใหม่ 50200</p>
+            <p class="tel">โทร <a href="tel:+6653123456">053-123-456</a></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="visit-map" aria-hidden="true">
+        <div class="map-grid"></div>
+        <div class="map-pin">
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M12 2C8.1 2 5 5.1 5 9c0 5.3 7 13 7 13s7-7.7 7-13c0-3.9-3.1-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+          <span>บ้านนก คอฟฟี่</span>
+        </div>
+        <div class="map-card">
+          <strong>บ้านนก คอฟฟี่</strong>
+          <span>นิมมานเหมินท์ ซอย 5 · เมืองเชียงใหม่</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== CONTACT ===== -->
+  <section class="section contact-section" id="contact">
+    <div class="container contact-wrap">
+      <div class="contact-copy">
+        <span class="eyebrow">ติดต่อเรา</span>
+        <h2>พูดคุยกับเราได้เลย</h2>
+        <p>จองโต๊ะ สอบถามเมนู สั่งเมล็ดกาแฟกลับบ้าน หรือจะทักมาทักทายเฉย ๆ ก็ยินดีครับ เราจะรีบตอบกลับให้เร็วที่สุด</p>
+        <ul class="contact-points">
+          <li><span aria-hidden="true">📞</span> 053-123-456</li>
+          <li><span aria-hidden="true">✉️</span> hello@baannokcoffee.com</li>
+          <li><span aria-hidden="true">📷</span> @baannokcoffee</li>
+        </ul>
+      </div>
+
+      <form class="contact-form" id="contactForm" novalidate>
+        <div class="field">
+          <label for="name">ชื่อ</label>
+          <input type="text" id="name" name="name" placeholder="ชื่อของคุณ" required />
+          <span class="error-msg" data-for="name"></span>
+        </div>
+
+        <div class="field">
+          <label for="phone">เบอร์โทร</label>
+          <input type="tel" id="phone" name="phone" placeholder="เช่น 081-234-5678" required />
+          <span class="error-msg" data-for="phone"></span>
+        </div>
+
+        <div class="field">
+          <label for="message">ข้อความ</label>
+          <textarea id="message" name="message" rows="4" placeholder="พิมพ์ข้อความที่ต้องการ..." required></textarea>
+          <span class="error-msg" data-for="message"></span>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block btn-lg">ส่งข้อความ</button>
+        <p class="form-success" id="formSuccess" role="status" hidden>✓ ส่งข้อความเรียบร้อยแล้ว ขอบคุณที่ติดต่อเรานะครับ!</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <span class="brand-text"><span class="dot">●</span> บ้านนก คอฟฟี่</span>
+        <p>ร้านกาแฟเล็ก ๆ คั่วเอง ในเชียงใหม่<br/>หอมกรุ่นทุกแก้ว อบอุ่นทุกครั้งที่มา</p>
+      </div>
+      <div class="footer-links">
+        <h4>เมนูลัด</h4>
+        <a href="#menu">เมนูเครื่องดื่ม</a>
+        <a href="#reviews">รีวิวลูกค้า</a>
+        <a href="#visit">เวลา &amp; ที่ตั้ง</a>
+        <a href="#contact">ติดต่อเรา</a>
+      </div>
+      <div class="footer-contact">
+        <h4>ติดต่อ</h4>
+        <p>123 นิมมานเหมินท์ ซอย 5<br/>เมืองเชียงใหม่ 50200</p>
+        <p>โทร 053-123-456</p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© <span id="year">2024</span> บ้านนก คอฟฟี่ — คั่วเองด้วยใจ จากเชียงใหม่</p>
+    </div>
+  </footer>
+
+  <!-- toast for order buttons -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>

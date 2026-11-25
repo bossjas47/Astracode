@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>บ้านนก คอฟฟี่ | ร้านกาแฟคั่วเองเล็ก ๆ ในเชียงใหม่</title>
+<meta name="description" content="บ้านนก คอฟฟี่ ร้านกาแฟเล็ก ๆ ใจกลางเชียงใหม่ คั่วเมล็ดเองทุกสัปดาห์ บรรยากาศอบอุ่นเหมือนมานั่งเล่นบ้านเพื่อน" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=Noto+Serif+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============ BASE ============ */
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --cream:#FBF7F1;
+  --cream-2:#F4ECE0;
+  --espresso:#1D120C;
+  --brown:#3E2A1D;
+  --caramel:#B87A46;
+  --amber:#E9A857;
+  --text:#2B211B;
+  --muted:#7B6B5E;
+  --line:rgba(62,42,29,.13);
+  --radius:22px;
+  --max:1180px;
+  --head:'Noto Serif Thai',Georgia,'Times New Roman',serif;
+  --body:'IBM Plex Sans Thai',system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+html{scroll-behavior:smooth;scroll-padding-top:88px}
+body{
+  margin:0;font-family:var(--body);background:var(--cream);color:var(--text);
+  line-height:1.75;-webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+img{max-width:100%;display:block}
+h1,h2,h3{font-family:var(--head);font-weight:600;line-height:1.4;margin:0;letter-spacing:-.005em}
+p{margin:0}
+a{color:inherit}
+.container{width:min(100% - 40px, var(--max));margin-inline:auto}
+.section{padding:96px 0}
+@media(max-width:640px){.section{padding:68px 0}}
+
+/* ============ BUTTONS ============ */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  padding:15px 30px;border-radius:999px;font-family:inherit;font-size:1rem;font-weight:600;
+  text-decoration:none;border:0;cursor:pointer;transition:transform .25s ease, box-shadow .25s ease, background .25s ease, color .25s ease;
+  white-space:nowrap;
+}
+.btn-primary{
+  background:linear-gradient(135deg,#F0B468,#C97B3C);color:#2A1A11;
+  box-shadow:0 16px 30px -14px rgba(233,168,87,.85);
+}
+.btn-primary:hover{transform:translateY(-3px);box-shadow:0 22px 40px -14px rgba(233,168,87,.95)}
+.btn-ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.32)}
+.btn-ghost:hover{background:rgba(255,255,255,.1);transform:translateY(-3px)}
+.btn-small{padding:11px 20px;font-size:.86rem}
+.btn:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+
+/* ============ HEADER ============ */
+.nav{
+  position:fixed;inset:0 0 auto 0;z-index:60;
+  --fg:#ffffff;--fg-soft:rgba(255,255,255,.78);
+  transition:background .35s ease, box-shadow .35s ease, border-color .35s ease;
+  border-bottom:1px solid transparent;
+}
+.nav.scrolled,.nav.open{
+  --fg:var(--brown);--fg-soft:rgba(62,42,29,.75);
+  background:rgba(251,247,241,.92);
+  -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+  border-bottom-color:var(--line);
+  box-shadow:0 14px 34px -26px rgba(29,18,12,.65);
+}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;gap:18px;height:76px}
+.logo{display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--fg);transition:color .3s}
+.logo-mark{
+  width:42px;height:42px;border-radius:14px;display:grid;place-items:center;flex:0 0 auto;
+  background:linear-gradient(140deg,#F0B468,#B87A46);color:#2A1A11;
+  box-shadow:0 8px 18px -8px rgba(184,122,70,.9);
+}
+.logo-mark svg{width:22px;height:22px}
+.logo-text{display:flex;flex-direction:column;line-height:1.15}
+.logo-text strong{font-family:var(--head);font-size:1.02rem;font-weight:700;letter-spacing:.01em}
+.logo-text small{font-size:.6rem;letter-spacing:.22em;opacity:.65;font-weight:500}
+
+.nav-links{display:flex;align-items:center;gap:34px}
+.nav-links a{
+  position:relative;color:var(--fg-soft);text-decoration:none;font-size:.95rem;font-weight:500;
+  transition:color .25s;padding:6px 0;
+}
+.nav-links a::after{
+  content:"";position:absolute;left:0;bottom:0;height:2px;width:0;border-radius:2px;
+  background:var(--amber);transition:width .28s ease;
+}
+.nav-links a:hover{color:var(--fg)}
+.nav-links a:hover::after{width:100%}
+
+.burger{
+  display:none;flex-direction:column;justify-content:center;gap:5px;
+  width:44px;height:44px;padding:0 10px;background:transparent;border:0;cursor:pointer;color:var(--fg);
+  transition:color .3s;
+}
+.burger span{display:block;height:2px;background:currentColor;border-radius:2px;transition:transform .3s ease,opacity .3s ease}
+.nav.open .burger span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.nav.open .burger span:nth-child(2){opacity:0}
+.nav.open .burger span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+
+@media(max-width:880px){
+  .nav-cta{display:none}
+  .burger{display:flex}
+  .nav-links{
+    position:fixed;top:76px;left:0;right:0;flex-direction:column;align-items:stretch;gap:0;
+    background:rgba(251,247,241,.98);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    padding:8px 20px 0;max-height:0;overflow:hidden;opacity:0;pointer-events:none;
+    transition:max-height .4s ease, opacity .3s ease, padding .4s ease;
+    border-bottom:1px solid var(--line);box-shadow:0 24px 40px -30px rgba(29,18,12,.7);
+  }
+  .nav.open .nav-links{max-height:420px;opacity:1;pointer-events:auto;padding-bottom:16px}
+  .nav-links a{color:var(--brown);padding:14px 4px;border-bottom:1px solid var(--line);font-size:1rem}
+  .nav-links a::after{display:none}
+}
+
+/* ============ HERO ============ */
+.hero{
+  position:relative;overflow:hidden;color:#fff;
+  padding:150px 0 108px;
+  background:
+    radial-gradient(900px 520px at 86% -6%, #5A3A22 0%, transparent 62%),
+    radial-gradient(760px 460px at -6% 104%, #3B2415 0%, transparent 58%),
+    linear-gradient(160deg,#2C1B11 0%,#170E08 72%);
+}
+.hero::before{
+  content:"";position:absolute;inset:0;pointer-events:none;opacity:.22;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+.hero-glow{position:absolute;border-radius:50%;pointer-events:none;filter:blur(10px)}
+.hero-glow.one{width:560px;height:560px;right:-160px;top:-180px;background:radial-gradient(circle,rgba(233,168,87,.32),transparent 68%)}
+.hero-glow.two{width:420px;height:420px;left:-160px;bottom:-180px;background:radial-gradient(circle,rgba(184,122,70,.28),transparent 68%)}
+
+.hero-grid{position:relative;display:grid;grid-template-columns:1.05fr .95fr;gap:64px;align-items:center}
+@media(max-width:920px){.hero-grid{grid-template-columns:1fr;gap:52px}}
+
+.hero-eyebrow{
+  display:inline-flex;align-items:center;gap:9px;
+  font-size:.78rem;font-weight:600;letter-spacing:.09em;
+  padding:8px 16px;border-radius:999px;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);
+  color:#F2D7B4;margin-bottom:24px;
+}
+.hero-eyebrow .spark{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 4px rgba(233,168,87,.2)}
+.hero h1{
+  font-size:clamp(2.05rem,4.6vw,3.45rem);
+  line-height:1.42;font-weight:700;letter-spacing:-.01em;
+  margin-bottom:20px;
+}
+.hero h1 .hl{
+  background:linear-gradient(100deg,#F6C98B,#E0974A 70%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero-sub{color:rgba(255,255,255,.74);font-size:1.03rem;max-width:520px;margin-bottom:34px;font-weight:300}
+.hero-actions{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:36px}
+.hero-features{display:flex;flex-wrap:wrap;gap:10px 24px;list-style:none;padding:0;margin:0}
+.hero-features li{display:flex;align-items:center;gap:8px;font-size:.87rem;color:rgba(255,255,255,.68)}
+.hero-features svg{width:16px;height:16px;flex:0 0 auto;color:var(--amber)}
+
+/* hero visual */
+.hero-visual{position:relative}
+.hero-img{
+  position:relative;border-radius:30px;overflow:hidden;aspect-ratio:4/5;
+  box-shadow:0 50px 90px -40px rgba(0,0,0,.95), 0 0 0 1px rgba(255,255,255,.1);
+  transform:rotate(1.8deg);transition:transform .5s ease;
+}
+.hero-img:hover{transform:rotate(0deg) translateY(-4px)}
+.hero-img img{width:100%;height:100%;object-fit:cover}
+@media(max-width:920px){.hero-img{aspect-ratio:5/4;max-height:440px}}
+
+.hero-badge{
+  position:absolute;left:-16px;bottom:-22px;display:flex;align-items:center;gap:13px;
+  background:#FBF7F1;color:var(--brown);padding:15px 22px;border-radius:18px;
+  box-shadow:0 26px 46px -22px rgba(0,0,0,.85);
+  transform:rotate(-1.8deg);
+}
+@media(max-width:920px){.hero-badge{left:12px;bottom:-18px;padding:13px 18px}}
+.hero-badge .dot{width:10px;height:10px;border-radius:50%;background:#3FA36B;box-shadow:0 0 0 4px rgba(63,163,107,.18);flex:0 0 auto}
+.hero-badge .dot.closed{background:#D9543F;box-shadow:0 0 0 4px rgba(217,84,63,.18)}
+.hero-badge strong{display:block;font-size:.88rem;font-weight:700;line-height:1.3}
+.hero-badge span{display:block;font-size:.78rem;color:var(--muted);line-height:1.3}
+
+/* ============ SECTION HEAD ============ */
+.section-head{max-width:640px;margin:0 auto 56px;text-align:center}
+.eyebrow{
+  display:inline-block;font-size:.76rem;font-weight:700;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--caramel);margin-bottom:14px;
+}
+.section-head h2{font-size:clamp(1.7rem,3.3vw,2.5rem);color:var(--brown);margin-bottom:14px}
+.section-head p{color:var(--muted);font-size:1rem;font-weight:300}
+
+/* ============ MENU ============ */
+.menu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:26px}
+.drink{
+  background:#fff;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
+  display:flex;flex-direction:column;
+  box-shadow:0 6px 18px -14px rgba(62,42,29,.5);
+  transition:transform .32s ease, box-shadow .32s ease, border-color .32s ease;
+}
+.drink:hover{transform:translateY(-7px);box-shadow:0 34px 54px -30px rgba(62,42,29,.55);border-color:rgba(184,122,70,.45)}
+.drink-art{
+  position:relative;height:136px;overflow:hidden;
+  background:linear-gradient(170deg,#FBF7F1,#F0E5D6);
+}
+.drink-art::before{
+  content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:88px;height:88px;border-radius:50%;
+  background:
+    radial-gradient(circle at 32% 27%, rgba(255,255,255,.42), transparent 52%),
+    var(--cup,#3A2317);
+  box-shadow:inset 0 0 0 6px rgba(255,255,255,.55), 0 14px 26px -12px rgba(0,0,0,.55);
+}
+.drink-art::after{
+  content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:122px;height:122px;border-radius:50%;border:1px dashed rgba(62,42,29,.22);
+}
+.drink-body{padding:22px 24px 24px;display:flex;flex-direction:column;gap:11px;flex:1}
+.drink-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.drink-title h3{font-size:1.14rem;color:var(--brown)}
+.price{font-weight:700;font-size:1.05rem;color:var(--caramel);white-space:nowrap;font-family:var(--head)}
+.desc{font-size:.9rem;color:var(--muted);flex:1;font-weight:300;line-height:1.7}
+.tags{display:flex;flex-wrap:wrap;gap:8px}
+.tag{font-size:.72rem;font-weight:600;padding:4px 11px;border-radius:999px;background:var(--cream-2);color:#8A6B47}
+.tag.hot{background:#FDEDE4;color:#B8542E}
+.order-btn{
+  margin-top:6px;align-self:flex-start;display:inline-flex;align-items:center;gap:7px;
+  background:none;border:0;padding:0;cursor:pointer;font-family:inherit;
+  font-size:.9rem;font-weight:700;color:var(--brown);
+  transition:color .2s, gap .25s;
+}
+.order-btn svg{width:16px;height:16px;transition:transform .25s}
+.order-btn:hover{color:var(--caramel);gap:11px}
+.order-btn:hover svg{transform:translateX(3px)}
+.order-btn:focus-visible{outline:2px solid var(--caramel);outline-offset:4px;border-radius:6px}
+
+/* ============ REVIEWS ============ */
+.reviews{background:var(--cream-2);position:relative}
+.reviews::before{
+  content:"";position:absolute;inset:0;opacity:.5;pointer-events:none;
+  background-image:radial-gradient(circle at 1px 1px, rgba(62,42,29,.1) 1px, transparent 0);
+  background-size:26px 26px;
+}
+.reviews .container{position:relative}
+.review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:26px}
+.review{
+  background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:32px 28px;
+  display:flex;flex-direction:column;gap:16px;
+  box-shadow:0 8px 22px -18px rgba(62,42,29,.5);
+  transition:transform .3s ease, box-shadow .3s ease;
+}
+.review:hover{transform:translateY(-6px);box-shadow:0 30px 50px -30px rgba(62,42,29,.55)}
+.stars{color:#E0A458;letter-spacing:.14em;font-size:1rem;line-height:1}
+.review p{font-size:.95rem;color:#4A3A2F;font-weight:400;flex:1;line-height:1.85}
+.reviewer{display:flex;align-items:center;gap:13px;padding-top:6px;border-top:1px solid var(--line)}
+.avatar{
+  width:44px;height:44px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;
+  font-family:var(--head);font-weight:700;color:#fff;font-size:1rem;
+  background:linear-gradient(140deg,#C99362,#8A5A34);
+}
+.reviewer strong{display:block;font-size:.92rem;color:var(--brown);line-height:1.4}
+.reviewer span{display:block;font-size:.78rem;color:var(--muted);line-height:1.4}
+
+/* ============ VISIT ============ */
+.visit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);gap:28px}
+@media(max-width:940px){.visit-grid{grid-template-columns:1fr}}
+.info-card{
+  background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:34px;
+  box-shadow:0 10px 30px -24px rgba(62,42,29,.6);
+}
+.status{
+  display:inline-flex;align-items:center;gap:9px;padding:7px 15px;border-radius:999px;
+  font-size:.8rem;font-weight:700;margin-bottom:22px;
+  background:#EAF7F0;color:#26794B;
+}
+.status.closed{background:#FDEDEA;color:#B23B27}
+.status .dot{width:8px;height:8px;border-radius:50%;background:currentColor;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+.info-card h3{font-size:1.18rem;color:var(--brown);margin-bottom:16px}
+.hours{list-style:none;margin:0 0 26px;padding:0}
+.hours li{
+  display:flex;justify-content:space-between;gap:16px;
+  padding:11px 0;border-bottom:1px dashed var(--line);font-size:.93rem;
+}
+.hours li:last-child{border-bottom:0}
+.hours .day{color:var(--muted)}
+.hours .time{font-weight:600;color:var(--brown);white-space:nowrap}
+.hours li.off .time{color:#C0503A}
+
+.divider{height:1px;background:var(--line);margin:0 0 24px}
+.info-row{display:flex;gap:14px;margin-bottom:20px}
+.info-row:last-child{margin-bottom:0}
+.icon-box{
+  width:40px;height:40px;border-radius:12px;flex:0 0 auto;display:grid;place-items:center;
+  background:var(--cream-2);color:var(--caramel);
+}
+.icon-box svg{width:19px;height:19px}
+.info-row strong{display:block;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:2px}
+.info-row p,.info-row a{font-size:.94rem;color:var(--brown);text-decoration:none;line-height:1.65}
+.info-row a:hover{color:var(--caramel);text-decoration:underline}
+
+.map-card{
+  border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);
+  min-height:420px;background:var(--cream-2);position:relative;
+  box-shadow:0 12px 34px -26px rgba(62,42,29,.7);
+}
+.map-card iframe{width:100%;height:100%;min-height:420px;border:0;display:block;filter:saturate(.9)}
+.map-link{
+  position:absolute;right:16px;bottom:16px;background:#fff;color:var(--brown);
+  font-size:.8rem;font-weight:700;text-decoration:none;padding:10px 16px;border-radius:999px;
+  box-shadow:0 10px 24px -12px rgba(0,0,0,.5);display:inline-flex;align-items:center;gap:7px;
+  transition:transform .25s;
+}
+.map-link:hover{transform:translateY(-2px)}
+.map-link svg{width:14px;height:14px}
+
+/* ============ CONTACT ============ */
+.contact{
+  position:relative;overflow:hidden;color:#fff;
+  background:
+    radial-gradient(760px 460px at 88% 0%, #4A3019 0%, transparent 60%),
+    radial-gradient(680px 420px at 4% 100%, #35200F 0%, transparent 60%),
+    linear-gradient(160deg,#241609,#150D07 80%);
+}
+.contact::before{
+  content:"";position:absolute;inset:0;pointer-events:none;opacity:.18;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+.contact .container{position:relative}
+.contact-grid{display:grid;grid-template-columns:1fr 1.05fr;gap:56px;align-items:start}
+@media(max-width:940px){.contact-grid{grid-template-columns:1fr;gap:40px}}
+.contact h2{font-size:clamp(1.7rem,3.2vw,2.4rem);margin-bottom:16px;line-height:1.35}
+.contact .lead{color:rgba(255,255,255,.68);font-size:1rem;font-weight:300;margin-bottom:32px;max-width:440px}
+.contact-chips{display:flex;flex-direction:column;gap:14px}
+.chip{
+  display:flex;align-items:center;gap:14px;padding:15px 18px;border-radius:16px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  text-decoration:none;color:#fff;transition:background .25s, transform .25s;
+}
+.chip:hover{background:rgba(255,255,255,.11);transform:translateX(3px)}
+.chip .icon-box{background:rgba(233,168,87,.16);color:var(--amber)}
+.chip span{font-size:.76rem;color:rgba(255,255,255,.6);display:block;line-height:1.4}
+.chip strong{font-size:.95rem;font-weight:600;display:block;line-height:1.4}
+
+.form-card{
+  background:#FBF7F1;border-radius:26px;padding:36px;
+  box-shadow:0 40px 70px -40px rgba(0,0,0,.9);
+  color:var(--text);
+}
+@media(max-width:640px){.form-card{padding:26px 22px;border-radius:22px}}
+.form-card h3{font-size:1.15rem;color:var(--brown);margin-bottom:4px}
+.form-card .form-sub{font-size:.86rem;color:var(--muted);margin-bottom:24px}
+.field{margin-bottom:18px}
+.field label{display:block;font-size:.85rem;font-weight:600;color:var(--brown);margin-bottom:8px}
+.field label .req{color:#C0503A}
+.field input,.field textarea{
+  width:100%;padding:14px 16px;border-radius:14px;border:1.5px solid #E7DBCB;
+  background:#fff;font-family:inherit;font-size:.95rem;color:var(--text);
+  transition:border-color .22s, box-shadow .22s;
+}
+.field textarea{resize:vertical;min-height:118px}
+.field input::placeholder,.field textarea::placeholder{color:#B4A493}
+.field input:focus,.field textarea:focus{
+  outline:none;border-color:var(--caramel);box-shadow:0 0 0 4px rgba(184,122,70,.14);
+}
+.field.invalid input,.field.invalid textarea{border-color:#D9543F;box-shadow:0 0 0 4px rgba(217,84,63,.1)}
+.err-msg{display:none;font-size:.78rem;color:#C0503A;margin-top:6px;font-weight:500}
+.field.invalid .err-msg{display:block}
+.form-card .btn{width:100%;margin-top:6px}
+.form-note{font-size:.76rem;color:var(--muted);text-align:center;margin-top:14px}
+.form-success{
+  display:none;align-items:center;gap:10px;margin-top:16px;padding:13px 16px;border-radius:13px;
+  background:#EAF7F0;color:#26794B;font-size:.86rem;font-weight:600;
+}
+.form-success.show{display:flex;animation:fadeUp .45s ease}
+.form-success svg{width:18px;height:18px;flex:0 0 auto}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ============ FOOTER ============ */
+.footer{background:#120B06;color:rgba(255,255,255,.6);padding:44px 0;font-size:.85rem}
+.footer-inner{display:flex;flex-wrap:wrap;gap:22px;justify-content:space-between;align-items:center}
+.footer .logo{color:#fff}
+.footer .logo-text small{opacity:.5}
+.footer-links{display:flex;flex-wrap:wrap;gap:22px}
+.footer-links a{text-decoration:none;transition:color .2s}
+.footer-links a:hover{color:var(--amber)}
+
+/* ============ REVEAL ============ */
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .75s cubic-bezier(.22,.7,.3,1), transform .75s cubic-bezier(.22,.7,.3,1)}
+.reveal.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .reveal{opacity:1;transform:none;transition:none}
+  .hero-img,.hero-badge{transform:none}
+  .status .dot{animation:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= HEADER ================= -->
+<header class="nav" id="nav">
+  <div class="container nav-inner">
+    <a href="#home" class="logo" aria-label="บ้านนก คอฟฟี่ หน้าแรก">
+      <span class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9.5h12v4.8a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9.5Z"/>
+          <path d="M16 10.5h1.8a2.5 2.5 0 0 1 0 5H16"/>
+          <path d="M7.5 3.2c0 1.1-1.2 1.3-1.2 2.4M11.5 3.2c0 1.1-1.2 1.3-1.2 2.4"/>
+        </svg>
+      </span>
+      <span class="logo-text">
+        <strong>บ้านนก คอฟฟี่</strong>
+        <small>BAAN NOK COFFEE</small>
+      </span>
+    </a>
+
+    <nav class="nav-links" id="navLinks" aria-label="เมนูหลัก">
+      <a href="#menu">เมนูเครื่องดื่ม</a>
+      <a href="#reviews">รีวิวลูกค้า</a>
+      <a href="#visit">ร้านของเรา</a>
+      <a href="#contact">ติดต่อ</a>
+    </nav>
+
+    <a href="tel:0812345678" class="btn btn-primary btn-small nav-cta">โทร 081-234-5678</a>
+
+    <button class="burger" id="burger" aria-label="เปิดเมนูนำทาง" aria-expanded="false" aria-controls="navLinks">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- ================= HERO ================= -->
+  <section class="hero" id="home">
+    <div class="hero-glow one" aria-hidden="true"></div>
+    <div class="hero-glow two" aria-hidden="true"></div>
+
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <span class="hero-eyebrow"><span class="spark"></span> คั่วเอง · เชียงใหม่ · ตั้งแต่ปี 2561</span>
+        <h1>กาแฟคั่วเองหอม ๆ<br>จาก <span class="hl">บ้านนก</span> ใจกลางเชียงใหม่</h1>
+        <p class="hero-sub">
+          เมล็ดอาราบิก้าจากดอยในจังหวัดเชียงใหม่ คั่วสดใหม่ทุกสัปดาห์
+          ชงด้วยมือทีละแก้ว บรรยากาศอบอุ่นเหมือนมานั่งเล่นบ้านเพื่อน
+        </p>
+
+        <div class="hero-actions">
+          <a href="#menu" class="btn btn-primary">
+            สั่งกาแฟเลย
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a href="#contact" class="btn btn-ghost">ติดต่อร้าน</a>
+        </div>
+
+        <ul class="hero-features">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> คั่วสดทุกสัปดาห์</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Wi-Fi ฟรี</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> นั่งทำงานได้ทั้งวัน</li>
+        </ul>
+      </div>
+
+      <div class="hero-visual">
+        <div class="hero-img" style="background:linear-gradient(150deg,#8A5A34,#3A2317)">
+          <img
+            src="https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80"
+            alt="บาริสต้าที่บ้านนก คอฟฟี่ กำลังรินลาเต้อาร์ตลงในแก้ว"
+            onerror="this.remove()" />
+        </div>
+        <div class="hero-badge">
+          <span class="dot" id="heroDot"></span>
+          <div>
+            <strong id="heroStatus">เปิดทุกวัน</strong>
+            <span>07:00 – 17:00 น.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MENU ================= -->
+  <section class="section" id="menu">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Our Menu</span>
+        <h2>เมนูเครื่องดื่มของเรา</h2>
+        <p>ทุกแก้วชงสด ๆ จากเมล็ดที่คั่วเองในร้าน ราคาเป็นมิตร ดื่มได้ทุกวัน</p>
+      </div>
+
+      <div class="menu-grid">
+
+        <article class="drink reveal">
+          <div class="drink-art" style="--cup:#3A2317"></div>
+          <div class="drink-body">
+            <div class="drink-title">
+              <h3>เอสเพรสโซ่</h3>
+              <span class="price">฿65</span>
+            </div>
+            <p class="desc">ช็อตเข้มข้นจากเมล็ดคั่วกลาง กลิ่นช็อกโกแลตและถั่วคั่วชัดเจน ดื่มแล้วตื่นเต็มตา</p>
+            <div class="tags"><span class="tag hot">ร้อน</span><span class="tag">คั่วกลาง</span></div>
+            <button class="order-btn" data-order="เอสเพรสโซ่">
+              สั่งเมนูนี้
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </article>
+
+        <article class="drink reveal">
+          <div class="drink-art" style="--cup:#52331F"></div>
+          <div class="drink-body">
+            <div class="drink-title">
+              <h3>อเมริกาโน่</h3>
+              <span class="price">฿70</span>
+            </div>
+            <p class="desc">เอสเพรสโซ่ผสมน้ำร้อน หอมสะอาด ดื่มง่าย ไม่หนักท้อง เหมาะกับมื้อเช้า</p>
+            <div class="tags"><span class="tag hot">ร้อน / เย็น</span><span class="tag">ยอดนิยม</span></div>
+            <button class="order-btn" data-order="อเมริกาโน่">
+              สั่งเมนูนี้
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </article>
+
+        <article class="drink reveal">
+          <div class="drink-art" style="--cup:#B98A5E"></div>
+          <div class="drink-body">
+            <div class="drink-title">
+              <h3>คาปูชิโน่</h3>
+              <span class="price">฿85</span>
+            </div>
+            <p class="desc">เอสเพรสโซ่ + นมสด + ฟองนมหนานุ่มโรยผงโกโก้ กลมกล่อมกำลังดี</p>
+            <div class="tags"><span class="tag hot">ร้อน</span><span class="tag">ลายลาเต้อาร์ต</span></div>
+            <button class="order-btn" data-order="คาปูชิโน่">
+              สั่งเมนูนี้
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </article>
+
+        <article class="drink reveal">
+          <div class="drink-art" style="--cup:#CFA77C"></div>
+          <div class="drink-body">
+            <div class="drink-title">
+              <h3>ลาเต้</h3>
+              <span class="price">฿90</span>
+            </div>
+            <p class="desc">นมนุ่ม ๆ ตัดกับกาแฟเข้มข้นพอดีคำ ใครไม่ชอบขมจัด แนะนำแก้วนี้เลย</p>
+            <div class="tags"><span class="tag hot">ร้อน / เย็น</span><span class="tag">ขายดี</span></div>
+            <button class="order-btn" data-order="ลาเต้">
+              สั่งเมนูนี้
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </article>
+
+        <article class="drink reveal">
+          <div class="drink-art" style="--cup:#6B3F25"></div>
+          <div class="drink-body">
+            <div class="drink-title">
+              <h3>มอคค่า</h3>
+              <span class="price">฿95</span>
+            </div>
+            <p class="desc">กาแฟผสมช็อกโกแลตแท้ หวานมันกลมกล่อม เสิร์ฟพร้อมวิปครีมเล็ก ๆ</p>
+            <div class="tags"><span class="tag hot">ร้อน / เย็น</span><span class="tag">สายหวาน</span></div>
+            <button class="order-btn" data-order="มอคค่า">
+              สั่งเมนูนี้
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </article>
+
+        <article class="drink reveal">
+          <div class="drink-art" style="--cup:#8A5A34"></div>
+          <div class="drink-body">
+            <div class="drink-title">
+              <h3>บ้านนก เบลนด์</h3>
+              <span class="price">฿120</span>
+            </div>
+            <p class="desc">ซิกเนเจอร์ของร้าน เมล็ด 3 สายพันธุ์คั่วเอง กลิ่นส้มและน้ำผึ้งอ่อน ๆ ลองแล้วจะติดใจ</p>
+            <div class="tags"><span class="tag hot">ร้อน</span><span class="tag">Signature</span></div>
+            <button class="order-btn" data-order="บ้านนก เบลนด์">
+              สั่งเมนูนี้
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= REVIEWS ================= -->
+  <section class="section reviews" id="reviews">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Reviews</span>
+        <h2>ลูกค้าพูดถึงเราอย่างไร</h2>
+        <p>คะแนนเฉลี่ย 4.9 จากรีวิวกว่า 320 ครั้งบน Google Maps</p>
+      </div>
+
+      <div class="review-grid">
+        <article class="review reveal">
+          <div class="stars" aria-label="ให้คะแนน 5 จาก 5 ดาว">★★★★★</div>
+          <p>“กาแฟคั่วเองหอมมากจริง ๆ ดื่มลาเต้ร้อนแล้วได้กลิ่นถั่วชัดเจน นั่งทำงานที่ร้านได้ทั้งบ่าย เจ้าของร้านใจดี แนะนำเลยครับ”</p>
+          <div class="reviewer">
+            <span class="avatar" aria-hidden="true">พ</span>
+            <div>
+              <strong>คุณพลอย วรางคณา</strong>
+              <span>ลูกค้าประจำ · นิมมานเหมินท์</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="review reveal">
+          <div class="stars" aria-label="ให้คะแนน 5 จาก 5 ดาว">★★★★★</div>
+          <p>“คอฟฟี่ส้มของที่นี่คือที่สุด เปรี้ยวหวานกำลังดี ไม่เหมือนที่ไหน กินคู่กับครัวซองต์ร้อน ๆ คือมื้อเช้าในฝันเลย”</p>
+          <div class="reviewer">
+            <span class="avatar" aria-hidden="true">ธ</span>
+            <div>
+              <strong>คุณธนกฤต ศรีวัฒน์</strong>
+              <span>ฟรีแลนซ์ · มาทุกสัปดาห์</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="review reveal">
+          <div class="stars" aria-label="ให้คะแนน 5 จาก 5 ดาว">★★★★★</div>
+          <p>“บรรยากาศร้านเหมือนมานั่งบ้านเพื่อน มีต้นไม้เยอะ แสงตอนเช้าสวยมาก นั่งเล่นกับแมวของร้านได้ด้วย ราคาไม่แพง คุ้มมากค่ะ”</p>
+          <div class="reviewer">
+            <span class="avatar" aria-hidden="true">ม</span>
+            <div>
+              <strong>คุณมายด์ อารยา</strong>
+              <span>นักท่องเที่ยว · กรุงเทพฯ</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= VISIT ================= -->
+  <section class="section" id="visit">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Visit Us</span>
+        <h2>เวลาเปิด–ปิด และที่ตั้งร้าน</h2>
+        <p>ร้านอยู่ไม่ไกลจากถนนนิมมานฯ จอดรถได้หน้าซอย เดินเข้ามาแล้วเจอกลิ่นกาแฟเลย</p>
+      </div>
+
+      <div class="visit-grid">
+        <div class="info-card reveal">
+          <div class="status" id="statusBadge">
+            <span class="dot"></span><span id="statusText">กำลังตรวจสอบสถานะ...</span>
+          </div>
+
+          <h3>เวลาเปิดทำการ</h3>
+          <ul class="hours">
+            <li><span class="day">จันทร์ – ศุกร์</span><span class="time">07:00 – 17:00 น.</span></li>
+            <li><span class="day">เสาร์ – อาทิตย์</span><span class="time">07:30 – 18:00 น.</span></li>
+            <li class="off"><span class="day">วันพุธ</span><span class="time">หยุดร้าน</span></li>
+          </ul>
+
+          <div class="divider"></div>
+
+          <div class="info-row">
+            <span class="icon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+            </span>
+            <div>
+              <strong>ที่ตั้งร้าน</strong>
+              <p>45/2 ถนนนิมมานเหมินท์ ซอย 7<br>ตำบลสุเทพ อำเภอเมือง จังหวัดเชียงใหม่ 50200</p>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <span class="icon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.9.4 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z"/></svg>
+            </span>
+            <div>
+              <strong>โทรศัพท์</strong>
+              <p><a href="tel:0812345678">081-234-5678</a> (คุณนก)</p>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <span class="icon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="3"/><path d="m3 7 9 6 9-6"/></svg>
+            </span>
+            <div>
+              <strong>อีเมล</strong>
+              <p><a href="mailto:hello@baannokcoffee.com">hello@baannokcoffee.com</a></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="map-card reveal">
+          <iframe
+            title="แผนที่ร้านบ้านนก คอฟฟี่ ถนนนิมมานเหมินท์ เชียงใหม่"
+            src="https://maps.google.com/maps?q=Nimmanahaeminda%20Road%2C%20Chiang%20Mai&z=15&output=embed"
+            loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade"
+            allowfullscreen></iframe>
+          <a class="map-link" href="https://maps.google.com/?q=Nimmanahaeminda+Road,+Chiang+Mai" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
+            เปิดใน Google Maps
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CONTACT ================= -->
+  <section class="section contact" id="contact">
+    <div class="container">
+      <div class="contact-grid">
+        <div class="reveal">
+          <span class="eyebrow" style="color:#E9A857">Let's Talk</span>
+          <h2>อยากสั่งกาแฟ หรือจองโต๊ะ<br>ทักเรามาได้เลย</h2>
+          <p class="lead">กรอกฟอร์มด้านขวาแล้วเราจะติดต่อกลับภายใน 1 ชั่วโมง หรือจะโทรมาคุยกับเราโดยตรงก็ได้ครับ</p>
+
+          <div class="contact-chips">
+            <a class="chip" href="tel:0812345678">
+              <span class="icon-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.9.4 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z"/></svg>
+              </span>
+              <div><span>โทรหาเราได้ทุกวัน</span><strong>081-234-5678</strong></div>
+            </a>
+
+            <a class="chip" href="mailto:hello@baannokcoffee.com">
+              <span class="icon-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="3"/><path d="m3 7 9 6 9-6"/></svg>
+              </span>
+              <div><span>อีเมลสำหรับสั่งซื้อ / จองโต๊ะ</span><strong>hello@baannokcoffee.com</strong></div>
+            </a>
+
+            <div class="chip" style="cursor:default">
+              <span class="icon-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              </span>
+              <div><span>เปิดให้บริการ</span><strong>จ.–ศ. 07:00–17:00 · ส.–อา. 07:30–18:00 (หยุดพุธ)</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card reveal">
+          <h3>ส่งข้อความถึงร้าน</h3>
+          <p class="form-sub">กรอกข้อมูลให้ครบ แล้วกด “ส่งข้อความ” ได้เลยครับ</p>
+
+          <form id="contactForm" novalidate>
+            <div class="field">
+              <label for="name">ชื่อของคุณ <span class="req">*</span></label>
+              <input type="text" id="name" name="name" placeholder="เช่น คุณสมชาย ใจดี" autocomplete="name" />
+              <span class="err-msg"></span>
+            </div>
+
+            <div class="field">
+              <label for="phone">เบอร์โทรศัพท์ <span class="req">*</span></label>
+              <input type="tel" id="phone" name="phone" placeholder="เช่น 081-234-5678" inputmode="tel" autocomplete="tel" />
+              <span class="err-msg"></span>
+            </div>
+
+            <div class="field">
+              <label for="message">ข้อความ <span class="req">*</span></label>
+              <textarea id="message" name="message" placeholder="ต้องการสั่งกาแฟอะไร กี่แก้ว หรือมีอะไรให้เราช่วยเหลือ บอกเราได้เลยครับ"></textarea>
+              <span class="err-msg"></span>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+              ส่งข้อความ
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/></svg>
+            </button>
+
+            <p class="form-note">เราจะติดต่อกลับภายใน 1 ชั่วโมง ในเวลาเปิดทำการ</p>
+
+            <div class="form-success" id="formSuccess" role="status" aria-live="polite">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              ส่งข้อความเรียบร้อยแล้ว ขอบคุณมากครับ ☕
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ================= FOOTER ================= -->
+<footer class="footer">
+  <div class="container footer-inner">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="logo-mark" style="width:36px;height:36px;border-radius:11px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="width:19px;height:19px">
+          <path d="M4 9.5h12v4.8a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9.5Z"/>
+          <path d="M16 10.5h1.8a2.5 2.5 0 0 1 0 5H16"/>
+          <path d="M7.5 3.2c0 1.1-1.2 1.3-1.2 2.4M11.5 3.2c0 1.1-1.2 1.3-1.2 2.4"/>
+        </svg>
+      </span>
+      <div>
+        <strong style="color:#fff;font-family:var(--head);font-size:.95rem;display:block;line-height:1.4">บ้านนก คอฟฟี่</strong>
+        <span style="font-size:.75rem;opacity:.55">คั่วเองที่เชียงใหม่ · ตั้งแต่ปี 2561</span>
+      </div>
+    </div>
+
+    <nav class="footer-links" aria-label="ลิงก์ท้ายเว็บไซต์">
+      <a href="#menu">เมนู</a>
+      <a href="#reviews">รีวิว</a>
+      <a href="#visit">ร้านของเรา</a>
+      <a href="#contact">ติดต่อ</a>
+    </nav>
+
+    <span style="opacity:.45">© <span id="year"></span> บ้านนก คอฟฟี่. สงวนลิขสิทธิ์</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- ปีปัจจุบัน ---------- */
+  document.getElementById('year').textContent = new Date().getFullYear() + 543;
+
+  /* ---------- Navbar: เปลี่ยนสีตอนเลื่อน ---------- */
+  var nav = document.getElementById('nav');
+  function onScroll() {
+    nav.classList.toggle('scrolled', window.scrollY > 40);
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  /* ---------- เมนูมือถือ ---------- */
+  var burger = document.getElementById('burger');
+  var navLinks = document.getElementById('navLinks');
+
+  burger.addEventListener('click', function () {
+    var isOpen = nav.classList.toggle('open');
+    burger.setAttribute('aria-expanded', String(isOpen));
+    burger.setAttribute('aria-label', isOpen ? 'ปิดเมนูนำทาง' : 'เปิดเมนูนำทาง');
+  });
+
+  navLinks.querySelectorAll('a').forEach(function (link) {
+    link.addEventListener('click', function () {
+      nav.classList.remove('open');
+      burger.setAttribute('aria-expanded', 'false');
+      burger.setAttribute('aria-label', 'เปิดเมนูนำทาง');
+    });
+  });
+
+  /* ---------- ตรวจสอบสถานะเปิด/ปิดร้านแบบเรียลไทม์ ---------- */
+  (function checkStatus() {
+    var now = new Date();
+    var day = now.getDay();               // 0 = อาทิตย์, 3 = พุธ
+    var mins = now.getHours() * 60 + now.getMinutes();
+
+    var openMin = 7 * 60, closeMin = 17 * 60;   // จ.–ศ.
+    if (day === 0 || day === 6) {               // ส.–อา.
+      openMin = 7 * 60 + 30;
+      closeMin = 18 * 60;
+    }
+
+    var isOpen = (day !== 3) && mins >= openMin && mins < closeMin;
+
+    var badge = document.getElementById('statusBadge');
+    var text = document.getElementById('statusText');
+    var heroDot = document.getElementById('heroDot');
+    var heroStatus = document.getElementById('heroStatus');
+
+    if (isOpen) {
+      text.textContent = 'เปิดอยู่ตอนนี้ · ยินดีต้อนรับครับ';
+      heroStatus.textContent = 'เปิดอยู่ตอนนี้';
+    } else {
+      badge.classList.add('closed');
+      heroDot.classList.add('closed');
+      text.textContent = (day === 3) ? 'วันนี้หยุดร้าน (หยุดทุกวันพุธ)' : 'ปิดทำการแล้ว · พรุ่งนี้เจอกันใหม่';
+      heroStatus.textContent = (day === 3) ? 'วันนี้หยุดร้าน' : 'ปิดทำการแล้ว';
+    }
+  })();
+
+  /* ---------- ปุ่ม "สั่งเมนูนี้" → เติมข้อความ + เลื่อนไปฟอร์ม ---------- */
+  var form = document.getElementById('contactForm');
+  var nameInput = document.getElementById('name');
+  var phoneInput = document.getElementById('phone');
+  var messageInput = document.getElementById('message');
+  var successBox = document.getElementById('formSuccess');
+
+  document.querySelectorAll('[data-order]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var drink = btn.getAttribute('data-order');
+      messageInput.value = 'สวัสดีครับ/ค่ะ ต้องการสั่ง “' + drink + '” จำนวน 1 แก้ว ';
+      successBox.classList.remove('show');
+
+      document.getElementById('contact').scrollIntoView({ behavior: 'smooth' });
+      setTimeout(function () { nameInput.focus({ preventScroll: true }); }, 650);
+    });
+  });
+
+  /* ---------- ฟอร์มติดต่อ: ตรวจสอบ + ส่ง ---------- */
+  var fields = {
+    name: {
+      el: nameInput,
+      msg: 'กรุณากรอกชื่อของคุณ (อย่างน้อย 2 ตัวอักษร)',
+      valid: function (v) { return v.trim().length >= 2; }
+    },
+    phone: {
+      el: phoneInput,
+      msg: 'กรุณากรอกเบอร์โทรศัพท์ 9–10 หลัก',
+      valid: function (v) {
+        var digits = v.replace(/\D/g, '');
+        return digits.length >= 9 && digits.length <= 10;
+      }
+    },
+    message: {
+      el: messageInput,
+      msg: 'กรุณาพิมพ์ข้อความอย่างน้อย 5 ตัวอักษร',
+      valid: function (v) { return v.trim().length >= 5; }
+    }
+  };
+
+  function setError(key, show) {
+    var f = fields[key];
+    var wrap = f.el.closest('.field');
+    wrap.classList.toggle('invalid', show);
+    if (show) wrap.querySelector('.err-msg').textContent = f.msg;
+  }
+
+  // เคลียร์ error ขณะพิมพ์
+  Object.keys(fields).forEach(function (key) {
+    fields[key].el.addEventListener('input', function () { setError(key, false); });
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    successBox.classList.remove('show');
+
+    var hasError = false;
+    Object.keys(fields).forEach(function (key) {
+      var f = fields[key];
+      var ok = f.valid(f.el.value);
+      setError(key, !ok);
+      if (!ok && !hasError) {
+        hasError = true;
+        f.el.focus();
+      }
+    });
+
+    if (hasError) return;
+
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var originalHTML = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.style.opacity = '.75';
+    submitBtn.innerHTML = 'กำลังส่งข้อความ...';
+
+    // จำลองการส่งข้อมูล (ในงานจริงให้ต่อกับ API หรืออีเมล)
+    setTimeout(function () {
+      submitBtn.disabled = false;
+      submitBtn.style.opacity = '';
+      submitBtn.innerHTML = originalHTML;
+
+      form.reset();
+      successBox.classList.add('show');
+      successBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 900);
+  });
+
+  /* ---------- Reveal on scroll ---------- */
+  var revealItems = document.querySelectorAll('.reveal');
+
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+
+    revealItems.forEach(function (el, i) {
+      el.style.transitionDelay = (i % 3) * 90 + 'ms';
+      observer.observe(el);
+    });
+  } else {
+    revealItems.forEach(function (el) { el.classList.add('in'); });
+  }
+})();
+</script>
+</body>
+</html>
