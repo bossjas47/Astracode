@@ -304,13 +304,16 @@ test('harness: verify gate — code edits without a test/build run get one remin
 });
 
 test('harness: second-pass reviewer — flagged notes trigger one fix round; LGTM finishes', async () => {
-  const s = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }, { text: 'แก้ตามที่ตรวจแล้ว' }]);
+  const s = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b'.repeat(3000) }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }, { text: 'แก้ตามที่ตรวจแล้ว' }]);
   const asked = [];
   const r = await run(s, { callTool: async () => 'ok', review: async x => { asked.push(x.changed); return '- a.js: missing null check on line 3'; } });
   assert.deepEqual(asked, [['a.js']]); assert.equal(s.seen.length, 4); assert.equal(r.stats.reviewed, 1);
   assert.match(r.messages.find(m => /\[Kyber Harness · review\]/.test(m.content || '')).content, /missing null check/);
-  const s2 = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }]);
+  const s2 = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b'.repeat(3000) }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }]);
   await run(s2, { callTool: async () => 'ok', review: async () => 'LGTM' }); assert.equal(s2.seen.length, 3);
+  // งานเล็กที่ตรวจผ่านแล้ว: ข้ามผู้ตรวจรอบสอง (ประหยัดลิมิตโมเดลแรง)
+  const s4 = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }]); let c4 = 0;
+  const r4 = await run(s4, { callTool: async () => 'ok', review: async () => { c4++; return 'x'; } }); assert.equal(c4, 0); assert.equal(r4.stats.reviewSkipped, 1);
   const s3 = script([{ text: 'ตอบคำถามเฉย ๆ' }]); let called = 0; await run(s3, { callTool: async () => '', review: async () => { called++; return 'x'; } }); assert.equal(called, 0); // ไม่ได้แก้ไฟล์: ไม่ตรวจ
 });
 
@@ -392,9 +395,9 @@ test('harness: advisor plans once per request and helps when stuck; failed page 
   const s = script([
     { calls: [['read_file', { path: 'a.js' }]] }, { calls: [['read_file', { path: 'a.js' }]] }, { calls: [['read_file', { path: 'a.js' }]] },
     { calls: [['check_page', { path: 'index.html' }]] }, { text: 'เสร็จแล้ว' }, { calls: [['check_page', { path: 'index.html' }]] }, { text: 'แก้แล้ว ผ่าน' }]);
-  let pageOk = false; const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'ทำฉาก 3D' }];
+  let pageOk = false; const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'ทำฉาก 3D ด้วย three.js ให้กล้องหมุนรอบโมเดลและมีแสงสวย ๆ ในหน้า index.html' }];
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools, advisor, fetchImpl: s.fetch, callTool: async n => n === 'check_page' ? (pageOk ? 'ตรวจหน้า index.html\nconsole ไม่มี error' : 'ตรวจหน้า index.html\nพบ error 1 รายการ') : 'same' });
-  assert.equal(asked[0], 'plan:ทำฉาก 3D'); assert.match(JSON.stringify(s.seen[0].messages), /advisor plan[\s\S]*fix camera/);
+  assert.equal(asked[0], 'plan:ทำฉาก 3D ด'); assert.match(JSON.stringify(s.seen[0].messages), /advisor plan[\s\S]*fix camera/);
   assert.ok(asked.includes('unstuck')); assert.match(JSON.stringify(s.seen[3].messages), /advisor opus\] the import map/);
   assert.match(JSON.stringify(s.seen[5].messages), /last checks still fail/, 'finishing with a failing page check is pushed back');
   pageOk = true;
@@ -414,7 +417,7 @@ test('memory: lessons from a task are written to .kyber/memory.md, deduped by th
 test('slim: old file contents, old long outputs and old screenshots leave the context; recent turns stay whole', () => {
   const { slim } = require('../agent');
   const big = 'x'.repeat(5000), m = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'task' }];
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 8; i++) {
     m.push({ role: 'assistant', content: null, tool_calls: [{ id: 'c' + i, type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: `f${i}.js`, content: big }) } }] });
     m.push({ role: 'tool', tool_call_id: 'c' + i, content: 'out ' + big });
     m.push({ role: 'user', content: [{ type: 'text', text: 'shot' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAA' } }] });
@@ -437,6 +440,33 @@ test('advisor plan: skipped for short follow-ups (saves limits), used again for 
   msgs.push({ role: 'user', content: 'ฟีเจอร์ใหม่: '.padEnd(300, 'ก') }); s = script([{ text: 'done' }]);
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: msgs, tools, advisor, verifyGate: false, fetchImpl: s.fetch, callTool: async () => 'ok' });
   assert.equal(asked.length, 1);
-  const m = [{ role: 'user', content: 't' }]; for (let i = 0; i < 5; i++) m.push({ role: 'assistant', content: null, tool_calls: [{ id: 'r' + i, type: 'function', function: { name: 'mcp_roblox_run_code', arguments: JSON.stringify({ code: 'print(1)\n'.repeat(400) }) } }] }, { role: 'tool', tool_call_id: 'r' + i, content: 'ok' });
+  const m = [{ role: 'user', content: 't' }]; for (let i = 0; i < 8; i++) m.push({ role: 'assistant', content: null, tool_calls: [{ id: 'r' + i, type: 'function', function: { name: 'mcp_roblox_run_code', arguments: JSON.stringify({ code: 'print(1)\n'.repeat(400) }) } }] }, { role: 'tool', tool_call_id: 'r' + i, content: 'ok' });
   slim(m); assert.match(JSON.parse(m[1].tool_calls[0].function.arguments).code, /already run/); assert.ok(!/already run/.test(JSON.parse(m.at(-2).tool_calls[0].function.arguments).code));
+});
+
+test('wrap-up: 3 rounds before the cap the AI is told to summarize; after checks pass and 6 quiet rounds it is nudged to finish', async () => {
+  const s = script(Array.from({ length: 10 }, () => ({ calls: [['read_file', { path: 'a.js' }]] })));
+  await run(s, { callTool: async () => 'x', maxRounds: 10 });
+  assert.match(JSON.stringify(s.seen[7].messages), /Only 3 rounds left/);
+  const calls = [{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { calls: [['bash', { command: 'npm test' }]] }, ...Array.from({ length: 8 }, (_, i) => ({ calls: [['read_file', { path: 'f' + i + '.js' }]] })), { text: 'done' }];
+  const s2 = script(calls); await run(s2, { callTool: async () => 'ok', maxRounds: 40 });
+  assert.ok(s2.seen.some(x => /last checks passed and nothing has failed/.test(JSON.stringify(x.messages))));
+});
+
+test('advisor does not block: a slow plan arrives later and is added once before a later round', async () => {
+  let release; const slow = new Promise(r => { release = r; });
+  const advisor = { model: 'opus', plan: () => slow, unstuck: async () => null };
+  const s = script([{ calls: [['read_file', { path: 'a.js' }]] }, { calls: [['read_file', { path: 'b.js' }]] }, { text: 'done' }]);
+  const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'สร้างระบบล็อกอินพร้อมสมัครสมาชิกและลืมรหัสผ่านให้เว็บนี้ทั้งหมด ครบทุกหน้า' }];
+  const p = runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools, advisor, verifyGate: false, fetchImpl: s.fetch, callTool: async () => { release('1. read auth.js'); return 'x'; } });
+  await p;
+  assert.ok(!/advisor plan/.test(JSON.stringify(s.seen[0].messages)), 'first request did not wait for the plan');
+  assert.equal((JSON.stringify(s.seen.at(-1).messages).match(/advisor plan/g) || []).length, 1);
+});
+
+test('helper model: cheapest text model by plan multiplier for side jobs; none cheaper = main model', () => {
+  const { pickHelper } = require('../skills');
+  const ms = [{ id: 'opus', multiplier: 8, cost: 30 }, { id: 'flash', multiplier: 1, cost: 2 }, { id: 'luna', multiplier: 0.3, cost: 1.2 }, { id: 'pic', owned_by: 'image', multiplier: 0.1 }];
+  assert.equal(pickHelper(ms, 'opus'), 'luna'); assert.equal(pickHelper(ms, 'luna'), null); assert.equal(pickHelper([], 'x'), null);
+  assert.match(agentSystem({ root: '/p', os: 'x', rules: '' }), /start 2-3 helpers in ONE reply/);
 });

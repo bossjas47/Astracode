@@ -73,7 +73,7 @@ function repairHistory(messages) {
 //   spill(text, info) → path ของไฟล์ที่เก็บผลเต็ม · onCheckpoint({ round, messages, state }) · retryWaits (ระบุเอง = ไม่สุ่ม ใช้ในเทสต์)
 async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {},
   retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000,
-  verifyGate = true, checks = [], review = null, advisor = null, pinned = null, seeImages = true, slimOld = true }) {
+  verifyGate = true, checks = [], review = null, advisor = null, pinned = null, seeImages = true, slimOld = true, helperModel = null }) {
   const url = base.replace(/\/$/, '') + '/chat/completions', t0 = Date.now();
   const post = (body, sig = signal) => fetchImpl(url, { method: 'POST', signal: sig, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
   // นาฬิกาเฝ้าคำขอ: ไม่ได้คำตอบเลยภายใน firstByteMs หรือสตรีมเงียบ (ไม่มีข้อมูลแม้แต่ ping) เกิน stallMs → ตัดการเชื่อมต่อ
@@ -101,17 +101,27 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (maxTokens && stats.promptTokens + stats.outTokens > maxTokens) { stop(`ใช้ token ครบเพดาน ${maxTokens.toLocaleString()} แล้ว`); return finish(); }
     for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
     if (slimOld) stats.slimmed = (stats.slimmed || 0) + slim(messages); // slimOld=false: ใช้วัดเทียบกับโปรแกรม AI ทั่วไปที่ไม่ย่อ
-    if (JSON.stringify(messages).length > compactAt) await compact({ post, model, messages, onEvent, state, pinned });
+    if (JSON.stringify(messages).length > compactAt) await compact({ post, model: helperModel || model, messages, onEvent, state, pinned }); // ย่อบทสนทนาด้วยโมเดลประหยัด (ถ้ามี)
     // ที่ปรึกษาโมเดลแรง: วางแผนให้ครั้งเดียวต่อคำสั่งผู้ใช้ (ก่อนรอบแรก) · เรียกไม่ได้ = ทำงานต่อตามปกติ
     if (round === 0 && advisor?.plan && depth === 0) {
       const lastUser = [...messages].reverse().find(m => m.role === 'user'), task = typeof lastUser?.content === 'string' ? lastUser.content : JSON.stringify(lastUser?.content || '');
-      // ประหยัดลิมิต: วางแผนเฉพาะคำสั่งแรกของบทสนทนา หรือคำสั่งที่ยาว/เป็นงานใหญ่ · คำสั่งต่อเนื่องสั้น ๆ ("ทำต่อ", "แก้ตรงนี้", งาน MCP ทีละขั้น) ไม่เรียกโมเดลแรงทุกข้อความ
+      // ประหยัดลิมิต: วางแผนเฉพาะคำสั่งแรกของบทสนทนา (ที่ไม่สั้นมาก) หรือคำสั่งยาว/งานใหญ่ · "ทำต่อ", "แก้สีปุ่ม" ไม่เรียกโมเดลแรง
       const firstAsk = messages.filter(m => m.role === 'user' && !String(typeof m.content === 'string' ? m.content : '').startsWith('[')).length <= 1;
-      if (lastUser && !String(task).startsWith('[Kyber Harness') && (firstAsk || String(task).length >= 280)) {
-        onEvent({ type: 'info', text: 'ที่ปรึกษากำลังวางแผนงาน…' });
-        const plan = await Promise.resolve(advisor.plan(task, messages[0]?.role === 'system' ? String(messages[0].content).match(/Project map[\s\S]{0,3500}/)?.[0] || '' : '')).catch(() => null);
-        if (plan) { messages.push({ role: 'user', content: `[Kyber Harness · advisor plan] A senior engineer (${advisor.model}) suggests this plan. Use it as guidance, verify against the real files, and adapt if the code says otherwise:\n${plan.slice(0, 4000)}` }); stats.advised = (stats.advised || 0) + 1; onEvent({ type: 'info', text: 'ที่ปรึกษาวางแผนให้แล้ว' }); }
+      if (lastUser && !String(task).startsWith('[Kyber Harness') && ((firstAsk && String(task).length >= 60) || String(task).length >= 280)) {
+        onEvent({ type: 'info', text: 'ที่ปรึกษากำลังวางแผนงาน (AI เริ่มสำรวจไปพร้อมกัน)…' });
+        // ไม่ให้โมเดลหลักนั่งรอ (Opus ใช้ ~25 วินาที): เริ่มงานเลย แผนมาเมื่อไหร่ค่อยแทรกก่อนรอบถัดไป
+        state.planP = Promise.resolve(advisor.plan(task, messages[0]?.role === 'system' ? String(messages[0].content).match(/Project map[\s\S]{0,3500}/)?.[0] || '' : '')).catch(() => null).then(p => { state.plan = p || ''; });
+        await Promise.race([state.planP, new Promise(r => setTimeout(r, 0))]);
       }
+    }
+    if (state.plan && !state.planIn) { // แผนมาแล้ว: แทรกครั้งเดียว (ต่อท้ายผลเครื่องมือล่าสุด)
+      state.planIn = true; messages.push({ role: 'user', content: `[Kyber Harness · advisor plan] A senior engineer (${advisor.model}) suggests this plan. Use it as guidance, verify against the real files, and adapt if the code says otherwise:\n${state.plan.slice(0, 4000)}` }); stats.advised = (stats.advised || 0) + 1; onEvent({ type: 'info', text: 'ที่ปรึกษาวางแผนให้แล้ว' });
+    }
+    // 1) ใกล้ครบรอบ: บอกให้สรุป (เดิมวนจนครบแล้วจบเงียบ ๆ ผู้ใช้ไม่ได้สรุปว่าทำอะไรไป)
+    if (depth === 0 && maxRounds >= 8 && round === maxRounds - 3) { messages.push({ role: 'user', content: '[Kyber Harness] Only 3 rounds left in this run. Finish now: make only the last essential fix (if any), then give the final summary (what changed, how it was verified, what is left). Do not start new work.' }); onEvent({ type: 'info', text: 'ใกล้ครบรอบ: ให้ AI สรุปงาน' }); }
+    // 1) ตรวจผ่านแล้วแต่ยังวนเก็บงานเล็ก ๆ ต่อเรื่อย ๆ: เตือนครั้งเดียวให้สรุป
+    if (depth === 0 && !state.doneHint && state.codeEditRound >= 0 && state.verifyRound >= state.codeEditRound && !state.pageBad && !state.errors.size && round - state.verifyRound >= 6) {
+      state.doneHint = true; messages.push({ role: 'user', content: '[Kyber Harness] Your last checks passed and nothing has failed since. If every part of the request is done, stop polishing and give the final summary now.' }); onEvent({ type: 'info', text: 'ตรวจผ่านแล้ว: ให้ AI สรุปงาน' });
     }
     const body = { model, messages, stream: true, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) };
     const tReq = Date.now(); let r, attempt = 0, msg = null, stalls = 0;
@@ -172,6 +182,8 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
         onEvent({ type: 'info', text: 'ตรวจงานก่อนจบ: ให้ AI รันเทสต์/บิลด์ก่อนสรุป' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
       }
       // ผู้ตรวจรอบสอง (ครั้งเดียว): โมเดลอีกตัวอ่านสิ่งที่แก้หาบั๊ก/จุดที่ไม่ตรงคำสั่ง → ให้ Agent แก้ก่อนจบ
+      const small = state.changed.size <= 2 && (state.editChars || 0) < 2500 && state.verifyRound >= state.codeEditRound && !state.errors.size && !state.pageBad; // งานเล็กที่ตรวจผ่านแล้ว: ข้ามผู้ตรวจรอบสอง (ประหยัดลิมิตโมเดลแรง)
+      if (small && review && depth === 0 && !state.reviewed && state.changed.size) { state.reviewed = true; stats.reviewSkipped = 1; }
       if (review && depth === 0 && !state.reviewed && state.changed.size && round < maxRounds - 1) {
         state.reviewed = true; onEvent({ type: 'info', text: 'ผู้ตรวจรอบสองกำลังอ่านสิ่งที่แก้…' });
         const notes = await Promise.resolve(review({ changed: [...state.changed], final: msg.content || '', messages })).catch(() => null);
@@ -243,15 +255,16 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
 // ลดขนาดบริบท (ทำทุกรอบ ไม่ต้องเรียกโมเดล): ของเก่าที่โมเดลไม่ต้องเห็นซ้ำทุกรอบ
 // 1) เนื้อหาไฟล์ใน write_file/edit_file ที่เขียนไปแล้ว (ไฟล์อยู่บนดิสก์ อ่านใหม่ได้) 2) ผลเครื่องมือยาว ๆ ของรอบเก่า 3) ภาพหน้าเว็บเก่า (เหลือภาพล่าสุด)
 // เดิมไฟล์ 50K ตัวอักษรที่เขียนตอนต้นถูกส่งซ้ำทุกรอบ = โทเคนขาเข้าหลักของงาน · แก้ในที่เดิมครั้งเดียว ข้อความเก่าไม่เปลี่ยนอีก (prompt cache ส่วนต้นยังใช้ได้)
-const SLIM_KEEP = 3, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'], CODE_ARGS = ['code', 'script', 'source', 'command', 'luau', 'lua', 'python', 'query']; // CODE_ARGS: โค้ดที่ส่งไปรันแล้ว (เช่น MCP Roblox run_code, bash)
+const SLIM_KEEP = 3, SLIM_STEP = 4, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'], CODE_ARGS = ['code', 'script', 'source', 'command', 'luau', 'lua', 'python', 'query']; // CODE_ARGS: โค้ดที่ส่งไปรันแล้ว (เช่น MCP Roblox run_code, bash)
 function slim(messages) {
-  const asst = messages.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0); if (asst.length <= SLIM_KEEP) return 0;
-  const cut = asst[asst.length - SLIM_KEEP]; let n = 0, lastImg = -1;
+  const asst = messages.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0);
+  // เส้นแบ่ง "ของเก่า" ขยับทีละ SLIM_STEP รอบ (ไม่ใช่ทุกรอบ): ข้อความต้นบทสนทนาคงเดิมหลายรอบติด → prompt cache ติดมากขึ้น · เก็บเต็มอย่างน้อย SLIM_KEEP รอบล่าสุด
+  const k = Math.floor((asst.length - SLIM_KEEP) / SLIM_STEP) * SLIM_STEP, cut = k > 0 ? asst[k] : -1; let n = 0, lastImg = -1;
   for (let i = messages.length - 1; i >= 0; i--) if (Array.isArray(messages[i].content) && messages[i].content.some(p => p.type === 'image_url')) { lastImg = i; break; }
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (Array.isArray(m.content) && i !== lastImg && m.content.some(p => p.type === 'image_url')) { m.content = '(ภาพหน้าเว็บรอบก่อน: ลบออกเพื่อประหยัด context · ภาพล่าสุดยังอยู่)'; n++; continue; }
-    if (i >= cut) continue;
+    if (cut < 0 || i >= cut) continue;
     if (m.role === 'assistant' && m.tool_calls) for (const tc of m.tool_calls) {
       const raw = tc.function?.arguments || ''; if (raw.length <= SLIM_ARG * 2) continue;
       let a; try { a = JSON.parse(raw); } catch { continue; }
@@ -269,6 +282,7 @@ const snapshot = s => ({ todos: s.todos, changed: [...s.changed], errors: [...s.
 function track(state, name, args, out, ok) {
   if (name === 'todo_write' && ok && Array.isArray(args.todos)) state.todos = args.todos.slice(0, 30).map(t => ({ content: String(t.content || '').slice(0, 200), status: t.status }));
   const target = String(args.path || args.command || args.url || '').slice(0, 200), k = name + ':' + target;
+  if (EDIT_TOOLS.has(name) && ok) state.editChars = (state.editChars || 0) + String(args.content ?? args.new_string ?? JSON.stringify(args.edits ?? '')).length;
   if (EDIT_TOOLS.has(name) && ok && args.path) { state.changed.add(String(args.path)); if (CODE_RE.test(String(args.path))) state.codeEditRound = state.round; }
   if ((name === 'bash' && VERIFY_RE.test(String(args.command || ''))) || name === 'check_page') state.verifyRound = state.round; // check_page = เปิดหน้าเว็บจริงตรวจ
   if (name === 'check_page') { state.pageBad = !ok || /พบ error|ดูเหมือนว่าง/.test(out); } // รันตรวจแล้ว (ผ่านหรือไม่ผ่านก็นับ: โมเดลเห็นผลจริงแล้ว)
