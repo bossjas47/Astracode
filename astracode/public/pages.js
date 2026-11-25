@@ -293,7 +293,7 @@ PAGES.sites = async () => {
   const card = s => `<article class="card site-card" data-site="${s.id}">
     <div class="site-top"><span class="site-ic">${ic('globe')}</span><div class="site-name"><b>${esc(s.title)}</b><a href="${esc(link(s))}" target="_blank" rel="noopener">${esc(location.host)}/s/${esc(s.slug)}/</a></div><span class="pill ${ST[s.status]?.[0] || ''}">${ST[s.status]?.[1] || esc(s.status)}</span></div>
     <div class="site-meta muted"><span>v${s.live}${s.live !== s.ver ? ` (ล่าสุด v${s.ver})` : ''}</span><span>${ic('eye', 'sm')} ${Number(s.views).toLocaleString(LOC)} ครั้ง</span><span>อัปเดต ${when(s.updated_at)}</span><span>จาก${s.src === 'project' ? 'โปรเจกต์ Code' : ' Artifact'}</span></div>
-    <div class="site-act"><button type="button" class="btn out sm" data-cp="${esc(link(s))}">${ic('copy', 'sm')} คัดลอกลิงก์</button><button type="button" class="btn out sm" data-pub="${s.id}" ${s.status === 'banned' ? 'disabled' : ''}>${ic('refresh', 'sm')} อัปเดตจากต้นทาง</button><button type="button" class="btn out sm" data-inbox="${s.id}">${ic('inbox', 'sm')} ข้อความ${s.unread ? ` <span class="site-badge">${s.unread}</span>` : ''}</button><button type="button" class="btn out sm" data-man="${s.id}">${ic('settings', 'sm')} จัดการ</button></div></article>`;
+    <div class="site-act"><button type="button" class="btn out sm" data-cp="${esc(link(s))}">${ic('copy', 'sm')} คัดลอกลิงก์</button><button type="button" class="btn out sm" data-pub="${s.id}" ${s.status === 'banned' ? 'disabled' : ''}>${ic('refresh', 'sm')} อัปเดตจากต้นทาง</button><button type="button" class="btn out sm" data-inbox="${s.id}">${ic('inbox', 'sm')} ข้อความ${s.unread ? ` <span class="site-badge">${s.unread}</span>` : ''}</button><button type="button" class="btn out sm" data-app="${s.id}">${ic('sparkles', 'sm')} AI และข้อมูล</button><button type="button" class="btn out sm" data-man="${s.id}">${ic('settings', 'sm')} จัดการ</button></div></article>`;
   page(nav() + `<div class="wrap sites-wrap"><header class="shop-hero"><h1>เว็บของฉัน</h1><p class="muted">เว็บที่คุณเผยแพร่จากหน้า Code หรือ Artifact · ใครมีลิงก์ก็เปิดได้</p>
     ${d.paid ? `<p class="site-quota">ใช้ไป <b>${d.sites.length}</b> จาก <b>${d.quota}</b> เว็บ</p>` : ''}</header>
     ${!d.paid ? `<div class="card"><p>เผยแพร่เว็บใช้ได้กับแพลนที่ชำระเงิน</p><a class="btn blue" href="/plans">ดูแพลน</a></div>`
@@ -311,6 +311,7 @@ PAGES.sites = async () => {
     });
     if (s.unread) { await api(`/sites/${s.id}/forms/seen`, { method: 'POST' }).catch(() => {}); s.unread = 0; b.querySelector('.site-badge')?.remove(); }
   });
+  app.querySelectorAll('[data-app]').forEach(b => b.onclick = () => siteAppSheet(find(b.dataset.app)));
   app.querySelectorAll('[data-man]').forEach(b => b.onclick = async () => {
     const s = find(b.dataset.man); let x; try { x = await api('/sites/' + s.id); } catch (e) { return toast(e.message, 'bad'); }
     const max = Math.max(1, ...x.days.map(v => v.n)), days = x.days.slice().reverse();
@@ -405,4 +406,31 @@ async function meetDetail(id) {
   $('#mretry')?.addEventListener('click', async e => { e.target.disabled = true; e.target.textContent = 'กำลังถอดใหม่…'; await api(`/meetings/${id}/retry`, { method: 'POST' }).catch(x => toast(x.message, 'bad')); meetDetail(id); });
   $('#mfin')?.addEventListener('click', async e => { e.target.disabled = true; await api(`/meetings/${id}/finish`, { method: 'POST' }).catch(x => toast(x.message, 'bad')); meetDetail(id); });
   if (busy) setTimeout(() => { if (+qs().get('id') === id && document.body.dataset.page === 'meetings' && !document.querySelector('.sheet-bg')) meetDetail(id); }, 6000);
+}
+
+// แอป AI: เปิดให้เว็บเรียก AI (หักลิมิตของคุณ) + ดูข้อมูลที่เว็บเก็บ
+async function siteAppSheet(s) {
+  let a; try { a = await api(`/sites/${s.id}/app`); } catch (x) { return toast(x.message, 'bad'); }
+  const csv = rows => { const keys = [...new Set(rows.flatMap(r => Object.keys(r.data)))], q = v => `"${String(v ?? '').replace(/"/g, '""')}"`; return '﻿' + ['เวลา', ...keys].map(q).join(',') + '\n' + rows.map(r => [new Date(r.created_at).toLocaleString(LOC), ...keys.map(k => typeof r.data[k] === 'object' ? JSON.stringify(r.data[k]) : r.data[k])].map(q).join(',')).join('\n'); };
+  sheet('AI และข้อมูล · ' + s.title, `<div class="sheet-form">
+    <label class="sw-row"><span class="sw"><input type="checkbox" id="aon" ${a.ai_on ? 'checked' : ''}><span></span></span> ให้เว็บนี้ใช้ AI ได้ (หักลิมิตแพลนของคุณ)</label>
+    <label>โมเดล<select id="amod"><option value="">ถูกที่สุดในแพลน (แนะนำ)</option>${a.models.map(m => `<option value="${m.id}" ${m.id === a.ai_model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
+    <label>เพดานต่อวัน (ครั้ง) · คนเข้าชมแต่ละคนใช้ได้ 20 ครั้ง/ชม.<input id="aday" type="number" min="1" max="5000" value="${a.ai_day}"></label>
+    <button type="button" class="btn blue" id="asave">บันทึก</button>
+    <details class="site-help"><summary><b>ใช้ในโค้ดยังไง</b></summary><pre><code>${esc("const reply = await kyber.ai('แนะนำเมนูกาแฟ', { system: 'คุณคือพนักงานร้านกาแฟ' });\nconst data = await kyber.ai('ให้คะแนน 1-10', { json: true });\nawait kyber.db.add('orders', { name: 'นก', qty: 2 });\nconst list = await kyber.db.list('guestbook');  // ต้องเปิด 'อ่านได้ทุกคน'")}</code></pre><p class="muted">หรือบอก AI ในหน้า Code ว่า "ทำแชตบอตร้านที่ใช้ kyber.ai" ก็ได้</p></details>
+    <b>ข้อมูลที่เว็บเก็บ</b>${a.colls.length ? `<div class="site-vers">${a.colls.map(c => `<div class="row"><span><b>${esc(c.coll)}</b> <small class="muted">${c.n} รายการ</small></span><span class="sp"></span><label class="sw-row" title="คนเข้าชมอ่านตารางนี้ได้ (เช่น สมุดเยี่ยม คะแนนเกม)"><span class="sw"><input type="checkbox" data-pubc="${esc(c.coll)}" ${c.public ? 'checked' : ''}><span></span></span><small>อ่านได้ทุกคน</small></label><button type="button" class="btn out sm" data-view="${esc(c.coll)}">ดู</button></div>`).join('')}</div>` : '<small class="muted">ยังไม่มีข้อมูล · เว็บเก็บข้อมูลด้วย kyber.db.add()</small>'}
+    <small class="muted">ค่าเริ่มต้นทุกตารางเป็นส่วนตัว: คนเข้าชมเพิ่มได้อย่างเดียว อ่านไม่ได้ · เก็บได้สูงสุด 5,000 รายการต่อเว็บ</small></div>`, (d, close) => {
+    d.querySelector('#asave').onclick = async () => { try { await api(`/sites/${s.id}/app`, { method: 'PATCH', body: { ai_on: d.querySelector('#aon').checked, ai_model: +d.querySelector('#amod').value || null, ai_day: +d.querySelector('#aday').value } }); toast('บันทึกแล้ว', 'ok'); close(); } catch (x) { toast(x.message, 'bad'); } };
+    d.querySelectorAll('[data-pubc]').forEach(c => c.onchange = async () => { const list = [...d.querySelectorAll('[data-pubc]:checked')].map(x => x.dataset.pubc); try { await api(`/sites/${s.id}/app`, { method: 'PATCH', body: { db_public: list } }); toast(c.checked ? 'คนเข้าชมอ่านตารางนี้ได้แล้ว' : 'ตารางนี้เป็นส่วนตัวแล้ว', 'ok'); } catch (x) { c.checked = !c.checked; toast(x.message, 'bad'); } });
+    d.querySelectorAll('[data-view]').forEach(v => v.onclick = async () => {
+      const coll = v.dataset.view; let rows; try { rows = await api(`/sites/${s.id}/data?coll=${encodeURIComponent(coll)}`); } catch (x) { return toast(x.message, 'bad'); }
+      const keys = [...new Set(rows.flatMap(r => Object.keys(r.data)))].slice(0, 8);
+      sheet(coll + ` (${rows.length})`, `<div class="row" style="gap:8px;margin-bottom:8px"><button type="button" class="btn out sm" id="dcsv">${ic('download', 'sm')} Excel (CSV)</button><button type="button" class="btn ghost sm" id="dclr">${ic('trash', 'sm')} ล้างทั้งตาราง</button></div>
+        <div class="tw"><table class="tbl"><tr><th>เวลา</th>${keys.map(k => `<th>${esc(k)}</th>`).join('')}<th></th></tr>${rows.map(r => `<tr><td class="muted">${when(r.created_at)}</td>${keys.map(k => `<td>${esc(typeof r.data[k] === 'object' ? JSON.stringify(r.data[k]) : r.data[k] ?? '')}</td>`).join('')}<td><button type="button" class="icon-btn sm ghost" data-rdel="${r.id}" aria-label="ลบ">${ic('trash', 'sm')}</button></td></tr>`).join('')}</table></div>`, (dd, cl) => {
+        dd.querySelector('#dcsv').onclick = () => { const x = document.createElement('a'); x.href = URL.createObjectURL(new Blob([csv(rows)], { type: 'text/csv' })); x.download = `${s.slug}-${coll}.csv`; x.click(); };
+        dd.querySelector('#dclr').onclick = async () => { if (!confirm(`ลบข้อมูลทั้งหมดในตาราง ${coll}?`)) return; await api(`/sites/${s.id}/data?coll=${encodeURIComponent(coll)}`, { method: 'DELETE' }); cl(); toast('ล้างแล้ว', 'ok'); };
+        dd.querySelectorAll('[data-rdel]').forEach(x => x.onclick = async () => { await api(`/sites/${s.id}/data/${x.dataset.rdel}`, { method: 'DELETE' }); x.closest('tr').remove(); });
+      });
+    });
+  });
 }

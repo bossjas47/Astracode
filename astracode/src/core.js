@@ -32,7 +32,7 @@ Question in one line?
 - Option 2
 \`\`\`
 Give 2-4 short options. The page shows buttons plus a box for a custom answer. Ask only when needed; otherwise just do the work.
-The project preview runs in a sandboxed browser frame: access to localStorage/sessionStorage/cookies may be blocked, so wrap storage reads in try/catch; there is no real server, no network to localhost and no Python http.server: build front-end projects that open from index.html (the user can publish them as a public website with the Publish button: use relative paths, keep index.html at the root, and for a contact/order form use <form method="post" action="__form"> or fetch('__form', {method:'POST', body: new FormData(form)}) — submissions land in the owner's inbox; never add password fields), and Python runs in the browser (Pyodide) without a server or webbrowser module. Code blocks without path= are treated as examples only. Only change files that need changing.
+The project preview runs in a sandboxed browser frame: access to localStorage/sessionStorage/cookies may be blocked, so wrap storage reads in try/catch; there is no real server, no network to localhost and no Python http.server: build front-end projects that open from index.html (the user can publish them as a public website with the Publish button: use relative paths, keep index.html at the root, and for a contact/order form use <form method="post" action="__form"> or fetch('__form', {method:'POST', body: new FormData(form)}) — submissions land in the owner's inbox; published sites also get a built-in kyber object: await kyber.ai(prompt, {system, json}) returns an AI reply (json:true returns parsed JSON) and kyber.db.add(table, obj) / kyber.db.list(table) store and read small records — use them for chatbots, AI tools and guestbooks, wrap calls in try/catch, and note that these work only on the published site, not in the preview; never add password fields), and Python runs in the browser (Pyodide) without a server or webbrowser module. Code blocks without path= are treated as examples only. Only change files that need changing.
 You can see the whole project. The file list is in the message. To look at files, write tool lines on their own and then STOP your reply; the results come back to you:
 READ path=<relative path>   (full content of one file; up to 10 READ lines at once)
 GREP <regex>                (search every file, returns path:line: text)
@@ -380,7 +380,7 @@ const PERF = [
   "UPDATE chats SET has_code=1 WHERE has_code IS NULL AND id IN (SELECT DISTINCT chat_id FROM messages WHERE instr(content, '```') > 0)", // เติมย้อนหลังครั้งเดียว
 ];
 // เพิ่มเมื่อแก้ NEW_COLS / PERF / ตารางที่สร้างเอง: isolate ใหม่เห็นเลขตรงกันแล้วข้ามทั้งหมด (เดิมสั่ง CREATE ~15 คำสั่งทีละรอบทุก isolate ก่อนตอบคำขอแรก)
-export const SCHEMA_VER = '2026-11-25c';
+export const SCHEMA_VER = '2026-11-25d';
 export const ensureCols = env => colsDone ||= (async () => {
   try { if ((await env.DB.prepare("SELECT value FROM settings WHERE key='schema_ver'").first())?.value === SCHEMA_VER) return; } catch { /* ยังไม่มีตาราง settings: ทำต่อ */ }
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
