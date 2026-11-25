@@ -1,0 +1,25 @@
+# ชั่วคราว (อ่านอย่างเดียว · ผู้ใช้อนุญาตแล้ว): ลิมิตแพลน Plus/ทดลอง, ตัวคูณ Opus Eco, การใช้ Opus Eco ของผู้ใช้แพลนทดลองใน 48 ชม. (ไม่ดึงอีเมล) แล้วลบ workflow นี้ทิ้ง
+name: D1 read trial Opus usage (one-off)
+on:
+  push:
+    branches: [ccr-84ca511c-jo3r38]
+    paths: ['.github/workflows/d1-read.yml']
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Read
+        working-directory: astracode
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          q() { npx --yes wrangler@4.162.0 d1 execute astracode --remote --json --command "$1" | grep -v '"meta"' | tr -d '\n' | sed 's/},{/}\n{/g; s/"success".*//'; echo; echo ---; }
+          q "SELECT id, name, price, once, limit_4h, limit_week FROM plans WHERE id IN (5,14,15)"
+          q "SELECT id, name, use_mult, multiplier, cost_in, cost_out, cost_cache, cost_cache_write FROM models WHERE id IN (35,36,37,13,15)"
+          q "SELECT us.user_id % 997 who, COALESCE(us.src,'chat') src, COUNT(*) n, SUM(us.tokens_in) tin, SUM(us.tokens_cache) tcache, SUM(us.tokens_out) tout, ROUND(SUM(us.units),3) units, ROUND(SUM(us.cost),3) cost, MAX(us.tokens_in) maxin FROM usage us JOIN users u ON u.id=us.user_id WHERE u.plan_id=14 AND us.model_id=35 AND us.created_at > (strftime('%s','now')-172800)*1000 GROUP BY us.user_id, src ORDER BY units DESC LIMIT 12"
+          q "SELECT us.user_id % 997 who, us.tokens_in, us.tokens_cache, us.tokens_out, ROUND(us.units,3) units, COALESCE(us.src,'chat') src, us.created_at FROM usage us JOIN users u ON u.id=us.user_id WHERE u.plan_id=14 AND us.model_id=35 AND us.created_at > (strftime('%s','now')-172800)*1000 ORDER BY us.units DESC LIMIT 15"
