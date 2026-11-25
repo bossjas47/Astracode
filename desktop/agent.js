@@ -123,7 +123,9 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (depth === 0 && !state.doneHint && state.codeEditRound >= 0 && state.verifyRound >= state.codeEditRound && !state.pageBad && !state.errors.size && round - state.verifyRound >= 6) {
       state.doneHint = true; messages.push({ role: 'user', content: '[Kyber Harness] Your last checks passed and nothing has failed since. If every part of the request is done, stop polishing and give the final summary now.' }); onEvent({ type: 'info', text: 'ตรวจผ่านแล้ว: ให้ AI สรุปงาน' });
     }
-    const body = { model, messages, stream: true, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) };
+    const lastTurn = depth === 0 && maxRounds >= 8 && round === maxRounds - 1; // รอบสุดท้าย: ไม่ส่งเครื่องมือ = โมเดลต้องตอบสรุปเป็นข้อความ (วัดจริง: เตือนอย่างเดียวโมเดลยังเรียกเครื่องมือต่อจนครบรอบแล้วจบเงียบ)
+    if (lastTurn) messages.push({ role: 'user', content: '[Kyber Harness] This is the last round: tools are off now. Write the final summary for the user: what you changed, how you checked it, and anything left to do.' });
+    const body = { model, messages, stream: true, ...(tools.length && !lastTurn ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) };
     const tReq = Date.now(); let r, attempt = 0, msg = null, stalls = 0;
     const onEv = e => { if (e.type === 'usage') { const u = e.usage || {}; stats.promptTokens += u.prompt_tokens || 0; stats.outTokens += u.completion_tokens || 0; stats.cachedTokens += u.prompt_tokens_details?.cached_tokens || 0; } onEvent(e); };
     for (;;) { // ผู้ให้บริการล่ม/คนเยอะชั่วคราว/โมเดลเงียบ: รอแล้วลองรอบเดิมใหม่ ไม่ทิ้งงานที่ทำมาแล้ว · เคารพ Retry-After
