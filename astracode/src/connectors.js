@@ -27,6 +27,15 @@ export const DEFAULT_CONNECTORS = [
   ['microsoft-learn', 'Microsoft Learn', 'ค้นเอกสาร Microsoft, Azure และ .NET ไม่ต้องล็อกอิน', 'https://learn.microsoft.com/api/mcp', 'none', 'นักพัฒนา', 'Microsoft', '#0078D4'],
   ['zapier', 'Zapier', 'ต่อแอปอื่นอีกหลายพันแอป (LINE, Slack, HubSpot ฯลฯ) วาง URL MCP ส่วนตัวจาก zapier.com/mcp', '', 'url', 'อื่นๆ', 'Zapier', '#FF4F00'],
 ];
+// Connector ที่เพิ่มทีหลัง: ใส่แบบปิดไว้ (enabled=0) ให้แอดมินทดสอบเชื่อมจริงก่อนเปิดให้ลูกค้า · URL จากเอกสารผู้ให้บริการ (Streamable HTTP + OAuth)
+// HubSpot ใช้ client ID/secret ที่ลงทะเบียนเอง: แอดมินกรอกในหลังบ้านก่อนเปิด
+export const EXTRA_CONNECTORS = [
+  ['asana', 'Asana', 'ดู สร้าง และอัปเดตงาน โปรเจกต์ และกำหนดส่งใน Asana', 'https://mcp.asana.com/v2/mcp', 'oauth', 'จัดการงาน', 'Asana', '#F06A6A'],
+  ['slack', 'Slack', 'ค้นและอ่านข้อความในช่อง สรุปเธรด และส่งข้อความใน Slack', 'https://mcp.slack.com/mcp', 'oauth', 'สื่อสาร', 'Slack', '#4A154B'],
+  ['hubspot', 'HubSpot', 'ดูและอัปเดตลูกค้า ดีล และบริษัทใน HubSpot CRM', 'https://mcp.hubspot.com/', 'oauth', 'ขาย/CRM', 'HubSpot', '#FF7A59'],
+  ['paypal', 'PayPal', 'ดูธุรกรรม สร้างใบแจ้งหนี้และลิงก์ชำระเงินใน PayPal', 'https://mcp.paypal.com/mcp', 'oauth', 'การเงิน', 'PayPal', '#003087'],
+  ['intercom', 'Intercom', 'ค้นบทสนทนาลูกค้าและข้อมูลผู้ติดต่อใน Intercom', 'https://mcp.intercom.com/mcp', 'oauth', 'บริการลูกค้า', 'Intercom', '#1F8DED'],
+];
 export const MAX_CONN = 25, MAX_TOOLS = 60;
 let ready = null;
 export const ensureConnectors = env => ready ||= (async () => {
@@ -36,6 +45,7 @@ export const ensureConnectors = env => ready ||= (async () => {
     env.DB.prepare('CREATE TABLE IF NOT EXISTS oauth_pending (state TEXT PRIMARY KEY, user_id INTEGER NOT NULL, data_enc TEXT NOT NULL, created_at INTEGER NOT NULL)'),
   ]);
   const n = (await env.DB.prepare('SELECT COUNT(*) n FROM connectors').first()).n;
+  await env.DB.batch(EXTRA_CONNECTORS.map(([slug, name, d, url, auth, cat, by, icon], i) => env.DB.prepare('INSERT OR IGNORE INTO connectors (slug,name,description,url,auth,category,by_name,icon,sort,enabled,created_at) VALUES (?,?,?,?,?,?,?,?,?,0,?)').bind(slug, name, d, url, auth, cat, by, icon, 100 + i, Date.now()))).catch(() => {});
   if (!n) await env.DB.batch(DEFAULT_CONNECTORS.map(([slug, name, d, url, auth, cat, by, icon], i) => env.DB.prepare('INSERT OR IGNORE INTO connectors (slug,name,description,url,auth,category,by_name,icon,sort,enabled,created_at) VALUES (?,?,?,?,?,?,?,?,?,1,?)').bind(slug, name, d, url, auth, cat, by, icon, (i + 1) * 10, Date.now())));
 })().catch(e => { ready = null; throw e; });
 
