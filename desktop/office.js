@@ -9,7 +9,17 @@ const OFFICE_TOOLS = [
   { type: 'function', function: { name: 'make_document', description: 'Create a real Office/PDF file in the working folder. docx/pdf use "blocks" (heading, paragraph, bullets, numbered, table with optional widths, image = a PNG/JPG chart from the folder, note = highlighted box, pagebreak); xlsx uses "sheets" (cells starting with = are formulas, numbers stay numbers); pptx uses "slides". Overwrites the file.', parameters: { type: 'object', properties: {
     path: S('Output path, e.g. reports/sales.xlsx (extension decides the format: .docx .xlsx .pptx .pdf)'), title: S('Document title'), blocks: BLOCKS,
     sheets: { type: 'array', items: { type: 'object', properties: { name: S('Sheet name'), rows: { type: 'array', items: { type: 'array', items: {} } }, widths: { type: 'array', items: { type: 'number' } } }, required: ['name', 'rows'] } },
-    slides: { type: 'array', items: { type: 'object', properties: { title: S('Slide title'), bullets: { type: 'array', items: { type: 'string' } }, notes: S('Speaker notes') }, required: ['title'] } },
+    theme: { type: 'string', enum: ['clean', 'midnight', 'ocean', 'sunset', 'forest', 'mono'], description: 'pptx look: clean (white, indigo), midnight (dark navy), ocean (teal/blue), sunset (warm coral), forest (green), mono (black & white). Pick one that fits the topic.' },
+    color: S('pptx: optional brand accent color as hex, e.g. #E4002B (overrides the theme accent)'),
+    subtitle: S('pptx: subtitle on the title slide (e.g. presenter, date)'),
+    slides: { type: 'array', description: 'pptx slides. Vary layouts: a deck of only "bullets" looks dull. Keep 3-6 short bullets per slide; put details in notes.', items: { type: 'object', properties: {
+      layout: { type: 'string', enum: ['bullets', 'section', 'two', 'stat', 'image', 'table', 'quote'], description: 'bullets (default) · section (big divider title) · two (left/right columns) · stat (big numbers: stats) · image (picture + bullets) · table (rows) · quote (big quote + text as source)' },
+      title: S('Slide title'), bullets: { type: 'array', items: { type: 'string' } }, notes: S('Speaker notes'),
+      left: { type: 'array', items: { type: 'string' }, description: 'two: left column bullets' }, right: { type: 'array', items: { type: 'string' }, description: 'two: right column bullets' }, left_title: S('two: left heading'), right_title: S('two: right heading'),
+      stats: { type: 'array', items: { type: 'object', properties: { value: S('e.g. 12%'), label: S('what it means') } }, description: 'stat: 1-4 big numbers' },
+      image: S('image: PNG/JPG path in the folder (chart or picture)'), rows: { type: 'array', items: { type: 'array', items: {} }, description: 'table: first row = header' },
+      text: S('quote: the quote / section: subtitle'),
+    }, required: ['title'] } },
   }, required: ['path'] } } },
   { type: 'function', function: { name: 'read_document', description: 'Read the text of a .docx, .xlsx (as CSV per sheet) or .pdf file.', parameters: { type: 'object', properties: { path: S('File path') }, required: ['path'] } } },
 ];
@@ -70,14 +80,7 @@ async function makeDocument(abs, a, { pdf, root } = {}) {
     if (!wb.worksheets.length) wb.addWorksheet('Sheet1');
     await wb.xlsx.writeFile(abs);
   } else if (ext === '.pptx') {
-    const Pptx = require('pptxgenjs'), p = new Pptx(); p.layout = 'LAYOUT_WIDE';
-    if (a.title) { const s = p.addSlide(); s.addText(String(a.title), { x: 0.6, y: 2.6, w: 12, h: 1.5, fontSize: 40, bold: true, fontFace: 'Sarabun' }); }
-    for (const sl of (a.slides || []).slice(0, 100)) {
-      const s = p.addSlide(); s.addText(String(sl.title || ''), { x: 0.6, y: 0.4, w: 12, h: 1, fontSize: 30, bold: true, fontFace: 'Sarabun' });
-      if (sl.bullets?.length) s.addText(sl.bullets.map(t => ({ text: String(t), options: { bullet: true } })), { x: 0.8, y: 1.6, w: 11.6, h: 5.2, fontSize: 20, fontFace: 'Sarabun', valign: 'top' });
-      if (sl.notes) s.addNotes(String(sl.notes));
-    }
-    await p.writeFile({ fileName: abs });
+    await makePptx(a, abs, root);
   } else if (ext === '.pdf') {
     if (!pdf) throw new Error('สร้าง PDF ได้เฉพาะในแอป');
     const blocks = []; for (const b of a.blocks || []) { if (b.type === 'image' && b.path) { try { const d = await fs.readFile(path.resolve(root || path.dirname(abs), String(b.path))); blocks.push({ ...b, src: `data:image/${d[0] === 0x89 ? 'png' : 'jpeg'};base64,${d.toString('base64')}` }); } catch { /* ไม่พบรูป: ข้าม */ } } else blocks.push(b); }
@@ -85,6 +88,65 @@ async function makeDocument(abs, a, { pdf, root } = {}) {
     await fs.writeFile(abs, await pdf(blocksHtml(a.title, blocks2)));
   } else throw new Error('รองรับ .docx .xlsx .pptx .pdf');
   const st = await fs.stat(abs); return `สร้าง ${path.basename(abs)} แล้ว (${Math.round(st.size / 1024)} KB)`;
+}
+
+// ธีมสไลด์: พื้น · ตัวหนังสือ · สีรอง · สีเน้น · พื้นการ์ด
+const THEMES = {
+  clean: { bg: 'FFFFFF', ink: '0E1116', mute: '5B6170', acc: '4B4FE0', card: 'F3F4F8', dark: false },
+  midnight: { bg: '0E1424', ink: 'F2F4FA', mute: 'A3ABBD', acc: '8B8FFF', card: '1A2238', dark: true },
+  ocean: { bg: 'F3F9FB', ink: '0B2733', mute: '4F6B76', acc: '0E8FB0', card: 'E1F1F6', dark: false },
+  sunset: { bg: 'FFF8F3', ink: '2B1A14', mute: '7A5D52', acc: 'E8603C', card: 'FDEADF', dark: false },
+  forest: { bg: 'F4F8F3', ink: '15261A', mute: '56705C', acc: '2E8B57', card: 'E3EFE4', dark: false },
+  mono: { bg: 'FFFFFF', ink: '111111', mute: '666666', acc: '111111', card: 'F2F2F2', dark: false },
+};
+async function makePptx(a, abs, root) {
+  const Pptx = require('pptxgenjs'), p = new Pptx(); p.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 นิ้ว
+  const T = { ...(THEMES[a.theme] || THEMES.clean) }; if (/^#?[0-9a-f]{6}$/i.test(a.color || '')) T.acc = a.color.replace('#', '').toUpperCase();
+  const F = 'Sarabun', W = 13.33, base = { fontFace: F, color: T.ink };
+  const slides = (a.slides || []).slice(0, 100), total = slides.length;
+  const frame = (s, n) => { s.background = { color: T.bg }; s.addShape(p.ShapeType.rect, { x: 0, y: 0, w: 0.12, h: 7.5, fill: { color: T.acc }, line: { color: T.acc } }); if (n) s.addText(`${n} / ${total}`, { x: W - 1.6, y: 6.95, w: 1.2, h: 0.35, fontSize: 11, fontFace: F, color: T.mute, align: 'right' }); };
+  const head = (s, t) => { s.addText(String(t || ''), { ...base, x: 0.7, y: 0.45, w: W - 1.4, h: 0.9, fontSize: 30, bold: true, valign: 'top', fit: 'shrink' }); s.addShape(p.ShapeType.rect, { x: 0.72, y: 1.35, w: 1.1, h: 0.07, fill: { color: T.acc }, line: { color: T.acc } }); };
+  const list = (s, items, o) => { const xs = (items || []).map(String).filter(Boolean); if (xs.length) s.addText(xs.map(t => ({ text: t, options: { bullet: { indent: 18 }, paraSpaceAfter: 10 } })), { ...base, fontSize: xs.length > 5 ? 18 : 20, valign: 'top', fit: 'shrink', ...o }); };
+  const img = async rel => { try { const d = await fs.readFile(path.resolve(root || path.dirname(abs), String(rel))); const ext = path.extname(String(rel)).slice(1).toLowerCase().replace('jpg', 'jpeg'); return `image/${ext};base64,${d.toString('base64')}`; } catch { return null; } };
+  // ปก
+  if (a.title) {
+    const s = p.addSlide(); s.background = { color: T.dark ? T.bg : T.ink === '111111' ? 'FFFFFF' : T.bg };
+    s.addShape(p.ShapeType.rect, { x: 0, y: 0, w: W, h: 7.5, fill: { color: T.dark ? T.bg : T.card }, line: { color: T.dark ? T.bg : T.card } });
+    s.addShape(p.ShapeType.rect, { x: 0.8, y: 2.35, w: 1.4, h: 0.1, fill: { color: T.acc }, line: { color: T.acc } });
+    s.addText(String(a.title), { ...base, x: 0.8, y: 2.6, w: W - 1.6, h: 1.8, fontSize: 44, bold: true, valign: 'top', fit: 'shrink' });
+    if (a.subtitle) s.addText(String(a.subtitle), { fontFace: F, color: T.mute, x: 0.8, y: 4.5, w: W - 1.6, h: 0.8, fontSize: 20 });
+  }
+  let n = 0;
+  for (const sl of slides) {
+    const s = p.addSlide(), L = sl.layout || (sl.stats?.length ? 'stat' : sl.left || sl.right ? 'two' : sl.rows ? 'table' : sl.image ? 'image' : 'bullets'); n++;
+    if (L === 'section') {
+      s.background = { color: T.acc }; s.addText(String(sl.title || ''), { fontFace: F, color: 'FFFFFF', x: 0.9, y: 2.5, w: W - 1.8, h: 1.6, fontSize: 40, bold: true, fit: 'shrink' });
+      if (sl.text) s.addText(String(sl.text), { fontFace: F, color: 'FFFFFF', x: 0.9, y: 4.1, w: W - 1.8, h: 0.9, fontSize: 20, transparency: 15 });
+    } else if (L === 'quote') {
+      frame(s, n); s.addText('“', { fontFace: 'Georgia', color: T.acc, x: 0.8, y: 0.6, w: 1.5, h: 1.5, fontSize: 110, bold: true });
+      s.addText(String(sl.title || ''), { ...base, x: 1.3, y: 1.9, w: W - 2.6, h: 2.8, fontSize: 30, italic: true, valign: 'top', fit: 'shrink' });
+      if (sl.text) s.addText('— ' + String(sl.text), { fontFace: F, color: T.mute, x: 1.3, y: 5, w: W - 2.6, h: 0.6, fontSize: 18 });
+    } else {
+      frame(s, n); head(s, sl.title);
+      if (L === 'two') {
+        const col = (x, t, items) => { s.addShape(p.ShapeType.roundRect, { x, y: 1.75, w: 5.8, h: 4.9, fill: { color: T.card }, line: { color: T.card }, rectRadius: 0.15 }); if (t) s.addText(String(t), { ...base, x: x + 0.3, y: 1.95, w: 5.2, h: 0.6, fontSize: 20, bold: true, color: T.acc }); list(s, items, { x: x + 0.3, y: t ? 2.6 : 2.0, w: 5.2, h: t ? 3.9 : 4.5 }); };
+        col(0.7, sl.left_title, sl.left); col(6.85, sl.right_title, sl.right);
+      } else if (L === 'stat') {
+        const st = (sl.stats || []).slice(0, 4), cw = (W - 1.4 - (st.length - 1) * 0.3) / Math.max(1, st.length);
+        st.forEach((x, i) => { const cx = 0.7 + i * (cw + 0.3); s.addShape(p.ShapeType.roundRect, { x: cx, y: 1.9, w: cw, h: 3.2, fill: { color: T.card }, line: { color: T.card }, rectRadius: 0.15 }); s.addText(String(x.value ?? ''), { fontFace: F, color: T.acc, x: cx + 0.2, y: 2.2, w: cw - 0.4, h: 1.5, fontSize: st.length > 3 ? 40 : 54, bold: true, align: 'center', fit: 'shrink' }); s.addText(String(x.label ?? ''), { fontFace: F, color: T.mute, x: cx + 0.2, y: 3.7, w: cw - 0.4, h: 1.2, fontSize: 16, align: 'center', valign: 'top', fit: 'shrink' }); });
+        list(s, sl.bullets, { x: 0.7, y: 5.35, w: W - 1.4, h: 1.5 });
+      } else if (L === 'image') {
+        const d = sl.image && await img(sl.image);
+        if (d) s.addImage({ data: d, x: 6.6, y: 1.75, w: 6.1, h: 4.9, sizing: { type: 'contain', w: 6.1, h: 4.9 } });
+        list(s, sl.bullets, { x: 0.7, y: 1.75, w: d ? 5.6 : W - 1.4, h: 4.9 });
+      } else if (L === 'table' && sl.rows?.length) {
+        const rows = sl.rows.slice(0, 14).map((r, i) => (r || []).slice(0, 8).map(c => ({ text: String(c ?? ''), options: i === 0 ? { bold: true, color: 'FFFFFF', fill: { color: T.acc } } : { color: T.ink, fill: { color: i % 2 ? T.bg : T.card } } })));
+        s.addTable(rows, { x: 0.7, y: 1.75, w: W - 1.4, fontFace: F, fontSize: rows.length > 8 ? 14 : 18, rowH: rows.length > 8 ? 0.38 : 0.55, valign: 'middle', margin: 0.08, border: { type: 'solid', pt: 0.5, color: T.dark ? '2C3342' : 'E3E6EE' }, autoPage: false });
+      } else list(s, sl.bullets, { x: 0.7, y: 1.75, w: W - 1.4, h: 5 });
+    }
+    if (sl.notes) s.addNotes(String(sl.notes));
+  }
+  await p.writeFile({ fileName: abs });
 }
 
 async function readDocument(abs) {
