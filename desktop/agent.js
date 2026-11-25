@@ -73,7 +73,7 @@ function repairHistory(messages) {
 //   spill(text, info) → path ของไฟล์ที่เก็บผลเต็ม · onCheckpoint({ round, messages, state }) · retryWaits (ระบุเอง = ไม่สุ่ม ใช้ในเทสต์)
 async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {},
   retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000,
-  verifyGate = true, checks = [], review = null, advisor = null, pinned = null }) {
+  verifyGate = true, checks = [], review = null, advisor = null, pinned = null, seeImages = true }) {
   const url = base.replace(/\/$/, '') + '/chat/completions', t0 = Date.now();
   const post = (body, sig = signal) => fetchImpl(url, { method: 'POST', signal: sig, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
   // นาฬิกาเฝ้าคำขอ: ไม่ได้คำตอบเลยภายใน firstByteMs หรือสตรีมเงียบ (ไม่มีข้อมูลแม้แต่ ping) เกิน stallMs → ตัดการเชื่อมต่อ
@@ -233,6 +233,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
       results.at(-1).content += `\n\n[Kyber Harness] ${hint}${adv ? `\n\n[advisor ${advisor.model}] ${adv.slice(0, 2000)}` : ''}`; onEvent({ type: 'info', text: adv ? 'ที่ปรึกษาแนะนำทางแก้แล้ว' : 'ตรวจพบการวนซ้ำ: เตือนโมเดลให้เปลี่ยนวิธี' });
     }
     messages.push(...results.map(({ _sig, _err, ...m }) => m));
+    if (images.length && !seeImages) { messages.push({ role: 'user', content: `[Kyber Harness] เครื่องมือส่งรูปมา ${images.length} รูป แต่โมเดลนี้อ่านรูปไม่ได้ จึงไม่ได้แนบ (ใช้ผลที่เป็นข้อความแทน)` }); images.length = 0; } // เดิมแนบไป → เซิร์ฟเวอร์ตอบ 400 งานพัง
     if (images.length) messages.push({ role: 'user', content: [{ type: 'text', text: 'ภาพจากเครื่องมือด้านบน' }, ...images.slice(0, 4).map(url => ({ type: 'image_url', image_url: { url } }))] }); // tool message ส่งรูปไม่ได้ จึงแนบเป็นข้อความถัดไป
     onCheckpoint?.({ round, messages, state: snapshot(state) }); // บันทึกทุกรอบ: แอป/เครื่องเสมือนรีสตาร์ตแล้วทำต่อได้
   }

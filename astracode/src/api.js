@@ -58,7 +58,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
     const [allPublic, planIds, mcIds] = await Promise.all([modelsCached(env), canPlan ? (plan._planIds?.length > 1 ? Promise.all(plan._planIds.map(id => planModelsCached(env, id))).then(a => new Set(a.flatMap(x => [...x]))) : planModelsCached(env, plan.id)) : null, modelCreditIds(env, k.id).catch(() => new Set())]); // mcIds = โมเดลที่มีเครดิตเฉพาะโมเดล // จำไว้ 30 วิ ต่อ isolate: ไม่ต้องถาม D1 ทุกคำขอ (ลดเวลาก่อนเริ่มตอบ)
     const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id) || mcIds.has(m.id)));
-    if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider })) });
+    if (path === '/v1/models') return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider, vision: !!m.vision, multiplier: m.multiplier ?? 1, cost: (m.cost_in || 0) + (m.cost_out || 0) })) }); // vision/multiplier: แอป Desktop ใช้เลือก "ตาช่วย" ให้โมเดลที่อ่านรูปไม่ได้
     if (path.startsWith('/v1/models/')) { const m = models.find(x => slug(x) === decodeURIComponent(path.slice(11))); return m ? out({ id: slug(m), object: 'model', created: 0, owned_by: m.provider }) : fail(`ไม่พบโมเดล "${decodeURIComponent(path.slice(11)).slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404); }
     // สั่ง Agent จากมือถือ: แอป Desktop ส่งความคืบหน้า/คำถามขออนุญาตของแชตนี้ขึ้นมา แล้วรับคำตอบ/ข้อความที่พิมพ์จากมือถือกลับไป
     if (path === '/v1/remote/push' && req.method === 'POST') {
