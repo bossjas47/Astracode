@@ -224,7 +224,7 @@ export const ensureSubs = env => subsReady?.db === env.DB ? subsReady.p : (subsR
   for (const [t, c] of [['users', 'primary_sub_id'], ['usage', 'sub_id'], ['payments', 'sub_id']]) await env.DB.prepare(`ALTER TABLE ${t} ADD COLUMN ${c} INTEGER`).run().catch(() => {});
 })() }).p;
 // ใบที่ยังใช้ได้ของผู้ใช้ (พร้อมข้อมูลแพลน) เรียงตามวันหมดอายุ · ย้ายแพลนเดิม (users.plan_id) เข้ามาเป็นใบแรกครั้งเดียว · แอดมินแก้ users.plan_* ตรง ๆ = แก้ใบหลักตาม
-export async function subsOf(env, u) {
+export async function subsOf(env, u, { sync = true } = {}) { // sync=false: เพิ่งแก้ใบเอง (ต่ออายุ/แอดมิน/คืนเงิน) ไม่ต้องดึงค่าจาก users.plan_* กลับมาทับ
   await ensureSubs(env); const now = Date.now();
   const list = async () => (await env.DB.prepare("SELECT s.*, s.id sid FROM subscriptions s WHERE s.user_id=? AND s.status='active' AND s.expires_at>? ORDER BY s.expires_at, s.id").bind(u.id, now).all()).results;
   let subs = await list();
@@ -232,15 +232,22 @@ export async function subsOf(env, u) {
   if (up.plan_id && up.plan_expires > now) {
     const pl = await env.DB.prepare('SELECT price FROM plans WHERE id=?').bind(up.plan_id).first();
     const prim = subs.find(x => x.sid === up.primary_sub_id);
-    if (pl && !subs.length) { // ครั้งแรก: แพลนเดิมกลายเป็นใบที่ 1 (วันหมดอายุ/รอบลิมิตเดิม · การใช้งานเก่าที่ไม่มี sub_id นับเข้าใบนี้)
-      const r = await env.DB.prepare('INSERT INTO subscriptions (user_id,plan_id,period,starts_at,expires_at,status,auto_renew,sess_start,week_start,legacy,created_at) VALUES (?,?,?,?,?,\'active\',?,?,?,1,?) RETURNING id').bind(u.id, up.plan_id, up.plan_period || 'month', now, up.plan_expires, up.auto_renew ? 1 : 0, up.sess_start || null, up.week_start || null, now).first();
+    if (pl && !subs.length) { // ไม่มีใบที่ใช้ได้แต่ users.plan_* ยังไม่หมด = แพลนเดิมก่อนมีหลายใบ (ครั้งแรก) หรือแอดมินให้แพลนแบบเดิม → รับเป็นใบหนึ่ง (legacy เฉพาะครั้งแรก): แพลนเดิมกลายเป็นใบที่ 1 (วันหมดอายุ/รอบลิมิตเดิม · การใช้งานเก่าที่ไม่มี sub_id นับเข้าใบนี้)
+      const r = await env.DB.prepare('INSERT INTO subscriptions (user_id,plan_id,period,starts_at,expires_at,status,auto_renew,sess_start,week_start,legacy,created_at) VALUES (?,?,?,?,?,\'active\',?,?,?,?,?) RETURNING id').bind(u.id, up.plan_id, up.plan_period || 'month', now, up.plan_expires, up.auto_renew ? 1 : 0, up.primary_sub_id ? null : up.sess_start || null, up.primary_sub_id ? null : up.week_start || null, up.primary_sub_id ? 0 : 1, now).first();
       await env.DB.prepare('UPDATE users SET primary_sub_id=? WHERE id=?').bind(r.id, u.id).run(); subs = await list();
-    } else if (prim && (prim.plan_id !== up.plan_id || prim.expires_at !== up.plan_expires)) { // หลังบ้าน/ต่ออายุแบบเดิมแก้ users.plan_* → ใบหลักตาม
+    } else if (sync && prim && (prim.plan_id !== up.plan_id || prim.expires_at !== up.plan_expires)) { // หลังบ้าน/ต่ออายุแบบเดิมแก้ users.plan_* → ใบหลักตาม
       await env.DB.prepare('UPDATE subscriptions SET plan_id=?, expires_at=? WHERE id=?').bind(up.plan_id, up.plan_expires, prim.sid).run(); subs = await list();
     }
   }
   if (subs.length && !subs.some(x => x.sid === up.primary_sub_id)) { await mirrorPrimary(env, u.id, subs[0]); } // ใบหลักหมดอายุ: ใบที่หมดก่อนถัดไปเป็นใบหลัก
   return subs.map(x => ({ ...x, primary: x.sid === up.primary_sub_id || (!subs.some(y => y.sid === up.primary_sub_id) && x === subs[0]) }));
+}
+// หลังปิด/คืนเงิน/แก้ใบ: ใบหลักใหม่ = ใบที่ยังใช้ได้ (ใบหลักเดิมก่อน) · ไม่เหลือใบ = users.plan_* หมดตาม (ไม่เรียก subsOf กันรับแพลนเดิมกลับมาเป็นใบ)
+export async function resyncPrimary(env, uid) {
+  const now = Date.now(), pid = (await env.DB.prepare('SELECT primary_sub_id p FROM users WHERE id=?').bind(uid).first())?.p;
+  const left = (await env.DB.prepare("SELECT *, id sid FROM subscriptions WHERE user_id=? AND status='active' AND expires_at>? ORDER BY (id=?) DESC, expires_at").bind(uid, now, pid || 0).all()).results;
+  if (left.length) return mirrorPrimary(env, uid, left[0]);
+  await env.DB.prepare('UPDATE users SET plan_expires=? WHERE id=? AND plan_expires>?').bind(now, uid, now).run();
 }
 export async function mirrorPrimary(env, uid, sub) {
   await env.DB.prepare('UPDATE users SET primary_sub_id=?, plan_id=?, plan_expires=?, plan_period=? WHERE id=?').bind(sub.sid ?? sub.id, sub.plan_id, sub.expires_at, sub.period || 'month', uid).run();
