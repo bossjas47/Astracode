@@ -11,7 +11,7 @@ const { ROBLOX_TOOL, ROBLOX_RE, startBridge, robloxTool, installPlugin, pluginDi
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { setupTool, SETUP_TOOLS } = require('./setuptools');
-const { builtinSkills, THREE_RE, THREE_SKILL, ROBLOX_SKILL, memoryRead, memoryBlock, memoryLearn, makeAdvisor } = require('./skills');
+const { builtinSkills, pickHelper, THREE_RE, THREE_SKILL, ROBLOX_SKILL, memoryRead, memoryBlock, memoryLearn, makeAdvisor } = require('./skills');
 const { projectMap, makeReviewer, AGENT_TOOLS, ASK_TOOL, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin, wantsAndroid, toolsFor } = require('./agenttools');
 
 const SITE = 'https://kyber.hypatir.dev', OLD_SITE = 'https://astracode.panderx.xyz'; // ย้ายโดเมน 25 พ.ย. 2569 · โดเมนเดิมยังรับ /api และ /v1 ตลอด
@@ -416,7 +416,7 @@ async function runTask(o = {}, sender) {
       // ผู้ช่วยค้น: บทสนทนาแยก เครื่องมืออ่านอย่างเดียว ใช้โมเดลประหยัดถ้าหน้าเว็บส่งมา
       subagent: async (title, prompt) => {
         const sub = [{ role: 'system', content: agentSystem({ root: a.ws.root, os: process.platform, rules: '' }) + '\n\nYou are a helper agent doing ONE research sub-task for the main agent. You can only read and search. Finish with a concise report of findings (file paths, line numbers, facts).' }, { role: 'user', content: prompt }];
-        await runAgent({ base: SITE + '/v1', key: settings.key, model: a.subModel || a.model, messages: sub, tools: AGENT_TOOLS.filter(t => SUB_TOOLS.has(t.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? a.ws.call(n, x) : 'Error: ผู้ช่วยใช้ได้แค่อ่าน/ค้น', onEvent: d => { if (d.type === 'tool') tell({ type: 'sub', title, name: d.name, args: d.args }); if (d.type === 'usage') tell(d); }, signal: a.ac?.signal, maxRounds: 25, depth: 1, spill: (t, i) => a.ws.spill(t, i) });
+        await runAgent({ base: SITE + '/v1', key: settings.key, model: a.subModel || a.helper || a.model, messages: sub, tools: AGENT_TOOLS.filter(t => SUB_TOOLS.has(t.function.name)), callTool: (n, x) => SUB_TOOLS.has(n) ? a.ws.call(n, x) : 'Error: ผู้ช่วยใช้ได้แค่อ่าน/ค้น', onEvent: d => { if (d.type === 'tool') tell({ type: 'sub', title, name: d.name, args: d.args }); if (d.type === 'usage') tell(d); }, signal: a.ac?.signal, maxRounds: 25, depth: 1, spill: (t, i) => a.ws.spill(t, i) });
         return sub.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '(ผู้ช่วยไม่ได้รายงานอะไร)';
       } });
     a.map = await projectMap(a.ws.root).catch(() => ({ text: '', checks: [] })); // แผนที่โปรเจกต์ + คำสั่งตรวจงาน (ใส่ใน system ตอนเริ่ม session)
@@ -478,14 +478,14 @@ async function runTask(o = {}, sender) {
   // ที่ปรึกษาโมเดลแรง (หน้าเว็บส่งชื่อโมเดลมา เมื่อผู้ใช้เปิดไว้และแพลนมีโมเดลนั้น) · ไม่ส่ง = ปิด
   const advisorModel = typeof o.advisor === 'string' && o.advisor && o.advisor !== model && mode !== 'plan' ? o.advisor.slice(0, 120) : null, advisor = advisorModel ? makeAdvisor({ post, model: advisorModel }) : null;
   try {
-    const seeImages = (await screenCtx()).seeing !== false;
-    await runAgent({ advisor, seeImages, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
+    const seeImages = (await screenCtx()).seeing !== false, helperModel = await modelList().then(ms => pickHelper(ms, model)).catch(() => null); a.helper = helperModel;
+    await runAgent({ advisor, seeImages, helperModel, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
       maxDurationMs: Math.min(600, Math.max(0, +o.maxMinutes || 0)) * 60e3, spill: (t, i) => a.ws.spill(t, i),
       checks: (a.map ||= await projectMap(a.ws.root).catch(() => ({ checks: [] }))).checks || [], verifyGate: o.verifyGate !== false && mode !== 'plan',
       review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model: advisorModel || model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)
         post: body => fetch(SITE + '/v1/chat/completions', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) }) }),
       onCheckpoint: () => { if (Date.now() - (a.savedAt || 0) > 5000) { a.savedAt = Date.now(); agentSave(a); } } }); // บันทึกระหว่างทำ (ทุก ≥5 วินาที): แอปปิด/ค้างกลางงาน เปิดใหม่ทำต่อได้
-    if (mode !== 'plan' && mode !== 'ask' && o.memory !== false && a.ws.changed().length) memoryLearn({ post, model, root: a.ws.root, task: String(o.text || ''), messages: a.messages }).then(l => { if (l?.length) tell({ type: 'info', text: `จำบทเรียนของโปรเจกต์ไว้ ${l.length} ข้อ (.kyber/memory.md)` }); }).catch(() => {}); // ความจำโปรเจกต์: จบงานที่แก้ไฟล์ → สรุปบทเรียนเก็บไว้ใช้งานหน้า
+    if (mode !== 'plan' && mode !== 'ask' && o.memory !== false && a.ws.changed().length) memoryLearn({ post, model: a.helper || model, root: a.ws.root, task: String(o.text || ''), messages: a.messages }).then(l => { if (l?.length) tell({ type: 'info', text: `จำบทเรียนของโปรเจกต์ไว้ ${l.length} ข้อ (.kyber/memory.md)` }); }).catch(() => {}); // ความจำโปรเจกต์: จบงานที่แก้ไฟล์ → สรุปบทเรียนเก็บไว้ใช้งานหน้า
     tell({ type: 'done', changed: a.ws.changed(), outputs: [...new Set([...a.outputs, ...a.ws.changed()])].filter(p => !/\.(js|ts|py|css|json|lock|map)$/i.test(p) || a.outputs.has(p)).slice(0, 20), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
   } catch (x) {
     tell({ type: 'error', text: ac.signal.aborted ? 'หยุดแล้ว' : x.message, changed: a.ws.changed(), runFrom: a.ws.runFrom });
