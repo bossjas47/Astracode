@@ -119,12 +119,15 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     }
     // 1) ใกล้ครบรอบ: บอกให้สรุป (เดิมวนจนครบแล้วจบเงียบ ๆ ผู้ใช้ไม่ได้สรุปว่าทำอะไรไป)
     if (depth === 0 && maxRounds >= 8 && round === maxRounds - 3) { messages.push({ role: 'user', content: '[Kyber Harness] Only 3 rounds left in this run. Finish now: make only the last essential fix (if any), then give the final summary (what changed, how it was verified, what is left). Do not start new work.' }); onEvent({ type: 'info', text: 'ใกล้ครบรอบ: ให้ AI สรุปงาน' }); }
-    // 1) ตรวจผ่านแล้วแต่ยังวนเก็บงานเล็ก ๆ ต่อเรื่อย ๆ: เตือนครั้งเดียวให้สรุป
-    if (depth === 0 && !state.doneHint && state.codeEditRound >= 0 && state.verifyRound >= state.codeEditRound && !state.pageBad && !state.errors.size && round - state.verifyRound >= 6) {
-      state.doneHint = true; messages.push({ role: 'user', content: '[Kyber Harness] Your last checks passed and nothing has failed since. If every part of the request is done, stop polishing and give the final summary now.' }); onEvent({ type: 'info', text: 'ตรวจผ่านแล้ว: ให้ AI สรุปงาน' });
+    // 1) หยุดเมื่องานเสร็จจริง: ตรวจผ่านหลังแก้ล่าสุด + ไม่มี error ค้าง + ไม่มี todo ค้าง → 3 รอบที่ไม่แก้อะไร = เตือนให้สรุป · 6 รอบ = ปิดเครื่องมือให้สรุปเลย
+    // (วัดจริง: งานเสร็จตั้งแต่ราวครึ่งทาง แต่โมเดลวนตรวจซ้ำจนครบ 60 รอบ ทุกรอบส่งบทสนทนาทั้งหมดใหม่)
+    const quiet = state.codeEditRound >= 0 && state.verifyRound >= state.codeEditRound && !state.pageBad && !state.errors.size && !(state.todos || []).some(t => t.status && t.status !== 'completed') ? round - state.codeEditRound : 0;
+    if (depth === 0 && !state.doneHint && quiet >= 3) {
+      state.doneHint = true; messages.push({ role: 'user', content: '[Kyber Harness] Your last checks passed and you have not changed anything since. If every part of the request is done, give the final summary now. If something is still missing, make that change next (more checking alone is not needed).' }); onEvent({ type: 'info', text: 'ตรวจผ่านแล้ว: ให้ AI สรุปงาน' });
     }
-    const lastTurn = depth === 0 && maxRounds >= 8 && round === maxRounds - 1; // รอบสุดท้าย: ไม่ส่งเครื่องมือ = โมเดลต้องตอบสรุปเป็นข้อความ (วัดจริง: เตือนอย่างเดียวโมเดลยังเรียกเครื่องมือต่อจนครบรอบแล้วจบเงียบ)
-    if (lastTurn) messages.push({ role: 'user', content: '[Kyber Harness] This is the last round: tools are off now. Write the final summary for the user: what you changed, how you checked it, and anything left to do.' });
+    const doneStop = depth === 0 && quiet >= 6 && round < maxRounds - 1;
+    const lastTurn = depth === 0 && ((maxRounds >= 8 && round === maxRounds - 1) || doneStop); // รอบสุดท้าย / งานเสร็จแล้ว: ไม่ส่งเครื่องมือ = โมเดลต้องตอบสรุปเป็นข้อความ
+    if (lastTurn) { messages.push({ role: 'user', content: doneStop ? '[Kyber Harness] The work is verified and nothing has changed for several rounds, so tools are off now. Write the final summary for the user: what you changed, how you checked it, and anything left to do.' : '[Kyber Harness] This is the last round: tools are off now. Write the final summary for the user: what you changed, how you checked it, and anything left to do.' }); if (doneStop) { stats.doneStop = 1; onEvent({ type: 'info', text: 'งานผ่านการตรวจแล้ว: ให้ AI สรุปและจบงาน' }); } }
     const body = { model, messages, stream: true, ...(tools.length && !lastTurn ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) };
     const tReq = Date.now(); let r, attempt = 0, msg = null, stalls = 0;
     const onEv = e => { if (e.type === 'usage') { const u = e.usage || {}; stats.promptTokens += u.prompt_tokens || 0; stats.outTokens += u.completion_tokens || 0; stats.cachedTokens += u.prompt_tokens_details?.cached_tokens || 0; } onEvent(e); };

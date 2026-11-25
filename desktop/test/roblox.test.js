@@ -46,3 +46,13 @@ test('plugin file: token and port filled in, installed into the Studio plugins f
   assert.equal(ROBLOX_TOOL.function.name, 'roblox');
   assert.match(builtinSkills({ text: 'ช่วยทำเกม Roblox หน่อย' }), /Roblox Studio \(Luau\)/);
 });
+
+test('batch: several roblox ops in one call, in order, errors reported per step', async () => {
+  const port = 47940 + Math.floor(Math.random() * 15), b = startBridge({ token: 't', port }), seen = [];
+  const stop = fakePlugin(port, 't', c => { seen.push(c.op); return c.op === 'edit' ? { ok: false, data: 'ไม่พบข้อความ old' } : { ok: true, data: c.op + ' ok' }; });
+  for (let i = 0; i < 50 && !b.connected(); i++) await new Promise(r => setTimeout(r, 20));
+  const r = await robloxTool(b, { op: 'batch', steps: [{ op: 'write', path: 'ServerScriptService.A', source: 'x' }, { op: 'edit', path: 'X', old: 'a', new: 'b' }, { op: 'play', seconds: 1 }, { op: 'batch' }] });
+  assert.deepEqual(seen, ['write', 'edit', 'play']); assert.match(r, /\[1\] write: write ok/); assert.match(r, /\[2\] edit: Error: ไม่พบ/); assert.match(r, /\[3\] play: play ok/);
+  assert.match(await robloxTool(b, { op: 'batch', steps: [] }), /^Error: batch/);
+  stop(); await b.close();
+});
