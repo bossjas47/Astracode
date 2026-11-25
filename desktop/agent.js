@@ -134,15 +134,17 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
       if (!netErr && r.ok) {
         try { msg = await readStream(r, onEv, () => { got = true; stats.ttft.push(Date.now() - tReq); }, () => wd.arm(stallMs)); wd.stop(); break; }
         catch (e) {
-          wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว'); if (!wd.stalled) throw e;
+          wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว');
+          if (!wd.stalled) { if (got) throw e; netErr = e; netErr.soft = true; r = null; } // error กลางสตรีมก่อนได้คำตอบใด ๆ (เช่น "โมเดลตอบไม่ได้ตอนนี้"): ลองใหม่ ไม่ทิ้งทั้งงาน
+          else {
           if (got) throw new Error(`${wd.err().message} (หยุดกลางคำตอบ สั่ง "ทำต่อ" ได้)`); // ส่งข้อความไปแล้วบางส่วน: ลองใหม่จะซ้ำ จึงจบงานแทนการค้าง
-          netErr = wd.err(); r = null;
+          netErr = wd.err(); r = null; }
         }
       } else if (!netErr) wd.stop();
       const n = retryWaits ? retryWaits.length : 4;
       if (!netErr && !RETRY_STATUS.has(r.status)) break;
       const stall = netErr && /ไม่ตอบภายใน/.test(netErr.message); if (stall) stalls++;
-      if (attempt >= n || stalls > 1) { if (netErr) throw new Error(stall ? netErr.message + ' (ลองแล้ว 2 ครั้ง ลองสลับโมเดล หรือสั่ง "ทำต่อ")' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้: ' + netErr.message); break; } // โมเดลเงียบ: ลองใหม่แค่ครั้งเดียว ไม่รอเป็นสิบนาที
+      if (attempt >= n || stalls > 1) { if (netErr) throw new Error(stall ? netErr.message + ' (ลองแล้ว 2 ครั้ง ลองสลับโมเดล หรือสั่ง "ทำต่อ")' : netErr.soft ? netErr.message + ' (ลองใหม่แล้วหลายครั้ง สั่ง "ทำต่อ" ได้)' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้: ' + netErr.message); break; } // โมเดลเงียบ: ลองใหม่แค่ครั้งเดียว ไม่รอเป็นสิบนาที
       const ra = netErr ? null : retryAfterMs(r), w = ra != null ? Math.min(ra, 60000) : retryWaits ? retryWaits[attempt] : backoffMs(attempt);
       onEvent({ type: 'info', text: `${stall ? netErr.message : `โมเดลไม่ว่างชั่วคราว (${netErr ? 'เครือข่าย' : r.status})`} ลองใหม่ใน ${Math.max(1, Math.round(w / 1000))} วินาที…` });
       stats.retries++; attempt++;
