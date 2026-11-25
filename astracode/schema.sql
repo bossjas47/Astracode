@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
   , auto_compact INTEGER                   -- 0 = ปิดย่อแชตอัตโนมัติเมื่อ context ใกล้เต็ม (ว่าง = เปิด)
   , auto_memory INTEGER                    -- 1 = ให้ AI บันทึกความจำเอง (ค่าเริ่มต้นปิด)
   , agent_pack_from INTEGER, agent_pack_until INTEGER, agent_pack_units REAL -- แพ็กเสริม Agent ที่ซื้อด้วย Wallet
+  , primary_sub_id INTEGER                  -- หลายแพลน: ใบหลัก (subscriptions.id)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -153,6 +154,7 @@ CREATE TABLE IF NOT EXISTS usage (
   , charge REAL                             -- บาทที่หักจาก Wallet
   , flag TEXT                               -- gone = ลูกค้าตัดกลางทาง · est = token ประมาณ (ผู้ให้บริการไม่ส่ง usage) · part = ผู้ให้บริการ error กลางคำตอบ
   , pack REAL                               -- โควตาแพ็ก Agent ที่ใช้ไป (แทนหน่วยลิมิตแพลน)
+  , sub_id INTEGER                         -- หลายแพลน: หักลิมิตจากใบไหน (subscriptions.id · ว่าง = Wallet/ข้อมูลก่อนมีหลายใบ)
 );
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, created_at);
 
@@ -169,8 +171,13 @@ CREATE TABLE IF NOT EXISTS payments (
   period TEXT NOT NULL DEFAULT 'month', coupon TEXT, discount REAL NOT NULL DEFAULT 0, approved_at INTEGER, slip_ref TEXT,
   review INTEGER,                           -- 1 = ลูกค้าขอให้แอดมินตรวจสลิปที่ถูกปฏิเสธ
   seats INTEGER,                            -- แพลนทีมต่อที่นั่ง: จำนวนที่นั่งที่ซื้อ
+  sub_id INTEGER,                           -- หลายแพลน: ต่ออายุใบนี้ (ว่าง = ซื้อใบใหม่)
   created_at INTEGER NOT NULL
 );
+
+-- หลายแพลนต่อบัญชี: 1 แถว = แพลน 1 ใบ (ลิมิตและรอบลิมิตของตัวเอง) · legacy = ย้ายมาจาก users.plan_id (นับการใช้งานเก่าที่ไม่มี sub_id)
+CREATE TABLE IF NOT EXISTS subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, plan_id INTEGER NOT NULL, period TEXT, starts_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'active', payment_id INTEGER, auto_renew INTEGER, sess_start INTEGER, week_start INTEGER, legacy INTEGER, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS subs_user ON subscriptions(user_id, expires_at);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,

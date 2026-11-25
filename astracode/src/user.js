@@ -397,7 +397,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const plan = await planOf(env, u), st = await usageStatus(env, u, plan);
     if (st.pct4h >= 100 || st.pctWeek >= 100) return json({ error: 'ลิมิตเต็มแล้ว', ...st }, 429);
     if (await limited(env, 'imgp:' + u.id, 30, 3600e3)) return err('ปรับ prompt ได้ชั่วโมงละ 30 ครั้ง', 429);
-    const ms = (await allowedModels(env, plan.id)).filter(x => !['image', 'embedding'].includes(x.provider)), set = +(await getSetting(env, 'image_prompt_model'));
+    const ms = (await allowedModels(env, plan._planIds || plan.id)).filter(x => !['image', 'embedding'].includes(x.provider)), set = +(await getSetting(env, 'image_prompt_model'));
     let pick = ms.find(x => x.id === set) || ms.find(x => /6\.1\s*sol/i.test(x.name)) || ms.find(x => /deepseek.*4\.1.*flash/i.test(x.name)) || [...ms].sort((a, b) => a.multiplier - b.multiplier)[0]; // ค่าเริ่มต้น ChatGPT 6.1 Sol ถ้าแพลนมี
     if (!pick) return err('แพลนของคุณยังไม่มีโมเดลที่ช่วยเขียน prompt ได้', 403);
     if (imgs.length && !pick.vision) pick = ms.find(x => x.vision) || pick; if (!pick.vision) imgs = []; // ต้องอ่านรูปได้ถึงจะใช้รูปตัวอย่าง
