@@ -124,6 +124,21 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     }
     if (!msg) { const d = await r.json().catch(() => ({})); throw new Error(d.error?.message_th || d.error?.message || 'HTTP ' + r.status); }
     stats.rounds++;
+    // คำตอบชนเพดานความยาว (finish_reason=length): ไม่ทิ้งงานแล้วให้โมเดลเขียนใหม่ทั้งก้อน (เปลือง token ซ้ำๆ)
+    if (msg.finish === 'length') {
+      stats.cut = (stats.cut || 0) + 1;
+      const broken = msg.tool_calls.filter(tc => { try { JSON.parse(tc.function?.arguments || '{}'); return false; } catch { return true; } });
+      if (broken.length) { // คำสั่งเครื่องมือถูกตัดกลาง (เช่น write_file ไฟล์ใหญ่): ไม่รัน · บอกให้แบ่งเขียนเป็นส่วน
+        messages.push({ role: 'assistant', content: msg.content || '(cut off)' });
+        messages.push({ role: 'user', content: `[Kyber Harness] Your last reply hit the output length limit and the ${broken.map(tc => tc.function?.name).join(', ')} call was cut off, so it was NOT run (about ${Math.round(broken.reduce((n, tc) => n + (tc.function?.arguments || '').length, 0) / 1000)}K characters). Do not resend it whole. Split the work: write a big file in parts (write_file for the first ~250 lines, then write_file with append=true for each next part), or change existing files with edit_file. Keep every single tool call well under the limit.` });
+        onEvent({ type: 'info', text: 'คำตอบยาวเกินเพดาน คำสั่งถูกตัด: ให้ AI แบ่งเขียนเป็นส่วนแทนการเขียนใหม่ทั้งก้อน' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
+      }
+      if (!msg.tool_calls.length && (stats.cont || 0) < 3) { // ข้อความยาวถูกตัด: ให้เขียนต่อจากจุดที่ค้าง (ไม่เริ่มใหม่)
+        stats.cont = (stats.cont || 0) + 1;
+        messages.push({ role: 'assistant', content: msg.content || '' }, { role: 'user', content: '[Kyber Harness] Your reply was cut off by the length limit. Continue exactly where it stopped, without repeating anything already written.' });
+        onEvent({ type: 'info', text: 'คำตอบยาวเกินเพดาน: ให้ AI เขียนต่อจากจุดที่ค้าง' }); continue;
+      }
+    }
     messages.push({ role: 'assistant', content: msg.content || null, ...(msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
     if (msg.content) onEvent({ type: 'text_end' });
     if (!msg.tool_calls.length) {
@@ -231,13 +246,14 @@ async function compact({ post, model, messages, onEvent, state = null }) {
 
 // อ่าน SSE แบบ OpenAI: ต่อข้อความและ tool_calls ที่มาเป็นชิ้น ๆ (ชิ้นแรกมี id/name ชิ้นต่อไปมีแต่ arguments) · onFirst = ได้ token/เครื่องมือแรก (วัด TTFT)
 async function readStream(r, onEvent, onFirst = () => {}, onChunk = () => {}) { // onChunk: ได้ข้อมูลทุกครั้ง (รวม ping) ใช้รีเซ็ตนาฬิกาเฝ้าสตรีม
-  const out = { content: '', tool_calls: [] }, dec = new TextDecoder(); let buf = '', first = false;
+  const out = { content: '', tool_calls: [], finish: null }, dec = new TextDecoder(); let buf = '', first = false;
   const hit = () => { if (!first) { first = true; onFirst(); } };
   const take = line => {
     if (!line.startsWith('data:')) return; const data = line.slice(5).trim(); if (!data || data === '[DONE]') return;
     let e; try { e = JSON.parse(data); } catch { return; }
     if (e.error) throw new Error(e.error.message_th || e.error.message || 'error');
     if (e.usage) onEvent({ type: 'usage', usage: e.usage });
+    if (e.choices?.[0]?.finish_reason) out.finish = e.choices[0].finish_reason;
     const d = e.choices?.[0]?.delta || {};
     if (typeof d.content === 'string' && d.content) { hit(); out.content += d.content; onEvent({ type: 'delta', text: d.content }); }
     if (typeof d.reasoning_content === 'string' && d.reasoning_content) { hit(); onEvent({ type: 'think', text: d.reasoning_content }); }

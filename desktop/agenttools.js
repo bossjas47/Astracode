@@ -12,7 +12,7 @@ const S = d => ({ type: 'string', description: d }), N = d => ({ type: 'number',
 
 const AGENT_TOOLS = [
   fn('read_file', 'Read a text file. Returns lines prefixed with line numbers. Use offset/limit for big files.', { path: S('File path, relative to the working folder or absolute'), offset: N('First line (1-based)'), limit: N('Number of lines, default 2000') }, ['path']),
-  fn('write_file', 'Create or overwrite a file with the full content. Prefer edit_file for changes to existing files.', { path: S('File path'), content: S('Full file content') }, ['path', 'content']),
+  fn('write_file', 'Create or overwrite a file with the full content. Prefer edit_file for changes to existing files. For a big file (more than ~300 lines) write it in parts: the first call creates it, the next calls use append=true to add the following parts, so no single call gets cut off.', { path: S('File path'), content: S('Full file content, or the next part when append=true'), append: { type: 'boolean', description: 'true = add content to the end of the file instead of overwriting (write big files in parts)' } }, ['path', 'content']),
   fn('edit_file', 'Replace exact text in a file. old_string must appear exactly once (include surrounding lines) unless replace_all is true. Read the file first.', { path: S('File path'), old_string: S('Exact existing text'), new_string: S('Replacement text'), replace_all: B('Replace every occurrence') }, ['path', 'old_string', 'new_string']),
   fn('list_dir', 'List files and folders in a directory.', { path: S('Folder path, "." for the working folder') }),
   fn('glob', 'Find files by name pattern, e.g. "**/*.js" or "src/**/test_*.py".', { pattern: S('Glob pattern'), path: S('Folder to search, default the working folder') }, ['pattern']),
@@ -118,20 +118,20 @@ class Workspace {
     const target = ['read_file', 'write_file', 'edit_file', 'multi_edit', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax'].includes(name) ? this.abs(a.path ?? '.') : null;
     let diff = null, args = a;
     if (name === 'edit_file') diff = diffLines(a.old_string, a.new_string);
-    else if (name === 'write_file') diff = diffLines(await fs.readFile(target, 'utf8').catch(() => ''), a.content);
+    else if (name === 'write_file' && !a.append) diff = diffLines(await fs.readFile(target, 'utf8').catch(() => ''), a.content);
     else if (name === 'multi_edit') { // ตรวจทุกจุดก่อนขออนุญาต: ไม่ผ่านจุดเดียว = ไม่แก้เลย
       if (!Array.isArray(a.edits) || !a.edits.length) return 'Error: edits ต้องเป็นรายการที่มีอย่างน้อย 1 รายการ';
       const t = await fs.readFile(target, 'utf8').catch(() => null); if (t === null) return `Error: ไม่พบไฟล์ ${this.rel(target)} (ใช้ write_file สำหรับไฟล์ใหม่)`;
       const r = applyEdits(t, a.edits.slice(0, 100)); if (r.error) return r.error; diff = diffLines(t, r.text);
     } else if (name === 'android_tools') args = { command: 'เตรียมเครื่องมือแก้ APK: apktool, jadx, uber-apk-signer (และ Java ถ้ายังไม่มี) ไว้ที่ ~/.astra/tools' };
     else if (name === 'check_syntax' && TS_EXT.test(String(a.path || ''))) { kind = 'bash'; args = { command: `ตรวจ syntax ${this.rel(target)} ด้วยแพ็กเกจ typescript ของโปรเจกต์` }; } // รันโค้ดในโปรเจกต์ → ขออนุญาตแบบคำสั่ง
-    if (this.requireRead && ['edit_file', 'multi_edit', 'write_file'].includes(name)) { // อ่านก่อนแก้: เขียนทับ/แก้ไฟล์เดิมโดยไม่ได้อ่าน = เดาเนื้อหา
+    if (this.requireRead && ['edit_file', 'multi_edit', 'write_file'].includes(name) && !(name === 'write_file' && a.append && this.seen.has(target))) { // อ่านก่อนแก้: เขียนทับ/แก้ไฟล์เดิมโดยไม่ได้อ่าน = เดาเนื้อหา
       const m = await this.mtime(target);
       if (m != null && this.seen.get(target) !== m) return `Error: read ${this.rel(target)} with read_file before ${name === 'write_file' ? 'overwriting' : 'editing'} it${this.seen.has(target) ? ' (it changed since you last read it)' : ''}. Changes must be based on the file's current content, not on a guess.`;
     }
     if (!await this.askOne({ name, kind, args, outside: target ? !this.inside(target) : false, danger: name === 'bash' && isDanger(a.command), cwd: this.cwd, diff })) return 'Error: ผู้ใช้ไม่อนุญาต';
     let out = await this[name](a, target);
-    if (name === 'read_file' && !String(out).startsWith('Error')) this.seen.set(target, await this.mtime(target));
+    if ((name === 'read_file' || name === 'write_file') && !String(out).startsWith('Error')) this.seen.set(target, await this.mtime(target)); // เขียนเองแล้ว = รู้เนื้อหา (ต่อท้าย/แก้ต่อได้)
     if (diff && !String(out).startsWith('Error')) {
       out += '\n' + diff;
       if (this.hooks?.after_edit) { const r = await runCmd(this.root, this.hooks.after_edit.replace(/\{file\}/g, JSON.stringify(target)), { timeout: 60e3, signal: this.signal }); out += `\n[hook after_edit exit ${r.code}]${(r.stdout + r.stderr).trim() ? '\n' + (r.stdout + r.stderr).trim().slice(-1500) : ''}`; }
@@ -184,7 +184,7 @@ class Workspace {
     const part = lines.slice(from - 1, from - 1 + n).map((l, i) => `${String(from + i).padStart(6)}\t${l.length > 2000 ? l.slice(0, 2000) + '…' : l}`).join('\n');
     return part + (from - 1 + n < lines.length ? `\n…(ทั้งหมด ${lines.length} บรรทัด อ่านต่อด้วย offset=${from + n})` : '') || '(ไฟล์ว่าง)';
   }
-  async write_file(a, f) { await this.keep(f); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.writeFile(f, String(a.content ?? ''), 'utf8'); return `เขียน ${this.rel(f)} แล้ว (${String(a.content ?? '').split('\n').length} บรรทัด)`; }
+  async write_file(a, f) { await this.keep(f); await fs.mkdir(path.dirname(f), { recursive: true }); if (a.append) { await fs.appendFile(f, String(a.content ?? ''), 'utf8'); const all = await fs.readFile(f, 'utf8'); return `ต่อท้าย ${this.rel(f)} แล้ว (ตอนนี้ ${all.split('\n').length} บรรทัด)`; } await fs.writeFile(f, String(a.content ?? ''), 'utf8'); return `เขียน ${this.rel(f)} แล้ว (${String(a.content ?? '').split('\n').length} บรรทัด)`; }
   async edit_file(a, f) {
     const r = applyEdits(await fs.readFile(f, 'utf8'), [a]); if (r.error) return r.error;
     await this.keep(f); await fs.writeFile(f, r.text, 'utf8'); return `แก้ ${this.rel(f)} แล้ว ${r.count} จุด`;
