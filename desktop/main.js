@@ -7,6 +7,7 @@ const { execFile } = require('child_process');
 const { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel } = require('./localfs');
 const { startMcp } = require('./mcp');
 const { UIA_PS, parseUia, uiaText, pickEyes, describeScreen } = require('./eyes');
+const { CONNECTORS_TOOL, makeHub } = require('./hub');
 const { ROBLOX_TOOL, ROBLOX_RE, startBridge, robloxTool, installPlugin, pluginDir, newToken } = require('./roblox');
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
@@ -441,7 +442,7 @@ async function runTask(o = {}, sender) {
   a.messages.push({ role: 'user', content: imgs.length ? [{ type: 'text', text }, ...imgs.map(url => ({ type: 'image_url', image_url: { url } }))] : text });
   const ac = a.ac = new AbortController(); a.ws.signal = ac.signal; let ended; a.running = new Promise(ok => { ended = ok; });
   if (o.remote && !a.remote) a.remote = await remoteStart(a, o.chatId).catch(x => { tell({ type: 'info', text: 'สั่งจากมือถือ: ' + x.message }); return null; });
-  const rtools = await remoteTools().catch(() => []);
+  const hub = makeHub({ site: SITE, key: settings.key }), rtools = await hub.has().catch(() => false) ? [CONNECTORS_TOOL] : []; // Connector: เครื่องมือเดียวแบบโหลดเท่าที่ใช้ (เดิมส่งคำอธิบายทุกเครื่องมือทุกรอบ)
   // ชุดเครื่องมือเดียวกันทุกโหมด (โหมดวางแผนกันไว้ใน callTool แทน) → สลับ วางแผน ↔ ลงมือ แล้ว prompt cache ยังใช้ต่อได้ · android_tools ใส่เมื่องานเกี่ยวกับ Android (เปิดแล้วคงไว้ทั้ง session)
   a.android ||= await wantsAndroid(a.ws.root, text).catch(() => false);
   let tools = [...toolsFor({ android: a.android }), ...OFFICE_TOOLS, ASK_TOOL, ...rtools, ...(process.platform === 'win32' && settings.screenNever !== true ? [COMPUTER_TOOL] : [])];
@@ -461,6 +462,7 @@ async function runTask(o = {}, sender) {
     }
     if (name === 'roblox' && args?.op === 'look') return robloxLook(rbx, args, await screenCtx());
     if (name === 'roblox') return robloxTool(rbx, args);
+    if (name === 'connectors') return hub.run(args);
     if (name.startsWith('rmcp_')) return remoteCall(name, args);
     if (mcp?.has(name)) return mcp.call(name, args);
     return a.ws.call(name, args);

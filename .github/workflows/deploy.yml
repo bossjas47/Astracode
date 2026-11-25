@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['astracode/**', 'desktop/agent.js', 'desktop/agenttools.js', 'desktop/tools.js', 'desktop/localfs.js', 'desktop/android.js', 'desktop/office.js', 'desktop/skills.js']
+    paths: ['astracode/**', 'desktop/agent.js', 'desktop/agenttools.js', 'desktop/tools.js', 'desktop/localfs.js', 'desktop/android.js', 'desktop/office.js', 'desktop/skills.js', 'desktop/hub.js']
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -50,7 +50,7 @@ jobs:
       - name: Prepare cloud agent image
         run: |
           mkdir -p astracode/container/app
-          cp desktop/agent.js desktop/agenttools.js desktop/tools.js desktop/localfs.js desktop/android.js desktop/office.js desktop/skills.js astracode/container/app/
+          cp desktop/agent.js desktop/agenttools.js desktop/tools.js desktop/localfs.js desktop/android.js desktop/office.js desktop/skills.js desktop/hub.js astracode/container/app/
           cat astracode/wrangler.toml astracode/wrangler.cloud.extra.toml > astracode/wrangler.cloud.toml
       - uses: cloudflare/wrangler-action@v3
         continue-on-error: true
