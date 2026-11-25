@@ -304,14 +304,15 @@ test('harness: verify gate — code edits without a test/build run get one remin
 });
 
 test('harness: second-pass reviewer — flagged notes trigger one fix round; LGTM finishes', async () => {
-  const s = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b'.repeat(3000) }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }, { text: 'แก้ตามที่ตรวจแล้ว' }]);
+  // ไม่มีเทสต์ให้ตรวจ: ผู้ตรวจรอบสองอ่าน diff แทน
+  const s = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { text: 'เสร็จ' }, { text: 'แก้ตามที่ตรวจแล้ว' }]);
   const asked = [];
-  const r = await run(s, { callTool: async () => 'ok', review: async x => { asked.push(x.changed); return '- a.js: missing null check on line 3'; } });
-  assert.deepEqual(asked, [['a.js']]); assert.equal(s.seen.length, 4); assert.equal(r.stats.reviewed, 1);
+  const r = await run(s, { verifyGate: false, callTool: async () => 'ok', review: async x => { asked.push(x.changed); return '- a.js: missing null check on line 3'; } });
+  assert.deepEqual(asked, [['a.js']]); assert.equal(s.seen.length, 3); assert.equal(r.stats.reviewed, 1);
   assert.match(r.messages.find(m => /\[Kyber Harness · review\]/.test(m.content || '')).content, /missing null check/);
-  const s2 = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b'.repeat(3000) }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }]);
-  await run(s2, { callTool: async () => 'ok', review: async () => 'LGTM' }); assert.equal(s2.seen.length, 3);
-  // งานเล็กที่ตรวจผ่านแล้ว: ข้ามผู้ตรวจรอบสอง (ประหยัดลิมิตโมเดลแรง)
+  const s2 = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { text: 'เสร็จ' }]);
+  await run(s2, { verifyGate: false, callTool: async () => 'ok', review: async () => 'LGTM' }); assert.equal(s2.seen.length, 2);
+  // เทสต์ผ่านหลังแก้ล่าสุด: เชื่อผลเทสต์ ข้ามผู้ตรวจ Opus
   const s4 = script([{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { calls: [['bash', { command: 'npm test' }]] }, { text: 'เสร็จ' }]); let c4 = 0;
   const r4 = await run(s4, { callTool: async () => 'ok', review: async () => { c4++; return 'x'; } }); assert.equal(c4, 0); assert.equal(r4.stats.reviewSkipped, 1);
   const s3 = script([{ text: 'ตอบคำถามเฉย ๆ' }]); let called = 0; await run(s3, { callTool: async () => '', review: async () => { called++; return 'x'; } }); assert.equal(called, 0); // ไม่ได้แก้ไฟล์: ไม่ตรวจ
@@ -395,7 +396,7 @@ test('harness: advisor plans once per request and helps when stuck; failed page 
   const s = script([
     { calls: [['read_file', { path: 'a.js' }]] }, { calls: [['read_file', { path: 'a.js' }]] }, { calls: [['read_file', { path: 'a.js' }]] },
     { calls: [['check_page', { path: 'index.html' }]] }, { text: 'เสร็จแล้ว' }, { calls: [['check_page', { path: 'index.html' }]] }, { text: 'แก้แล้ว ผ่าน' }]);
-  let pageOk = false; const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'ทำฉาก 3D ด้วย three.js ให้กล้องหมุนรอบโมเดลและมีแสงสวย ๆ ในหน้า index.html' }];
+  let pageOk = false; const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'ทำฉาก 3D ด้วย three.js ให้กล้องหมุนรอบโมเดลและมีแสงสวย ๆ ในหน้า index.html '.repeat(20) }];
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools, advisor, fetchImpl: s.fetch, callTool: async n => n === 'check_page' ? (pageOk ? 'ตรวจหน้า index.html\nconsole ไม่มี error' : 'ตรวจหน้า index.html\nพบ error 1 รายการ') : 'same' });
   assert.equal(asked[0], 'plan:ทำฉาก 3D ด'); assert.match(JSON.stringify(s.seen[0].messages), /advisor plan[\s\S]*fix camera/);
   assert.ok(asked.includes('unstuck')); assert.match(JSON.stringify(s.seen[3].messages), /advisor opus\] the import map/);
@@ -437,7 +438,7 @@ test('advisor plan: skipped for short follow-ups (saves limits), used again for 
   const msgs = [{ role: 'system', content: 's' }, { role: 'user', content: 'ทำเกม Roblox' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'แก้สีปุ่มหน่อย' }];
   let s = script([{ text: 'done' }]); await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: msgs, tools, advisor, verifyGate: false, fetchImpl: s.fetch, callTool: async () => 'ok' });
   assert.equal(asked.length, 0);
-  msgs.push({ role: 'user', content: 'ฟีเจอร์ใหม่: '.padEnd(300, 'ก') }); s = script([{ text: 'done' }]);
+  msgs.push({ role: 'user', content: 'ฟีเจอร์ใหม่: '.padEnd(1300, 'ก') }); s = script([{ text: 'done' }]);
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: msgs, tools, advisor, verifyGate: false, fetchImpl: s.fetch, callTool: async () => 'ok' });
   assert.equal(asked.length, 1);
   const m = [{ role: 'user', content: 't' }]; for (let i = 0; i < 8; i++) m.push({ role: 'assistant', content: null, tool_calls: [{ id: 'r' + i, type: 'function', function: { name: 'mcp_roblox_run_code', arguments: JSON.stringify({ code: 'print(1)\n'.repeat(400) }) } }] }, { role: 'tool', tool_call_id: 'r' + i, content: 'ok' });
@@ -457,7 +458,7 @@ test('advisor does not block: a slow plan arrives later and is added once before
   let release; const slow = new Promise(r => { release = r; });
   const advisor = { model: 'opus', plan: () => slow, unstuck: async () => null };
   const s = script([{ calls: [['read_file', { path: 'a.js' }]] }, { calls: [['read_file', { path: 'b.js' }]] }, { text: 'done' }]);
-  const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'สร้างระบบล็อกอินพร้อมสมัครสมาชิกและลืมรหัสผ่านให้เว็บนี้ทั้งหมด ครบทุกหน้า' }];
+  const messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'สร้างระบบล็อกอินพร้อมสมัครสมาชิกและลืมรหัสผ่านให้เว็บนี้ทั้งหมด ครบทุกหน้า '.repeat(20) }];
   const p = runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools, advisor, verifyGate: false, fetchImpl: s.fetch, callTool: async () => { release('1. read auth.js'); return 'x'; } });
   await p;
   assert.ok(!/advisor plan/.test(JSON.stringify(s.seen[0].messages)), 'first request did not wait for the plan');
