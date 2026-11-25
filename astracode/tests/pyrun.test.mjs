@@ -16,6 +16,8 @@ test('cloud python API: paid plans are forwarded to the per-user machine; free p
   const body = { main: 'main.py', files: [{ path: 'main.py', content: 'print("hi")' }] };
   const r = await t.json('/api/py/run', { method: 'POST', cookie: a.cookie, body }); assert.equal(r.status, 200); assert.equal(r.data.out, 'hi\n');
   assert.equal(seen[0][0], 'py:' + a.id, 'one machine per user'); assert.equal(seen[0][2].main, 'main.py');
+  const adm = await t.user({ role: 'admin' }), q = (await t.json('/api/admin/quality', { cookie: adm.cookie })).data;
+  assert.equal(q.py[0].n, 1); assert.equal(q.py[0].users, 1); assert.equal(q.py[0].fail, 0, 'runs are counted for the admin quality page');
   assert.equal((await t.json('/api/py/run', { method: 'POST', cookie: b.cookie, body })).status, 402);
   assert.equal((await t.json('/api/py/run', { method: 'POST', body })).status, 401);
   const n = await makeEnv(), c = await n.user(); give(n.DB, c, addPlan(n.DB, { price: 100 }));
