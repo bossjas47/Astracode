@@ -10,6 +10,9 @@ const READ_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspec
 const EDIT_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit', 'make_document']);
 const NO_SPILL = new Set(['read_file', 'read_document', 'task', 'ask_user']); // ผลที่โมเดลขอดูเต็ม ๆ (เนื้อไฟล์ที่จะแก้ / รายงานผู้ช่วย): ไม่เก็บลงไฟล์
 const STUCK_N = 3;
+// คำสั่งสำรวจเครื่อง / error ที่มาจากเครื่องไม่พร้อม (ไม่ใช่โค้ดของงาน)
+const ENV_CMD_RE = /^\s*(which|command -v|type|ls|find|whereis|echo|cat|env|printenv|npm\s+ls|pip\s+(show|list)|uname)\b/;
+const ENV_ERR_RE = /command not found|not found in PATH|Executable doesn't exist|Looks like Playwright|playwright install|Cannot find module '(playwright|puppeteer)|ms-playwright|EAI_AGAIN|ENOTFOUND|getaddrinfo|Could not resolve host|permission denied.*\/(usr|opt|root)\//i;
 // ตรวจงานก่อนจบ: ไฟล์โค้ด · คำสั่งที่นับว่า "ตรวจแล้ว" (เทสต์/บิลด์/lint/รันสคริปต์) · ข้อความที่อ้างว่าผ่าน
 const CODE_RE = /\.(m?[jt]sx?|cjs|py|go|rs|java|kt|cs|cpp|cc|c|h|rb|php|swift|vue|svelte|sh|sql)$/i;
 const VERIFY_RE = /\b(test|tests|pytest|jest|vitest|mocha|tsc|lint|eslint|build|compile|py_compile|cargo\s+(test|build|check)|go\s+(test|build|vet)|mvn|gradle|make|ruff|mypy|flake8)\b|\b(node|python3?|deno|bun|php|ruby)\s+[^|;&]*\.(m?js|py|ts|php|rb)\b|\b(node|python3?|deno|bun)\s+(-e|-c|--eval|-p)\s/i;
@@ -97,6 +100,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (maxDurationMs && Date.now() - t0 > maxDurationMs) { stop(`ทำงานครบเวลา ${Math.round(maxDurationMs / 60000)} นาทีแล้ว`); return finish(); }
     if (maxTokens && stats.promptTokens + stats.outTokens > maxTokens) { stop(`ใช้ token ครบเพดาน ${maxTokens.toLocaleString()} แล้ว`); return finish(); }
     for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
+    stats.slimmed = (stats.slimmed || 0) + slim(messages);
     if (JSON.stringify(messages).length > compactAt) await compact({ post, model, messages, onEvent, state, pinned });
     // ที่ปรึกษาโมเดลแรง: วางแผนให้ครั้งเดียวต่อคำสั่งผู้ใช้ (ก่อนรอบแรก) · เรียกไม่ได้ = ทำงานต่อตามปกติ
     if (round === 0 && advisor?.plan && depth === 0) {
@@ -233,6 +237,28 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
   stop(`ทำงานครบ ${maxRounds} รอบแล้ว`);
   return finish();
 }
+// ลดขนาดบริบท (ทำทุกรอบ ไม่ต้องเรียกโมเดล): ของเก่าที่โมเดลไม่ต้องเห็นซ้ำทุกรอบ
+// 1) เนื้อหาไฟล์ใน write_file/edit_file ที่เขียนไปแล้ว (ไฟล์อยู่บนดิสก์ อ่านใหม่ได้) 2) ผลเครื่องมือยาว ๆ ของรอบเก่า 3) ภาพหน้าเว็บเก่า (เหลือภาพล่าสุด)
+// เดิมไฟล์ 50K ตัวอักษรที่เขียนตอนต้นถูกส่งซ้ำทุกรอบ = โทเคนขาเข้าหลักของงาน · แก้ในที่เดิมครั้งเดียว ข้อความเก่าไม่เปลี่ยนอีก (prompt cache ส่วนต้นยังใช้ได้)
+const SLIM_KEEP = 3, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'];
+function slim(messages) {
+  const asst = messages.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0); if (asst.length <= SLIM_KEEP) return 0;
+  const cut = asst[asst.length - SLIM_KEEP]; let n = 0, lastImg = -1;
+  for (let i = messages.length - 1; i >= 0; i--) if (Array.isArray(messages[i].content) && messages[i].content.some(p => p.type === 'image_url')) { lastImg = i; break; }
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (Array.isArray(m.content) && i !== lastImg && m.content.some(p => p.type === 'image_url')) { m.content = '(ภาพหน้าเว็บรอบก่อน: ลบออกเพื่อประหยัด context · ภาพล่าสุดยังอยู่)'; n++; continue; }
+    if (i >= cut) continue;
+    if (m.role === 'assistant' && m.tool_calls) for (const tc of m.tool_calls) {
+      const raw = tc.function?.arguments || ''; if (raw.length <= SLIM_ARG * 2) continue;
+      let a; try { a = JSON.parse(raw); } catch { continue; }
+      let hit = false; for (const k of BIG_ARGS) if (a[k] != null) { const v = typeof a[k] === 'string' ? a[k] : JSON.stringify(a[k]); if (v.length > SLIM_ARG) { a[k] = `«${v.length.toLocaleString()} chars, already applied to the file; read_file to see the current text»`; hit = true; } }
+      if (hit) { tc.function.arguments = JSON.stringify(a); n++; }
+    }
+    if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > SLIM_OUT && !m.content.startsWith('[old]')) { m.content = `[old] ${m.content.slice(0, 900)}\n…(older output trimmed; re-run or read_file if you need it again)…\n${m.content.slice(-400)}`; n++; }
+  }
+  return n;
+}
 const snapshot = s => ({ todos: s.todos, changed: [...s.changed], errors: [...s.errors.values()], verified: s.verifyRound >= s.codeEditRound });
 // เก็บสถานะงานจากผลเครื่องมือ: todo ล่าสุด · ไฟล์ที่แก้สำเร็จ · error ที่ยังไม่หาย (หายเมื่อเครื่องมือเดียวกันกับไฟล์/คำสั่งเดียวกันสำเร็จ)
 function track(state, name, args, out, ok) {
@@ -241,7 +267,8 @@ function track(state, name, args, out, ok) {
   if (EDIT_TOOLS.has(name) && ok && args.path) { state.changed.add(String(args.path)); if (CODE_RE.test(String(args.path))) state.codeEditRound = state.round; }
   if ((name === 'bash' && VERIFY_RE.test(String(args.command || ''))) || name === 'check_page') state.verifyRound = state.round; // check_page = เปิดหน้าเว็บจริงตรวจ
   if (name === 'check_page') { state.pageBad = !ok || /พบ error|ดูเหมือนว่าง/.test(out); } // รันตรวจแล้ว (ผ่านหรือไม่ผ่านก็นับ: โมเดลเห็นผลจริงแล้ว)
-  const failed = !ok || (name === 'bash' && /^exit [1-9]\d*/.test(out)); // คำสั่งที่ exit ไม่ใช่ 0 (เทสต์/บิลด์พัง) = error ที่ยังค้าง
+  const envOnly = name === 'bash' && (ENV_CMD_RE.test(String(args.command || '')) || ENV_ERR_RE.test(out)); // หาโปรแกรม/เครื่องไม่พร้อม ≠ งานพัง: ไม่ใช้ตีกลับตอนจบ (เดิมทำให้ AI ไปนั่งแก้เครื่องแทนงาน)
+  const failed = !ok || (name === 'bash' && !envOnly && /^exit [1-9]\d*/.test(out)); // คำสั่งที่ exit ไม่ใช่ 0 (เทสต์/บิลด์พัง) = error ที่ยังค้าง
   if (failed) state.errors.set(k, `${name} ${target}: ${out.slice(0, 300)}`); else state.errors.delete(k);
   if (state.errors.size > 8) state.errors.delete(state.errors.keys().next().value);
 }
@@ -288,4 +315,4 @@ async function readStream(r, onEvent, onFirst = () => {}, onChunk = () => {}) { 
   return out;
 }
 
-module.exports = { runAgent, readStream, compact, repairHistory, validateArgs, describeParams, maskSecrets, retryAfterMs, backoffMs, TOOL_OUT_MAX, SPILL_AT, READ_TOOLS };
+module.exports = { runAgent, readStream, compact, slim, repairHistory, validateArgs, describeParams, maskSecrets, retryAfterMs, backoffMs, TOOL_OUT_MAX, SPILL_AT, READ_TOOLS };

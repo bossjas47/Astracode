@@ -410,3 +410,20 @@ test('memory: lessons from a task are written to .kyber/memory.md, deduped by th
   const none = async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: 'NONE' } }] }) });
   assert.equal(await memoryLearn({ post: none, model: 'm', root: dir }), null);
 });
+
+test('slim: old file contents, old long outputs and old screenshots leave the context; recent turns stay whole', () => {
+  const { slim } = require('../agent');
+  const big = 'x'.repeat(5000), m = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'task' }];
+  for (let i = 0; i < 6; i++) {
+    m.push({ role: 'assistant', content: null, tool_calls: [{ id: 'c' + i, type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: `f${i}.js`, content: big }) } }] });
+    m.push({ role: 'tool', tool_call_id: 'c' + i, content: 'out ' + big });
+    m.push({ role: 'user', content: [{ type: 'text', text: 'shot' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAA' } }] });
+  }
+  const before = JSON.stringify(m).length, n = slim(m);
+  assert.ok(n > 0 && JSON.stringify(m).length < before * 0.7);
+  assert.equal(JSON.parse(m[2].tool_calls[0].function.arguments).path, 'f0.js'); // ยังรู้ว่าเขียนไฟล์ไหน
+  assert.match(JSON.parse(m[2].tool_calls[0].function.arguments).content, /already applied/);
+  assert.equal(JSON.parse(m.at(-3).tool_calls[0].function.arguments).content, big); // รอบล่าสุดเต็ม
+  assert.equal(m.filter(x => Array.isArray(x.content)).length, 1); // ภาพเหลือภาพล่าสุดภาพเดียว
+  assert.equal(slim(m), 0); // ทำซ้ำไม่เปลี่ยนอีก (prompt cache คงที่)
+});
