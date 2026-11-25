@@ -471,3 +471,10 @@ test('helper model: cheapest text model by plan multiplier for side jobs; none c
   assert.equal(pickHelper(ms, 'opus'), 'luna'); assert.equal(pickHelper(ms, 'luna'), null); assert.equal(pickHelper([], 'x'), null);
   assert.match(agentSystem({ root: '/p', os: 'x', rules: '' }), /start 2-3 helpers in ONE reply/);
 });
+
+test('last round: tools are switched off so the AI must write the summary', async () => {
+  const s = script([...Array.from({ length: 9 }, () => ({ calls: [['read_file', { path: 'a.js' }]] })), { text: 'สรุป: แก้แล้ว' }]);
+  const r = await run(s, { callTool: async () => 'x', maxRounds: 10 });
+  assert.ok(!s.seen[9].tools, 'no tools on the last round'); assert.match(JSON.stringify(s.seen[9].messages), /tools are off now/);
+  assert.equal(r.messages.at(-1).content, 'สรุป: แก้แล้ว');
+});

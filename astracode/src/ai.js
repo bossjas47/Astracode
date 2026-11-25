@@ -16,6 +16,17 @@ import { cron, status } from './jobs.js';
 // ---------- AI providers ----------
 // คืน async generator: {t:text} ระหว่างทาง, {usage:{fresh,read,write,out}} ตอนจบ
 // ผลเครื่องมือ/Connector (MCP) ของรอบเก่าในคำตอบเดียวกัน: เก็บแค่หัว+ท้าย (เดิมผลยาว 20K ตัวอักษรถูกส่งซ้ำทุกรอบ = กินลิมิตเร็ว) · 2 รอบล่าสุดเต็ม · ทำซ้ำไม่เปลี่ยน (cache ส่วนต้นยังใช้ได้)
+export const LAZY_CONN = 12;
+export const LAZY_TOOL = { type: 'function', function: { name: 'connectors', description: 'Use the apps the user connected (Gmail, Drive, Sheets, Calendar, GitHub, Notion, ...). action=list shows the tools; action=describe {name} shows one tool\'s parameters; action=call {name, args} runs it. List first, describe before the first call of a tool.', parameters: { type: 'object', properties: { action: { type: 'string', enum: ['list', 'describe', 'call'] }, name: { type: 'string' }, args: { type: 'object' } }, required: ['action'] } } };
+export function lazyConn(tools, a = {}) {
+  const sh = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 110);
+  if (!a.action || a.action === 'list') return { text: 'Connector tools (describe before first use):\n' + tools.map(t => `- ${t.function.name}: ${sh(t.function.description)}`).join('\n') };
+  const t = tools.find(x => x.function.name === a.name) || tools.find(x => x.function.name.endsWith('_' + a.name));
+  if (!t) return { text: `Error: no connector tool "${String(a.name || '').slice(0, 80)}". Use action=list.` };
+  if (a.action === 'describe') return { text: `${t.function.name}\n${String(t.function.description || '').slice(0, 1500)}\nparameters: ${JSON.stringify(t.function.parameters || {}).slice(0, 4000)}` };
+  if (a.action === 'call') return { name: t.function.name };
+  return { text: 'Error: action must be list, describe or call' };
+}
 export function slimTools(msgs, keep = 2, max = 2000) {
   const asst = msgs.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0); if (asst.length <= keep) return 0;
   const cut = asst[asst.length - keep]; let n = 0;
@@ -699,7 +710,8 @@ export async function runChat(env, J, send, st) {
   // systemFor ต่อท้ายคำสั่งผู้ใช้/ความจำ/Skills หลังข้อความหลัก จึงคำนวณส่วนท้ายครั้งเดียวแล้ววางต่อจากข้อความหลักของโหมดนั้น
   const projMem = pid ? (await env.DB.prepare('SELECT content FROM project_files WHERE project_id=? AND path=?').bind(pid, MEM_PATH).first().catch(() => null))?.content || '' : '';
   const system = (pid ? SYSTEM_CODE + '\n\n' + (m.code_prompt?.trim() || familyHint(m)) + webSkills(hist.filter(x => x.role === 'user').map(x => typeof x.content === 'string' ? x.content.slice(0, 3000) : '').join('\n')) + memoryBlockWeb(projMem) + (projIns ? '\n\nProject-specific instructions (follow them):\n' + projIns.slice(0, 3000) : '') : SYSTEM + (m.sys_prompt?.trim() ? '\n\n' + m.sys_prompt.trim() : '')) + systemBase + (J.summary ?  `\n\nSummary of the earlier part of this conversation (older messages are not shown):\n${J.summary}` : '') + (J.folder_ins ? `\n\nInstructions for every chat in this folder (follow them):\n${J.folder_ins}` : '') + folderDocs(J.folder_docs, String(hist.at(-1)?.content || '').slice(0, 4000)) + (J.chat_ins ? `\n\nInstructions the user set for this conversation (follow them):\n${J.chat_ins}` : '') + imgPrompt; // code_prompt: แอดมินเขียนกำกับโมเดลที่ไม่ค่อยทำตาม
-  const mcpTools = mcpSrvs.tools, mcpMap = mcpSrvs.map; let askStop = false;
+  // ต่อ Connector หลายตัว: ส่งเครื่องมือ "connectors" ตัวเดียว (list/describe/call) แทนคำอธิบายเครื่องมือทั้งหมดทุกรอบ (ประหยัดโทเคนทุกข้อความ)
+  const mcpLazy = mcpSrvs.tools.length > LAZY_CONN, mcpTools = mcpLazy ? [LAZY_TOOL] : mcpSrvs.tools, mcpMap = mcpSrvs.map; let askStop = false;
   // zip ที่แนบไว้ในแชต ([[zipref:id]] ในข้อความผู้ใช้): ให้ AI เปิดเฉพาะไฟล์ที่ต้องใช้ด้วย read_file / grep_files
   const zipIds = !pid && env.SLIPS ? [...new Set(hist.filter(x => x.role === 'user').flatMap(x => [...String(x.content).matchAll(/\[\[zipref:([0-9a-f]{16})\]\]/g)].map(y => y[1])))] : [];
   let zipCache = null;
@@ -827,7 +839,7 @@ export async function runChat(env, J, send, st) {
       msgs = [...msgs, { role: 'assistant', content: part || null, tool_calls: toolCalls }];
       imgs = [];
       let onlyWrites = true, allOk = true, wrote = false; const doing = [];
-      for (const tc of toolCalls) {
+      for (let tc of toolCalls) {
         const tname = tc.function?.name || '';
         if (WRITE_TOOLS.has(tname)) wrote = true; else if (tname !== 'todo_write') onlyWrites = false; // อัปเดตรายการงานไม่ใช่การอ่าน: รอบที่แก้ไฟล์ + อัปเดตรายการ ยังนับว่าจบงานได้
         if ((tname === 'generate_video' && vidT.length) || (ws && CODE_TOOL_NAMES.has(tname)) || (J.task && tname === 'todo_write') || WEB_TOOL_NAMES.has(tname) || (!pid && CHAT_TOOL_NAMES.has(tname))) {
@@ -869,6 +881,12 @@ export async function runChat(env, J, send, st) {
           const resText = cumIn >= ANSWER_IN_MAX ? 'Reading budget for this answer is used up. Stop calling tools and answer now with what you have.' : zipTool(tc.function.name, args, await zipLoad());
           await send({ mcp: { server: 'zip', tool: `${tc.function.name === 'read_file' ? 'อ่าน' : 'ค้นหา'} ${String(args.path || args.pattern || '').slice(0, 80)}`, ok: !resText.startsWith('Error') } });
           msgs.push({ role: 'tool', tool_call_id: tc.id, content: resText }); continue;
+        }
+        if (mcpLazy && tc.function?.name === 'connectors') { // list/describe ตอบทันที · call = เรียกเครื่องมือจริงต่อด้านล่าง (ผ่านการขออนุญาตเหมือนเดิม)
+          let a = {}; try { a = JSON.parse(tc.function.arguments || '{}'); } catch {}
+          const lz = lazyConn(mcpSrvs.tools, a);
+          if (lz.text != null) { msgs.push({ role: 'tool', tool_call_id: tc.id, content: lz.text }); continue; }
+          tc = { ...tc, function: { name: lz.name, arguments: JSON.stringify(a.args || {}) } };
         }
         const meta = mcpMap.get(tc.function?.name);
         let resText = 'ไม่พบเครื่องมือนี้', ok = false;
