@@ -20,6 +20,7 @@ class Stmt {
 export function makeDB() {
   const db = new DatabaseSync(':memory:');
   db.exec(readFileSync(join(root, 'schema.sql'), 'utf8'));
+  db.exec("INSERT OR IGNORE INTO settings (key,value) VALUES ('open_until','')"); // ปิดโปรทดลองฟีเจอร์ที่ระบบตั้งค่าเริ่มต้นให้ (ทดสอบแต่ละเรื่องเปิดเอง)
   return {
     raw: db,
     prepare: sql => new Stmt(db, sql),

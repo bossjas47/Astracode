@@ -125,3 +125,18 @@ test('multi-plan admin: per-slot auto-renew charges once; refund ends only that 
   assert.equal((await S.t.json(`/api/admin/subs/${s1.id}`, { method: 'POST', cookie: S.u.cookie, body: { action: 'extend', days: 10 } })).status, 403, 'users cannot use admin routes');
   S.fm.close();
 });
+
+test('feature trial: Harness and Agent open for paid plans until open_until (all paid or listed plans), never for free plans; off after the date', async () => {
+  const run = async ({ until, plans = '', planKey = 'plus', price }) => {
+    const S = await setup({ multi: false }), now = Date.now(), set = (k, v) => S.t.DB.raw.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').run(k, v);
+    set('open_until', String(now + until)); set('open_features', 'cowork,agent'); set('open_plans', plans === 'plus' ? String(S.plus.id) : plans === 'pro' ? String(S.pro.id) : '');
+    if (price != null) S.t.DB.raw.prepare('UPDATE plans SET price=? WHERE id=?').run(price, S[planKey].id);
+    S.t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(S[planKey].id, now + 10 * DAY, S.u.id);
+    const p = (await S.t.json('/api/me', { cookie: S.u.cookie })).data.plan; S.fm.close(); return p;
+  };
+  const on = await run({ until: DAY }); assert.equal(on.cowork, true); assert.equal(on.agent, true); assert.deepEqual(on.open.feats.sort(), ['agent', 'cowork']);
+  const off = await run({ until: -1000 }); assert.equal(off.cowork, false); assert.equal(off.agent, false); assert.equal(off.open, null);
+  assert.equal((await run({ until: DAY, plans: 'plus' })).cowork, true);
+  assert.equal((await run({ until: DAY, plans: 'pro' })).cowork, false, 'only listed plans');
+  assert.equal((await run({ until: DAY, price: 0 })).cowork, false, 'free plan never');
+});

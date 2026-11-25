@@ -74,7 +74,8 @@ function cwLocked() {
   $('#cwform').hidden = true;
 }
 function cwHello() {
-  $('#cwmsgs').innerHTML = `<div class="cw-hello"><div class="cw-logo">${ic('layers')}</div><h2>วันนี้ให้ช่วยทำงานอะไร?</h2><p class="muted">${CW.local ? 'AI ทำงานในโฟลเดอร์ที่คุณเลือกบนเครื่องนี้ ถามก่อนรันคำสั่งเสี่ยง' : 'แนบไฟล์แล้วสั่งงาน AI วางแผน ทำทีละขั้นในเครื่องเสมือนของคุณ และส่งผลเป็นไฟล์'}</p>
+  const trial = me?.plan?.open?.feats?.includes('cowork') ? `<p class="cw-trial">${ic('clock', 'sm')} ทดลองใช้ฟรีถึง ${new Date(me.plan.open.until).toLocaleDateString(LOC, { dateStyle: 'medium' })} · หักลิมิตแพลนตามปกติ</p>` : '';
+  $('#cwmsgs').innerHTML = `<div class="cw-hello"><div class="cw-logo">${ic('layers')}</div>${trial}<h2>วันนี้ให้ช่วยทำงานอะไร?</h2><p class="muted">${CW.local ? 'AI ทำงานในโฟลเดอร์ที่คุณเลือกบนเครื่องนี้ ถามก่อนรันคำสั่งเสี่ยง' : 'แนบไฟล์แล้วสั่งงาน AI วางแผน ทำทีละขั้นในเครื่องเสมือนของคุณ และส่งผลเป็นไฟล์'}</p>
     <div class="cw-tpl">${CW_TPL.filter(x => CW.local || x[0] !== 'folder').map(([i, n, p], k) => `<button type="button" data-cwtpl="${k}">${ic(i, 'sm')}<b>${esc(n)}</b><small>${esc(p.slice(0, 60))}…</small></button>`).join('')}</div></div>`;
   $('#cwmsgs').onclick = e => { const b = e.target.closest('[data-cwtpl]'); if (b) { const t = $('#cwt'); t.value = CW_TPL[+b.dataset.cwtpl][2] + ' '; t.focus(); t.oninput(); } };
   cwPanels();

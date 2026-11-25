@@ -533,6 +533,9 @@ const ADMIN = {
       <h2 style="margin-top:24px">โปรเพิ่มลิมิต</h2><label>หมดเขตโปร (เวลาไทย · เว้นว่าง = ไม่มีโปร) แพลนเสียเงินได้ลิมิตเพิ่มตามตัวคูณจนถึงเวลานี้ แล้วกลับเป็นปกติเอง</label><input name="promo_until_dt" type="datetime-local" value="${+s.promo_until ? new Date(+s.promo_until - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16) : ''}">
       <div class="form2"><div><label>ตัวคูณรอบ 4 ชม.</label><input name="promo_x4h" type="number" min="1" step="0.1" value="${esc(s.promo_x4h || '')}"></div><div><label>ตัวคูณรายสัปดาห์</label><input name="promo_xweek" type="number" min="1" step="0.1" value="${esc(s.promo_xweek || '')}"></div></div>
       <label>ข้อความประกาศโปร (แถบบนเว็บ · ต่อท้ายวันหมดเขตให้เอง)</label><input name="promo_label" maxlength="200" value="${esc(s.promo_label || '')}">
+      <h2 style="margin-top:24px">เปิดฟีเจอร์ให้ทดลองฟรี</h2><label>ถึงเวลา (เวลาไทย · เว้นว่าง = ปิด) แพลนเสียเงินที่ยังไม่มีฟีเจอร์นี้ได้ใช้จนถึงเวลานี้ · ลิมิตตามแพลนเดิม</label><input name="open_until_dt" type="datetime-local" value="${+s.open_until ? new Date(+s.open_until - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16) : ''}">
+      <label class="sw-row"><span class="sw"><input type="checkbox" data-of="cowork" ${String(s.open_features || '').includes('cowork') ? 'checked' : ''}><span></span></span> Kyber Harness</label><label class="sw-row"><span class="sw"><input type="checkbox" data-of="agent" ${String(s.open_features || '').includes('agent') ? 'checked' : ''}><span></span></span> Agent (แอป Desktop / คลาวด์) หักลิมิตแพลน</label><input type="hidden" name="open_features" value="${esc(s.open_features || '')}">
+      <label>เฉพาะแพลน (id คั่นด้วย , · เว้นว่าง = ทุกแพลนเสียเงิน)</label><input name="open_plans" value="${esc(s.open_plans || '')}" placeholder="เช่น 2">
       <h2 style="margin-top:24px">ทีม Agent</h2><label>เพดานลิมิตต่อหนึ่งงานทีม (% ของลิมิตสัปดาห์ · เว้นว่าง = 30)</label><input name="team_budget_pct" type="number" min="1" max="100" step="any" value="${esc(s.team_budget_pct || '')}">
       <label>โมเดลลูกทีม (id ของโมเดล · เว้นว่าง = DeepSeek 4.1 Flash ถ้าแพลนมี ไม่งั้นตัวที่ถูกสุด)</label><input name="team_worker_model" type="number" min="1" value="${esc(s.team_worker_model || '')}">
       <h2 style="margin-top:24px">AI ประชุม</h2><label>โมเดลถอดเสียง (id ของโมเดลที่ฟังเสียงได้ เช่น Gemini · เว้นว่าง = Gemini ตัวแรกที่มีคีย์ · ต้นทุนหักลิมิตแพลนของผู้ใช้)</label><input name="meeting_model" type="number" min="1" value="${esc(s.meeting_model || '')}">
@@ -579,6 +582,7 @@ const ADMIN = {
       e.preventDefault(); const fd = new FormData(e.target), o = Object.fromEntries(fd);
       o.maintenance = fd.get('maintenance') ? '1' : '0';
       o.promo_until = o.promo_until_dt ? String(new Date(o.promo_until_dt).getTime()) : ''; delete o.promo_until_dt;
+      o.open_until = o.open_until_dt ? String(new Date(o.open_until_dt).getTime()) : ''; delete o.open_until_dt; o.open_features = [...e.target.querySelectorAll('[data-of]:checked')].map(x => x.dataset.of).join(',');
       save(o, $('#ms'));
     };
     const bc = async test => { const f = $('#bcf'), body = { subject: f.subject.value, body: f.body.value, button: f.button.value, test };
