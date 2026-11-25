@@ -260,8 +260,10 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
 // ลดขนาดบริบท (ทำทุกรอบ ไม่ต้องเรียกโมเดล): ของเก่าที่โมเดลไม่ต้องเห็นซ้ำทุกรอบ
 // 1) เนื้อหาไฟล์ใน write_file/edit_file ที่เขียนไปแล้ว (ไฟล์อยู่บนดิสก์ อ่านใหม่ได้) 2) ผลเครื่องมือยาว ๆ ของรอบเก่า 3) ภาพหน้าเว็บเก่า (เหลือภาพล่าสุด)
 // เดิมไฟล์ 50K ตัวอักษรที่เขียนตอนต้นถูกส่งซ้ำทุกรอบ = โทเคนขาเข้าหลักของงาน · แก้ในที่เดิมครั้งเดียว ข้อความเก่าไม่เปลี่ยนอีก (prompt cache ส่วนต้นยังใช้ได้)
-const SLIM_KEEP = 3, SLIM_STEP = 4, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'], CODE_ARGS = ['code', 'script', 'source', 'command', 'luau', 'lua', 'python', 'query']; // CODE_ARGS: โค้ดที่ส่งไปรันแล้ว (เช่น MCP Roblox run_code, bash)
-function slim(messages) {
+const SLIM_MIN = 140000, SLIM_KEEP = 3, SLIM_STEP = 4, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'], CODE_ARGS = ['code', 'script', 'source', 'command', 'luau', 'lua', 'python', 'query']; // CODE_ARGS: โค้ดที่ส่งไปรันแล้ว (เช่น MCP Roblox run_code, bash)
+// วัดจริง (Roblox, DeepSeek): ย่อบทสนทนาเล็ก ๆ ทำให้แคชหลุดทุกครั้งที่ย่อ (ผู้ให้บริการจำแคชจากต้นบทสนทนา) แพงกว่าส่งต่อแบบแคช → ย่อเมื่อยาวเกิน ~40K token เท่านั้น
+function slim(messages, min = SLIM_MIN) {
+  if (min && JSON.stringify(messages).length < min) return 0;
   const asst = messages.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0);
   // เส้นแบ่ง "ของเก่า" ขยับทีละ SLIM_STEP รอบ (ไม่ใช่ทุกรอบ): ข้อความต้นบทสนทนาคงเดิมหลายรอบติด → prompt cache ติดมากขึ้น · เก็บเต็มอย่างน้อย SLIM_KEEP รอบล่าสุด
   const k = Math.floor((asst.length - SLIM_KEEP) / SLIM_STEP) * SLIM_STEP, cut = k > 0 ? asst[k] : -1; let n = 0, lastImg = -1;
@@ -289,7 +291,11 @@ function track(state, name, args, out, ok) {
   const target = String(args.path || args.command || args.url || '').slice(0, 200), k = name + ':' + target;
   if (EDIT_TOOLS.has(name) && ok) state.editChars = (state.editChars || 0) + String(args.content ?? args.new_string ?? JSON.stringify(args.edits ?? '')).length;
   if (EDIT_TOOLS.has(name) && ok && args.path) { state.changed.add(String(args.path)); if (CODE_RE.test(String(args.path))) state.codeEditRound = state.round; }
-  if ((name === 'bash' && VERIFY_RE.test(String(args.command || ''))) || name === 'check_page') state.verifyRound = state.round; // check_page = เปิดหน้าเว็บจริงตรวจ
+  if ((name === 'bash' && VERIFY_RE.test(String(args.command || ''))) || name === 'check_page') state.verifyRound = state.round;
+  if (name === 'roblox' && ok) { // Roblox Studio: แก้ = write/edit/create/set/delete/run · ตรวจ = play (ใช้ระบบเตือนให้จบเหมือนงานโค้ดปกติ)
+    if (['write', 'edit', 'create', 'set', 'delete', 'run'].includes(args.op)) state.codeEditRound = state.round;
+    if (args.op === 'play') { state.verifyRound = state.round; state.pageBad = /\[error\]/.test(out); }
+  } // check_page = เปิดหน้าเว็บจริงตรวจ
   if (name === 'check_page') { state.pageBad = !ok || /พบ error|ดูเหมือนว่าง/.test(out); } // รันตรวจแล้ว (ผ่านหรือไม่ผ่านก็นับ: โมเดลเห็นผลจริงแล้ว)
   const envOnly = name === 'bash' && (ENV_CMD_RE.test(String(args.command || '')) || ENV_ERR_RE.test(out)); // หาโปรแกรม/เครื่องไม่พร้อม ≠ งานพัง: ไม่ใช้ตีกลับตอนจบ (เดิมทำให้ AI ไปนั่งแก้เครื่องแทนงาน)
   const failed = !ok || (name === 'bash' && !envOnly && /^exit [1-9]\d*/.test(out)); // คำสั่งที่ exit ไม่ใช่ 0 (เทสต์/บิลด์พัง) = error ที่ยังค้าง
