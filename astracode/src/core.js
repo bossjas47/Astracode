@@ -200,13 +200,24 @@ export async function fbSession(req, env, c, b) { // c มาจาก token ท
 let boostCache = null;
 export async function limitBoost(env) {
   if (boostCache && boostCache.db === env.DB && boostCache.exp > Date.now()) return boostCache.v;
-  const s = await getSettings(env, ['promo_until', 'promo_x4h', 'promo_xweek', 'promo_label']), on = +s.promo_until > Date.now();
+  const s = await getSettings(env, ['promo_until', 'promo_x4h', 'promo_xweek', 'promo_label', 'open_until', 'open_features', 'open_plans']), on = +s.promo_until > Date.now();
   const v = on ? { until: +s.promo_until, x4h: Math.max(1, +s.promo_x4h || 1), xweek: Math.max(1, +s.promo_xweek || 1), label: s.promo_label || '' } : null;
-  boostCache = { db: env.DB, exp: Date.now() + 60e3, v }; return v;
+  // เปิดฟีเจอร์ชั่วคราว (ทดลองฟรี): open_features = cowork,agent · open_plans = id แพลนคั่น , (ว่าง = ทุกแพลนเสียเงิน)
+  const open = +s.open_until > Date.now() ? { until: +s.open_until, feats: String(s.open_features || '').split(',').map(x => x.trim()).filter(x => ['cowork', 'agent'].includes(x)), plans: String(s.open_plans || '').split(',').map(x => +x).filter(Boolean) } : null;
+  boostCache = { db: env.DB, exp: Date.now() + 60e3, v, open }; return v;
+}
+export async function featureOpen(env) { await limitBoost(env); return boostCache?.open && boostCache.open.until > Date.now() ? boostCache.open : null; }
+// ทดลองใช้ฟีเจอร์ของแพลนสูงกว่า: แพลนเสียเงิน (ไม่ใช่แพลนทดลองซื้อครั้งเดียว) ได้ cowork/agent ตามที่ตั้ง จนถึง open_until
+async function unlocked(env, p) {
+  const o = p && p.price > 0 && !p.once && await featureOpen(env); if (!o || !o.feats.length) return p;
+  const ids = p._planIds || [p.id]; if (o.plans.length && !ids.some(i => o.plans.includes(+i))) return p;
+  const trial = []; for (const f of o.feats) if (!p[f]) { p[f] = 1; trial.push(f); }
+  if (trial.length) p._open = { until: o.until, feats: trial };
+  return p;
 }
 export async function planOf(env, u) {
-  if (await multiOn(env)) { const m = await planOfMulti(env, u); if (m) return m; }
-  return boosted(env, await planOf0(env, u));
+  if (await multiOn(env)) { const m = await planOfMulti(env, u); if (m) return unlocked(env, m); }
+  return unlocked(env, await boosted(env, await planOf0(env, u)));
 }
 const boosted = async (env, p) => { const b = p?.price > 0 && !p.once && await limitBoost(env); return b && b.until > Date.now() ? Object.assign(p, { limit_4h: p.limit_4h * b.x4h, limit_week: p.limit_week * b.xweek, boost: b }) : p; }; // แพลนทดลอง (ซื้อได้ครั้งเดียว) ไม่ได้โปรเพิ่มลิมิต
 
@@ -382,7 +393,7 @@ const PERF = [
   "UPDATE chats SET has_code=1 WHERE has_code IS NULL AND id IN (SELECT DISTINCT chat_id FROM messages WHERE instr(content, '```') > 0)", // เติมย้อนหลังครั้งเดียว
 ];
 // เพิ่มเมื่อแก้ NEW_COLS / PERF / ตารางที่สร้างเอง: isolate ใหม่เห็นเลขตรงกันแล้วข้ามทั้งหมด (เดิมสั่ง CREATE ~15 คำสั่งทีละรอบทุก isolate ก่อนตอบคำขอแรก)
-export const SCHEMA_VER = '2026-11-25f';
+export const SCHEMA_VER = '2026-11-25g';
 export const ensureCols = env => colsDone ||= (async () => {
   try { if ((await env.DB.prepare("SELECT value FROM settings WHERE key='schema_ver'").first())?.value === SCHEMA_VER) return; } catch { /* ยังไม่มีตาราง settings: ทำต่อ */ }
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
@@ -399,6 +410,7 @@ export const ensureCols = env => colsDone ||= (async () => {
     todo.push(API_LOG, 'CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id)');
   }
   todo.push(...PAY_UQ, ...ART_TABLES, ...UF_TABLES, 'CREATE TABLE IF NOT EXISTS team_log (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at INTEGER NOT NULL)', 'CREATE INDEX IF NOT EXISTS team_log_team ON team_log(team_id, id)'); // ถ้ามีข้อมูลซ้ำอยู่แล้วคำสั่งจะล้ม (ถูก catch ด้านล่าง) · ตรวจซ้ำที่หลังบ้านแล้วค่อยสร้างเอง
+  todo.push("INSERT OR IGNORE INTO settings (key,value) VALUES ('open_until','1796057999000'),('open_features','cowork,agent'),('open_plans','')"); // ทดลอง Harness + Agent ฟรีถึง 30 พ.ย. 2569 (ตั้งครั้งเดียว แก้ได้ในหลังบ้าน)
   todo.push(...PERF, SUBS_TABLE, SUBS_INDEX, ...SITE_TABLES, ...MEET_TABLES, ...BOT_TABLES, ...EX_TABLES);
   let ok = true;
   for (const q of todo) try { await env.DB.prepare(q).run(); } catch (e) { if (!/duplicate column|already exists/i.test(e.message)) { ok = false; console.log('ensureCols', q.slice(0, 80), e.message); } } // มีอยู่แล้ว = ปกติ
