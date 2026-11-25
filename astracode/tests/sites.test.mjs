@@ -121,3 +121,34 @@ test('sites: reports alert the admin; admin can ban and the site goes dark', asy
   assert.equal((await S.api(`/${id}`, { method: 'PATCH', body: { status: 'live' } })).status, 403, 'owner cannot unban');
   assert.equal((await S.api(`/${id}/publish`, { method: 'POST' })).status, 403);
 });
+
+test('site apps: kyber SDK injected; AI calls charge the owner plan with the owner model, rate and day caps; db add-only unless public; owner manages data', async () => {
+  const { fakeModel, addModel } = await import('./helpers.mjs');
+  const fm = await fakeModel((q, res, body) => fm.sse(res, /JSON/.test(body.messages[0].content) ? '{"score": 9}' : 'สวัสดีจากร้าน', { prompt_tokens: 100, completion_tokens: 20 }));
+  const S = await setup(); S.t.env.K = 'k';
+  try {
+  const m = addModel(S.t.DB, { name: 'Cheap', base_url: fm.url }); S.t.DB.raw.prepare('INSERT INTO plan_models (plan_id, model_id) VALUES (?,?)').run(S.plan.id, m.id);
+  const id = (await S.api('', { method: 'POST', body: { slug: 'shop-bot', src: 'project', src_id: S.pid } })).data.site.id;
+  assert.match(await (await S.t.call('/s/shop-bot/')).text(), /window\.kyber=/);
+  const post = (p, body, h = {}) => S.t.worker.default.fetch(new Request('https://t.test/s/shop-bot/' + p, { method: 'POST', headers: { origin: 'null', 'content-type': 'application/json', ...h }, body: JSON.stringify(body) }), S.t.env, S.t.ctx).then(async r => ({ status: r.status, data: await r.json(), h: r.headers }));
+  assert.equal((await post('__ai', { prompt: 'hi' })).status, 403, 'AI off by default');
+  const pre = await S.t.call('/s/shop-bot/__ai', { method: 'OPTIONS' }); assert.equal(pre.status, 204); assert.equal(pre.headers.get('access-control-allow-origin'), '*');
+  assert.equal((await S.api(`/${id}/app`, { method: 'PATCH', body: { ai_on: true, ai_day: 3 } })).status, 200);
+  const a = await post('__ai', { prompt: 'สวัสดี', system: 'คุณคือร้านกาแฟ' }); assert.equal(a.status, 200); assert.equal(a.data.text, 'สวัสดีจากร้าน');
+  assert.match(fm.hits.at(-1).body.messages[0].content, /คุณคือร้านกาแฟ/);
+  const j = await post('__ai', { prompt: 'rate', json: true }); assert.deepEqual(j.data.data, { score: 9 });
+  assert.equal(S.t.DB.raw.prepare("SELECT COUNT(*) n FROM usage WHERE user_id=? AND src='site'").get(S.u.id).n, 2, 'owner plan charged');
+  await post('__ai', { prompt: 'x' }); assert.equal((await post('__ai', { prompt: 'x' })).status, 429, 'site day cap');
+  // db
+  const add = await post('__db/orders', { name: 'นก', qty: 2 }); assert.equal(add.status, 200);
+  assert.equal((await post('__db/bad name!', {})).status, 400);
+  assert.equal((await post('__db/orders', [1])).status, 400);
+  const list = () => S.t.json('/s/shop-bot/__db/orders');
+  assert.equal((await list()).status, 403, 'private by default');
+  await S.api(`/${id}/app`, { method: 'PATCH', body: { db_public: ['orders'] } });
+  const l = await list(); assert.equal(l.status, 200); assert.equal(l.data.items[0].name, 'นก');
+  const app = await S.api(`/${id}/app`); assert.equal(app.data.colls[0].n, 1); assert.equal(app.data.colls[0].public, true); assert.ok(app.data.models.length);
+  const rows = await S.api(`/${id}/data?coll=orders`); assert.equal(rows.data[0].data.qty, 2);
+  await S.api(`/${id}/data/${rows.data[0].id}`, { method: 'DELETE' }); assert.equal((await S.api(`/${id}/data?coll=orders`)).data.length, 0);
+  } finally { fm.close(); }
+});
