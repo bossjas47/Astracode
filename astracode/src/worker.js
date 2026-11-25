@@ -14,6 +14,7 @@ import { passkeyApi, passkeyPublic } from './passkey.js';
 import { schedApi } from './schedules.js';
 import { filesApi } from './files.js';
 import { artPaid, artApi, artAdmin, artGallery, artPublic, artReport, artShell } from './artifacts.js';
+import { sitesApi, sitesAdmin, siteServe, siteReport, reportPage } from './sites.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 import { handoff, moveSite } from './move.js';
 // ---------- router ----------
@@ -66,6 +67,8 @@ export default {
     // เปิดหน้าเว็บผ่าน http:// → ส่งไป https:// ถาวร · ยกเว้น /v1/* และ /api/* (ห้าม redirect: POST จะกลายเป็น GET และโปรแกรมลูกค้า API พัง) · localhost ไว้ทดสอบ
     if (url.protocol === 'http:' && (M === 'GET' || M === 'HEAD') && !/^\/(v1|api)\//.test(path) && !/^(localhost|127\.0\.0\.1)$/.test(url.hostname)) { url.protocol = 'https:'; return Response.redirect(url.toString(), 301); }
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
+    if (path.startsWith('/s/') || path === '/s') { await ensureCols(env); const sr = await siteServe(req, env, ctx, url, path, M); if (sr) return sr; } // Kyber Sites: เว็บของผู้ใช้ (sandbox · ไม่ผ่าน secure() เพราะมี CSP ของตัวเอง)
+    if (path === '/sites/report' && M === 'GET') return secure(reportPage(url));
     if (path === '/handoff' && M === 'GET') return secure(await handoff(req, env, url)); // ย้ายโดเมน: รับตั๋วล็อกอินจากโดเมนเดิม
     if ((r = await moveSite(req, env, url, path, M, getUser))) return r; // ย้ายโดเมน: หน้าเว็บที่โดเมนเดิมพาไปโดเมนใหม่ (ไม่แตะ /api /v1)
     // Cloudflare อาจ redirect /preview.html → /preview จึงรับทั้งสองแบบ
@@ -75,6 +78,7 @@ export default {
     if ((r = path.match(/^\/setup\/([A-Za-z0-9_-]{16,48})$/)) && M === 'GET') { const { setupScript } = await import('./setup.js'); return setupScript(env, r[1]); } // สคริปต์ติดตั้งคำสั่งเดียว (ลิงก์ใช้ครั้งเดียว)
     if ((r = path.match(/^\/a\/([A-Za-z0-9]{8,40})(\/raw)?$/)) && M === 'GET') { await ensureCols(env); return r[2] ? artPublic(env, r[1]) : artShell(env, r[1]); } // กรอบ + เนื้อหา (sandbox)
     if (path === '/api/gallery' && M === 'GET') { await ensureCols(env); return secure(await artGallery(env)); } // หน้า Artifact ที่แชร์ (sandbox · noindex)
+    if (path === '/api/sites/report' && M === 'POST') return secure(await siteReport(req, env));
     if ((r = path.match(/^\/api\/a\/([A-Za-z0-9]{8,40})\/report$/)) && M === 'POST') return secure(await artReport(env, r[1], ip(req, env)));
     if (path === '/robots.txt' || path === '/api/robots') return robots(req, env);
     if (path === '/sitemap.xml' || path === '/api/sitemap') return secure(await sitemap(req, env));
@@ -233,6 +237,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (u.role !== 'admin' && !['/api/me', '/api/logout'].includes(path) && maint === '1') return json({ error: 'ระบบปิดปรับปรุงชั่วคราว', maintenance: true }, 503);
       const extra = await userRoutes(req, env, ctx, url, path, M, u); if (extra) return extra;
       const art = await artApi(req, env, u, path, M, url); if (art) return art;
+      const st = await sitesApi(req, env, u, path, M, url); if (st) return st;
       const uf = await filesApi(req, env, u, path, M, url); if (uf) return uf;
       const sch = await schedApi(req, env, u, path, M); if (sch) return sch;
 
@@ -444,6 +449,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (path.startsWith('/api/admin/')) {
         if (!staffMay(u.role, M, path)) return err(STAFF.includes(u.role) ? 'สิทธิ์ของคุณทำรายการนี้ไม่ได้ (ติดต่อแอดมินหลัก)' : 'forbidden', 403);
         const gb = await gateBlock(env, u); if (gb) return gb;
+        if (path.startsWith('/api/admin/sites')) { const r2 = await sitesAdmin(req, env, path, M); if (r2) return r2; }
         if (path.startsWith('/api/admin/artifacts')) { const r2 = await artAdmin(req, env, path, M); if (r2) return r2; } // ดูแล Artifact ที่แชร์ (รายงาน/แกลเลอรี)
         return await admin(req, env, path, url, u); // ต้องผ่านรหัสผ่านชั้นที่สองก่อน
       }

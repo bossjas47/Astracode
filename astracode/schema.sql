@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS plans (
   sort INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1
   , agent INTEGER                           -- 1 = Agent (แอป Desktop/คลาวด์) ใช้ลิมิตแพลนได้
+  , sites INTEGER                           -- Kyber Sites: เผยแพร่ได้กี่เว็บ (ว่าง = 3 สำหรับแพลนจ่ายเงิน)
 );
 
 CREATE TABLE IF NOT EXISTS models (
@@ -360,3 +361,11 @@ CREATE INDEX IF NOT EXISTS cowork_user ON cowork_tasks(user_id, updated_at);
 
 CREATE TABLE IF NOT EXISTS videos (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, prompt TEXT NOT NULL, aspect TEXT NOT NULL, status TEXT NOT NULL, upstream_id TEXT, error TEXT, charged REAL NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0, checked_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS videos_user ON videos(user_id, id);
+
+-- Kyber Sites: เว็บที่ผู้ใช้เผยแพร่ที่ /s/<slug>/ (ไฟล์อยู่ใน R2 sites/<id>/<ver>/)
+CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL, src TEXT NOT NULL, src_id INTEGER NOT NULL, ver INTEGER NOT NULL DEFAULT 0, live_ver INTEGER, status TEXT NOT NULL DEFAULT 'live', reports INTEGER NOT NULL DEFAULT 0, views INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS sites_user ON sites(user_id);
+CREATE TABLE IF NOT EXISTS site_versions (site_id INTEGER NOT NULL, ver INTEGER NOT NULL, files TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (site_id, ver));
+CREATE TABLE IF NOT EXISTS site_forms (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER NOT NULL, data TEXT NOT NULL, seen INTEGER, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS site_forms_site ON site_forms(site_id, id);
+CREATE TABLE IF NOT EXISTS site_views (site_id INTEGER NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (site_id, day));

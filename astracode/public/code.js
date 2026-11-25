@@ -1872,7 +1872,7 @@ async function codeView(id, prompt) {
   const cl = chatLayout();
   codeHost().innerHTML = `<div class="ide view" data-pane="${cl ? 'ai' : 'code'}" data-layout="${cl ? 'chat' : 'editor'}" data-rp="code">
     <header class="ide-bar"><button type="button" class="icon-btn sm ide-burger" id="burger" aria-label="เมนูไฟล์" aria-expanded="false">${ic('menu')}</button><a class="icon-btn sm ide-back" href="/code" aria-label="กลับไปหน้าโปรเจกต์">‹</a><b class="pname">${esc(d.name)}</b><span id="ide-status" class="muted"></span><span style="flex:1"></span>${cl ? `<div class="rp-tabs" role="tablist" aria-label="แผงขวา">${[['preview', 'eye', 'Preview'], ['code', 'code', 'Code'], ['files', 'folder', 'Files']].map(([k, i, l]) => `<button type="button" role="tab" data-rp="${k}" class="${k === 'code' ? 'on' : ''}" aria-selected="${k === 'code'}">${ic(i, 'sm')}<span>${l}</span></button>`).join('')}</div>` : ''}
-      <button class="btn out sm" id="srvb" hidden></button><button class="btn out sm" id="localb" hidden title="ไฟล์ในโปรเจกต์ = ไฟล์จริงในโฟลเดอร์นี้ · RUN รันในเครื่อง"></button><button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} Run</button></header>
+      <button class="btn out sm" id="srvb" hidden></button><button class="btn out sm" id="localb" hidden title="ไฟล์ในโปรเจกต์ = ไฟล์จริงในโฟลเดอร์นี้ · RUN รันในเครื่อง"></button><button class="btn out sm" id="git" aria-label="GitHub">${ic('branch')} ${d.gh ? esc(d.gh.branch) : 'Git'}</button><button class="btn out sm ide-pub" id="pubb" aria-label="เผยแพร่เป็นเว็บ" title="เผยแพร่เป็นเว็บที่ใครก็เปิดได้">${ic('globe')}<span>เผยแพร่</span></button><button class="btn blue sm" id="run" aria-label="รัน">${ic('play')} Run</button></header>
     <div class="ide-body">
       <aside class="ide-files">
         <div class="dr-tabs"><button type="button" data-dr="ai" aria-label="AI">${ic('sparkles')}</button><button type="button" data-dr="files" class="on" aria-label="ไฟล์">${ic('folder')}</button><button type="button" data-dr="find" aria-label="ค้นหาทั้งโปรเจกต์">${ic('search')}</button><button type="button" data-dr="git" aria-label="GitHub">${ic('branch')}</button><a href="/account" aria-label="บัญชี">${ic('user')}</a></div>
@@ -1950,6 +1950,7 @@ async function codeView(id, prompt) {
   $('#hist').onclick = () => versions().catch(x => setStatus(x.message, true));
   $('#nfile').onclick = () => newFile();
   $('#upl').onclick = () => $('#uplf').click(); $('#uplf').onchange = async e => { try { await uploadFiles([...e.target.files]); } catch (x) { setStatus(x.message, true); } e.target.value = ''; };
+  $('#pubb').onclick = async () => { await saveNow(); sitePublish({ src: 'project', src_id: IDE.pid, title: IDE.name }); };
   $('#zin').onclick = () => $('#zinf').click(); $('#zinf').onchange = async e => { try { await importZip(e.target.files[0]); } catch (x) { setStatus('zip: ' + x.message, true); } e.target.value = ''; };
   $('#zout').onclick = () => exportZip().catch(x => setStatus(x.message, true));
   $('#cnew').onclick = () => { setUrl(`/code?p=${IDE.pid}&s=new`); openSession('new'); sessionsChanged(); };
