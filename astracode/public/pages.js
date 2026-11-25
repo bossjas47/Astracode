@@ -546,3 +546,64 @@ async function exJob(id) {
   $('#xmore').onchange = e => { const l = [...e.target.files]; e.target.value = ''; if (l.length) run(l); };
   if (files?.length) run(files);
 }
+
+// ---------- แปลทั้งไฟล์คงรูปแบบ: Word / PowerPoint / Excel ----------
+// แตกไฟล์ (zip ของ XML) → รวมข้อความต่อย่อหน้า (<w:p>/<a:p>) → แปลเป็นชุด → ใส่คำแปลในชิ้นแรกของย่อหน้า ชิ้นอื่นว่าง (คงตัวหนา/สี/ตาราง/รูปเดิม)
+const TR_PARTS = { docx: /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/, pptx: /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/, xlsx: /^xl\/sharedStrings\.xml$/ };
+const trXmlEsc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const trXmlUn = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, n) => String.fromCodePoint(+n)).replace(/&amp;/g, '&');
+function trSegments(xml, kind) { // คืน [{ text, runs:[{start,end}] }] ต่อย่อหน้า
+  const P = kind === 'docx' ? /<w:p[ >][\s\S]*?<\/w:p>/g : kind === 'pptx' ? /<a:p>[\s\S]*?<\/a:p>/g : /<si>[\s\S]*?<\/si>/g;
+  const T = kind === 'docx' ? /(<w:t(?: [^>]*)?>)([^<]*)(<\/w:t>)/g : kind === 'pptx' ? /(<a:t>)([^<]*)(<\/a:t>)/g : /(<t(?: [^>]*)?>)([^<]*)(<\/t>)/g;
+  const out = [];
+  for (const p of xml.matchAll(P)) { const runs = []; for (const t of p[0].matchAll(T)) runs.push({ start: p.index + t.index + t[1].length, end: p.index + t.index + t[1].length + t[2].length, raw: t[2] });
+    const text = runs.map(r => trXmlUn(r.raw)).join(''); if (text.trim() && /\p{L}/u.test(text)) out.push({ text, runs }); }
+  return out;
+}
+function trApply(xml, segs, outs, kind) { // แทนจากท้ายไปหน้า ตำแหน่งไม่เลื่อน
+  const edits = [];
+  segs.forEach((s, i) => s.runs.forEach((r, j) => edits.push({ ...r, v: j === 0 ? trXmlEsc(outs[i]) : '' })));
+  edits.sort((a, b) => b.start - a.start);
+  for (const e of edits) xml = xml.slice(0, e.start) + e.v + xml.slice(e.end);
+  return kind === 'docx' ? xml.replace(/<w:t>/g, '<w:t xml:space="preserve">') : xml;
+}
+async function trFile(file, opt, onProg) {
+  const kind = (/\.(docx|pptx|xlsx)$/i.exec(file.name)?.[1] || '').toLowerCase(); if (!kind) throw new Error('รองรับ .docx .pptx .xlsx');
+  await lib('jszip'); const z = await JSZip.loadAsync(file);
+  const parts = Object.keys(z.files).filter(n => TR_PARTS[kind].test(n)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  const docs = []; for (const n of parts) { const xml = await z.file(n).async('string'); docs.push({ n, xml, segs: trSegments(xml, kind) }); }
+  const all = docs.flatMap(d => d.segs), total = all.length; if (!total) throw new Error('ไม่พบข้อความที่แปลได้ในไฟล์นี้');
+  const outs = new Array(total); let done = 0;
+  const batches = []; for (let i = 0, cur = [], len = 0; i <= total; i++) { const t = all[i]?.text; if (i === total || cur.length >= 60 || len + (t?.length || 0) > 9000) { if (cur.length) batches.push(cur); cur = []; len = 0; } if (i < total) { cur.push(i); len += t.length; } }
+  const q = [...batches], worker = async () => { while (q.length) { const b = q.shift();
+    const r = await api('/translate', { method: 'POST', body: { texts: b.map(i => all[i].text), to: opt.to, glossary: opt.glossary, model_id: opt.model_id, context: file.name } });
+    b.forEach((i, k) => { outs[i] = r.texts[k]; }); done += b.length; onProg?.(done, total); } };
+  await Promise.all([worker(), worker(), worker()]);
+  let k = 0; for (const d of docs) { const o = outs.slice(k, k + d.segs.length); k += d.segs.length; if (d.segs.length) z.file(d.n, trApply(d.xml, d.segs, o, kind)); }
+  const blob = await z.generateAsync({ type: 'blob', mimeType: file.type || 'application/octet-stream' });
+  return { blob, name: file.name.replace(/(\.\w+)$/, `-${opt.to}$1`), count: total };
+}
+PAGES.translate = async () => {
+  if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  const d = await api('/translate'); let gl = ''; try { gl = localStorage.getItem('trGloss') || ''; } catch { /* ไม่มีที่เก็บ */ }
+  page(nav() + `<div class="wrap sites-wrap"><header class="shop-hero"><h1>แปลทั้งไฟล์</h1><p class="muted">แปล Word, PowerPoint และ Excel ทั้งไฟล์ ได้ไฟล์เดิมที่หน้าตาเหมือนเดิม (ตาราง รูป ตัวหนา สี อยู่ครบ)</p></header>
+    <section class="card meet-sum"><div class="sheet-form">
+      <div class="form2"><div><label>แปลเป็น<select id="tto">${Object.entries(d.langs).map(([k, v]) => `<option value="${k}" ${k === (LOC.startsWith('th') ? 'en' : 'th') ? 'selected' : ''}>${{ th: 'ไทย', en: 'อังกฤษ', zh: 'จีน', ja: 'ญี่ปุ่น', ko: 'เกาหลี', vi: 'เวียดนาม', lo: 'ลาว', my: 'พม่า', km: 'เขมร', ms: 'มาเลย์', id: 'อินโดนีเซีย', fr: 'ฝรั่งเศส', de: 'เยอรมัน', es: 'สเปน', ru: 'รัสเซีย', ar: 'อาหรับ', hi: 'ฮินดี' }[k] || v}</option>`).join('')}</select></label></div>
+      <div><label>โมเดล<select id="tmod"><option value="">ถูกที่สุดในแพลน</option>${d.models.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></label></div></div>
+      <label>คลังคำศัพท์ของคุณ (ไม่บังคับ · บรรทัดละคำ คำเดิม=คำแปล)<textarea id="tgl" rows="3" placeholder="ร้านนก=Nok Shop&#10;ใบเสนอราคา=Quotation">${esc(gl)}</textarea></label>
+      <label class="btn blue meet-big ex-drop" id="tdrop">${ic('clip')} เลือกไฟล์ .docx .pptx .xlsx<input type="file" id="tfile" multiple accept=".docx,.pptx,.xlsx" hidden></label>
+      <div id="tlist"></div></div></section>
+    <p class="muted meet-note">หักลิมิตแพลนตามความยาวเอกสาร · ไฟล์ไม่ถูกเก็บบนเซิร์ฟเวอร์ (แปลในเบราว์เซอร์ ส่งไปแค่ข้อความ) · PDF: แปลงเป็น Word ก่อน</p>${footer()}</div>`);
+  const go1 = async files => {
+    const opt = { to: $('#tto').value, model_id: +$('#tmod').value || null, glossary: $('#tgl').value }; try { localStorage.setItem('trGloss', opt.glossary); } catch { /* ไม่มีที่เก็บ */ }
+    for (const f of [...files]) {
+      const row = document.createElement('div'); row.className = 'card site-msg'; row.innerHTML = `<b>${esc(f.name)}</b><div class="meter"><div class="fill" style="width:0%"></div></div><small class="muted">กำลังอ่านไฟล์…</small>`; $('#tlist').prepend(row);
+      const bar = row.querySelector('.fill'), lab = row.querySelector('small');
+      try { const r = await trFile(f, opt, (a, b) => { bar.style.width = Math.round(a / b * 100) + '%'; lab.textContent = `แปลแล้ว ${a}/${b} ย่อหน้า`; });
+        const url = URL.createObjectURL(r.blob); lab.innerHTML = `เสร็จแล้ว ${r.count} ย่อหน้า · <a href="${url}" download="${esc(r.name)}">ดาวน์โหลด ${esc(r.name)}</a>`; const a = document.createElement('a'); a.href = url; a.download = r.name; document.body.append(a); a.click(); a.remove(); }
+      catch (x) { lab.textContent = x.message; lab.className = 'bad'; }
+    }
+  };
+  $('#tfile').onchange = e => { go1(e.target.files); e.target.value = ''; };
+  const z = $('#tdrop'); z.ondragover = e => { e.preventDefault(); z.classList.add('on'); }; z.ondragleave = () => z.classList.remove('on'); z.ondrop = e => { e.preventDefault(); z.classList.remove('on'); go1(e.dataTransfer.files); };
+};
