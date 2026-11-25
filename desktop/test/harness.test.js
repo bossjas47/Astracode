@@ -450,8 +450,12 @@ test('wrap-up: 3 rounds before the cap the AI is told to summarize; after checks
   await run(s, { callTool: async () => 'x', maxRounds: 10 });
   assert.match(JSON.stringify(s.seen[7].messages), /Only 3 rounds left/);
   const calls = [{ calls: [['edit_file', { path: 'a.js', old_string: 'a', new_string: 'b' }]] }, { calls: [['bash', { command: 'npm test' }]] }, ...Array.from({ length: 8 }, (_, i) => ({ calls: [['read_file', { path: 'f' + i + '.js' }]] })), { text: 'done' }];
-  const s2 = script(calls); await run(s2, { callTool: async () => 'ok', maxRounds: 40 });
-  assert.ok(s2.seen.some(x => /last checks passed and nothing has failed/.test(JSON.stringify(x.messages))));
+  const s2 = script(calls); const r2 = await run(s2, { callTool: async () => 'ok', maxRounds: 40 });
+  assert.ok(s2.seen.some(x => /have not changed anything since/.test(JSON.stringify(x.messages))), 'nudge after 3 quiet rounds');
+  const stopAt = s2.seen.findIndex(x => !x.tools); assert.ok(stopAt > 0 && stopAt < 9, 'tools switched off after 6 quiet rounds'); assert.equal(r2.stats.doneStop, 1);
+  // todo ค้าง = ยังไม่หยุด
+  const s3 = script([{ calls: [['todo_write', { todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'pending' }] }]] }, ...calls]); await run(s3, { callTool: async () => 'ok', maxRounds: 40 });
+  assert.ok(s3.seen.every(x => x.tools), 'pending todos keep the tools on');
 });
 
 test('advisor does not block: a slow plan arrives later and is added once before a later round', async () => {
