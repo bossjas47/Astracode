@@ -382,3 +382,7 @@ CREATE TABLE IF NOT EXISTS bots (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id I
 CREATE INDEX IF NOT EXISTS bots_user ON bots(user_id);
 CREATE TABLE IF NOT EXISTS bot_convos (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL, sid TEXT NOT NULL, msgs TEXT NOT NULL, lead TEXT, handoff INTEGER, seen INTEGER, page TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS bot_convos_sid ON bot_convos(bot_id, sid);
+
+-- ดึงข้อมูลเอกสารทีละเยอะ (rows = JSON array ของแถว)
+CREATE TABLE IF NOT EXISTS extract_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL, fields TEXT NOT NULL, rows TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS extract_jobs_user ON extract_jobs(user_id, id);

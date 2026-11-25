@@ -474,3 +474,75 @@ async function botEdit(id) {
   $('#bdel').onclick = async () => { if (!confirm('ลบบอทนี้? โค้ดที่ติดตั้งไว้จะหยุดทำงาน และบทสนทนาจะหายทั้งหมด')) return; await api('/bots/' + id, { method: 'DELETE' }); go('/bots'); };
   if (leads.some(c => !c.seen)) api(`/bots/${id}/leads`, { method: 'POST' }).catch(() => {});
 }
+
+// ---------- ดึงข้อมูลเอกสารทีละเยอะ → Excel ----------
+async function exImages(f) { // ไฟล์ → รูป JPEG (ย่อไม่เกิน 1600px) · PDF = 2 หน้าแรก
+  const toJpeg = async src => { const s = Math.min(1, 1600 / Math.max(src.width, src.height)), c = document.createElement('canvas'); c.width = Math.round(src.width * s); c.height = Math.round(src.height * s); c.getContext('2d').drawImage(src, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.85); };
+  if (/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)) {
+    const pdf = await (await pdfLib()).getDocument({ data: await f.arrayBuffer() }).promise, out = [];
+    for (let i = 1; i <= Math.min(2, pdf.numPages); i++) { const pg = await pdf.getPage(i), vp = pg.getViewport({ scale: 1.6 }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; out.push(await toJpeg(c)); }
+    return out;
+  }
+  if (!f.type.startsWith('image/')) throw new Error('รองรับรูปและ PDF');
+  return [await toJpeg(await createImageBitmap(f))];
+}
+async function exXlsx(job) {
+  await lib('xlsxStyle'); const X = window.XLSX, cols = ['ไฟล์', ...job.fields];
+  const num = v => /^-?\d+(\.\d+)?$/.test(String(v).trim()) ? +v : v;
+  const ws = X.utils.aoa_to_sheet([cols, ...job.rows.map(r => [r._file, ...job.fields.map(f => num(r[f] ?? ''))])]);
+  ws['!cols'] = cols.map(c => ({ wch: Math.min(40, Math.max(10, c.length * 2, ...job.rows.map(r => String((c === 'ไฟล์' ? r._file : r[c]) ?? '').length))) }));
+  cols.forEach((c, i) => { const a = X.utils.encode_cell({ r: 0, c: i }); if (ws[a]) ws[a].s = { font: { bold: true }, fill: { fgColor: { rgb: 'EEF0F6' } } }; });
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'ข้อมูล'); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([X.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })); a.download = job.title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + '.xlsx'; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+PAGES.extract = async () => {
+  if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  const id = +qs().get('id'); if (id) return exJob(id);
+  const d = await api('/extract');
+  page(nav() + `<div class="wrap sites-wrap"><header class="shop-hero"><h1>ดึงข้อมูลเอกสาร</h1><p class="muted">ใส่ใบเสร็จ สลิป ใบแจ้งหนี้ หรือนามบัตรทีละเยอะ (สูงสุด 200 ไฟล์) ได้ตาราง Excel ที่แยกช่องให้ครบ</p></header>
+    ${!d.ready ? '<div class="card"><p class="muted">แพลนของคุณยังไม่มีโมเดลที่อ่านรูปได้</p><a class="btn blue" href="/plans">ดูแพลน</a></div>' : `<section class="card meet-sum"><h2>งานใหม่</h2><div class="sheet-form">
+      <label>ชนิดเอกสาร<select id="xk">${Object.entries(d.kinds).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('')}<option value="custom">กำหนดช่องเอง</option></select></label>
+      <small class="muted" id="xf"></small><label id="xcl" hidden>ชื่อช่อง (คั่นด้วย , )<input id="xc" placeholder="ชื่อสินค้า, ราคา, จำนวน"></label>
+      <label class="btn blue meet-big ex-drop" id="xdrop">${ic('clip')} เลือกไฟล์ หรือลากมาวางที่นี่<input type="file" id="xfile" multiple accept="image/*,application/pdf" hidden></label></div></section>`}
+    <section class="card meet-sum"><h2>งานก่อนหน้า</h2>${d.jobs.length ? d.jobs.map(j => `<a class="meet-row ex-row" href="/extract?id=${j.id}"><span class="meet-name"><b>${esc(j.title)}</b><small class="muted">${when(j.created_at)} · ${j.n} ไฟล์</small></span>${ic('right', 'sm')}</a>`).join('') : '<p class="muted">ยังไม่มี</p>'}</section>
+    <p class="muted meet-note">หักลิมิตแพลนตามจำนวนไฟล์ · ตรวจตัวเลขสำคัญก่อนใช้งานจริงเสมอ</p>${footer()}</div>`);
+  if (!d.ready) return;
+  const k = $('#xk'), show = () => { const c = k.value === 'custom'; $('#xcl').hidden = !c; $('#xf').textContent = c ? '' : 'ช่องที่ได้: ' + d.kinds[k.value].fields.join(' · '); }; k.onchange = show; show();
+  const start = async files => {
+    files = [...files].filter(f => f.type.startsWith('image/') || /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)).slice(0, 200); if (!files.length) return toast('เลือกรูปหรือ PDF', 'bad');
+    try { const j = await api('/extract', { method: 'POST', body: { kind: k.value, fields: k.value === 'custom' ? $('#xc').value.split(/[,\n]/) : undefined } }); exPending = files; history.pushState(null, '', '/extract?id=' + j.id); exJob(j.id); /* ไม่โหลดหน้าใหม่: ไฟล์ที่เลือกยังอยู่ในหน่วยความจำ */ } catch (x) { toast(x.message, 'bad'); }
+  };
+  $('#xfile').onchange = e => start(e.target.files);
+  const z = $('#xdrop'); z.ondragover = e => { e.preventDefault(); z.classList.add('on'); }; z.ondragleave = () => z.classList.remove('on'); z.ondrop = e => { e.preventDefault(); z.classList.remove('on'); start(e.dataTransfer.files); };
+};
+let exPending = null;
+async function exJob(id) {
+  let job = await api('/extract/' + id); const files = exPending; exPending = null;
+  const render = () => {
+    const done = job.rows.length, err = job.rows.filter(r => r._err).length;
+    $('#xbody').innerHTML = job.rows.map((r, i) => `<tr class="${r._err ? 'ex-err' : ''}"><td class="muted" title="${esc(r._err || '')}">${esc(r._file)}${r._err ? ` ${ic('alert', 'sm')}` : ''}</td>${job.fields.map(f => `<td contenteditable="true" data-i="${i}" data-f="${esc(f)}">${esc(r[f] ?? '')}</td>`).join('')}<td><button type="button" class="icon-btn sm ghost" data-del="${i}" aria-label="ลบแถว">${ic('trash', 'sm')}</button></td></tr>`).join('');
+    $('#xsum').textContent = `${done} แถว${err ? ` · อ่านไม่ได้ ${err}` : ''}`;
+    app.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { job.rows.splice(+b.dataset.del, 1); save(); render(); });
+  };
+  let tm; const save = () => { clearTimeout(tm); tm = setTimeout(() => api('/extract/' + id, { method: 'PUT', body: { rows: job.rows } }).catch(x => toast(x.message, 'bad')), 600); };
+  page(nav() + `<div class="wrap ex-wrap"><p><a href="/extract">← ดึงข้อมูลเอกสาร</a></p><header class="meet-h"><h1>${esc(job.title)}</h1><p class="muted" id="xsum"></p></header>
+    <div class="meet-prog card" id="xprog" hidden><div class="meter"><div class="fill" style="width:0%"></div></div><small class="muted" aria-live="polite"></small></div>
+    <div class="site-act"><button type="button" class="btn blue sm" id="xdl">${ic('download', 'sm')} ดาวน์โหลด Excel</button><label class="btn out sm">${ic('plus', 'sm')} เพิ่มไฟล์<input type="file" id="xmore" multiple accept="image/*,application/pdf" hidden></label><button type="button" class="btn ghost sm" id="xrm">${ic('trash', 'sm')} ลบงาน</button></div>
+    <p class="muted" style="font-size:13px">แตะช่องในตารางเพื่อแก้ได้เลย · บันทึกอัตโนมัติ</p>
+    <div class="tw ex-tw"><table class="tbl ex-tbl"><thead><tr><th>ไฟล์</th>${job.fields.map(f => `<th>${esc(f)}</th>`).join('')}<th></th></tr></thead><tbody id="xbody"></tbody></table></div>${footer()}</div>`);
+  render();
+  $('#xbody').addEventListener('input', e => { const c = e.target.closest('[data-i]'); if (!c) return; job.rows[+c.dataset.i][c.dataset.f] = c.textContent; save(); });
+  $('#xdl').onclick = () => exXlsx(job).catch(x => toast(x.message, 'bad'));
+  $('#xrm').onclick = async () => { if (!confirm('ลบงานนี้?')) return; await api('/extract/' + id, { method: 'DELETE' }); go('/extract'); };
+  const run = async list => {
+    const pg = $('#xprog'), bar = pg.querySelector('.fill'), lab = pg.querySelector('small'); pg.hidden = false; let n = 0, bad = 0, stop = false;
+    const guard = e => { e.preventDefault(); e.returnValue = ''; }; addEventListener('beforeunload', guard);
+    const q = [...list], worker = async () => { while (q.length && !stop) { const f = q.shift();
+      try { const images = await exImages(f); const r = await api(`/extract/${id}/file`, { method: 'POST', body: { name: f.name, images } }); job.rows.push(r.row); }
+      catch (x) { if (/ลิมิตเต็ม/.test(x.message)) { stop = true; toast('ลิมิตเต็ม หยุดไว้ก่อน ไฟล์ที่เหลือยังไม่ได้อ่าน', 'bad'); } bad++; job.rows.push({ _file: f.name, _err: x.message, ...Object.fromEntries(job.fields.map(k => [k, ''])) }); }
+      n++; bar.style.width = Math.round(n / list.length * 100) + '%'; lab.textContent = `อ่านแล้ว ${n}/${list.length}${bad ? ` · ไม่สำเร็จ ${bad}` : ''}`; render(); } };
+    await Promise.all([worker(), worker(), worker()]); // ทีละ 3 ไฟล์
+    removeEventListener('beforeunload', guard); if (bad) save(); lab.textContent = `เสร็จแล้ว ${n} ไฟล์${bad ? ` · ไม่สำเร็จ ${bad} (แถวสีแดง)` : ''}`;
+  };
+  $('#xmore').onchange = e => { const l = [...e.target.files]; e.target.value = ''; if (l.length) run(l); };
+  if (files?.length) run(files);
+}

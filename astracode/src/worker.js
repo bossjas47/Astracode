@@ -16,6 +16,7 @@ import { filesApi } from './files.js';
 import { artPaid, artApi, artAdmin, artGallery, artPublic, artReport, artShell } from './artifacts.js';
 import { meetApi } from './meetings.js';
 import { botsApi, widgetServe } from './bots.js';
+import { extractApi } from './extract.js';
 import { sitesApi, sitesAdmin, siteServe, siteReport, reportPage } from './sites.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 import { handoff, moveSite } from './move.js';
@@ -243,6 +244,7 @@ export async function route(req, env, ctx, url, path, M) {
       const st = await sitesApi(req, env, u, path, M, url); if (st) return st;
       const mt = await meetApi(req, env, ctx, u, path, M, url); if (mt) return mt;
       const bt = await botsApi(req, env, u, path, M, url); if (bt) return bt;
+      const ex = await extractApi(req, env, u, path, M, url); if (ex) return ex;
       const uf = await filesApi(req, env, u, path, M, url); if (uf) return uf;
       const sch = await schedApi(req, env, u, path, M); if (sch) return sch;
 
