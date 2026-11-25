@@ -2377,3 +2377,14 @@ a.fi b::after { content: ' →'; color: var(--blue); }
 .bot-cv summary { cursor: pointer; }
 .bot-cv p { margin: 6px 0; overflow-wrap: anywhere; }
 input[type="color"] { padding: 4px; height: 44px; }
+.ex-wrap { max-width: 1100px; }
+.ex-drop { width: 100%; border: 2px dashed transparent; }
+.ex-drop.on { border-color: var(--accent); }
+.ex-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--hair); color: inherit; text-decoration: none; }
+.ex-tw { max-height: 70vh; overflow: auto; border: 1px solid var(--hair); border-radius: 14px; }
+.ex-tbl { font-size: 13.5px; }
+.ex-tbl th { position: sticky; top: 0; background: var(--steel); z-index: 1; white-space: nowrap; }
+.ex-tbl td[contenteditable] { min-width: 90px; outline: none; }
+.ex-tbl td[contenteditable]:focus { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 6px; }
+.ex-tbl tr.ex-err td { background: rgba(209, 36, 47, .06); }
+.meet-prog .meter { width: 100%; }

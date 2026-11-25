@@ -139,7 +139,7 @@ async function chatView(id) {
           <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">Organize your work</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
-        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<a href="/sites">${ic('globe')}<span>เว็บของฉัน</span></a>` : ''}<a href="/meetings">${ic('mic')}<span>AI ประชุม</span></a>${me?.plan?.artifacts ? `<a href="/bots">${ic('msg')}<span>บอทตอบแชตร้าน</span></a>` : ''}<button type="button" id="vidgen">${ic('play')}<span>สร้างวิดีโอ</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
+        <nav class="side-nav"><button type="button" id="ufiles">${ic('sheet')}<span>ไฟล์ของฉัน</span></button>${me?.plan?.artifacts ? `<a href="/sites">${ic('globe')}<span>เว็บของฉัน</span></a>` : ''}<a href="/meetings">${ic('mic')}<span>AI ประชุม</span></a><a href="/extract">${ic('sheet')}<span>ดึงข้อมูลเอกสาร</span></a>${me?.plan?.artifacts ? `<a href="/bots">${ic('msg')}<span>บอทตอบแชตร้าน</span></a>` : ''}<button type="button" id="vidgen">${ic('play')}<span>สร้างวิดีโอ</span></button>${me?.plan?.artifacts ? `<button type="button" id="sched">${ic('clock')}<span>Scheduled tasks</span></button>` : ''}${deskLink()}</nav>
         <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
