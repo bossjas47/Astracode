@@ -2,13 +2,13 @@
 // งาน 1 งาน = Durable Object AgentBox 1 ตัว + เครื่องเสมือน (Cloudflare Container) 1 เครื่อง รันโปรแกรม container/server.js
 // ไฟล์โปรเจกต์ (โหมด Code) ถูกส่งเข้าเครื่อง → Agent ทำเองทั้งหมด (เครื่องแยก ทิ้งหลังจบ) → ไฟล์ที่เปลี่ยนเขียนกลับเข้าโปรเจกต์ (มีประวัติให้ย้อน)
 // ค่าโมเดล: เครื่องเรียก /v1 ด้วย key ชั่วคราวชื่อ "Cloud Agent" ของลูกค้า → หักแพลนที่รวม Agent / แพ็ก Agent / Wallet ตามจริง
-import { err, json, planOf, projectFor, rand, sha } from './core.js';
+import { err, json, limited, planOf, projectFor, rand, sha } from './core.js';
 import { applyChanges } from './agent.js';
 import { slug } from './api.js';
 import { siteUrl } from './billing.js';
 import { coworkEvents, finishCowork } from './cowork.js';
 
-const MAX_MS = 30 * 60e3, MAX_RUNNING = 5;
+const MAX_MS = 30 * 60e3, MAX_RUNNING = 5, PY_IDLE = 5 * 60e3;
 export const ensureCloud = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS cloud_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, project_id INTEGER NOT NULL, key_id INTEGER, status TEXT NOT NULL, prompt TEXT, model TEXT, events TEXT, final TEXT, changed TEXT, error TEXT, created_at INTEGER, finished_at INTEGER)').run();
 
 export class AgentBox {
@@ -27,6 +27,11 @@ export class AgentBox {
       const r = await this.box('/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(j.run) });
       if (!r.ok) throw new Error('เริ่มงานในเครื่องไม่สำเร็จ: ' + (await r.text()).slice(0, 200));
       await this.s.storage.setAlarm(Date.now() + 3000); return new Response('ok');
+    }
+    if (u.pathname === '/py') { // รัน Python บนคลาวด์ (เครื่องต่อผู้ใช้ · ว่าง 5 นาทีปิดเอง)
+      const r = await this.box('/exec', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await req.text() });
+      if (!await this.s.storage.get('job')) { const at = Date.now() + PY_IDLE; await this.s.storage.put('idle', at); await this.s.storage.setAlarm(at); }
+      return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json' } });
     }
     if (u.pathname === '/stop') { await this.box('/stop', { method: 'POST' }).catch(() => {}); return new Response('ok'); }
     if (u.pathname === '/answer') { const r = await this.box('/answer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await req.text() }).catch(() => null); return new Response(r?.ok ? 'ok' : 'gone', { status: r?.ok ? 200 : 404 }); } // Kyber Harness: ลูกค้าตอบคำถามของ AI
@@ -74,6 +79,19 @@ export async function finishJob(env, id, res) {
   try { const { sendPush } = await import('./push.js'); await sendPush(env, job.user_id, { title: 'Agent บนคลาวด์ ' + (res.status === 'done' ? 'เสร็จแล้ว' : 'หยุดแล้ว'), body: String(res.final || error || '').slice(0, 140), url: '/code?p=' + job.project_id }); } catch { /* ไม่ได้เปิดแจ้งเตือน */ }
 }
 
+// ---------- รัน Python บนคลาวด์ (แชต run_python · ปุ่มรันในหน้า Code) ----------
+// แพลนที่ชำระเงินเท่านั้น (เครื่องเสมือนมีต้นทุน) · ไม่ได้ = 402/503 แล้วหน้าเว็บรันในเบราว์เซอร์แทนเอง · จำกัด 300 ครั้ง/วัน
+export async function pyApi(req, env, u) {
+  if (!env.AGENTBOX) return err('ยังไม่เปิดเครื่องคลาวด์', 503);
+  const plan = await planOf(env, u); if (!(plan?.price > 0)) return err('รัน Python บนคลาวด์ใช้ได้กับแพลนที่ชำระเงิน', 402);
+  if (await limited(env, 'py:' + u.id, 300, 864e5)) return err('รัน Python บนคลาวด์ครบ 300 ครั้งวันนี้แล้ว', 429);
+  const b = await req.json().catch(() => null); if (!b || !Array.isArray(b.files) || !b.files.length) return err('ไม่มีโค้ดที่จะรัน');
+  if (JSON.stringify(b.files).length > 25e6) return err('ไฟล์รวมใหญ่เกินไป (สูงสุด ~20MB)', 413);
+  const stub = env.AGENTBOX.get(env.AGENTBOX.idFromName('py:' + u.id));
+  const r = await stub.fetch('https://box/py', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ files: b.files, main: String(b.main || 'main.py'), timeoutMs: 90e3 }) }).catch(e => ({ ok: false, status: 503, text: async () => e.message }));
+  if (!r.ok) return err('เครื่องคลาวด์ไม่พร้อม: ' + String(await r.text()).slice(0, 160), 503);
+  return new Response(r.body, { headers: { 'content-type': 'application/json' } });
+}
 export async function cloudApi(req, env, u, path, M) {
   const DB = env.DB; await ensureCloud(env);
   if (path === '/api/cloud-agent' && M === 'GET') {

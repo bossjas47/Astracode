@@ -2285,3 +2285,4 @@ a.fi b::after { content: ' →'; color: var(--blue); }
 .ann-dock .ann { position: static; left: auto; right: auto; bottom: auto; top: auto; margin: 0; width: 100%; pointer-events: auto; }
 #app:has(.chat) .ann-dock { top: calc(60px + env(safe-area-inset-top)); bottom: auto; }
 .ann.promo { background: linear-gradient(90deg, rgba(75, 79, 224, .16), rgba(75, 79, 224, .05)), var(--carbon); }
+.py-img { display: block; max-width: 100%; margin: 8px 0; border-radius: 8px; background: #fff; }
