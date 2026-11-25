@@ -100,6 +100,27 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       try { return out({ text: String(await connCall(env, t.sv, t.tool, b.args && typeof b.args === 'object' ? b.args : {})).slice(0, 100000) }); }
       catch (e) { return out({ text: 'Error: ' + String(e.message).slice(0, 500) }); }
     }
+    // ปลั๊กอินที่ Harness สร้างให้ตัวเอง: เก็บเป็น Skill / คำสั่งลัดของผู้ใช้ (ป้าย ai:<ชื่อ>) ใช้ได้ทั้งแชต แอปคอม และ Harness · ไม่มีส่วนที่รันโปรแกรม (MCP อยู่ในแอปคอมและต้องยืนยัน)
+    if (path === '/v1/plugins') {
+      const rows = async () => (await env.DB.prepare("SELECT name, description, content, COALESCE(as_text,0) t, plugin FROM skills WHERE user_id=? AND enabled=1 AND plugin LIKE 'ai:%' ORDER BY id").bind(k.id).all()).results;
+      if (req.method === 'GET') {
+        const by = new Map(); for (const r of await rows()) { const p = by.get(r.plugin) || { name: r.plugin.slice(3), title: r.plugin.slice(3), skills: [], commands: [] }; if (r.t) p.commands.push({ name: r.name, text: r.content }); else p.skills.push({ name: r.name, description: r.description, content: r.content }); by.set(r.plugin, p); }
+        return out({ plugins: [...by.values()] });
+      }
+      if (req.method !== 'POST') return fail('method not allowed', 405);
+      if (await limited(env, 'vplug:' + k.kid, 20, 3600e3)) return fail('สร้างปลั๊กอินบ่อยเกินไป', 429, 'rate_limit_error');
+      const b = await req.json().catch(() => ({})), name = String(b.name || '').trim().toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{1,38}$/.test(name)) return fail('name ต้องเป็น a-z 0-9 -', 400);
+      const label = 'ai:' + name, title = String(b.title || name).slice(0, 60);
+      const sk = (Array.isArray(b.skills) ? b.skills : []).filter(x => x?.name && x?.content).slice(0, 6), cm = (Array.isArray(b.commands) ? b.commands : []).filter(x => x?.name && x?.text).slice(0, 8);
+      if (!sk.length && !cm.length) return fail('ต้องมี skills หรือ commands', 400);
+      if (/\b(sk-[\w-]{12,}|ghp_\w{20,}|github_pat_\w{20,}|AKIA[0-9A-Z]{16}|xox[abp]-[\w-]{10,})\b/.test(JSON.stringify([sk, cm]))) return fail('ห้ามใส่ key/token ลับในปลั๊กอิน', 400);
+      const have = (await env.DB.prepare('SELECT COUNT(*) n FROM skills WHERE user_id=? AND COALESCE(plugin,\'\')<>?').bind(k.id, label).first()).n;
+      if (have + sk.length + cm.length > 30) return fail('Skill และคำสั่งลัดของผู้ใช้เต็ม 30 อันแล้ว ให้ผู้ใช้ลบของเดิมบางส่วนก่อน', 409);
+      const ins = (n, d, c, t) => env.DB.prepare('INSERT INTO skills (user_id,name,description,content,enabled,created_at,as_text,plugin) VALUES (?,?,?,?,1,?,?,?)').bind(k.id, String(n).slice(0, 60), String(d).slice(0, 200), String(c).slice(0, 6000), Date.now(), t, label);
+      await env.DB.batch([env.DB.prepare('DELETE FROM skills WHERE user_id=? AND plugin=?').bind(k.id, label), ...sk.map(x => ins(x.name, x.description || `จากปลั๊กอิน ${title} (AI สร้าง)`, x.content, 0)), ...cm.map(x => ins(String(x.name).replace(/^\//, ''), `คำสั่งลัดจากปลั๊กอิน ${title} (AI สร้าง)`, x.text, 1))]);
+      return out({ ok: true, plugin: label, skills: sk.length, commands: cm.length });
+    }
     // ค้นเว็บให้ agent ในแอป Desktop (ไม่คิดเงิน จำกัด 60 ครั้ง/ชม. ต่อ key)
     if (path === '/v1/web_search' && req.method === 'POST') {
       if (await limited(env, 'vws:' + k.kid, 60, 3600e3)) return fail('ค้นเว็บบ่อยเกินไป (60 ครั้ง/ชม.)', 429, 'rate_limit_error');

@@ -445,3 +445,14 @@ test('context guard: a very long agent history gets old tool results trimmed bef
   assert.equal(sent.at(-1).content, big, 'recent results stay whole');
   fm.close();
 });
+
+test('/v1/plugins: an agent saves skills and commands for its user, reads them back, replaces by name; secrets refused', async () => {
+  const { t, v1, u } = await setup();
+  const body = { name: 'team-review', title: 'รีวิวทีม', skills: [{ name: 'review', content: 'check nulls' }], commands: [{ name: 'weekly', text: 'สรุปงาน' }] };
+  const r = await v1('/v1/plugins', body); assert.equal(r.status, 200); assert.equal(r.d.skills, 1);
+  const g = await v1('/v1/plugins'); assert.equal(g.d.plugins[0].name, 'team-review'); assert.equal(g.d.plugins[0].commands[0].name, 'weekly');
+  await v1('/v1/plugins', { ...body, skills: [{ name: 'review2', content: 'v2' }] });
+  assert.deepEqual(t.DB.raw.prepare("SELECT name FROM skills WHERE user_id=? AND plugin='ai:team-review' AND as_text=0").all(u.id).map(x => x.name), ['review2']);
+  assert.equal((await v1('/v1/plugins', { name: 'leak', title: 'x', skills: [{ name: 'a', content: 'token ghp_abcdefghijklmnopqrstuvwxyz123456' }] })).status, 400);
+  assert.equal((await v1('/v1/plugins', { name: 'Bad Name', skills: [{ name: 'a', content: 'b' }] })).status, 400);
+});

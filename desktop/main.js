@@ -8,6 +8,7 @@ const { scanFolder, writeRel, removeRel, renameRel, grepRel, editRel } = require
 const { startMcp } = require('./mcp');
 const { UIA_PS, parseUia, uiaText, pickEyes, describeScreen } = require('./eyes');
 const { CONNECTORS_TOOL, makeHub } = require('./hub');
+const { MAKE_PLUGIN_TOOL, normalizePlugin, pluginSummary } = require('./plugmake');
 const { ROBLOX_TOOL, ROBLOX_RE, startBridge, robloxTool, installPlugin, pluginDir, newToken } = require('./roblox');
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
@@ -240,6 +241,21 @@ async function screenRun(acts, opts = {}) {
 }
 // เครื่องมือ computer ของ Agent: ใช้ได้เมื่อผู้ใช้เปิด "ให้ AI ดูหน้าจอและคุมเมาส์" (ยืนยันด้วยหน้าต่าง Windows) · พิกัด = พิกเซลของภาพหน้าจอล่าสุด
 const COMPUTER_TOOL = { type: 'function', function: { name: 'computer', description: 'See and control the whole screen of the user\'s computer (any program: Excel, Blender, browsers, games). Give a list of actions; a fresh screenshot comes back after them. Start with [{"action":"screenshot"}]. Add {"action":"elements"} to also get the buttons/fields/menus Windows reports for the front window with exact center coordinates (most precise way to click in normal apps). Coordinates are pixels of the latest screenshot. Never type passwords or payment details, and never send messages or buy things unless the user asked in this task.', parameters: { type: 'object', properties: { actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', enum: ['screenshot', 'elements', 'click', 'double_click', 'right_click', 'move', 'drag', 'type', 'key', 'scroll', 'wait', 'open'] }, x: { type: 'number' }, y: { type: 'number' }, x2: { type: 'number', description: 'drag end x' }, y2: { type: 'number', description: 'drag end y' }, target: { type: 'string', description: 'for open: program name (notepad, excel, chrome), file path or URL' }, text: { type: 'string', description: 'for type' }, keys: { type: 'string', description: 'for key, e.g. ctrl+s, enter, alt+tab' }, amount: { type: 'number', description: 'scroll notches, negative = up' }, ms: { type: 'number' } }, required: ['action'] } } }, required: ['actions'] } } };
+// make_plugin: บันทึกสกิล/คำสั่งลัดเข้าบัญชี (ใช้ได้ทุกที่) + ติดตั้งในแอปนี้ (กติกา + คำสั่งลัด) · มี MCP = ต้องกดยืนยันในหน้าต่าง Windows ก่อน
+async function makePlugin(args) {
+  let p; try { p = normalizePlugin(args); } catch (x) { return 'Error: ' + x.message; }
+  const hasMcp = Object.keys(p.mcpServers).length > 0;
+  let local; try { local = cleanPlugin({ name: 'ai-' + p.name, title: p.title, description: p.description || 'ปลั๊กอินที่ AI สร้าง', mcpServers: p.mcpServers, commands: p.commands, rules: p.skills.map(s => `${s.name}: ${s.content}`).join('\n\n').slice(0, 4000) }); } catch (x) { return 'Error: ' + x.message; }
+  if (hasMcp) {
+    const what = Object.entries(local.mcpServers).map(([n, c]) => `• MCP ${n}: ${c.command} ${c.args.join(' ')}`).join('\n');
+    const r = await dialog.showMessageBox(web, { type: 'warning', title: 'AI ขอติดตั้งปลั๊กอิน', message: `AI ขอติดตั้งปลั๊กอิน "${p.title}" ที่รันโปรแกรมในเครื่อง`, detail: `${p.description}\n\n${what}\n\nติดตั้งเฉพาะเมื่อคุณรู้จักและไว้ใจโปรแกรมนี้`, buttons: ['ติดตั้ง', 'ไม่ติดตั้ง'], defaultId: 1, cancelId: 1 });
+    if (r.response !== 0) return 'ผู้ใช้ไม่อนุญาตให้ติดตั้งส่วน MCP: ไม่ได้ติดตั้งอะไร บอกผู้ใช้ และทำงานต่อโดยไม่ใช้มัน';
+  }
+  settings.plugins = { ...settings.plugins, [local.name]: { ...local, envValues: {} } }; save(); if (hasMcp) { await mcp?.close(); mcp = null; }
+  let synced = '';
+  if (p.skills.length || p.commands.length) { const r = await fetch(SITE + '/v1/plugins', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(p) }).catch(() => null); const d = r ? await r.json().catch(() => ({})) : {}; synced = r?.ok ? ' · ใช้ได้ในแชตและ Harness บนคลาวด์ด้วย' : ` · ติดตั้งในแอปนี้แล้ว แต่บันทึกเข้าบัญชีไม่ได้ (${d.error?.message_th || d.error?.message || 'เชื่อมต่อไม่ได้'})`; }
+  return pluginSummary(p, (hasMcp ? ' · MCP ใช้ได้ตั้งแต่งานถัดไป' : '') + synced);
+}
 // roblox look: หันกล้องไปที่ของ (ถ้าบอก path) → จับภาพหน้าจอ Studio · โมเดลอ่านรูปไม่ได้ = ตาช่วยบรรยายเป็นข้อความแทน
 async function robloxLook(bridge, a, ctx = {}) {
   if (process.platform !== 'win32') return 'Error: ดูหน้าจอ Studio ได้เฉพาะ Windows ตอนนี้';
@@ -447,7 +463,8 @@ async function runTask(o = {}, sender) {
   a.android ||= await wantsAndroid(a.ws.root, text).catch(() => false);
   let tools = [...toolsFor({ android: a.android }), ...OFFICE_TOOLS, ASK_TOOL, ...rtools, ...(process.platform === 'win32' && settings.screenNever !== true ? [COMPUTER_TOOL] : [])];
   if (hasMcp()) { try { await mcpUp(); tools = [...tools, ...mcp.tools]; } catch (x) { tell({ type: 'info', text: 'MCP: ' + x.message }); } }
-  if (rbxUp() && (a.rbxOn || rbx.connected() || ROBLOX_RE.test(text))) tools = [...tools, ROBLOX_TOOL]; // Roblox: ใส่เครื่องมือเมื่อ Studio ต่ออยู่หรือคำสั่งพูดถึง Roblox
+  if (rbxUp() && (a.rbxOn || rbx.connected() || ROBLOX_RE.test(text))) tools = [...tools, ROBLOX_TOOL];
+  tools = [...tools, MAKE_PLUGIN_TOOL]; // AI สร้างปลั๊กอินให้ตัวเอง (สกิล/คำสั่งลัดติดตั้งเลย · MCP ต้องยืนยัน) // Roblox: ใส่เครื่องมือเมื่อ Studio ต่ออยู่หรือคำสั่งพูดถึง Roblox
   a.asks = new Map(); a.outputs = new Set();
   const callTool = async (name, args) => {
     if (mode === 'plan' && !READ_ONLY.has(name) && !['ask_user', 'read_document'].includes(name)) return 'Error: โหมดวางแผน: ใช้ได้เฉพาะเครื่องมืออ่าน/ค้น (ห้ามแก้ไฟล์ รันคำสั่ง หรือเรียกเครื่องมือภายนอก) เขียนแผนให้ผู้ใช้อนุมัติก่อน';
@@ -463,6 +480,7 @@ async function runTask(o = {}, sender) {
     if (name === 'roblox' && args?.op === 'look') return robloxLook(rbx, args, await screenCtx());
     if (name === 'roblox') return robloxTool(rbx, args);
     if (name === 'connectors') return hub.run(args);
+    if (name === 'make_plugin') return makePlugin(args);
     if (name.startsWith('rmcp_')) return remoteCall(name, args);
     if (mcp?.has(name)) return mcp.call(name, args);
     return a.ws.call(name, args);
