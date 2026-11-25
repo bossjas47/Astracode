@@ -155,10 +155,18 @@ if (typeof globalThis.parseAsk !== 'function') {
   };
 }
 // ---------- Thinking: กล่องเหตุผลที่ AI คิด (กดเพื่อขยาย) ----------
-const thinkLabel = (m, i = 1, n = 1) => m.streaming && !m.content ? '<span class="shimmer">กำลังคิด…</span>' : `Thinking${n > 1 ? ` · รอบที่ ${i}` : ''}${m.thinkSec ? ` · ${m.thinkSec} วินาที` : ''}`;
-// ความคิดบางรุ่นส่งมาเป็นหัวข้อ **...** ต่อกันโดยไม่มีบรรทัดว่าง → จัดเป็นย่อหน้าและทำตัวหนา
-const thinkText = s => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/<\/b>(?=<b>)/g, '</b>\n\n').replace(/([^\n>])<b>/g, '$1\n\n<b>');
-const thinkHTML = (m, i = 1, n = 1) => m.thinking ? `<details class="think"><summary>${ic('sparkles', 'sm')}<span class="think-s">${thinkLabel(m, i, n)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${thinkText(m.thinking)}</div></details>` : '';
+// ระหว่างคิด: แสดง "กำลังคิด" + เวลาที่นับสด + หัวข้อที่ AI กำลังคิดอยู่ (หัวข้อตัวหนาล่าสุด หรือประโยคล่าสุด) · คิดเสร็จ: "คิดไป N วินาที"
+const thinkTopic = s => { const t = String(s || ''), hs = [...t.matchAll(/\*\*([^*\n]{3,90})\*\*/g)]; if (hs.length) return hs.at(-1)[1].trim(); const ls = t.replace(/\*\*/g, '').split(/\n+/).map(x => x.trim()).filter(x => x.length > 3); return (ls.at(-1) || '').slice(-90); };
+const thinkLabel = (m, i = 1, n = 1) => {
+  if (m.streaming && !m.content) { const tp = thinkTopic(m.thinking); return `<span class="shimmer">กำลังคิด</span>${m.t0 ? `<span class="think-t" data-t0="${m.t0}">${Math.max(0, Math.round((Date.now() - m.t0) / 1000))} วิ</span>` : ''}${tp ? `<span class="think-now">${esc(tp)}</span>` : ''}`; }
+  return `คิดไป${m.thinkSec ? ` ${m.thinkSec} วินาที` : 'แล้ว'}${n > 1 ? ` · รอบที่ ${i}/${n}` : ''}`;
+};
+// ความคิด: หัวข้อตัวหนา = ขั้นตอน (มีจุดนำ) · รายการ - / * = จุด · `โค้ด` = ตัวพิมพ์โค้ด · ที่เหลือคงบรรทัดเดิม
+const thinkText = s => esc(s).replace(/`([^`\n]{1,120})`/g, '<code>$1</code>').replace(/^[ \t]*[-*•][ \t]+/gm, '• ')
+  .replace(/\*\*([^*\n]+)\*\*/g, '<b class="th-h">$1</b>').replace(/\n*(<b class="th-h">[^<]*<\/b>)\n*/g, '$1').trim(); // หัวข้อเป็นบล็อก: ตัดบรรทัดว่างรอบหัวข้อ (ระยะห่างใช้ CSS)
+const thinkHTML = (m, i = 1, n = 1) => m.thinking ? `<details class="think${m.streaming && !m.content ? ' live' : ''}"><summary>${ic('sparkles', 'sm think-ic')}<span class="think-s">${thinkLabel(m, i, n)}</span>${ic('down', 'sm chev')}</summary><div class="think-b">${thinkText(m.thinking)}</div></details>` : '';
+// นับวินาทีสดของกล่องที่กำลังคิด (ทุกกล่องในหน้า)
+if (typeof document !== 'undefined' && !window.__thinkTick) window.__thinkTick = setInterval(() => { for (const e of document.querySelectorAll('.think-t[data-t0]')) e.textContent = Math.max(0, Math.round((Date.now() - +e.dataset.t0) / 1000)) + ' วิ'; }, 1000);
 // กล่องตัวเลือกจากบล็อก ```ask ที่ parseAsk() แยกออกมา
 function askHTML(asks, active = true) {
   if (!Array.isArray(asks) || !asks.length) return '';
@@ -184,12 +192,17 @@ function segHTML(m, text) {
 }
 function paintStreaming(el, m) {
   const body = typeof stripTools === 'function' ? fenceBare(stripTools(m.content)) : m.content; // โหมด Code: ซ่อนบรรทัดคำสั่ง READ/GREP/RUN ระหว่างพิมพ์ด้วย
-  if (hasSegs(m)) { el.querySelector('.think')?.remove(); el.querySelector('.b').innerHTML = segHTML(m, body); return; }
+  if (hasSegs(m)) { // คิดหลายรอบ: วาดใหม่ทั้งชุด แต่คงกล่องที่ผู้ใช้เปิดไว้ และตำแหน่งเลื่อนในกล่อง (เดิมหุบเองทุกครั้งที่มีข้อความใหม่)
+    const b0 = el.querySelector('.b'), was = [...b0.querySelectorAll('.think')].map(d => ({ open: d.open, top: d.querySelector('.think-b')?.scrollTop || 0 }));
+    el.querySelector(':scope > .think')?.remove(); b0.innerHTML = segHTML(m, body);
+    [...b0.querySelectorAll('.think')].forEach((d, i) => { if (was[i]?.open) { d.open = true; const tb = d.querySelector('.think-b'); if (tb) tb.scrollTop = was[i].top; } });
+    return;
+  }
   let th = el.querySelector('.think');
   if (m.thinking && !th) { el.insertAdjacentHTML('afterbegin', thinkHTML(m)); th = el.querySelector('.think'); }
   if (th) {
     const b = th.querySelector('.think-b'), stick = b.scrollHeight - b.scrollTop - b.clientHeight < 40;
-    b.innerHTML = thinkText(m.thinking); th.querySelector('.think-s').innerHTML = thinkLabel(m);
+    b.innerHTML = thinkText(m.thinking); th.querySelector('.think-s').innerHTML = thinkLabel(m); th.classList.toggle('live', !!(m.streaming && !m.content));
     if (stick) b.scrollTop = b.scrollHeight;
   }
   if (m.todos?.length && typeof todoHTML === 'function' && el.closest('#cmsgs')) { const td = el.querySelector('.todos'), h = todoHTML(m); if (td) td.outerHTML = h; else el.querySelector('.b').insertAdjacentHTML('beforebegin', h); } // รายการงานสด (โหมด Code)

@@ -2398,3 +2398,18 @@ button.cw-model { background: none; cursor: pointer; font: inherit; font-size: 1
 .cw-live-keys { flex-wrap: wrap; gap: 6px; }
 .cw-live input { flex: 1; min-width: 0; }
 .sheet:has(.cw-live) { max-width: 920px; }
+
+/* Thinking 2.0: กำลังคิด = จุดเรืองแสง + วินาทีสด + หัวข้อที่กำลังคิด · คิดเสร็จ = ชิปเงียบ ๆ กดดูขั้นตอนได้ */
+.think summary { max-width: 100%; }
+.think .think-s { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.think-t { font-variant-numeric: tabular-nums; color: var(--ash); font-size: 12px; opacity: .8; }
+.think-now { color: var(--ash); font-size: 12.5px; max-width: min(46vw, 420px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-left: 1px solid var(--steel); padding-left: 8px; animation: fadeUp .25s ease-out both; }
+.think.live summary { border-color: rgba(var(--blue-rgb, 75, 79, 224), .45); background: rgba(var(--blue-rgb, 75, 79, 224), .06); }
+.think.live .think-ic { color: var(--blue); animation: thinkPulse 1.4s ease-in-out infinite; }
+@keyframes thinkPulse { 0%, 100% { opacity: .45; transform: scale(.9) rotate(0deg); } 50% { opacity: 1; transform: scale(1.1) rotate(20deg); } }
+.think-b { border-left: 2px solid rgba(var(--blue-rgb, 75, 79, 224), .35); }
+.think-b .th-h { display: block; color: var(--porcelain); font-weight: 600; position: relative; padding-left: 14px; margin: 10px 0 2px; } .think-b .th-h:first-child { margin-top: 0; }
+.think-b .th-h::before { content: ''; position: absolute; left: 0; top: .55em; width: 6px; height: 6px; border-radius: 50%; background: var(--blue); }
+.think-b code { font-size: 12px; padding: 1px 5px; border-radius: 6px; background: rgba(var(--ov), .06); }
+@media (prefers-reduced-motion: reduce) { .think.live .think-ic { animation: none; } .think-now { animation: none; } }
+@media (max-width: 520px) { .think-now { max-width: 38vw; } }
