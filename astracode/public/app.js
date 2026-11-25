@@ -281,7 +281,7 @@ const nav = () => {
   const body = me ? `<div class="mode-seg" role="group" aria-label="Mode"><a href="/chat" class="${inCode ? '' : path === '/chat' ? 'on' : ''}">${ic('msg', 'sm')}<span>Chat</span></a><a href="/code" class="${inCode ? 'on' : ''}">${ic('code', 'sm')}<span>Code</span></a><a href="/chat?mode=cowork" title="Kyber Harness">${ic('layers', 'sm')}<span>Harness</span></a></div>
     <a class="side-new" href="${inCode ? '/code' : '/chat'}">${ic('plus', 'sm')}<span>${inCode ? 'New project' : 'New chat'}</span></a>
     ${inCode ? '' : `<div class="work-tiles${me.plan?.artifacts ? '' : ' one'}"><a class="wtile" href="/chat?open=spaces">${ic('folder')}<b>Workspace</b><small>Organize your work</small></a>${me.plan?.artifacts ? `<a class="wtile" href="/chat?open=arts">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></a>` : ''}</div>
-    <nav class="side-nav"><a href="/chat?open=files">${ic('sheet')}<span>ไฟล์ของฉัน</span></a>${me.plan?.artifacts ? `<a href="/sites">${ic('globe')}<span>เว็บของฉัน</span></a>` : ''}<a href="/chat?open=video">${ic('play')}<span>สร้างวิดีโอ</span></a>${me.plan?.artifacts ? `<a href="/chat?open=sched">${ic('clock')}<span>Scheduled tasks</span></a>` : ''}${deskLink()}</nav>`}
+    <nav class="side-nav"><a href="/chat?open=files">${ic('sheet')}<span>ไฟล์ของฉัน</span></a>${me.plan?.artifacts ? `<a href="/sites">${ic('globe')}<span>เว็บของฉัน</span></a>` : ''}<a href="/meetings">${ic('mic')}<span>AI ประชุม</span></a><a href="/chat?open=video">${ic('play')}<span>สร้างวิดีโอ</span></a>${me.plan?.artifacts ? `<a href="/chat?open=sched">${ic('clock')}<span>Scheduled tasks</span></a>` : ''}${deskLink()}</nav>`}
     <div class="side-sec"><span>${inCode ? 'Projects' : 'Chats'}</span></div>
     <div class="nav-recents" data-kind="${inCode ? 'code' : 'chat'}"><p class="muted">Loading…</p></div>
     <button type="button" class="side-user" data-acct aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}"><span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span><span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan?.name || '')} · ${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}% used</small></span>${ic('up', 'sm')}</button>`
@@ -783,6 +783,87 @@ function sheet(title, html, bind) {
   d.onkeydown = e => { if (e.key === 'Escape') close(); };
   document.body.append(d); (d.querySelector('.opt.on') || d.querySelector('.sheet-b button, .sheet-b a'))?.focus();
   bind?.(d, close);
+}
+// ---------- AI ประชุม: เสียง → WAV 16kHz mono ช่วงละ 3 นาที → ส่งทีละช่วง (ถอดทันทีที่เซิร์ฟเวอร์) ----------
+const MEET_RATE = 16000, MEET_SEG_S = 180;
+function meetWav(f32) { // Float32 [-1,1] → WAV PCM16
+  const b = new ArrayBuffer(44 + f32.length * 2), v = new DataView(b), w = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + f32.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, MEET_RATE, true); v.setUint32(28, MEET_RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, f32.length * 2, true);
+  for (let i = 0; i < f32.length; i++) { const x = Math.max(-1, Math.min(1, f32[i])); v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true); }
+  return new Blob([b], { type: 'audio/wav' });
+}
+function meetResample(x, from) { // linear · ใช้เมื่อเบราว์เซอร์เปิด AudioContext 16kHz ไม่ได้
+  if (from === MEET_RATE) return x;
+  const r = from / MEET_RATE, out = new Float32Array(Math.floor(x.length / r));
+  for (let i = 0; i < out.length; i++) { const p = i * r, j = Math.floor(p), f = p - j; out[i] = (x[j] || 0) * (1 - f) + (x[j + 1] || 0) * f; }
+  return out;
+}
+// คิวส่งช่วงเสียง: ทีละช่วงตามลำดับ · เน็ตหลุดลองใหม่ (สูงสุด 6 ครั้ง ห่างขึ้นเรื่อยๆ)
+function meetUploader(id, onState) {
+  const q = []; let busy = false, sent = 0, failed = 0;
+  const run = async () => {
+    if (busy) return; busy = true;
+    while (q.length) {
+      const job = q[0]; let ok = false;
+      for (let a = 0; a < 6 && !ok; a++) {
+        try { const r = await fetch(`/api/meetings/${id}/seg/${job.n}?dur=${job.dur.toFixed(2)}`, { method: 'POST', body: job.blob, headers: { 'content-type': 'audio/wav' } }); const d = await r.json().catch(() => ({}));
+          if (r.ok || r.status === 409) { ok = true; job.res = d; } else if (r.status < 500 && r.status !== 429) { ok = true; job.res = { error: d.error || 'ส่งไม่สำเร็จ' }; } else throw new Error(d.error || r.status);
+        } catch { await new Promise(r => setTimeout(r, Math.min(30e3, 2e3 * 2 ** a))); }
+      }
+      q.shift(); if (ok) sent++; else failed++; onState?.({ sent, failed, left: q.length, last: job.res });
+    }
+    busy = false; onState?.({ sent, failed, left: 0, idle: true });
+  };
+  return { add(n, f32) { q.push({ n, dur: f32.length / MEET_RATE, blob: meetWav(f32) }); onState?.({ sent, failed, left: q.length }); run(); }, get pending() { return q.length || busy; }, drain: () => new Promise(r => { const t = setInterval(() => { if (!q.length && !busy) { clearInterval(t); r(); } }, 300); }) };
+}
+// อัดสด: เก็บ PCM จากไมค์ ตัดทุก 3 นาที · onLevel = ระดับเสียง 0..1
+async function meetRecorder(id, { onLevel, onState } = {}) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+  let ac; try { ac = new AudioContext({ sampleRate: MEET_RATE }); } catch { ac = new AudioContext(); }
+  const src = ac.createMediaStreamSource(stream), proc = ac.createScriptProcessor(4096, 1, 1), up = meetUploader(id, onState);
+  let buf = [], len = 0, n = 0, paused = false, wake = null;
+  try { wake = await navigator.wakeLock?.request('screen'); } catch { /* ไม่รองรับ */ }
+  const flush = () => { if (!len) return; const all = new Float32Array(len); let o = 0; for (const c of buf) { all.set(c, o); o += c.length; } buf = []; len = 0; const x = meetResample(all, ac.sampleRate); if (x.length > MEET_RATE * 0.5) up.add(n++, x); };
+  proc.onaudioprocess = e => { if (paused) return; const d = e.inputBuffer.getChannelData(0); buf.push(new Float32Array(d)); len += d.length; let pk = 0; for (let i = 0; i < d.length; i += 16) pk = Math.max(pk, Math.abs(d[i])); onLevel?.(pk); if (len >= ac.sampleRate * MEET_SEG_S) flush(); };
+  src.connect(proc); proc.connect(ac.destination);
+  return {
+    get seconds() { return (n * MEET_SEG_S) + len / ac.sampleRate; }, up,
+    pause(v) { paused = v; },
+    async stop() { proc.disconnect(); src.disconnect(); stream.getTracks().forEach(t => t.stop()); flush(); await ac.close().catch(() => {}); try { await wake?.release(); } catch { /* ปล่อยแล้ว */ } await up.drain(); },
+  };
+}
+// ไฟล์เสียง/วิดีโอ: ถอดรหัสในเบราว์เซอร์ (ได้ 16kHz ทันทีถ้าเบราว์เซอร์รองรับ) แล้วตัดช่วงส่ง
+async function meetDecode(file) {
+  const raw = await file.arrayBuffer(); let ac; try { ac = new AudioContext({ sampleRate: MEET_RATE }); } catch { ac = new AudioContext(); }
+  try { const ab = await ac.decodeAudioData(raw); const ch = ab.numberOfChannels, x = new Float32Array(ab.length); for (let c = 0; c < ch; c++) { const d = ab.getChannelData(c); for (let i = 0; i < d.length; i++) x[i] += d[i] / ch; } return meetResample(x, ab.sampleRate); }
+  finally { ac.close().catch(() => {}); }
+}
+async function meetProcessFile(file, onProgress) {
+  if (file.size > 400e6) throw new Error('ไฟล์ใหญ่เกิน 400MB · ตัดไฟล์ให้สั้นลงก่อน');
+  onProgress?.({ step: 'decode' });
+  let x; try { x = await meetDecode(file); } catch { throw new Error('เปิดไฟล์เสียงนี้ไม่ได้ ลองไฟล์ mp3, m4a หรือ wav'); }
+  const total = Math.ceil(x.length / (MEET_RATE * MEET_SEG_S)); if (total > 60) throw new Error('ไฟล์ยาวเกิน 3 ชั่วโมง');
+  const m = await api('/meetings', { method: 'POST', body: { title: file.name.replace(/\.[^.]+$/, '').slice(0, 100) } });
+  const up = meetUploader(m.id, st => onProgress?.({ step: 'upload', done: st.sent + st.failed, total, failed: st.failed }));
+  for (let i = 0; i < total; i++) up.add(i, x.subarray(i * MEET_RATE * MEET_SEG_S, (i + 1) * MEET_RATE * MEET_SEG_S));
+  x = null; await up.drain(); onProgress?.({ step: 'summary' });
+  await api(`/meetings/${m.id}/finish`, { method: 'POST' }).catch(() => {});
+  return m.id;
+}
+// แนบไฟล์เสียงในแชต: ถามก่อนว่าจะถอดเป็นบันทึกประชุมไหม
+function meetFileSheet(file) {
+  sheet('ถอดเสียงไฟล์นี้', `<div class="sheet-form"><p class="sheet-msg"><b>${esc(file.name)}</b><br><small class="muted">${(file.size / 1e6).toFixed(1)}MB · ได้บทถอดความแยกคนพูด สรุป และงานที่ต้องทำ · หักลิมิตแพลนตามความยาว</small></p>
+    <div class="meet-prog" id="mfp" hidden><div class="meter"><div class="fill" style="width:0%"></div></div><small class="muted" aria-live="polite"></small></div>
+    <button type="button" class="btn blue" id="mfgo">${ic('mic', 'sm')} ถอดเสียงเป็นบันทึกประชุม</button><small class="muted">อย่าเพิ่งปิดหน้านี้จนกว่าจะส่งไฟล์ครบ</small></div>`, (d, close) => {
+    d.querySelector('#mfgo').onclick = async e => {
+      e.target.disabled = true; const pg = d.querySelector('#mfp'), bar = pg.querySelector('.fill'), lab = pg.querySelector('small'); pg.hidden = false;
+      try {
+        const id = await meetProcessFile(file, p => { if (p.step === 'decode') lab.textContent = 'กำลังอ่านไฟล์เสียง…'; else if (p.step === 'upload') { bar.style.width = Math.round(p.done / p.total * 90) + '%'; lab.textContent = `ถอดเสียงแล้ว ${p.done}/${p.total} ช่วง${p.failed ? ` · ไม่สำเร็จ ${p.failed}` : ''}`; } else { bar.style.width = '95%'; lab.textContent = 'กำลังสรุป…'; } });
+        close(); go('/meetings?id=' + id);
+      } catch (x) { e.target.disabled = false; lab.textContent = x.message; lab.className = 'bad'; }
+    };
+  });
 }
 // Kyber Sites: เผยแพร่โปรเจกต์ (หน้า Code) หรือ Artifact เป็นเว็บจริงที่ /s/<ชื่อ>/ · มีเว็บจากต้นทางนี้แล้ว = อัปเดตเวอร์ชันใหม่
 async function sitePublish({ src, src_id, title = '' }) {

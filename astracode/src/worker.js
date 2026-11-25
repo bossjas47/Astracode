@@ -14,6 +14,7 @@ import { passkeyApi, passkeyPublic } from './passkey.js';
 import { schedApi } from './schedules.js';
 import { filesApi } from './files.js';
 import { artPaid, artApi, artAdmin, artGallery, artPublic, artReport, artShell } from './artifacts.js';
+import { meetApi } from './meetings.js';
 import { sitesApi, sitesAdmin, siteServe, siteReport, reportPage } from './sites.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
 import { handoff, moveSite } from './move.js';
@@ -238,6 +239,7 @@ export async function route(req, env, ctx, url, path, M) {
       const extra = await userRoutes(req, env, ctx, url, path, M, u); if (extra) return extra;
       const art = await artApi(req, env, u, path, M, url); if (art) return art;
       const st = await sitesApi(req, env, u, path, M, url); if (st) return st;
+      const mt = await meetApi(req, env, ctx, u, path, M, url); if (mt) return mt;
       const uf = await filesApi(req, env, u, path, M, url); if (uf) return uf;
       const sch = await schedApi(req, env, u, path, M); if (sch) return sch;
 

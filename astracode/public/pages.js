@@ -326,3 +326,83 @@ PAGES.sites = async () => {
     });
   });
 };
+
+// ---------- AI ประชุม ----------
+const meetT = t => { t = Math.floor(t || 0); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0'); };
+const meetDur = t => { t = Math.round(t || 0); return t >= 3600 ? `${Math.floor(t / 3600)} ชม. ${Math.round(t % 3600 / 60)} นาที` : t >= 60 ? `${Math.round(t / 60)} นาที` : `${t} วินาที`; };
+const MEET_ST = { recording: ['warn', 'กำลังอัด'], processing: ['', 'กำลังถอดเสียง'], summarizing: ['', 'กำลังสรุป'], done: ['ok', 'เสร็จแล้ว'] };
+let meetRec = null;
+PAGES.meetings = async () => {
+  if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  const id = +qs().get('id');
+  if (id) return meetDetail(id);
+  const d = await api('/meetings');
+  const row = m => `<a class="card meet-row" href="/meetings?id=${m.id}"><span class="site-ic">${ic('mic')}</span><span class="meet-name"><b>${esc(m.title)}</b><small class="muted">${when(m.created_at)} · ${meetDur(m.dur)}</small></span><span class="pill ${MEET_ST[m.status]?.[0] || ''}">${MEET_ST[m.status]?.[1] || esc(m.status)}</span></a>`;
+  page(nav() + `<div class="wrap sites-wrap"><header class="shop-hero"><h1>AI ประชุม</h1><p class="muted">อัดเสียงหรืออัปไฟล์ประชุม ได้บทถอดความแยกคนพูด สรุป ข้อตกลง และงานที่ต้องทำ</p></header>
+    ${d.ready === false ? '<div class="card"><p class="muted">ยังไม่เปิดใช้ AI ประชุม (รอผู้ดูแลตั้งค่า)</p></div>' : `<div class="meet-start">
+      <button type="button" class="btn blue meet-big" id="mrec">${ic('mic')} เริ่มอัดประชุม</button>
+      <label class="btn out meet-big">${ic('clip')} อัปไฟล์เสียง/วิดีโอ<input type="file" id="mfile" accept="audio/*,video/mp4,video/quicktime,.m4a,.mp3,.wav" hidden></label>
+      <input id="mtitle" maxlength="100" placeholder="ชื่อการประชุม (ไม่ใส่ก็ได้ AI ตั้งให้)" aria-label="ชื่อการประชุม"></div>
+      <div id="mrecbox"></div>`}
+    <div class="row meet-search"><input type="search" id="mq" placeholder="ค้นหาในทุกการประชุม เช่น ชื่อคน หัวข้อ" aria-label="ค้นหาการประชุม"></div>
+    <div id="mlist">${d.items.length ? d.items.map(row).join('') : '<p class="muted" style="text-align:center;margin:24px 0">ยังไม่มีการประชุม</p>'}</div>
+    <p class="muted meet-note">หักลิมิตแพลนตามความยาวเสียง · ไฟล์เสียงเก็บ 30 วัน บทถอดความเก็บจนกว่าคุณจะลบ</p>${footer()}</div>`);
+  let tq; $('#mq').oninput = e => { clearTimeout(tq); tq = setTimeout(async () => { const q = e.target.value.trim(); const r = q ? await api('/meetings?q=' + encodeURIComponent(q)) : d; $('#mlist').innerHTML = r.items.map(row).join('') || '<p class="muted" style="text-align:center">ไม่พบ</p>'; }, 300); };
+  if (d.ready === false) return;
+  $('#mfile').onchange = e => { const f = e.target.files[0]; if (f) meetFileSheet(f); e.target.value = ''; };
+  $('#mrec').onclick = () => meetStartRec();
+  if (qs().get('rec') === '1') history.replaceState(null, '', '/meetings');
+};
+async function meetStartRec() {
+  if (!navigator.mediaDevices?.getUserMedia) return toast('เบราว์เซอร์นี้อัดเสียงไม่ได้ ลองอัปไฟล์แทน', 'bad');
+  let m; try { m = await api('/meetings', { method: 'POST', body: { title: $('#mtitle')?.value || '' } }); } catch (x) { return toast(x.message, 'bad'); }
+  const box = $('#mrecbox'); $('.meet-start').hidden = true;
+  box.innerHTML = `<div class="card meet-live"><div class="meet-dot" aria-hidden="true"></div><div class="meet-clock" id="mclock" aria-live="off">0:00</div><div class="meet-lvl"><i id="mlvl"></i></div>
+    <small class="muted" id="mst" aria-live="polite">กำลังอัด · ส่งเสียงขึ้นทุก 3 นาที</small><div class="row" style="justify-content:center;gap:8px"><button type="button" class="btn out" id="mpause">หยุดชั่วคราว</button><button type="button" class="btn red" id="mstop">${ic('stop', 'sm')} จบและสรุป</button></div>
+    <small class="muted">วางมือถือใกล้คนพูด อย่าล็อกจอหรือสลับแอปนานระหว่างอัด</small></div>`;
+  try { meetRec = await meetRecorder(m.id, { onLevel: v => { const l = $('#mlvl'); if (l) l.style.width = Math.min(100, v * 160) + '%'; }, onState: s => { const e = $('#mst'); if (e && !s.idle) e.textContent = `ส่งแล้ว ${s.sent} ช่วง${s.left ? ` · รอส่ง ${s.left}` : ''}${s.failed ? ` · ส่งไม่สำเร็จ ${s.failed}` : ''}`; } }); }
+  catch { box.innerHTML = ''; $('.meet-start').hidden = false; await api('/meetings/' + m.id, { method: 'DELETE' }).catch(() => {}); return toast('เปิดไมค์ไม่ได้ อนุญาตไมค์ในเบราว์เซอร์ก่อน', 'bad'); }
+  const tick = setInterval(() => { const c = $('#mclock'); if (!c || !meetRec) return clearInterval(tick); c.textContent = meetT(meetRec.seconds); }, 500);
+  const guard = e => { e.preventDefault(); e.returnValue = ''; }; addEventListener('beforeunload', guard);
+  let paused = false; $('#mpause').onclick = e => { paused = !paused; meetRec.pause(paused); e.target.textContent = paused ? 'อัดต่อ' : 'หยุดชั่วคราว'; box.querySelector('.meet-live').classList.toggle('paused', paused); };
+  $('#mstop').onclick = async e => {
+    e.target.disabled = true; $('#mpause').disabled = true; $('#mst').textContent = 'กำลังส่งเสียงช่วงสุดท้าย…';
+    await meetRec.stop(); meetRec = null; clearInterval(tick); removeEventListener('beforeunload', guard);
+    $('#mst').textContent = 'กำลังถอดเสียงและสรุป… (ปิดหน้านี้ได้ ระบบทำต่อให้)';
+    api(`/meetings/${m.id}/finish`, { method: 'POST' }).catch(() => {}).finally(() => go('/meetings?id=' + m.id));
+  };
+}
+async function meetDetail(id) {
+  let m; try { m = await api('/meetings/' + id); } catch (x) { return page(nav() + `<div class="wrap"><p class="bad">${esc(x.message)}</p><a href="/meetings">← การประชุมทั้งหมด</a></div>`); }
+  const sp = m.speakers || {}, name = s => sp[s] || s, sum = m.summary, busy = ['processing', 'summarizing', 'recording'].includes(m.status);
+  const spk = [...new Set(m.lines.map(l => l.s))], hue = s => (spk.indexOf(s) * 67 + 200) % 360;
+  const failed = m.seg_list.filter(s => s.status === 'error'), done = m.seg_list.filter(s => s.status === 'done').length;
+  const sumHTML = sum ? `<section class="card meet-sum"><h2>สรุป</h2><div class="msg ai"><div class="b">${md(sum.summary || '')}</div></div>
+    ${sum.decisions?.length ? `<h3>ข้อตกลง</h3><ul>${sum.decisions.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${sum.actions?.length ? `<h3>งานที่ต้องทำ</h3><div class="tw"><table class="tbl meet-act"><tr><th>ใคร</th><th>ทำอะไร</th><th>ภายใน</th></tr>${sum.actions.map(a => `<tr><td>${esc(name(a.who))}</td><td>${esc(a.what)}</td><td>${esc(a.when || '-')}</td></tr>`).join('')}</table></div>` : ''}</section>` : '';
+  page(nav() + `<div class="wrap sites-wrap meet-detail"><p><a href="/meetings">← การประชุมทั้งหมด</a></p>
+    <header class="meet-h"><h1 id="mt" title="แตะเพื่อแก้ชื่อ">${esc(m.title)}</h1><p class="muted">${when(m.created_at)} · ${meetDur(m.dur)} · ${spk.length} คนพูด <span class="pill ${MEET_ST[m.status]?.[0] || ''}">${MEET_ST[m.status]?.[1] || ''}</span></p></header>
+    ${busy ? `<div class="card meet-prog"><div class="meter"><div class="fill" style="width:${m.status === 'summarizing' ? 92 : Math.round(done / Math.max(1, m.seg_list.length) * 85)}%"></div></div><small class="muted">${m.status === 'recording' ? 'ยังอัดอยู่ หรือปิดหน้าไประหว่างอัด · ' : ''}ถอดแล้ว ${done}/${m.seg_list.length} ช่วง · หน้านี้อัปเดตเอง</small>${m.status === 'recording' ? '<button type="button" class="btn out sm" id="mfin">จบการอัดและสรุปเลย</button>' : ''}</div>` : ''}
+    ${m.error ? `<p class="bad">${esc(m.error)}</p>` : ''}${failed.length ? `<div class="card"><p class="bad">ถอดไม่สำเร็จ ${failed.length} ช่วง: ${esc(failed[0].error || '')}</p><button type="button" class="btn out sm" id="mretry">${ic('refresh', 'sm')} ลองใหม่</button></div>` : ''}
+    <div class="site-act meet-tools">${sum ? `<button type="button" class="btn blue sm" id="mchat">${ic('msg', 'sm')} ถามเกี่ยวกับประชุมนี้</button>` : ''}<button type="button" class="btn out sm" id="mdoc">${ic('download', 'sm')} Word</button><button type="button" class="btn out sm" id="mcopy">${ic('copy', 'sm')} คัดลอกสรุป</button><button type="button" class="btn out sm" id="mspk">${ic('users', 'sm')} ตั้งชื่อคนพูด</button><button type="button" class="btn ghost sm" id="mdel">${ic('trash', 'sm')} ลบ</button></div>
+    ${sumHTML}
+    <section class="card meet-tr"><h2>บทถอดความ</h2>${m.audio ? '<audio id="maud" controls preload="none" hidden></audio>' : '<p class="muted">ไฟล์เสียงถูกลบแล้ว (เก็บ 30 วัน)</p>'}
+      ${m.lines.length ? m.lines.map(l => `<p class="meet-line"><button type="button" class="meet-ts" data-n="${l.n}" data-o="${l.o}" ${m.audio ? '' : 'disabled'} aria-label="เล่นจาก ${meetT(l.t)}">${meetT(l.t)}</button><b style="--h:${hue(l.s)}">${esc(name(l.s))}</b><span>${esc(l.x)}</span></p>`).join('') : '<p class="muted">ยังไม่มีข้อความ</p>'}</section>${footer()}</div>`);
+  const aud = $('#maud');
+  app.querySelectorAll('.meet-ts').forEach(b => b.onclick = () => { if (!aud) return; const src = `/api/meetings/${id}/audio/${b.dataset.n}`; aud.hidden = false; const seek = () => { aud.currentTime = +b.dataset.o; aud.play().catch(() => {}); }; if (!aud.src.endsWith(src)) { aud.src = src; aud.addEventListener('loadedmetadata', seek, { once: true }); aud.load(); } else seek(); app.querySelectorAll('.meet-line.on').forEach(x => x.classList.remove('on')); b.parentElement.classList.add('on'); });
+  const text = () => `${m.title}\n${when(m.created_at)} · ${meetDur(m.dur)}\n\n${sum ? `สรุป\n${(sum.summary || '').replace(/[*#_`]/g, '')}\n\n${sum.decisions?.length ? 'ข้อตกลง\n' + sum.decisions.map(x => '• ' + x).join('\n') + '\n\n' : ''}${sum.actions?.length ? 'งานที่ต้องทำ\n' + sum.actions.map(a => `• ${name(a.who)}: ${a.what}${a.when ? ' (ภายใน ' + a.when + ')' : ''}`).join('\n') : ''}` : ''}`;
+  $('#mcopy').onclick = e => copy(text(), e.target);
+  $('#mdoc').onclick = () => { // Word เปิดไฟล์ HTML นามสกุล .doc ได้ตรงๆ
+    const h = `<html><head><meta charset="utf-8"><title>${esc(m.title)}</title></head><body style="font-family:Tahoma,sans-serif"><h1>${esc(m.title)}</h1><p>${when(m.created_at)} · ${meetDur(m.dur)}</p>${sum ? `<h2>สรุป</h2>${md(sum.summary || '')}${sum.decisions?.length ? `<h2>ข้อตกลง</h2><ul>${sum.decisions.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}${sum.actions?.length ? `<h2>งานที่ต้องทำ</h2><table border="1" cellpadding="6" style="border-collapse:collapse"><tr><th>ใคร</th><th>ทำอะไร</th><th>ภายใน</th></tr>${sum.actions.map(a => `<tr><td>${esc(name(a.who))}</td><td>${esc(a.what)}</td><td>${esc(a.when || '-')}</td></tr>`).join('')}</table>` : ''}` : ''}<h2>บทถอดความ</h2>${m.lines.map(l => `<p><b>[${meetT(l.t)}] ${esc(name(l.s))}:</b> ${esc(l.x)}</p>`).join('')}</body></html>`;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + h], { type: 'application/msword' })); a.download = m.title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + '.doc'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  };
+  $('#mchat')?.addEventListener('click', async e => { e.target.disabled = true; try { const r = await api(`/meetings/${id}/chat`, { method: 'POST' }); go('/chat?id=' + r.chat_id); } catch (x) { e.target.disabled = false; toast(x.message, 'bad'); } });
+  $('#mt').onclick = () => sheet('แก้ชื่อการประชุม', `<div class="sheet-form"><input id="mtn" maxlength="100" value="${esc(m.title)}"><button type="button" class="btn blue" id="mts">บันทึก</button></div>`, (dd, close) => { dd.querySelector('#mts').onclick = async () => { await api('/meetings/' + id, { method: 'PATCH', body: { title: dd.querySelector('#mtn').value } }); close(); meetDetail(id); }; });
+  $('#mspk').onclick = () => sheet('ตั้งชื่อคนพูด', spk.length ? `<div class="sheet-form">${spk.map(s => `<label>${esc(s)}<input data-sp="${esc(s)}" maxlength="40" value="${esc(sp[s] || '')}" placeholder="ชื่อจริง"></label>`).join('')}<button type="button" class="btn blue" id="msps">บันทึก</button></div>` : '<p class="muted">ยังไม่มีคนพูด</p>', (dd, close) => {
+    dd.querySelector('#msps')?.addEventListener('click', async () => { const o = {}; dd.querySelectorAll('[data-sp]').forEach(i => { o[i.dataset.sp] = i.value; }); await api('/meetings/' + id, { method: 'PATCH', body: { speakers: o } }); close(); meetDetail(id); });
+  });
+  $('#mdel').onclick = async () => { if (!confirm('ลบการประชุมนี้ถาวร? ทั้งเสียงและบทถอดความจะหาย')) return; await api('/meetings/' + id, { method: 'DELETE' }); go('/meetings'); };
+  $('#mretry')?.addEventListener('click', async e => { e.target.disabled = true; e.target.textContent = 'กำลังถอดใหม่…'; await api(`/meetings/${id}/retry`, { method: 'POST' }).catch(x => toast(x.message, 'bad')); meetDetail(id); });
+  $('#mfin')?.addEventListener('click', async e => { e.target.disabled = true; await api(`/meetings/${id}/finish`, { method: 'POST' }).catch(x => toast(x.message, 'bad')); meetDetail(id); });
+  if (busy) setTimeout(() => { if (+qs().get('id') === id && document.body.dataset.page === 'meetings' && !document.querySelector('.sheet-bg')) meetDetail(id); }, 6000);
+}
