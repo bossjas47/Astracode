@@ -1,6 +1,6 @@
 // Live Eval ของ Kyber Harness: ให้โมเดลจริงทำงานจริงผ่าน /v1 ของ Kyber บนโฟลเดอร์ชั่วคราว แล้วตรวจผลด้วยการรันโค้ด
 // ใช้ตัวคุมรอบเดียวกับแอปคอม (desktop/agent.js + agenttools.js: อ่านก่อนแก้ · ตรวจก่อนจบ · ผู้ตรวจรอบสอง)
-// รัน: KYBER_EVAL_KEY=sk-astra-... [KYBER_EVAL_BASE=https://astracode.panderx.xyz] [KYBER_EVAL_MODELS="ชื่อ1,ชื่อ2"] node tests/bench/live-eval.mjs [ชื่อเคส...]
+// รัน: KYBER_EVAL_KEY=sk-astra-... [KYBER_EVAL_BASE=https://kyber.hypatir.dev] [KYBER_EVAL_MODELS="ชื่อ1,ชื่อ2"] node tests/bench/live-eval.mjs [ชื่อเคส...]
 // ผล: ตารางต่อโมเดล (ผ่านกี่เคส · รอบ · เวลา · ค่าใช้จ่าย) → stdout, $GITHUB_STEP_SUMMARY และ live-eval.json · มีค่า token จริงทุกครั้งที่รัน
 import { createRequire } from 'node:module';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ const desk = process.env.KYBER_DESKTOP_DIR || join(dirname(fileURLToPath(import.
 const { runAgent } = require(join(desk, 'agent.js'));
 const { Workspace, AGENT_TOOLS, agentSystem, projectMap, makeReviewer } = require(join(desk, 'agenttools.js'));
 
-const BASE = (process.env.KYBER_EVAL_BASE || 'https://astracode.panderx.xyz').replace(/\/$/, ''), KEY = process.env.KYBER_EVAL_KEY || '';
+const BASE = (process.env.KYBER_EVAL_BASE || 'https://kyber.hypatir.dev').replace(/\/$/, ''), KEY = process.env.KYBER_EVAL_KEY || '';
 const MAX_ROUNDS = +process.env.KYBER_EVAL_ROUNDS || 25, MAX_MS = (+process.env.KYBER_EVAL_MINUTES || 6) * 60e3;
 // ตัวตรวจ: รันคำสั่งในโฟลเดอร์งาน คืน true เมื่อ exit 0 (ไม่ให้โมเดลเห็นตัวตรวจ: เขียนลงไฟล์หลังงานจบ)
 const sh = (root, cmd, args) => { try { execFileSync(cmd, args, { cwd: root, timeout: 30e3, stdio: 'pipe' }); return true; } catch { return false; } };

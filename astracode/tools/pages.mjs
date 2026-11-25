@@ -2,7 +2,7 @@
 // SITE = โดเมนหลัก ใช้ทำลิงก์ใน og:image / canonical / JSON-LD (เปลี่ยนได้ด้วย SITE=https://... node tools/pages.mjs)
 // แบรนด์: Kyber (ผลิตภัณฑ์) สร้างโดย Hypatia (บริษัท) · ช่วงเปลี่ยนผ่าน SEO 60–90 วัน: ใส่ "เดิมคือ AstraCode" ในหน้าแรกและ JSON-LD (alternateName) ให้คนที่ค้นชื่อเดิมยังเจอ
 import fs from 'node:fs';
-const SITE = (process.env.SITE || 'https://astracode.panderx.xyz').replace(/\/$/, '');
+const SITE = (process.env.SITE || 'https://kyber.hypatir.dev').replace(/\/$/, '');
 const BRAND = 'Kyber', MAKER = 'Hypatia', OLD = 'AstraCode';
 const DESC = `${BRAND} (เดิมคือ ${OLD}) สร้างโดย ${MAKER}: ใช้ Claude, ChatGPT, Gemini และ DeepSeek ในเว็บเดียว เปิดบนมือถือได้ทันที มีโหมดเขียนโค้ด API สำหรับนักพัฒนา จ่ายผ่าน PromptPay`;
 const by = s => `${s} · สร้างโดย ${MAKER}`;

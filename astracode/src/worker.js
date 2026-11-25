@@ -15,6 +15,7 @@ import { schedApi } from './schedules.js';
 import { filesApi } from './files.js';
 import { artPaid, artApi, artAdmin, artGallery, artPublic, artReport, artShell } from './artifacts.js';
 import { blogPage, cron, robots, sitemap, status } from './jobs.js';
+import { handoff, moveSite } from './move.js';
 // ---------- router ----------
 // ข้อมูลหน้าราคา: ราคาขายต่อ 1M token (ไม่ส่งราคาทุนออกไป)
 const pubCache = new Map();
@@ -65,6 +66,8 @@ export default {
     // เปิดหน้าเว็บผ่าน http:// → ส่งไป https:// ถาวร · ยกเว้น /v1/* และ /api/* (ห้าม redirect: POST จะกลายเป็น GET และโปรแกรมลูกค้า API พัง) · localhost ไว้ทดสอบ
     if (url.protocol === 'http:' && (M === 'GET' || M === 'HEAD') && !/^\/(v1|api)\//.test(path) && !/^(localhost|127\.0\.0\.1)$/.test(url.hostname)) { url.protocol = 'https:'; return Response.redirect(url.toString(), 301); }
     if (path.startsWith('/api/') || path.startsWith('/v1/')) await ensureCols(env);
+    if (path === '/handoff' && M === 'GET') return secure(await handoff(req, env, url)); // ย้ายโดเมน: รับตั๋วล็อกอินจากโดเมนเดิม
+    if ((r = await moveSite(req, env, url, path, M, getUser))) return r; // ย้ายโดเมน: หน้าเว็บที่โดเมนเดิมพาไปโดเมนใหม่ (ไม่แตะ /api /v1)
     // Cloudflare อาจ redirect /preview.html → /preview จึงรับทั้งสองแบบ
     if (path === '/preview' || path === '/preview.html' || path === '/pyworker.js') return sandboxed(await env.ASSETS.fetch(req), path === '/pyworker.js' ? path : '/preview.html');
     if (path === '/node-runner' || path === '/node-runner.html') return sandboxed(await env.ASSETS.fetch(req), '/preview.html'); // เทอร์มินัล Node: origin แยกเหมือนหน้าแสดงผล

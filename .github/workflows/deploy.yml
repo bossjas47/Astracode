@@ -66,7 +66,7 @@ jobs:
         run: |
           B=https://astracode.panderx.xyz; fail=0
           for p in / /chat /code /plans /pricing /developers /api/settings/public /api/plans /api/pricing /api/status /sitemap.xml; do
-            c=$(curl -sS -o /dev/null -w '%{http_code}' "$B$p"); echo "$c $p"; [ "$c" = 200 ] || fail=1
+            c=$(curl -sSL --max-redirs 3 -o /dev/null -w '%{http_code}' "$B$p"); echo "$c $p"; [ "$c" = 200 ] || fail=1 # -L: หน้าเว็บที่โดเมนเดิมย้ายไปโดเมนใหม่ (301) · /api และ /v1 ไม่ย้าย
           done
           c=$(curl -sS -o /dev/null -w '%{http_code}' "$B/v1/models"); echo "$c /v1/models (no key)"; [ "$c" = 401 ] || fail=1
           if [ -n "$KEY" ]; then # optional: a real API key with a small budget, set as the ASTRA_TEST_KEY secret
