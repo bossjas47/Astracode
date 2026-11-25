@@ -87,3 +87,17 @@ test('multi-plan: an API key on the plan limit uses the primary slot, then the n
   assert.equal(await call(), 200); assert.equal(S.lastUse().sub_id, s2.id, 'slot 1 full → slot 2');
   S.fm.close();
 });
+
+test('multi-plan UI data: /api/me lists every slot with its own limits; set primary and per-slot auto-renew; someone else\'s slot is refused', async () => {
+  const S = await setup(); await S.buy(S.plus); await S.buy(S.pro);
+  const [s1, s2] = S.subs();
+  const me = (await S.t.json('/api/me', { cookie: S.u.cookie })).data;
+  assert.equal(me.subs.length, 2); assert.deepEqual(me.subs.map(x => x.name), ['Plus', 'Pro']); assert.equal(me.subs[0].primary, true); assert.equal(me.subs[1].pctWeek, 0);
+  assert.equal((await S.t.json(`/api/subs/${s2.id}/primary`, { method: 'POST', cookie: S.u.cookie })).status, 200);
+  assert.equal(S.row().primary_sub_id, s2.id); assert.equal(S.row().plan_id, S.pro.id, 'mirror follows the new primary');
+  assert.equal((await S.t.json(`/api/subs/${s1.id}/renew`, { method: 'POST', cookie: S.u.cookie, body: { on: true } })).status, 200);
+  assert.equal(S.t.DB.raw.prepare('SELECT auto_renew FROM subscriptions WHERE id=?').get(s1.id).auto_renew, 1);
+  const other = await S.t.user(); assert.equal((await S.t.json(`/api/subs/${s1.id}/primary`, { method: 'POST', cookie: other.cookie })).status, 404);
+  const one = await setup(); await one.buy(one.plus); assert.equal((await one.t.json('/api/me', { cookie: one.u.cookie })).data.subs.length, 1);
+  S.fm.close(); one.fm.close();
+});

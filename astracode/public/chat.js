@@ -104,7 +104,7 @@ function notice(u) {
   if (!me.plan?.paid && me.balance > 0 && me.balance < 10) return `<div class="notice hi">เงินใน Wallet เหลือ ฿${(+me.balance).toFixed(2)} · <a href="/plans?topup=1">เติมเงิน (ขั้นต่ำ ฿10)</a></div>`;
   return p >= 80 ? `<div class="notice hi">ใช้ลิมิตไปแล้ว ${p}% · <a href="/plans">อัปเกรดเพื่อใช้ได้มากขึ้น</a></div>` : '';
 }
-function setUsage(u) { me.usage = u; $('#lim').innerHTML = limHTML(u); $('#notice').innerHTML = notice(u); }
+function setUsage(u) { me.usage = u; const s = u.sub_id && me.subs?.find(x => x.id === u.sub_id); if (s) Object.assign(s, { pct4h: u.pct4h, pctWeek: u.pctWeek, reset4h: u.reset4h, resetWeek: u.resetWeek }); $('#lim').innerHTML = limHTML(u); $('#notice').innerHTML = notice(u); } // หลายแพลน: อัปเดตใบที่เพิ่งถูกหัก
 // "อัตโนมัติ": เซิร์ฟเวอร์เลือกโมเดลถูกหรือเก่งตามคำถาม (ประหยัดลิมิต)
 const AUTO = () => ({ id: 'auto', name: 'อัตโนมัติ', effort: me.models.some(m => m.effort !== 'none') ? 'auto' : 'none', vision: me.models.some(m => m.vision) });
 // ข้อความที่ดูเป็นข้อมูลส่วนตัว/ความชอบถาวร: เน้นปุ่มจำ ให้กดบันทึกเป็นความจำได้ในคลิกเดียว
@@ -1005,6 +1005,7 @@ function setBusy(b) { chat.busy = b; const g = $('#go'); g.innerHTML = ic(b ? 's
 
 // อ่าน SSE จาก /api/chat แล้วเรียก onData ทีละ event
 async function stream(body, signal, onData) {
+  if (subSel() && !body.stop) body = { ...body, sub_id: subSel() }; // หลายแพลน: ใบที่ผู้ใช้เลือก
   const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, signal, body: JSON.stringify(body) });
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
@@ -1120,7 +1121,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
       if (d.ctx) { chat.ctx = { ...d.ctx, id: chat.id }; }
       if (d.compacted) { toast(`ย่อแชตอัตโนมัติแล้ว (${d.why}) ข้อความเก่าถูกสรุปไว้`, 'ok'); chat.ctx = null; }
       if (d.trimmed) toast('context เต็ม: ตัดข้อความเก่าบางส่วนออกจากที่ส่งให้ AI ลองย่อแชตหรือเปิดแชตใหม่', 'bad');
-      if (d.done) { ai.pct = Math.max(0, d.pctWeek - me.usage.pctWeek); setUsage(d); }
+      if (d.done) { const prev = (d.sub_id && me.subs?.find(x => x.id === d.sub_id)) || me.usage; ai.pct = Math.max(0, d.pctWeek - prev.pctWeek); setUsage(d); }
     });
     cancelAnimationFrame(raf); raf = 0; // จบแล้ว: หยุดพิมพ์ทีละนิด ให้ขั้นถัดไปแสดงข้อความเต็ม
   } catch (x) {

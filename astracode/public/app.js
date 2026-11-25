@@ -741,7 +741,11 @@ document.addEventListener('click', e => { const b = e.target.closest('.dl-code')
 
 // ---------- ส่วนเลือกแบบแอปมือถือ (แชต + โหมด Code) ----------
 // ลิมิตที่หัวจอ: แถบแสงสเปกตรัมขนาดเล็ก (ยิ่งใช้มากยิ่งเลื่อนไปปลายชมพู) + % ของรอบที่ใช้ไปมากกว่า
-const limHTML = u => { const p = Math.max(u.pct4h, u.pctWeek); return `<i class="lmini ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"><b></b></i>${Math.round(p)}%${me?.reset_credits > 0 ? '<i class="gdot" title="มีสิทธิ์รีเซ็ตลิมิต"></i>' : ''}`; };
+// หลายแพลน: ใบที่เลือกใช้ (0 = อัตโนมัติ: ใบหลักก่อน เต็มแล้วสลับใบ) · จำไว้ต่อเครื่อง
+const subSel = () => { try { return +localStorage.getItem('subSel') || 0; } catch { return 0; } };
+const curSub = () => { const s = me?.subs; if (!s || s.length < 2) return null; return s.find(x => x.id === subSel()) || s.find(x => x.primary) || s[0]; };
+const limHTML = u0 => { const cs = curSub(), u = cs || u0, p = Math.max(u.pct4h, u.pctWeek); return (cs ? `<span class="lname">${esc(cs.name)}</span>` : '') + limHTML0(u, p); };
+const limHTML0 = (u, p) => { return `<i class="lmini ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"><b></b></i>${Math.round(p)}%${me?.reset_credits > 0 ? '<i class="gdot" title="มีสิทธิ์รีเซ็ตลิมิต"></i>' : ''}`; };
 const EFFORT_INFO = {
   '': ['Instant', 'ตอบทันที ไม่คิดก่อน · เร็วและประหยัดลิมิตที่สุด'],
   minimal: ['Minimal', 'คิดเล็กน้อย · เร็วมาก ใช้ลิมิตเพิ่มนิดเดียว'],
@@ -1120,13 +1124,21 @@ function limitSheet() {
   // การ์ดต่อรอบ: % ตัวใหญ่ + แถบสีตามระดับ (ปกติ / ใกล้เต็ม / เต็ม) + เวลาที่เหลือก่อนรีเซ็ต
   const left = t => { if (!t) return 'เริ่มนับเมื่อส่งข้อความแรก'; const ms = t - Date.now(); if (ms <= 0) return 'รีเซ็ตแล้ว'; const h = ms / 3600e3; return `รีเซ็ตใน ${h < 1 ? Math.max(1, Math.round(ms / 60e3)) + ' นาที' : h < 48 ? Math.round(h) + ' ชม.' : Math.round(h / 24) + ' วัน'} · ${when(t)}`; };
   const card = (label, p, t) => { const v = Math.min(100, Math.max(0, +p || 0)), lv = v >= 100 ? 'full' : v >= 80 ? 'hi' : ''; return `<div class="ls-card ${lv}"><div class="ls-row"><span>${label}</span><b>${v < 10 && v > 0 ? v.toFixed(1) : Math.round(v)}%</b></div><div class="ls-bar" role="progressbar" aria-label="${label}" aria-valuenow="${Math.round(v)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.max(v, v > 0 ? 2 : 0)}%"></i></div><small>${v >= 100 ? 'เต็มแล้ว · ' : ''}${left(t)}</small></div>`; };
+  const multi = me.subs?.length > 1, sel = subSel(), cs = curSub();
+  const subCard = x => `<div class="ls-sub${x.id === cs?.id ? ' on' : ''}"><div class="ls-head"><span class="ls-plan">${esc(x.name)}${x.primary ? ' <span class="pill">ใบหลัก</span>' : ''}</span><span class="muted">หมดอายุ ${when(x.expires)}</span></div>
+    ${x.use4h === false ? '' : card('รอบ 4 ชั่วโมง', x.pct4h, x.reset4h)}${card('สัปดาห์นี้', x.pctWeek, x.resetWeek)}
+    <div class="ls-sub-acts"><button type="button" class="btn sm ${sel === x.id ? 'blue' : 'out'}" data-subuse="${x.id}">${sel === x.id ? ic('check', 'sm') + ' ใช้ใบนี้อยู่' : 'ใช้ใบนี้'}</button>${x.primary ? '' : `<button type="button" class="btn out sm" data-subprim="${x.id}">ตั้งเป็นใบหลัก</button>`}</div></div>`;
   sheet('ลิมิตการใช้งาน', `<div class="ls">
-    <div class="ls-head"><span class="ls-plan">${esc(me.plan.name)}</span><span class="muted">Wallet ฿${baht(me.balance)}${me.wallet_overflow ? ' · ใช้ต่อเมื่อลิมิตเต็ม' : ''}</span></div>
-    ${u.use4h === false ? '' : card('รอบ 4 ชั่วโมง', u.pct4h, u.reset4h)}${card('สัปดาห์นี้', u.pctWeek, u.resetWeek)}
+    ${multi ? `<div class="ls-head"><span class="ls-plan">แพลนของคุณ ${me.subs.length} ใบ</span><span class="muted">Wallet ฿${baht(me.balance)}${me.wallet_overflow ? ' · ใช้ต่อเมื่อลิมิตเต็ม' : ''}</span></div>
+    <button type="button" class="btn sm ${sel ? 'out' : 'blue'} ls-auto" data-subuse="0">${sel ? '' : ic('check', 'sm') + ' '}อัตโนมัติ: ใบหลักก่อน เต็มแล้วสลับใบถัดไป</button>
+    ${me.subs.map(subCard).join('')}` : `<div class="ls-head"><span class="ls-plan">${esc(me.plan.name)}</span><span class="muted">Wallet ฿${baht(me.balance)}${me.wallet_overflow ? ' · ใช้ต่อเมื่อลิมิตเต็ม' : ''}</span></div>
+    ${u.use4h === false ? '' : card('รอบ 4 ชั่วโมง', u.pct4h, u.reset4h)}${card('สัปดาห์นี้', u.pctWeek, u.resetWeek)}`}
     <p class="muted ls-note">ลิมิตคิดตามต้นทุนจริงของแต่ละข้อความ โมเดลที่เก่งกว่าใช้ลิมิตเร็วกว่า</p>${reset}
     <div id="rsh"></div>
     <div class="ls-acts"><a class="btn out" href="/plans?topup=1">${ic('wallet', 'sm')} เติมเงิน</a><a class="btn ${list.length ? 'out' : 'blue'}" href="/plans">${ic('layers', 'sm')} อัปเกรดแพลน</a></div></div>`, (d, close) => {
       api('/limits/history').then(h => { if (h.length) d.querySelector('#rsh').innerHTML = `<details class="rst-h2"><summary>ประวัติรีเซ็ตลิมิต</summary>${h.map(r => `<div class="rst-row"><span>${r.kind === 'grant' ? 'ได้รับสิทธิ์ ' + esc(r.scope || '') + ' ×' + (r.n || 1) : r.kind === 'use' ? 'ใช้สิทธิ์ ' + esc(r.scope || '') : 'แอดมินรีเซ็ตให้'}</span><small>${when(r.created_at)}</small></div>`).join('')}</details>`; }).catch(() => {});
+      d.querySelectorAll('[data-subuse]').forEach(b => b.onclick = () => { try { localStorage.setItem('subSel', b.dataset.subuse); } catch { /* ไม่มีที่เก็บ */ } const lim = $('#lim') || $('#clim'); if (lim) lim.innerHTML = limHTML(me.usage); close(); limitSheet(); });
+      d.querySelectorAll('[data-subprim]').forEach(b => b.onclick = async () => { try { await api(`/subs/${b.dataset.subprim}/primary`, { method: 'POST' }); await loadMe(); toast('ตั้งเป็นใบหลักแล้ว', 'ok'); close(); limitSheet(); } catch (e) { toast(e.message, 'bad'); } });
       d.querySelectorAll('.rst-b').forEach(btn => btn.onclick = async () => {
         const x = list.find(y => y.k === btn.dataset.k);
         if (!await confirmSheet(`รีเซ็ตลิมิต: ${x.label}? จะใช้ 1 สิทธิ์`, { title: 'รีเซ็ตลิมิต', ok: 'Reset' })) return;

@@ -2286,3 +2286,19 @@ a.fi b::after { content: ' →'; color: var(--blue); }
 #app:has(.chat) .ann-dock { top: calc(60px + env(safe-area-inset-top)); bottom: auto; }
 .ann.promo { background: linear-gradient(90deg, rgba(75, 79, 224, .16), rgba(75, 79, 224, .05)), var(--carbon); }
 .py-img { display: block; max-width: 100%; margin: 8px 0; border-radius: 8px; background: #fff; }
+/* หลายแพลนต่อบัญชี */
+.lname { font-weight: 600; margin-right: 4px; max-width: 9ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+@media (max-width: 420px) { .lname { max-width: 6ch; } }
+.ls-sub { padding: 12px 14px; border: 1px solid var(--steel); border-radius: 16px; background: var(--carbon); display: flex; flex-direction: column; gap: 8px; }
+.ls-sub.on { border: 2px solid var(--blue); padding: 11px 13px; }
+.ls-sub .ls-head { margin: 0; }
+.ls-sub-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.ls-auto { align-self: flex-start; }
+.sub-card { padding: 14px 16px; margin: 0 0 10px; border: 1px solid var(--steel); border-radius: 16px; }
+.sub-card.prim { border: 2px solid var(--porcelain); padding: 13px 15px; }
+.sub-h { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sub-h b { font: 600 17px var(--display); }
+.sub-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.sub-acts .sw-l { margin: 0; }
+.sub-note { display: flex; gap: 8px; align-items: flex-start; text-align: left; margin: 0 0 14px; padding: 10px 12px; border-radius: 12px; background: var(--accent-tint, rgba(75,79,224,.08)); font-size: 14px; line-height: 1.5; }
+.sub-note .ic { flex: none; margin-top: 3px; color: var(--blue); }

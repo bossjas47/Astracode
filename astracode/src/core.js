@@ -265,6 +265,11 @@ async function planOfMulti(env, u) {
   const prim = subs.find(x => x.primary) || subs[0];
   return unionFeatures(env, await subPlan(env, prim, subs), subs);
 }
+// สถานะทุกใบ (หน้าบัญชี / แผ่นลิมิต): ชื่อ วันหมดอายุ ใบหลัก ต่ออายุอัตโนมัติ และ % ลิมิตของแต่ละใบ
+export async function subsStatus(env, u, plan) {
+  const subs = plan?._subs; if (!subs?.length) return null;
+  return Promise.all(subs.map(async s => { const p = await subPlan(env, s, subs); const st = p ? await usageStatus(env, u, p) : {}; return { id: s.sid, plan_id: s.plan_id, name: p?.name || '?', price: p?.price || 0, expires: s.expires_at, period: s.period, primary: !!s.primary, auto_renew: !!s.auto_renew, ...st }; }));
+}
 // เลือกใบที่จะหักลิมิตสำหรับโมเดลนี้: ใบที่ผู้ใช้เลือก → ใบหลัก → ใบที่หมดอายุก่อน · ใบเต็มสลับไปใบถัดไปเอง · ไม่มีใบไหนว่าง = คืนใบแรกที่มีสิทธิ์ (ผู้เรียกจัดการลิมิตเต็ม/Wallet ตามเดิม)
 export async function pickBucket(env, u, plan, modelId, subId = null) {
   const subs = plan?._subs; if (!subs?.length || modelId == null) return plan;
