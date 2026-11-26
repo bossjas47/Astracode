@@ -8,7 +8,7 @@ async function setup(opt = {}) {
     globalThis.__lastBody = body;
     if (q.url.endsWith('/embeddings')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }], usage: { prompt_tokens: 7, total_tokens: 7 } })); }
     if (body.tools) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'get_time', arguments: '' } }] } }] }) + '\n\n'); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"tz":"UTC"}' } }] } }] }) + '\n\n'); res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 12, completion_tokens: 6 } }) + '\n\n'); res.write('data: [DONE]\n\n'); return res.end(); }
-    if (q.url.endsWith('/images/generations') || q.url.endsWith('/images/edits')) { globalThis.__imgHit = { url: q.url, raw: body.raw || '' }; res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ b64_json: Buffer.from('PIXELS').toString('base64') }] })); }
+    if (q.url.endsWith('/images/generations') || q.url.endsWith('/images/edits')) { globalThis.__imgHit = { url: q.url, raw: body.raw || '' }; res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ b64_json: Buffer.from(globalThis.__bigImg ? 'P'.repeat(400000) : 'PIXELS').toString('base64') }] })); }
     fm.sse(res, 'hello');
   });
   const t = await makeEnv({ K: 'k' });
@@ -470,4 +470,10 @@ test('reference images: /v1/images/edits (JSON or multipart) sends the pictures 
   assert.equal(mr.status, 200); assert.match(globalThis.__imgHit.raw, /cat in hat/); assert.match(globalThis.__imgHit.raw, /name="image"/);
   const g = await v1('/v1/images/generations', { model: 'pic-one', prompt: 'a dog' }); assert.equal(g.status, 200); assert.match(globalThis.__imgHit.url, /\/images\/generations$/);
   fm.close();
+});
+
+test('a large generated image (over 300KB) still comes back to API callers as b64_json, not an internal link', async () => {
+  const { fm, v1 } = await setup({ balance: 100 }); globalThis.__bigImg = true;
+  try { const r = await v1('/v1/images/generations', { model: 'pic-one', prompt: 'big' }); assert.equal(r.status, 200); assert.ok(r.d.data[0].b64_json.length > 300000); }
+  finally { globalThis.__bigImg = false; fm.close(); }
 });

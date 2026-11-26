@@ -212,11 +212,11 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     const item = d.data?.[0]; let src;
     if (item?.b64_json) {
       const mime = item.b64_json.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
-      if (userId && item.b64_json.length > 300e3) src = await putImage(env, userId, mime, item.b64_json); // ใหญ่: เก็บเป็นไฟล์ในฐานข้อมูล ข้อความในแชตเป็นแค่ลิงก์
+      if (userId && !api && item.b64_json.length > 300e3) src = await putImage(env, userId, mime, item.b64_json); // API: ส่งรูปกลับตรง ๆ (ลิงก์ภายใน /api/img ลูกค้า API เปิดไม่ได้) // ใหญ่: เก็บเป็นไฟล์ในฐานข้อมูล ข้อความในแชตเป็นแค่ลิงก์
       else if (!api && item.b64_json.length > 1.8e6) throw new Error('รูปที่ได้ใหญ่เกินจะบันทึก ลองใช้ขนาดที่เล็กลง');
       else src = `data:${mime};base64,` + item.b64_json;
     } else if (item?.url) { // ลิงก์รูปของผู้ให้บริการ: ดึงมาเก็บเอง ไม่ให้ลูกค้าเห็นโดเมนต้นทาง (และลิงก์ต้นทางมักหมดอายุ)
-      const ir = userId && await fetch(item.url, { signal: AbortSignal.timeout(30e3) }).catch(() => null), ct = ir?.headers.get('content-type') || '';
+      const ir = userId && !api && await fetch(item.url, { signal: AbortSignal.timeout(30e3) }).catch(() => null), ct = ir?.headers.get('content-type') || '';
       src = ir?.ok && ct.startsWith('image/') ? await putImage(env, userId, ct.split(';')[0], b64(await ir.arrayBuffer())) : item.url;
     } else throw new Error('ไม่ได้รูปกลับมา');
     yield { t: `![${prompt.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${src})` }; // alt ต้องอยู่บรรทัดเดียว ไม่งั้น markdown ไม่แสดงรูป
