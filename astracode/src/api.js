@@ -21,7 +21,7 @@ async function readBody(req, path) {
   }
   return req.json().catch(() => null);
 }
-export const CTX_GUARD = 600000; // ตัวอักษร (~150K token)
+export const CTX_GUARD = 600000, CTX_GUARD_ECO = 240000; // ตัวอักษร (~150K token)
 export async function v1core(req, env, ctx, path, lg = {}) {
   const cors = V1_CORS, rid = 'req_' + rand(12);
   let rl = {}; // x-ratelimit-* ของคำขอนี้ (ใส่ในทุกคำตอบหลังผ่านการตรวจ key)
@@ -235,7 +235,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     if (hist.some(x => hasImg(x.content)) && !m.vision && m.provider !== 'image') return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
     // กันลิมิตหมดไว: เครื่องมืออย่าง OpenCode ที่ตั้ง context ไว้ใหญ่ (เดิมเราแนะนำ 1M) ส่งบทสนทนา 300K+ token ทุกรอบ · ประวัติยาวเกิน ~150K token = ย่อผลเครื่องมือเก่า (เก็บ 6 รอบล่าสุดเต็ม)
     // ผลเดิมของข้อความเดิมย่อแบบเดียวกันทุกครั้ง → prompt cache ส่วนต้นยังใช้ได้ · ปิดได้ด้วย header x-kyber-full-context: 1
-    if (req.headers.get('x-kyber-full-context') !== '1' && JSON.stringify(hist).length > CTX_GUARD) slimTools(hist, 6, 4000);
+    // Claude Eco: ผู้ให้บริการแคชได้แค่ ~21% (วัดจริง) ส่งบริบทยาวซ้ำ = จ่ายเกือบเต็มทุกรอบ → ย่อผลเก่าตั้งแต่ ~60K token
+    const guard = isClaudeEco(m) ? CTX_GUARD_ECO : CTX_GUARD;
+    if (req.headers.get('x-kyber-full-context') !== '1' && JSON.stringify(hist).length > guard) slimTools(hist, 6, 4000);
     const histLen = JSON.stringify(hist).length;
     if (histLen > 4e6) return fail('ข้อความยาวเกินไป', 413); // ~1M token: ทุกโมเดล context 1.05M (เดิม 800K ตัวอักษร = เครื่องมือแบบ Claude Code / OpenCode ชนเร็ว)
     const cacheTtl = (histLen + system.length) >= 80000 ? '1h' : null; // context ยาว (~25K+ token): ใช้ cache 1 ชม. กันหมดอายุตอนหยุดอ่านโค้ดเกิน 5 นาที (ถ้า upstream ไม่รองรับ ai.js ถอยกลับ 5 นาทีเอง)
