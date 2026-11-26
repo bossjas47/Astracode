@@ -87,9 +87,10 @@ export async function estimateApi(req, env, u) {
 
 // คุณภาพจริงต่อโมเดล (7 วัน): เสถียรแค่ไหน (คำขอสำเร็จ ÷ ทั้งหมด) และกินลิมิตต่อข้อความกี่เท่าของตัวที่ประหยัดสุด · แสดงในหน้าเลือกโมเดล · cache 1 ชม.
 export async function modelStatsApi(env, cache = globalThis.caches?.default) {
-  const key = new Request('https://cache.local/model-stats-v1');
+  const key = new Request('https://cache.local/model-stats-v2');
   const hit = cache && await cache.match(key).catch(() => null); if (hit) return hit;
   const since = Date.now() - 7 * 864e5;
+  const agRows = await env.DB.prepare('SELECT model, COUNT(*) n, SUM(ok) ok FROM agent_runs WHERE created_at>? GROUP BY model HAVING n>=10').bind(Date.now() - 14 * 864e5).all().then(r => r.results).catch(() => []); // งาน Agent จากแอปบนคอม 14 วัน
   const [use, errs, ev] = await Promise.all([
     env.DB.prepare("SELECT model_id id, COUNT(*) n, AVG(units) u FROM usage WHERE created_at>? AND units>0 AND COALESCE(src,'') NOT IN ('system','image') GROUP BY model_id").bind(since).all(),
     env.DB.prepare("SELECT model_id id, COUNT(*) n FROM events WHERE kind='error' AND created_at>? AND model_id IS NOT NULL GROUP BY model_id").bind(since).all(),
@@ -99,9 +100,14 @@ export async function modelStatsApi(env, cache = globalThis.caches?.default) {
   const rows = use.results.filter(r => r.n >= 30), base = Math.min(...rows.map(r => r.u).filter(x => x > 0));
   const names = rows.length ? new Map((await env.DB.prepare(`SELECT id,name FROM models WHERE id IN (${rows.map(() => '?')})`).bind(...rows.map(r => r.id)).all()).results.map(r => [r.id, r.name])) : new Map();
   const out = {};
+  if (agRows.length) { // งาน Agent ต่อโมเดล: map ชื่อแบบ slug (เช่น chatgpt-6.2-sol) กลับเป็น id
+    const sl = n => n.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
+    const all = (await env.DB.prepare('SELECT id,name FROM models WHERE active=1').all()).results;
+    for (const a of agRows) { const m = all.find(x => sl(x.name) === a.model); if (m) out[m.id] = { ...(out[m.id] || {}), ag: Math.round(a.ok / a.n * 100), agn: a.n }; }
+  }
   for (const r of rows) {
     const bad = e.get(r.id) || 0, ok = Math.round(r.n / (r.n + bad) * 1000) / 10;
-    out[r.id] = { ok, x: base > 0 ? Math.max(1, Math.round(r.u / base * 10) / 10) : null, n: r.n, ...(evalBy[names.get(r.id)] != null ? { pass: evalBy[names.get(r.id)] } : {}) };
+    out[r.id] = { ...(out[r.id] || {}), ok, x: base > 0 ? Math.max(1, Math.round(r.u / base * 10) / 10) : null, n: r.n, ...(evalBy[names.get(r.id)] != null ? { pass: evalBy[names.get(r.id)] } : {}) };
   }
   const res = json(out); res.headers.set('cache-control', 'public, max-age=3600');
   if (cache) await cache.put(key, res.clone()).catch(() => {});

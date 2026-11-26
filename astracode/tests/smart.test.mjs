@@ -83,6 +83,10 @@ test('model stats: reliability and limit multiple per model', async () => {
   const { modelStatsApi } = await import('../src/context.js');
   const r = await (await modelStatsApi(t.env, null)).json();
   assert.equal(r[a.id].ok, 100); assert.equal(r[a.id].x, 1); assert.equal(r[b.id].ok, 80); assert.equal(r[b.id].x, 5);
+  t.DB.raw.exec('CREATE TABLE IF NOT EXISTS agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, model TEXT, mode TEXT, rounds INTEGER, tools INTEGER, ok INTEGER, ms INTEGER, charge REAL, pct REAL, error TEXT, version TEXT, os TEXT, created_at INTEGER)');
+  for (let i = 0; i < 10; i++) t.DB.raw.prepare('INSERT INTO agent_runs (model,ok,created_at) VALUES (?,?,?)').run('b', i < 3 ? 1 : 0, Date.now());
+  const r2 = await (await modelStatsApi(t.env, null)).json();
+  assert.equal(r2[b.id].ag, 30); assert.equal(r2[b.id].agn, 10); assert.equal(r2[b.id].ok, 80, 'agent stats merge with reliability');
 });
 
 test('compact threshold: 60K for Claude Eco, 120K for others', async () => {

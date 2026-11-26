@@ -1029,7 +1029,7 @@ const newSeen = ms => { try { localStorage.setItem('newSeen', JSON.stringify([..
 const MODEL_CATS = [['general', 'ทั่วไป'], ['code', 'เขียนโค้ด'], ['math', 'คณิต/ตรรกะ'], ['write', 'งานเขียน'], ['docs', 'อ่านเอกสาร'], ['image', 'สร้างรูป'], ['fast', 'เร็ว/ประหยัด'], ['special', 'เฉพาะทาง'], ['uncen', 'Uncensored']];
 const catsOf = m => [...new Set([...String(m.cats || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean), ...(m.provider === 'image' ? ['image'] : [])])];
 let _mst = null; // คุณภาพจริงต่อโมเดล (เสถียร % · ลิมิตกี่เท่า) ดึงครั้งเดียวต่อหน้า
-const mstTag = s => s ? `<span class="vq" title="7 วันล่าสุด: คำขอที่สำเร็จ · กินลิมิตต่อข้อความเทียบตัวที่ประหยัดสุด${s.pass != null ? ' · ผ่านแบบทดสอบโค้ด' : ''}">${s.ok >= 98 ? '✓' : s.ok >= 90 ? '•' : '⚠'} เสถียร ${s.ok}%${s.x ? ` · ลิมิต ${s.x}x` : ''}${s.pass != null ? ` · ผ่านเทสต์ ${s.pass}%` : ''}</span>` : '';
+const mstTag = s => s && (s.ok != null || s.ag != null) ? `<span class="vq" title="7 วันล่าสุด: คำขอที่สำเร็จ · กินลิมิตต่อข้อความเทียบตัวที่ประหยัดสุด${s.pass != null ? ' · ผ่านแบบทดสอบโค้ด' : ''}">${s.ok != null ? `${s.ok >= 98 ? '✓' : s.ok >= 90 ? '•' : '⚠'} เสถียร ${s.ok}%` : ''}${s.x ? ` · ลิมิต ${s.x}x` : ''}${s.pass != null ? ` · ผ่านเทสต์ ${s.pass}%` : ''}${s.ag != null ? ` · Agent จบงาน ${s.ag}% (${s.agn} งาน)` : ''}</span>` : '';
 function modelSheet(which) {
   const cur = $(which).value, auto = $(which).querySelector('option[value="auto"]');
   const have = new Set(me.models.flatMap(catsOf)), cats = MODEL_CATS.filter(([k]) => have.has(k));

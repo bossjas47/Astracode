@@ -1438,7 +1438,7 @@ const agentWeak = m => /uncen|flash|lite|nano|mini\b/i.test(m?.name || '');
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* โหมดส่วนตัว */ } };
 // คืนโมเดลที่จะใช้ (null = ยกเลิก) · แนะนำ Sonnet Eco > Sonnet > Opus Eco ที่แพลนใช้ได้
 function agentWeakSheet(m, models, stat = null) {
-  const rec = [models.find(x => /sonnet.*eco/i.test(x.name)), models.find(x => /sonnet/i.test(x.name)), models.find(x => /opus.*eco/i.test(x.name))].find(x => x && x.id !== m.id && !chat.agQ?.some(q => q.model === vslug(x)));
+  const rec = [models.find(x => /sonnet.*eco/i.test(x.name)), models.find(x => /^chatgpt 6\.2 sol$/i.test(x.name.trim())), models.find(x => /sonnet/i.test(x.name)), models.find(x => /opus.*eco/i.test(x.name))].find(x => x && x.id !== m.id && !chat.agQ?.some(q => q.model === vslug(x)));
   return new Promise(done => {
     let res = null;
     sheet('โมเดลนี้ไม่เหมาะกับงาน Agent', `<p>${stat ? `สถิติ 14 วันล่าสุดจากผู้ใช้ทุกคน: งาน Agent ด้วย ${esc(m.name)} ${esc(stat.reason)} (จาก ${stat.n} งาน)` : `${esc(m.name)} เป็นโมเดลรุ่นเล็ก/เร็ว ใช้ทำงาน Agent (หลายขั้นตอน ใช้เครื่องมือ) แล้วมักทำคำสั่งเดิมวนซ้ำ ตอบไม่จบ หรือแก้ไฟล์พลาด`}</p>
@@ -1707,6 +1707,10 @@ async function pyCloud(files, main) {
 async function pyRun(ai) {
   chat.pyRound = (chat.pyRound || 0) + 1; if (chat.pyRound > PY_MAX) { chat.pyRound = 0; return toast(`AI แก้และรัน Python ไปแล้ว ${PY_MAX} รอบ หยุดพักไว้กันวนไม่จบ · แตะที่นี่ให้ทำต่อ`, '', { ms: 20000, onClick: () => pyRun(ai) }); } // เดิมขึ้นเป็น error สีแดงจนลูกค้างงว่าเสีย
   const code = parseTools(ai.content).py.at(-1); if (!code) return;
+  { const m = curModel(); if (chat.pyRound === 1 && agentWeak(m) && !chat.pyHinted && !lsGet('pyWeakOk')) { // รุ่นเล็ก/Uncen มักหยุดหลังรันรอบแรก: แนะนำตัวที่ทำงานต่อเนื่องได้ (ไม่บังคับ ไม่ขวาง)
+    chat.pyHinted = 1; const ms = me.models.filter(x => !x.locked && !['image', 'embedding'].includes(x.provider)), rec = [ms.find(x => /sonnet.*eco/i.test(x.name)), ms.find(x => /^chatgpt 6\.2 sol$/i.test(x.name.trim()))].find(x => x && x.id !== m.id);
+    if (rec) toast(`${m.name} มักหยุดกลางทางในงานรัน Python/วิเคราะห์ข้อมูล · แตะเพื่อสลับเป็น ${rec.name}`, '', { ms: 15000, onClick: () => { $('#model').value = rec.id; lsSet('model', rec.id); modelUI(); toast(`ใช้ ${rec.name} แล้ว พิมพ์สั่งต่อได้เลย`, 'ok'); } });
+  } }
   const files = chat.msgs.filter(m => m.role === 'user').flatMap(m => [...m.content.matchAll(FILE_RE)].map(x => ({ path: '/data/' + x[1].replace(/[\\/]/g, '_'), content: x[2] })));
   ai.pyOut = { text: 'กำลังรัน Python บนคลาวด์…', imgs: [] }; renderAll(); setBusy(true);
   const res = await pyCloud([...files, { path: 'main.py', content: code }], 'main.py') || await new Promise(ok => {
