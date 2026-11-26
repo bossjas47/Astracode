@@ -165,7 +165,7 @@ async function chatView(id) {
       <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select>
       <select id="effort" hidden>${EFFORTS.map(([v]) => `<option value="${v}" ${v === (localStorage.getItem('effort') || '') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="msgs" id="msgs"></div>
-      <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div><div id="flags" class="cflags"></div>
+      <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div><div id="flags" class="cflags"></div><div id="est" class="est" hidden></div>
         <form id="f" class="cbox"><input type="file" id="file" multiple hidden>
           <textarea id="t" rows="1" placeholder="Ask anything · type / for Skills" aria-label="Message"></textarea>
           <div class="crow"><button type="button" class="cb" id="plus" aria-label="แนบไฟล์และเครื่องมือ">${ic('plus')}</button>${('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? `<button type="button" class="cb" id="mic" aria-label="พิมพ์ด้วยเสียง">${ic('mic')}</button>` : ''}
@@ -232,7 +232,7 @@ async function chatView(id) {
   });
   $('#lim').onclick = limitSheet;
   // แถบเมนูล่าง (มือถือ): แชต = รายการแชต · โค้ด = สลับไปโหมดโค้ด · การใช้งาน = ลิมิต/Wallet
-    $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); toast('ปิดโหมด Agent แล้ว · เปิดคืนได้ที่ปุ่ม "เปิดโหมด Agent" ใต้ช่องพิมพ์'); } if (f === 'pcagon') { localStorage.setItem('pcAgent', '1'); localStorage.setItem('pc', '1'); modelUI(); toast('เปิดโหมด Agent แล้ว', 'ok'); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
+    $('#flags').onclick = e => { const f = e.target.closest('[data-flag]')?.dataset.flag; if (f === 'smart' || f === 'bon') { localStorage.setItem(f, localStorage.getItem(f) === '1' ? '0' : '1'); modelUI(); if (f === 'smart' && localStorage.getItem('smart') === '1') toast('Smart เปิดแล้ว: Opus วางแผนและตรวจ · Sol ลงมือ (ประหยัดลิมิต)', 'ok'); } if (f === 'img') exitImageMode(); if (f === 'imgsize') imgSizeSheet(); if (f === 'enh') enhancePrompt(false); if (f === 'enhauto') { localStorage.setItem('imgAuto', localStorage.getItem('imgAuto') === '0' ? '1' : '0'); modelUI(); } if (f === 'web') toggleWeb(); if (f === 'pc') { localStorage.setItem('pc', '0'); modelUI(); } if (f === 'pcset') pcSheet(); if (f === 'pcag') { localStorage.setItem('pcAgent', '0'); modelUI(); toast('ปิดโหมด Agent แล้ว · เปิดคืนได้ที่ปุ่ม "เปิดโหมด Agent" ใต้ช่องพิมพ์'); } if (f === 'pcagon') { localStorage.setItem('pcAgent', '1'); localStorage.setItem('pc', '1'); modelUI(); toast('เปิดโหมด Agent แล้ว', 'ok'); } if (f === 'sk') { chat.skills = chat.skills.filter(x => x !== +e.target.closest('[data-sid]').dataset.sid); localStorage.setItem('skills', JSON.stringify(chat.skills)); modelUI(); }
     if (f === 'mc') { chat.mcps = chat.mcps.filter(x => x !== +e.target.closest('[data-mid]').dataset.mid); localStorage.setItem('mcps', JSON.stringify(chat.mcps)); modelUI(); } };
   app.querySelector('[data-new]').onclick = e => { e.preventDefault(); openChat(null); };
   $('#spc').onclick = () => { $('#sclose')?.click(); spacesSheet(); }; if ($('#arts')) $('#arts').onclick = () => { $('#sclose')?.click(); artsSheet(); }; $('#newc').onclick = () => { $('#sclose').click(); openChat(null); };
@@ -269,7 +269,7 @@ async function chatView(id) {
   });
   pcInit(); setTimeout(remoteWatch, 400);
   const t = $('#t');
-  t.oninput = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; clearTimeout(chat.draftT); chat.draftT = setTimeout(() => draft.set(t.value), 400); };
+  t.oninput = () => { estSoon(); t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; clearTimeout(chat.draftT); chat.draftT = setTimeout(() => draft.set(t.value), 400); };
   const dft = draft.get(); if (dft && !t.value) { t.value = dft; setTimeout(() => t.oninput(), 0); } // ร่างที่พิมพ์ค้างไว้ (รีเฟรช/สลับแชต/แอปรีโหลด) ไม่หาย
   const skTok = qs().get('skill'); // เปิดจากลิงก์แชร์ Skill: นำเข้าแล้วเปิดใช้ทันที
   if (skTok) api('/skills/import', { method: 'POST', body: { token: skTok } }).then(async s => { await loadSkills(true); if (!chat.skills.includes(s.id) && chat.skills.length < 3) chat.skills.push(s.id); localStorage.setItem('skills', JSON.stringify(chat.skills)); skillModel(s); modelUI(); toast(`เพิ่ม Skill "${s.name}" แล้ว`, 'ok'); }).catch(x => toast(x.message, 'bad'));
@@ -397,6 +397,7 @@ function openCanvas(code) {
 const HELLO = ['How can I help today?', 'What are we working on?', 'Ask me anything', 'Ready when you are', 'What’s on your mind?'];
 function modelUI() {
   const m = curModel();
+  estSoon();
   $('#mdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
   const efs = modelEfforts(m);
   $('#eff').hidden = !efs.length;
@@ -404,6 +405,8 @@ function modelUI() {
   $('#eff').innerHTML = `${ic('sparkles', 'sm')}${(EFFORT_INFO[$('#effort').value] || EFFORT_INFO[''])[0]}${ic('down', 'sm')}`;
   const img = isImgMode(); $('#t').placeholder = img ? 'Describe the image you want · attach a picture as a reference' : 'Ask anything · type / for Skills';
   $('#flags').innerHTML = (img ? `<button type="button" class="flag on" data-flag="img" aria-label="ออกจากโหมดสร้างภาพ">${ic('palette', 'sm')}สร้างภาพ${ic('x', 'sm')}</button><button type="button" class="flag" data-flag="imgsize" aria-label="ขนาดภาพ">${ic('image', 'sm')}${IMG_SIZES[imgSize()][1]}</button><button type="button" class="flag" data-flag="enh">${ic('sparkles', 'sm')}ปรับ prompt</button><button type="button" class="flag ${localStorage.getItem('imgAuto') !== '0' ? 'on' : ''}" data-flag="enhauto" aria-pressed="${localStorage.getItem('imgAuto') !== '0'}">ปรับอัตโนมัติ: ${localStorage.getItem('imgAuto') !== '0' ? 'เปิด' : 'ปิด'}</button>` : '')
+    + (!img && /\bopus\b/i.test(m?.name || '') ? `<button type="button" class="flag${localStorage.getItem('smart') === '1' ? ' on' : ''}" data-flag="smart" title="Opus วางแผนและตรวจ · ChatGPT 6.2 Sol ลงมือ · กินลิมิตน้อยลงมาก">${ic('sparkles', 'sm')}Smart ${localStorage.getItem('smart') === '1' ? 'เปิด' : 'ปิด'}</button>` : '')
+    + (!img && !chat.project && me?.plan?.paid && localStorage.getItem('bon') === '1' ? `<button type="button" class="flag on" data-flag="bon" aria-label="ปิดโหมดเทพ">🔥 โหมดเทพ${ic('x', 'sm')}</button>` : '')
     + (localStorage.getItem('web') === '1' && site.search ? `<button type="button" class="flag" data-flag="web" aria-label="ปิดค้นเว็บ">${ic('globe', 'sm')}ค้นเว็บ${ic('x', 'sm')}</button>` : '')
     + (PCD && !pcOn() && !img ? `<button type="button" class="flag on" data-flag="pcset">${ic('folder', 'sm')}ให้ AI ทำงานในคอม: เลือกโฟลเดอร์</button>` : '') // ในแอป: ปุ่มเห็นชัด ไม่งั้นลูกค้าไม่รู้ว่าต้องเปิดเอง แล้ว AI ได้แค่บอกให้รันเอง
     + (pcOn() ? `<button type="button" class="flag" data-flag="pc" aria-label="ปิดใช้คอมเครื่องนี้">${ic('folder', 'sm')}${esc(chat.pc.name)}${ic('x', 'sm')}</button>` : '')
@@ -414,7 +417,7 @@ function modelUI() {
 }
 // ปุ่ม +: แผ่นล่างแบบ "ทางลัดแถวบน + รายการไอคอนพร้อมคำอธิบาย" · ชื่อเป็นอังกฤษ คำอธิบายเป็นไทย
 const toolRow = (v, icon, title, desc, on) => `<button type="button" class="trow ${on ? 'on' : ''}" data-v="${v}"><span class="tico">${ic(icon)}</span><span class="tbody"><b>${title}</b><small>${desc}</small></span>${on ? `<i class="tchk">${ic('check')}</i>` : ''}</button>`;
-const TOOL_ORDER = ['pc', 'mcp', 'img', 'web', 'rsch', 'meet', 'prm', 'skl', 'exp']; // MCP อยู่บน: ลูกค้าหาไม่เจอตอนอยู่ใต้ "เพิ่มเติม"
+const TOOL_ORDER = ['pc', 'mcp', 'img', 'web', 'bon', 'rsch', 'meet', 'prm', 'skl', 'exp']; // MCP อยู่บน: ลูกค้าหาไม่เจอตอนอยู่ใต้ "เพิ่มเติม"
 const toolUse = () => { try { return JSON.parse(localStorage.getItem('toolUse') || '{}'); } catch { return {}; } };
 const toolUsed = v => { try { const u = toolUse(); u[v] = (u[v] || 0) + 1; localStorage.setItem('toolUse', JSON.stringify(u)); } catch { /* ไม่มีที่เก็บ */ } };
 function toolRows(web) {
@@ -422,6 +425,7 @@ function toolRows(web) {
     pc: PCD && ['folder', 'ใช้คอมเครื่องนี้', chat.pc ? `${pcOn() ? 'เปิดอยู่' : 'ปิดอยู่'} · โฟลเดอร์ ${esc(chat.pc.name)}` : 'AI อ่าน/เขียนไฟล์ รันคำสั่ง และใช้ MCP (เช่น Blender) ในเครื่องนี้', pcOn()],
     img: (me.models.some(m => m.provider === 'image') || site.image) && ['palette', 'สร้างภาพ', me.models.some(m => m.provider === 'image') ? 'สลับเป็นโมเดลสร้างภาพ พิมพ์สิ่งที่อยากได้ AI ช่วยปรับ prompt ให้' : 'พิมพ์สิ่งที่อยากได้ แล้วให้ AI วาดให้', isImgMode()],
     web: site.search && ['globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web],
+    bon: me.plan?.paid && !chat.project && ['sparkles', '🔥 โหมดเทพ', 'หลายโมเดลตอบพร้อมกัน แล้วรวมเป็นคำตอบที่ดีที่สุด (กินลิมิตตามจริงทุกตัว)', localStorage.getItem('bon') === '1'],
     rsch: site.search && ['search', 'Deep research' + newPill('rsch'), 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)'],
     meet: ['mic', 'AI ประชุม', 'อัดเสียงหรืออัปไฟล์ประชุม ได้บทถอดความแยกคนพูด สรุป และงานที่ต้องทำ'],
     prm: ['book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย'],
@@ -474,7 +478,7 @@ function toolSheet() {
     <div class="tlist">${toolRows(web)}</div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); toolUsed(b.dataset.v); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, rsch: () => { seen('rsch'); researchSheet(); }, meet: () => go('/meetings?rec=1'), img: enterImageMode, web: toggleWeb, mcp: () => connInChat(), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, rsch: () => { seen('rsch'); researchSheet(); }, meet: () => go('/meetings?rec=1'), img: enterImageMode, web: toggleWeb, bon: () => { localStorage.setItem('bon', localStorage.getItem('bon') === '1' ? '0' : '1'); modelUI(); }, mcp: () => connInChat(), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 // Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล
@@ -493,6 +497,18 @@ async function researchSheet() {
     d.querySelector('#rsx')?.addEventListener('click', async () => { await api(`/agent/${busy.id}/stop`, { method: 'POST' }).catch(() => {}); close(); toast('สั่งหยุดแล้ว'); });
     d.querySelectorAll('a[data-chat]').forEach(a => a.onclick = e => { e.preventDefault(); close(); openChat(+a.dataset.chat); });
   });
+}
+// ประมาณลิมิตที่ข้อความนี้จะใช้ (ก่อนกดส่ง) + แนะนำโมเดลที่ถูกกว่าในแพลน
+function estSoon() {
+  clearTimeout(chat.estT); chat.estT = setTimeout(async () => {
+    const el = $('#est'), m = curModel(), t = $('#t'); if (!el || !m || !t?.value.trim() || isImgMode()) { if (el) el.hidden = true; return; }
+    const chars = t.value.length + (chat.files || []).reduce((a, f) => a + (f.text?.length || 0), 0);
+    const r = await api(`/estimate?model_id=${m.id}&chat_id=${chat.id || ''}&chars=${chars}&smart=${localStorage.getItem('smart') === '1' ? 1 : 0}`).catch(() => null);
+    if (!r || r.pct == null) { el.hidden = true; return; }
+    el.hidden = false; el.className = 'est' + (r.pct >= 2 ? ' hi' : '');
+    el.innerHTML = `ข้อความนี้ใช้ลิมิตสัปดาห์ ~${r.pct < 0.1 ? '<0.1' : r.pct}%` + (r.alt ? ` · <button type="button" class="link" data-alt="${r.alt.id}">ใช้ ${esc(r.alt.name)} ~${r.alt.pct < 0.1 ? '<0.1' : r.alt.pct}%</button>` : '');
+    el.querySelector('[data-alt]')?.addEventListener('click', b => { const id = +b.currentTarget.dataset.alt; $('#model').value = id; localStorage.setItem('model', id); modelUI(); estSoon(); });
+  }, 700);
 }
 function toggleWeb() { localStorage.setItem('web', localStorage.getItem('web') === '1' ? '0' : '1'); modelUI(); }
 // เก็บถาวร + ถังขยะ: กู้คืนได้ · ถังขยะลบถาวรเองหลัง 30 วัน
@@ -1126,12 +1142,12 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
     if (shown < full.length) raf = requestAnimationFrame(tick);
   };
   try {
-    await stream({ task: isTask() || undefined, img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, skill_ids: chat.skills, mcp_ids: chat.mcps, mcp_off: mcpOff(), local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
+    await stream({ task: isTask() || undefined, img_size: IMG_SIZES[imgSize()][0], chat_id: chat.id, folder_id: !chat.id && chat.spaceId ? chat.spaceId : undefined, model_id: m.id, text, images: imgs, files, regenerate, resume, edit_id, search: localStorage.getItem('web') === '1' && !!site.search, smart: localStorage.getItem('smart') === '1' && /\bopus\b/i.test(m.name) || undefined, bon: localStorage.getItem('bon') === '1' && !!me?.plan?.paid || undefined, skill_ids: chat.skills, mcp_ids: chat.mcps, mcp_off: mcpOff(), local: pcOn() ? { os: navigator.userAgentData?.platform || navigator.platform, folder: chat.pc.name, mcp: chat.pcTools || [], screen: !!chat.screen } : undefined,
       effort: m.effort !== 'none' ? $('#effort').value || null : null }, chat.ctrl.signal, d => {
       started = true;
       if (d.chat_id && !chat.id) { chat.id = d.chat_id; setUrl('/chat?id=' + d.chat_id, true); }
       if (d.model) ai.model = d.model;
-      noteOf(ai, d); if (d.fallback) ai.model = d.fallback;
+      noteOf(ai, d); if (d.fallback) ai.model = d.fallback; if (d.smart) { ai.model = d.smart.executor; ai.note = (ai.note ? ai.note + ' · ' : '') + `Smart: ${d.smart.planner} วางแผน · ${d.smart.executor} ลงมือ`; } if (d.bon) ai.note = (ai.note ? ai.note + ' · ' : '') + '🔥 รวมคำตอบจาก ' + d.bon.join(', ');
       if (d.todo) { ai.todos = d.todo; const el = $('#msgs')?.lastElementChild?.querySelector('.task-todo'); if (el) el.outerHTML = taskTodoHTML(ai); else { const b = $('#msgs')?.lastElementChild?.querySelector('.b'); b?.insertAdjacentHTML('beforebegin', taskTodoHTML(ai)); } }
       if (d.t || d.th) { onStreamEvent(ai, d); if (d.t?.includes("]]")) ufLive(ai.content); if (!raf) raf = requestAnimationFrame(tick); }
       if (d.error) streamErr = d.error;

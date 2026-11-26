@@ -1019,6 +1019,8 @@ const newSeen = ms => { try { localStorage.setItem('newSeen', JSON.stringify([..
 // หมวดตามงาน (ช่อง cats ในหลังบ้าน) · โมเดลสร้างรูปเข้าหมวดรูปเอง
 const MODEL_CATS = [['general', 'ทั่วไป'], ['code', 'เขียนโค้ด'], ['math', 'คณิต/ตรรกะ'], ['write', 'งานเขียน'], ['docs', 'อ่านเอกสาร'], ['image', 'สร้างรูป'], ['fast', 'เร็ว/ประหยัด'], ['special', 'เฉพาะทาง'], ['uncen', 'Uncensored']];
 const catsOf = m => [...new Set([...String(m.cats || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean), ...(m.provider === 'image' ? ['image'] : [])])];
+let _mst = null; // คุณภาพจริงต่อโมเดล (เสถียร % · ลิมิตกี่เท่า) ดึงครั้งเดียวต่อหน้า
+const mstTag = s => s ? `<span class="vq" title="7 วันล่าสุด: คำขอที่สำเร็จ · กินลิมิตต่อข้อความเทียบตัวที่ประหยัดสุด${s.pass != null ? ' · ผ่านแบบทดสอบโค้ด' : ''}">${s.ok >= 98 ? '✓' : s.ok >= 90 ? '•' : '⚠'} เสถียร ${s.ok}%${s.x ? ` · ลิมิต ${s.x}x` : ''}${s.pass != null ? ` · ผ่านเทสต์ ${s.pass}%` : ''}</span>` : '';
 function modelSheet(which) {
   const cur = $(which).value, auto = $(which).querySelector('option[value="auto"]');
   const have = new Set(me.models.flatMap(catsOf)), cats = MODEL_CATS.filter(([k]) => have.has(k));
@@ -1031,6 +1033,8 @@ function modelSheet(which) {
     + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : ''), (m.note ? `<span class="vnote">${esc(m.note)}</span>` : '') + ([m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป'), mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase(), catsOf(m).join(' '))).join('')
     + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', (d, close) => {
       pickTo(which)(d, close); newSeen(me.models);
+      const paint = () => d.querySelectorAll('.vopt[data-v]').forEach(b => { const q = _mst?.[b.dataset.v]; const sm = b.querySelector('small'); if (q && sm && !sm.querySelector('.vq')) sm.insertAdjacentHTML('beforeend', ' ' + mstTag(q)); });
+      if (_mst) paint(); else api('/model-stats').then(r => { _mst = r || {}; paint(); }).catch(() => {});
       const filt = () => { // กรองพร้อมกันได้ทั้งค่ายและหมวดงาน
         const vf = d.querySelector('[data-vf].on')?.dataset.vf || '', cf = d.querySelector('[data-cf].on')?.dataset.cf || '';
         d.querySelectorAll('.vopt').forEach(o => o.hidden = o.dataset.vk !== 'auto' && (!!vf && o.dataset.vk !== vf || !!cf && !o.dataset.vc.split(' ').includes(cf)));

@@ -680,7 +680,7 @@ export async function chat(req, env, u, ctx) {
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
   }
 
-  const J = { cc: ccM, mc: mcM, u, plan, m, hist, cid, pid, effort, images, overflow, lock, eph: ephemeral, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, task: !pid && !!(b.task || chatRow?.task), agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
+  const J = { cc: ccM, mc: mcM, u, plan, m, hist, cid, pid, effort, images, overflow, lock, eph: ephemeral, search: !!b.search, skill_ids: Array.isArray(b.skill_ids) ? b.skill_ids.slice(0, 3) : [], mcp_ids: Array.isArray(b.mcp_ids) ? b.mcp_ids.map(Number).filter(x => x > 0).slice(0, 3) : [], mcp_off: Array.isArray(b.mcp_off) ? b.mcp_off.map(Number).filter(x => x > 0).slice(0, 30) : [], summary: chatRow?.summary || null, smart: !!b.smart && !ephemeral, bon: !!b.bon && !ephemeral && !pid && plan?.price > 0 && !plan.once, chat_ins: chatRow?.instructions || null, folder_ins: chatRow?.fins || null, folder_docs: chatRow?.fdocs || null, pw0, task: !pid && !!(b.task || chatRow?.task), agent: !!(b.agent && pid && plan.price > 0), local: localOf(b.local), perm: pid && ['auto', 'ask', 'plan'].includes(b.perm) ? b.perm : 'auto', img_size: ['1024x1024', '1536x1024', '1024x1536'].includes(b.img_size) ? b.img_size : null };
   if (env.CHATRUN) { // ให้ Durable Object ตอบต่อเบื้องหลัง แม้ผู้ใช้ปิดจอหรือหลุด แล้วต่อสตรีมกลับมาดูได้
     const stub = runStub(env, u.id, ephemeral ? lock : cid);
     await stub.fetch('https://run/start', { method: 'POST', body: JSON.stringify(J) });
@@ -745,7 +745,8 @@ export async function runChat(env, J, send, st) {
   let vids = 0;
   const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools ? vidT : []), ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt, art: artPaid(J.plan) }), ...(J.task ? CODE_TOOLS.filter(t => t.function.name === 'todo_write') : [])] : []), ...(useTools && ws ? (J.perm === 'plan' ? CODE_TOOLS.filter(t => !WRITE_TOOLS.has(t.function.name)) : CODE_TOOLS) : [])];
   let imgUsed = false, pyStop = false; // รูป 1 รูปต่อคำตอบ · run_python = จบคำตอบให้หน้าเว็บรันแล้วส่งผลกลับ
-  const sysNow = () => (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + (pid && J.perm === 'plan' ? PLAN_NOTE : '') + localSys(J.local, !!pid) + (J.task ? TASK_SYS : '');
+  let extraSys = ''; // Smart Router / โหมดเทพ: แผนจาก Opus หรือคำตอบผู้สมัครที่ต้องรวม
+  const sysNow = () => extraSys + (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + (pid && J.perm === 'plan' ? PLAN_NOTE : '') + localSys(J.local, !!pid) + (J.task ? TASK_SYS : '');
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำ
   if (down) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
@@ -755,6 +756,34 @@ export async function runChat(env, J, send, st) {
   const linkCtx = links.map(l => `[เนื้อหาจากลิงก์ ${l.url}${l.title ? ' · ' + l.title : ''}]\n${l.text}`).join('\n\n');
   const prepMs = Date.now() - tPrep; // เวลาเตรียมก่อนเรียกโมเดล (บันทึกคู่กับ ttft ดูผลการปรับความเร็ว)
   let msgs = sources.length || linkCtx ? hist.map((x, i) => i === hist.length - 1 ? { ...x, content: withSources(x.content, sources) + (linkCtx ? '\n\n' + linkCtx : '') } : x) : hist, imgs = imgs0, beat = Date.now(), lastKind = '';
+  let smartCost = 0, planner = null; // ค่าโมเดลเสริม (วางแผน/ตรวจ/ผู้สมัคร) รวมเข้ายอดที่หักของข้อความนี้
+  const sideCall = async (sm, mm, sys, maxTokens, streamTh) => { // เรียกโมเดลเสริมแบบไม่มี tools · คืนข้อความ · หักลิมิตตามจริง
+    let txt = '', us = null;
+    try { for await (const e of callModel(env, sm, mm, { effort: null, system: sys, maxTokens, userId: u.id })) { if (e.t) { txt += e.t; if (streamTh) { think += e.t; await send({ th: e.t }); } } if (e.usage) us = e.usage; if (st.gone) break; } }
+    catch (e) { console.log('side', sm.name, e.message); }
+    if (us) smartCost += await logUsage(env, u.id, sm, us, { wallet: overflow, plan, units: overflow !== 'wallet', src: 'chat' }).catch(() => 0) || 0;
+    return txt.trim();
+  };
+  const lastQ = () => msgs.slice(-6).map(x => ({ role: x.role, content: typeof x.content === 'string' ? x.content.slice(-20000) : x.content }));
+  // Smart Router: Opus คิดแผน → ChatGPT 6.2 Sol ลงมือ (ถูกกว่า ~10 เท่า) → Opus ตรวจตอนจบเมื่อมีโค้ด
+  if (J.smart && /\bopus\b/i.test(model.name) && !st.gone) {
+    const ex = await smartExecutor(env);
+    if (ex && ex.id !== model.id) {
+      await send({ round: 1, of: 3, doing: 'Opus กำลังวางแผน' });
+      const pl = await sideCall(model, lastQ(), SMART_PLAN_SYS, 1500, true);
+      if (pl) { planner = model; model = ex; extraSys = SMART_EXEC_SYS + pl + '\n</plan>\n\n'; think += '\u0001'; await send({ smart: { planner: planner.name, executor: ex.name } }); }
+    }
+  }
+  // โหมดเทพ (Best-of-N): 3 โมเดลตอบพร้อมกัน แล้วโมเดลที่เลือกรวมเป็นคำตอบที่ดีที่สุด
+  if (J.bon && !pid && !st.gone) {
+    const cands = (await bonModels(env)).filter(x => x.id !== model.id).slice(0, 3);
+    if (cands.length >= 2) {
+      await send({ round: 1, of: 2, doing: `${cands.length} โมเดลกำลังตอบพร้อมกัน` });
+      const outs = await Promise.all(cands.map(c => sideCall(c, lastQ(), sysNow(), 4000, false)));
+      const ok = outs.map((t, i) => [cands[i].name, t]).filter(x => x[1]);
+      if (ok.length) { extraSys = BON_SYS + ok.map(([n, t], i) => `<candidate ${i + 1} model="${n}">\n${t.slice(0, 24000)}\n</candidate ${i + 1}>`).join('\n\n') + '\n\n'; await send({ bon: ok.map(x => x[0]) }); }
+    }
+  }
   // ความคิดหลายรอบ: เมื่อโมเดลกลับมาคิดอีกหลังมีข้อความ/ขั้นตอนไปแล้ว เริ่มส่วนความคิดใหม่ (\u0001 คั่นใน thinking) และวางตัวคั่นที่มองไม่เห็น (\u2063\u2063) ในข้อความตรงจุดนั้น ให้หน้าเว็บแสดง Thinking หลายกล่องสลับกับข้อความ
   let round_ = 1; // จำนวนรอบที่โมเดลตอบ (รวมรอบอ่านไฟล์) ใช้แสดงในหน้า Code
   const maxRounds = J.agent ? AGENT_ROUNDS : J.task ? TASK_ROUNDS : TOOL_ROUNDS, inMax = J.agent ? AGENT_IN_MAX : ANSWER_IN_MAX; // โหมด Agent: ทำงานยาวได้มากรอบกว่า
@@ -974,23 +1003,40 @@ export async function runChat(env, J, send, st) {
   let mid = null;
   if ((out || think) && cid) mid = (await env.DB.prepare('INSERT INTO messages (chat_id,role,content,model_id,created_at,thinking,sources,tin,tout,tcr,tcw,tctx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id')
     .bind(cid, 'assistant', out, model.id, Date.now(), think || null, sources.length ? JSON.stringify(sources.map(({ title, url }) => ({ title, url }))) : null, tok?.in ?? null, tok?.out ?? null, usage && !usage.flag ? usage.read : null, usage && !usage.flag ? usage.write : null, lastCtx || null).first())?.id ?? null;
+  if (planner && out && !st.gone && (/```/.test(out) || touched.size)) { // Smart Router: Opus ตรวจงานของตัวลงมือ
+    await send({ round: round_ + 1, of: round_ + 1, doing: 'Opus กำลังตรวจงาน' });
+    const rv = await sideCall(planner, [{ role: 'user', content: 'Task:\n' + String(lastText).slice(0, 8000) + '\n\nAnswer to review:\n' + out.replace(/\u2063/g, '').slice(-30000) }], SMART_REVIEW_SYS, 900, false);
+    if (rv && !/^\s*OK\b/i.test(rv)) { const add = '\n\n---\n**🔍 ' + planner.name + ' ตรวจแล้ว:**\n' + rv; out += add; await send({ t: add }); }
+  }
   const charged = usage ? await logUsage(env, u.id, model, usage, { wallet: overflow, plan, units: overflow !== 'wallet' && !(isFreeModel(plan, model.id) && usage.fresh + usage.read + usage.write < FREE_CTX) && !(J.cc && isClaudeEco(model)) && !(J.mc && model.id === m.id), ms: Date.now() - tStart, ttft, src: 'chat', prep: prepMs }) : 0;
   if (usage && J.mc && model.id === m.id) await useModelCredit(env, u.id, model.id, usage._cost || 0).catch(() => {}); // หักจากเครดิตเฉพาะโมเดล แทนลิมิต/Wallet
   if (usage && J.cc && isClaudeEco(model)) await useClaudeCredit(env, u.id, usage._cost || 0).catch(() => {}); // หักจากเครดิต Claude ที่แถม แทนลิมิต
   await unlimit(env, lock);
   const fin = await usageStatus(env, u, plan);
   if (J.task && cid) await import('./push.js').then(p => p.sendPush(env, u.id, { title: (lastTodo || []).some(x => x.status !== 'completed') ? 'งานหยุดก่อนเสร็จ · แตะเพื่อดู' : 'งานเสร็จแล้ว', body: String(hist.at(-1)?.content || '').replace(/\[\[[^\]]*\]\]/g, '').slice(0, 120), url: '/chat?id=' + cid })).catch(() => {}); // โหมดงาน: แจ้งเตือนเมื่อจบ (ลูกค้าอาจปิดเว็บไปแล้ว)
-  await send({ done: true, tok, mid, ...(charged > 0 ? { cost: charged } : {}), ...(roundsOut ? { more: true } : {}), rounds: round_, ctx: { used: lastCtx || ctxUsed, max: ctxMax(model), real: !!lastCtx }, ...fin });
+  await send({ done: true, tok, mid, ...(charged + smartCost > 0 ? { cost: charged + smartCost } : {}), ...(roundsOut ? { more: true } : {}), rounds: round_, ctx: { used: lastCtx || ctxUsed, max: ctxMax(model), real: !!lastCtx }, ...fin });
   for (const lv of [100, 80]) if (J.pw0 < lv && fin.pctWeek >= lv) { // ข้ามเส้น 80% / 100% ของลิมิตสัปดาห์: อีเมลครั้งเดียวตอนข้าม
     await mail(env, u.email, `Kyber: ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${lv}% แล้ว`, lv === 100 ? 'ลิมิตของแพลนเต็มแล้ว อัปเกรดแพลนหรือเติม Wallet เพื่อใช้ต่อได้ทันที' : 'ใกล้เต็มแล้ว ถ้าใช้ต่อเนื่องแนะนำอัปเกรดแพลนเพื่อไม่ให้งานสะดุด', 'ดูแพลน', siteUrl(env) + '/plans')).catch(() => {});
     break;
   }
   if (cid && (out || think) && u.auto_compact !== 0) { // ย่อแชตอัตโนมัติหลังตอบเสร็จ: context ใช้ถึง compact_pct % ของหน้าต่างโมเดล (ค่าเริ่มต้น 75 · 0 = ปิดทั้งระบบ) หรือแชตยาวเกินเกณฑ์ตัวอักษร
-    const pctSet = await getSetting(env, 'compact_pct'), pctLim = pctSet === '' ? 75 : +pctSet, full = pctLim > 0 && Math.max(ctxUsed, lastCtx) >= ctxMax(model) * pctLim / 100;
+    const pctSet = await getSetting(env, 'compact_pct'), pctLim = pctSet === '' ? 75 : +pctSet, cur = Math.max(ctxUsed, lastCtx), full = (pctLim > 0 && cur >= ctxMax(model) * pctLim / 100) || cur >= compactAt(model); // compactAt: Claude Eco 60K (cache ผู้ให้บริการติดแค่ ~20% = ส่ง context เต็มราคาทุกรอบ) · ตัวอื่น 120K
     const did = await compact(env, u, cid, false, full).catch(e => { console.log('compact', e.message); return false; }); // ไม่ทำให้ผู้ใช้รอ: สตรีมปิดหลังงานนี้เสร็จ
     if (did) await send({ compacted: true, why: full ? 'context ใกล้เต็ม' : 'แชตยาว' });
   }
 }
+
+
+// ---------- Smart Router + โหมดเทพ ----------
+export const SMART_EXEC = 'ChatGPT 6.2 Sol', BON_NAMES = ['ChatGPT 6.2 Sol', 'DeepSeek 4.1 Flash 1017', 'Qwen 4 Max', 'Gemini 4 Carbon'];
+const activeByNames = async (env, names) => { const r = (await env.DB.prepare(`SELECT * FROM models WHERE active=1 AND name IN (${names.map(() => '?')})`).bind(...names).all()).results.filter(x => env[x.key_name]); return names.map(n => r.find(x => x.name === n)).filter(Boolean); };
+export const smartExecutor = async env => (await activeByNames(env, [(await getSetting(env, 'smart_exec').catch(() => '')) || SMART_EXEC, SMART_EXEC]))[0] || null;
+export const bonModels = env => activeByNames(env, BON_NAMES);
+export const SMART_PLAN_SYS = 'You are the planner. Read the conversation and write a short, concrete plan another (cheaper) model will follow to answer the last user message: the approach, key steps, edge cases and pitfalls, exact names/APIs to use, and what the final answer must contain. Do NOT write the final answer or full code. Max 250 words, bullet points, same language as the user.';
+export const SMART_EXEC_SYS = 'A senior model already planned this answer. Follow the plan closely (improve it only if it is clearly wrong), then give the complete final answer yourself. Do not mention the plan.\n<plan>\n';
+export const SMART_REVIEW_SYS = 'You are a strict senior reviewer. Check the answer against the task for real bugs, wrong facts or missing requirements. If it is correct and complete, reply with exactly: OK. Otherwise list only the concrete problems and the exact fix for each (code snippets if needed), at most 200 words, in the same language as the task.';
+export const BON_SYS = 'Several models already answered the user\'s last message (below). Write the single best final answer: take the strongest ideas, fix any mistakes you find, drop weak parts. Answer directly as yourself, do not mention candidates or other models.\n';
+export const compactAt = m => isClaudeEco(m) ? 60e3 : 120e3;
 
 // ---------- ลดต้นทุน: เลือกโมเดลอัตโนมัติ + ย่อแชตยาว ----------
 export const BUILD_RE = /\b(game|website|web ?app|landing page|dashboard|3d|three\.?js|webgl|canvas|animation|html|css|tailwind|ui|ux|app|api|database|deploy|script|bot)\b|เกม|เว็บ|แอป|หน้าเว็บ|ฉาก|แอนิเมชัน|ออกแบบ|สร้าง(ระบบ|โปรแกรม|บอท|ไฟล์|สไลด์|เอกสาร)|ทำ(ระบบ|โปรแกรม|บอท)|สไลด์|พรีเซนต์|สัญญา|แผนการ|แปลเอกสาร/i;

@@ -21,7 +21,7 @@ async function readBody(req, path) {
   }
   return req.json().catch(() => null);
 }
-export const CTX_GUARD = 600000, CTX_GUARD_ECO = 240000; // ตัวอักษร (~150K token)
+export const CTX_GUARD = 480000, CTX_GUARD_ECO = 240000; // ตัวอักษร (~120K / ~60K token)
 export async function v1core(req, env, ctx, path, lg = {}) {
   const cors = V1_CORS, rid = 'req_' + rand(12);
   let rl = {}; // x-ratelimit-* ของคำขอนี้ (ใส่ในทุกคำตอบหลังผ่านการตรวจ key)

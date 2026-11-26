@@ -2413,3 +2413,6 @@ button.cw-model { background: none; cursor: pointer; font: inherit; font-size: 1
 .think-b code { font-size: 12px; padding: 1px 5px; border-radius: 6px; background: rgba(var(--ov), .06); }
 @media (prefers-reduced-motion: reduce) { .think.live .think-ic { animation: none; } .think-now { animation: none; } }
 @media (max-width: 520px) { .think-now { max-width: 38vw; } }
+
+.est { font: 500 11.5px var(--font); color: var(--muted, #888); padding: 2px 4px 0; } .est.hi { color: #c25b3a; } .est .link { background: none; border: 0; padding: 0; color: var(--link); font: inherit; text-decoration: underline; cursor: pointer; }
+.vq { display: inline-block; font-size: 11px; color: var(--muted, #888); margin-left: 4px; white-space: nowrap; }

@@ -6,7 +6,7 @@ import { topupPromo, event, getSetting, getSettings, mail, mailBox, notify, orig
 import { gh, github, projects, seal, unseal } from './projects.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
 import { agentApi } from './agent.js';
-import { contextApi } from './context.js';
+import { contextApi, estimateApi, modelStatsApi } from './context.js';
 import { autoJoinTeam, oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
@@ -314,6 +314,8 @@ export async function route(req, env, ctx, url, path, M) {
       }
       if (path === '/api/chat' && M === 'POST') return await chat(req, env, u, ctx);
       if (path === '/api/context' && M === 'GET') return await contextApi(req, env, u);
+      if (path === '/api/model-stats' && M === 'GET') return await modelStatsApi(env);
+      if (path === '/api/estimate' && M === 'GET') return await estimateApi(req, env, u);
       if (path === '/api/agent' || path.startsWith('/api/agent/')) return await agentApi(req, env, u, path);
       if (path.startsWith('/api/push/')) return await pushApi(req, env, u, path);
       if ((r = path.match(/^\/api\/roadmap\/(\d+)\/vote$/)) && M === 'POST') { // โหวต/ถอนโหวต 1 คน 1 เสียงต่อข้อ

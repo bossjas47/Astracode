@@ -1,6 +1,7 @@
 // รายงาน context แบบละเอียด: ในหน้าต่าง context ของโมเดลตอนนี้มีอะไรกินที่อยู่เท่าไร (ประมาณจากจำนวนตัวอักษร ไม่ใช่ tokenizer จริง)
-import { HISTORY, HISTORY_CODE, SYSTEM, SYSTEM_CODE, allowedModels, ctxMax, estTokens, histStart, json, err, planOf, projectFor } from './core.js';
-import { familyHint, stripOpenFile } from './ai.js';
+import { HISTORY, HISTORY_CODE, SYSTEM, SYSTEM_CODE, allowedModels, ctxMax, estTokens, histStart, json, err, limMult, planOf, projectFor } from './core.js';
+import { familyHint, smartExecutor, stripOpenFile } from './ai.js';
+import { isClaudeEco } from './credits.js';
 
 const FILE_RE = /\n*\[\[file:([^\]\n]+)\]\]\n([\s\S]*?)\n\[\[\/file\]\]/g;
 
@@ -60,4 +61,49 @@ export async function contextApi(req, env, u) {
   const real = cid ? (await env.DB.prepare("SELECT tctx FROM messages WHERE chat_id=? AND role='assistant' AND id>? ORDER BY id DESC LIMIT 1").bind(cid, c?.summary_upto || 0).first())?.tctx || 0 : 0; // หลังย่อแชต ใช้แค่คำตอบที่มาหลังย่อ
   if (real > 0) Object.assign(rep, { est: rep.used, used: real, real: true, pct: Math.round(real / rep.max * 1000) / 10, free: Math.max(0, rep.max - real - rep.reserve) });
   return json({ ...rep, tokens, model: model?.name || null, model_id: model?.id || null, compacted: !!c?.summary_upto, models, byModel });
+}
+
+// ประมาณว่าข้อความถัดไปจะกินลิมิตสัปดาห์กี่ % (แสดงข้างช่องพิมพ์ก่อนกดส่ง) · ใช้ context จริงรอบล่าสุดของแชต + ความยาวข้อความ
+export const estUnits = (m, tokIn, cacheShare, out = 900) => ((tokIn * (1 - cacheShare) * (m.cost_in || 0) + tokIn * cacheShare * (m.cost_cache ?? m.cost_in ?? 0) + out * (m.cost_out || 0)) / 1e6) * limMult(m);
+export async function estimateApi(req, env, u) {
+  const q = new URL(req.url).searchParams, cid = +q.get('chat_id') || 0, chars = Math.min(+q.get('chars') || 0, 2e6), smart = q.get('smart') === '1';
+  const m = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(+q.get('model_id') || 0).first();
+  if (!m || ['image', 'embedding'].includes(m.provider) || m.req_cost > 0) return json({ pct: null });
+  const plan = await planOf(env, u); if (!(plan?.limit_week > 0)) return json({ pct: null });
+  const own = cid && await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, u.id).first();
+  const prev = own ? (await env.DB.prepare("SELECT tctx FROM messages WHERE chat_id=? AND role='assistant' AND tctx>0 ORDER BY id DESC LIMIT 1").bind(cid).first())?.tctx || 0 : 0;
+  const tokIn = prev + Math.ceil(chars / 3) + 3000, cache = prev ? (isClaudeEco(m) ? 0.2 : 0.6) : 0;
+  const pct = x => Math.round(x / plan.limit_week * 1000) / 10;
+  const r = { pct: pct(estUnits(m, tokIn, cache)), tokens: tokIn };
+  if (smart && /\bopus\b/i.test(m.name)) { const ex = await smartExecutor(env); if (ex) r.pct = pct(estUnits(ex, tokIn, cache, 1500) + estUnits(m, Math.min(tokIn, 25000), 0, 1200)); }
+  // ทางเลือกที่ถูกกว่าในแพลน (ประหยัด ≥ 5 เท่า) แนะนำให้สลับ
+  if (r.pct >= 0.3) {
+    const ids = (await allowedModels(env, plan._planIds?.length ? plan._planIds : plan.id)).filter(x => !["image", "embedding"].includes(x.provider)).map(x => x.id);
+    const alt = ids.length ? (await env.DB.prepare(`SELECT * FROM models WHERE active=1 AND id IN (${ids.map(() => '?')}) AND name IN ('ChatGPT 6.2 Sol','ChatGPT 6.1 Sol','DeepSeek 4.1 Flash 1017')`).bind(...ids).all()).results.filter(x => x.id !== m.id).map(x => ({ id: x.id, name: x.name, pct: pct(estUnits(x, tokIn, prev ? 0.6 : 0)) })).sort((a, b) => a.pct - b.pct)[0] : null;
+    if (alt && alt.pct * 5 <= r.pct) r.alt = alt;
+  }
+  return json(r);
+}
+
+// คุณภาพจริงต่อโมเดล (7 วัน): เสถียรแค่ไหน (คำขอสำเร็จ ÷ ทั้งหมด) และกินลิมิตต่อข้อความกี่เท่าของตัวที่ประหยัดสุด · แสดงในหน้าเลือกโมเดล · cache 1 ชม.
+export async function modelStatsApi(env, cache = globalThis.caches?.default) {
+  const key = new Request('https://cache.local/model-stats-v1');
+  const hit = cache && await cache.match(key).catch(() => null); if (hit) return hit;
+  const since = Date.now() - 7 * 864e5;
+  const [use, errs, ev] = await Promise.all([
+    env.DB.prepare("SELECT model_id id, COUNT(*) n, AVG(units) u FROM usage WHERE created_at>? AND units>0 AND COALESCE(src,'') NOT IN ('system','image') GROUP BY model_id").bind(since).all(),
+    env.DB.prepare("SELECT model_id id, COUNT(*) n FROM events WHERE kind='error' AND created_at>? AND model_id IS NOT NULL GROUP BY model_id").bind(since).all(),
+    env.DB.prepare('SELECT data FROM eval_runs ORDER BY at DESC LIMIT 1').first().catch(() => null)]);
+  const e = new Map(errs.results.map(r => [r.id, r.n]));
+  let evalBy = {}; try { for (const r of JSON.parse(ev?.data || '{}').by || []) if (r.model) evalBy[r.model] = r.pass ?? r.rate; } catch { /* ไม่มีผลทดสอบ */ }
+  const rows = use.results.filter(r => r.n >= 30), base = Math.min(...rows.map(r => r.u).filter(x => x > 0));
+  const names = rows.length ? new Map((await env.DB.prepare(`SELECT id,name FROM models WHERE id IN (${rows.map(() => '?')})`).bind(...rows.map(r => r.id)).all()).results.map(r => [r.id, r.name])) : new Map();
+  const out = {};
+  for (const r of rows) {
+    const bad = e.get(r.id) || 0, ok = Math.round(r.n / (r.n + bad) * 1000) / 10;
+    out[r.id] = { ok, x: base > 0 ? Math.max(1, Math.round(r.u / base * 10) / 10) : null, n: r.n, ...(evalBy[names.get(r.id)] != null ? { pass: evalBy[names.get(r.id)] } : {}) };
+  }
+  const res = json(out); res.headers.set('cache-control', 'public, max-age=3600');
+  if (cache) await cache.put(key, res.clone()).catch(() => {});
+  return res;
 }
