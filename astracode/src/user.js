@@ -1,6 +1,6 @@
 import { connectorRoutes, pluginRoutes } from './connectors.js';
 import { multiOn, BKK, DAY, getUser, allowedModels, creditList, creditsInit, err, esc, ip, json, limited, logReset, planOf, rand, resetUsage, same, sessionCookie, sha, touchWindows, usageStatus, WALLET_MIN } from './core.js';
-import { callModel, chat, ensureImgTable, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
+import { callModel, chat, ensureImgTable, imageEditCall, IMG_REF_MAX, isSafeMcpUrl, logUsage, mcpSync, putImage } from './ai.js';
 import { audit, claimCoupon, couponFor, discountOf, event, getSetting, getSettings, mail, mailBox, newToken, notify, origin, siteUrl, walletAdd } from './billing.js';
 import { b64, projects, seal, unb64, unseal } from './projects.js';
 import { admin } from './admin.js';
@@ -702,9 +702,11 @@ export async function imageGen(req, env, u) {
   const plan = await planOf(env, u), st = await usageStatus(env, u, plan);
   if (st.pct4h >= 100 || st.pctWeek >= 100) return json({ error: 'ลิมิตเต็มแล้ว', ...st }, 429);
   if (await limited(env, 'img:' + u.id, 10, 3600e3)) return err('สร้างรูปได้ชั่วโมงละ 10 รูป', 429);
-  const gen = sz => fetch(s.image_base_url.replace(/\/$/, '') + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env[s.image_key_name] },
+  // รูปอ้างอิง (แนบมากับคำบรรยาย): /images/edits · ไม่มี = สร้างจากข้อความ
+  const refs = (Array.isArray(b.images) ? b.images : []).filter(x => typeof x === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(x) && x.length <= 8e6).slice(0, IMG_REF_MAX);
+  const gen = sz => refs.length ? imageEditCall({ base: s.image_base_url, key: env[s.image_key_name], model: s.image_model, prompt, refs, opts: { size: sz } }) : fetch(s.image_base_url.replace(/\/$/, '') + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env[s.image_key_name] },
     body: JSON.stringify({ model: s.image_model, prompt, n: 1, size: sz }) });
-  let r = await gen(size); if (r.status === 400 && size !== '1024x1024') r = await gen('1024x1024'); // ผู้ให้บริการไม่รับขนาดนี้: ใช้จัตุรัสแทน
+  let r; try { r = await gen(size); } catch (x) { return err(x.message, 400); } if (r.status === 400 && size !== '1024x1024') r = await gen('1024x1024').catch(() => r); // ผู้ให้บริการไม่รับขนาดนี้: ใช้จัตุรัสแทน
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { await event(env, 'error', null, 'image: ' + (d.error?.message || r.status)); return err(u.role === 'admin' ? 'แอดมิน: ' + (d.error?.message || r.status) : 'สร้างรูปไม่สำเร็จ ลองใหม่อีกครั้ง', 502); }
   const item = d.data?.[0]; let bytes;
@@ -716,7 +718,7 @@ export async function imageGen(req, env, u) {
   if (env.SLIPS) { const name = rand(12) + '.png'; await env.SLIPS.put(`img/${u.id}/${name}`, bytes, { httpMetadata: { contentType: 'image/png' } }); src = `/api/img/${u.id}/${name}`; }
   else src = await putImage(env, u.id, 'image/png', b64(bytes)); // ไม่มี R2: เก็บเป็นก้อนในฐานข้อมูล
   if (b.chat_id && await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(b.chat_id, u.id).first())
-    await env.DB.batch([...(b.silent ? [] : [env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'user', '🎨 ' + prompt, Date.now())]), // silent = AI สั่งสร้างเอง ไม่มีข้อความฝั่งผู้ใช้
+    await env.DB.batch([...(b.silent ? [] : [env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'user', '🎨 ' + prompt + (refs.length ? ` (รูปอ้างอิง ${refs.length} รูป)` : ''), Date.now())]), // silent = AI สั่งสร้างเอง ไม่มีข้อความฝั่งผู้ใช้
       env.DB.prepare('INSERT INTO messages (chat_id,role,content,created_at) VALUES (?,?,?,?)').bind(b.chat_id, 'assistant', `![${prompt.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${src})`, Date.now())]);
   return json({ src, usage: await usageStatus(env, u, plan) });
 }

@@ -45,8 +45,8 @@ export async function makeEnv(extra = {}) {
   const env = { DB, ASSETS: { fetch: async () => new Response('asset') }, ...extra };
   const worker = await loadWorker();
   const ctx = { waitUntil: p => { ctx.pending.push(Promise.resolve(p).catch(() => {})); }, pending: [] };
-  const call = (path, { method = 'GET', body, cookie, headers = {} } = {}) => worker.default.fetch(new Request('https://t.test' + path, {
-    method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined,
+  const call = (path, { method = 'GET', body, rawBody, cookie, headers = {} } = {}) => worker.default.fetch(new Request('https://t.test' + path, { // rawBody = FormData/Blob ส่งตรง (multipart)
+    method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}), ...headers }, body: rawBody ?? (body ? JSON.stringify(body) : undefined),
   }), env, ctx);
   const json = async (path, opt) => { const r = await call(path, opt); const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { status: r.status, data: d, res: r }; };
   const user = async (o = {}) => {
