@@ -1636,7 +1636,7 @@ async function folderSheet(id) {
 }
 
 // ---------- tools ของแชต: ไฟล์ให้ดาวน์โหลด [[dl:ชื่อ|base64]] และรัน Python [[py:base64]] (เซิร์ฟเวอร์ใส่ไว้ในคำตอบ) ----------
-const DL_RE = /\[\[dl:([^|\]\n]{1,120})\|([A-Za-z0-9+/=]+)\]\]/g, PY_RE = /\[\[py:([A-Za-z0-9+/=]+)\]\]/g, PY_RES = '[ผลรัน Python]', PY_MAX = 8;
+const DL_RE = /\[\[dl:([^|\]\n]{1,120})\|([A-Za-z0-9+/=]+)\]\]/g, PY_RE = /\[\[py:([A-Za-z0-9+/=]+)\]\]/g, PY_RES = '[ผลรัน Python]', PY_MAX = 20;
 const unb64t = b => { try { return new TextDecoder().decode(Uint8Array.from(atob(b), c => c.charCodeAt(0))); } catch { return ''; } };
 function parseTools(content) {
   const files = [], py = [];
