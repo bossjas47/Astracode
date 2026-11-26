@@ -94,3 +94,10 @@ test('compact threshold: 60K for Claude Eco, 120K for others', async () => {
   assert.equal(compactAt({ name: 'Claude Opus 5.5 Eco' }), 60e3);
   assert.equal(compactAt({ name: 'ChatGPT 6.2 Sol' }), 120e3);
 });
+
+test('chat with a folder on the user computer: no cloud run_python, the AI is told to RUN python locally', async () => {
+  const { chatTools } = await import('../src/codetools.js'), { localSys } = await import('../src/ai.js');
+  assert.ok(chatTools({}).some(t => t.function.name === 'run_python'));
+  assert.ok(!chatTools({ local: true }).some(t => t.function.name === 'run_python'));
+  assert.match(localSys({ os: 'Win32', folder: 'D:\\data', mcp: [] }, false), /RUN python <file>\.py/);
+});
