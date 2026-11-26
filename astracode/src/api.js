@@ -70,7 +70,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const canPlan = !!plan?.api_limit && k.use_plan !== 0 && !plan._team?.api_off; // หัวหน้าทีมปิด API ของสมาชิก = ใช้งบทีมไม่ได้ (ยังใช้ Wallet ของตัวเองได้)
     const allow = k.kmodels ? k.kmodels.split(',') : null; // key ที่จำกัดโมเดลไว้
     const [allPublic, planIds, mcIds] = await Promise.all([modelsCached(env), canPlan ? (plan._planIds?.length > 1 ? Promise.all(plan._planIds.map(id => planModelsCached(env, id))).then(a => new Set(a.flatMap(x => [...x]))) : planModelsCached(env, plan.id)) : null, modelCreditIds(env, k.id).catch(() => new Set())]); // mcIds = โมเดลที่มีเครดิตเฉพาะโมเดล // จำไว้ 30 วิ ต่อ isolate: ไม่ต้องถาม D1 ทุกคำขอ (ลดเวลาก่อนเริ่มตอบ)
-    const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id) || mcIds.has(m.id)));
+    const models = allPublic.filter(m => (!allow || allow.includes(slug(m))) && (m.public ? (!canPlan || k.balance >= WALLET_MIN || planIds.has(m.id) || mcIds.has(m.id)) : mcIds.has(m.id))); // โมเดลไม่สาธารณะ (ทดสอบ): ใช้ได้เฉพาะคนที่มีเครดิตของโมเดลนั้น
     if (path === '/v1/models') { const st = await import('./context.js').then(c => c.modelStatsApi(env)).then(r => r.json()).catch(() => ({})); return out({ object: 'list', data: models.map(m => ({ id: slug(m), object: 'model', created: 0, owned_by: m.provider, vision: !!m.vision, multiplier: m.multiplier ?? 1, cost: (m.cost_in || 0) + (m.cost_out || 0), ...(st[m.id]?.ok != null ? { ok: st[m.id].ok } : {}) })) }); } // ok = % ตอบสำเร็จ 7 วัน: แอปใช้เลือกผู้ช่วยที่เสถียร // vision/multiplier: แอป Desktop ใช้เลือก "ตาช่วย" ให้โมเดลที่อ่านรูปไม่ได้
     if (path.startsWith('/v1/models/')) { const m = models.find(x => slug(x) === decodeURIComponent(path.slice(11))); return m ? out({ id: slug(m), object: 'model', created: 0, owned_by: m.provider }) : fail(`ไม่พบโมเดล "${decodeURIComponent(path.slice(11)).slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404); }
     // สั่ง Agent จากมือถือ: แอป Desktop ส่งความคืบหน้า/คำถามขออนุญาตของแชตนี้ขึ้นมา แล้วรับคำตอบ/ข้อความที่พิมพ์จากมือถือกลับไป
@@ -170,7 +170,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const [fresh, reqCapped, capped, st, blockWords, markup] = await Promise.all([env.DB.prepare('SELECT * FROM models WHERE id=?').bind(m.id).first(), reqCapHit(env, k, m),
       onPlan ? capHit(env, k, plan, m) : false, onPlan ? usageStatus(env, k, plan) : null, getSetting(env, 'block_words'), getSetting(env, 'price_markup')]);
     // รายการโมเดลค้างจาก memo ได้ 30 วิ: ถ้าแอดมินเพิ่งปิด/ซ่อนโมเดล ต้องปฏิเสธทันที (เดิมเรียกโมเดลที่ปิดแล้วได้อีกนานสุด 30 วิ)
-    if (!fresh || !fresh.active || !fresh.public) return fail(`ไม่พบโมเดล "${String(b?.model ?? '').slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404);
+    if (!fresh || !fresh.active || (!fresh.public && !mcIds.has(fresh.id))) return fail(`ไม่พบโมเดล "${String(b?.model ?? '').slice(0, 80)}" ดูรายชื่อที่ /v1/models`, 404);
     Object.assign(m, fresh); // ราคา/ตั้งค่าล่าสุดเสมอ
     if (reqCapped) return fail(`${m.name} reached its request cap (${m.req_cap} per 4 hours).`, 429, 'rate_limit_error');
     let billingMode = 'wallet';
@@ -462,7 +462,7 @@ export const ipAllowed = (list, addr) => list.split(',').some(e => {
 // รายการโมเดล/โมเดลในแพลน เปลี่ยนไม่บ่อย: จำไว้ใน isolate 30 วินาที (แก้ในหลังบ้านมีผลภายใน 30 วิ)
 const memo = new Map();
 const cached = async (key, ms, load) => { const h = memo.get(key); if (h && h.exp > Date.now()) return h.v; const v = await load(); memo.set(key, { v, exp: Date.now() + ms }); return v; };
-const modelsCached = env => cached('models', 30e3, async () => (await env.DB.prepare('SELECT * FROM models WHERE active=1 AND public=1 ORDER BY sort').all()).results.filter(m => env[m.key_name])); // ไม่มีคีย์ใน Worker = เรียกไปก็ error (missing key): ไม่แสดงใน /v1/models เหมือนหน้าเว็บ
+const modelsCached = env => cached('models', 30e3, async () => (await env.DB.prepare('SELECT * FROM models WHERE active=1 ORDER BY sort').all()).results.filter(m => env[m.key_name])); // ไม่มีคีย์ใน Worker = เรียกไปก็ error (missing key): ไม่แสดงใน /v1/models เหมือนหน้าเว็บ
 const planModelsCached = (env, pid) => cached('pm:' + pid, 30e3, async () => new Set((await env.DB.prepare('SELECT model_id FROM plan_models WHERE plan_id=?').bind(pid).all()).results.map(x => x.model_id)));
 export async function v1(req, env, ctx, path) {
   if (path.length > 4 && path.endsWith("/")) path = path.replace(/\/+$/, ""); // /v1/credits/ = /v1/credits (บางโปรแกรมเติม / ท้าย)

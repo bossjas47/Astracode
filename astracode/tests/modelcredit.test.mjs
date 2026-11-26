@@ -33,3 +33,17 @@ test('model credit: admin grants it for chosen models; chat and API use it inste
   assert.equal((await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'hi', model_id: opus.id } })).status >= 400, true, 'revoked = locked again');
   fm.close();
 });
+
+test('hidden (non-public) test model: usable over /v1 only by accounts that hold a model credit for it', async () => {
+  const { sha } = await import('./helpers.mjs');
+  const fm = await fakeModel((q, res) => fm.sse(res, 'ok')); after(() => fm.close());
+  const t = await makeEnv({ K: 'k' }), hid = addModel(t.DB, { name: 'Secret Agent', base_url: fm.url });
+  t.DB.raw.prepare('UPDATE models SET public=0 WHERE id=?').run(hid.id);
+  const mk = async u => { const key = 'sk-astra-' + Math.random().toString(36).slice(2, 12); t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now()); return key; };
+  const a = await t.user({ balance: 50 }), b = await t.user({ balance: 50 });
+  t.DB.raw.exec('CREATE TABLE IF NOT EXISTS model_credits (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, models TEXT NOT NULL, amount REAL NOT NULL, used REAL NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL, note TEXT, by_user INTEGER, created_at INTEGER NOT NULL)');
+  t.DB.raw.prepare('INSERT INTO model_credits (user_id,models,amount,expires_at,created_at) VALUES (?,?,?,?,?)').run(a.id, String(hid.id), 10, Date.now() + 864e5, Date.now());
+  const call = async key => (await t.call('/v1/chat/completions', { method: 'POST', body: { model: 'secret-agent', messages: [{ role: 'user', content: 'hi' }] }, headers: { authorization: 'Bearer ' + key } })).status;
+  assert.equal(await call(await mk(a)), 200, 'credit holder can use it');
+  assert.equal(await call(await mk(b)), 404, 'wallet users cannot see hidden models');
+});
