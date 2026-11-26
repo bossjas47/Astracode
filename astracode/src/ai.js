@@ -578,7 +578,7 @@ export async function chat(req, env, u, ctx) {
   if (files.length > FILES_MAX || files.some(f => typeof f?.name !== 'string' || typeof f?.text !== 'string' || f.name.length > 120)) return err('ไฟล์แนบไม่ถูกต้อง (สูงสุด 5 ไฟล์)');
   if (new TextEncoder().encode(files.map(f => f.text).join('')).length > ATT_BYTES) return err('ไฟล์รวมกันใหญ่เกิน 1.8MB ต่อข้อความ ลองแบ่งส่ง หรืออัปโหลดเข้าโปรเจกต์ใน Code');
   let text = typeof b.text === 'string' ? b.text.trim() : '';
-  if (text.length > 20000) return err('ข้อความยาวเกิน 20,000 ตัวอักษร');
+  if (text.length > (b.project_id ? 400000 : 20000)) return err(b.project_id ? 'ข้อความรวมไฟล์ที่เปิดยาวเกินไป ปิดไฟล์ใหญ่ก่อนส่ง' : 'ข้อความยาวเกิน 20,000 ตัวอักษร'); // โหมด Code: ข้อความรวมรายชื่อไฟล์ + ไฟล์ที่เปิด + ไฟล์เล็กทั้งโปรเจกต์ จึงยาวกว่าที่ผู้ใช้พิมพ์มาก
   if (!b.regenerate && !text && !images.length && !files.length) return err('ข้อความว่าง');
   if (!text) text = files.length ? 'อ่านไฟล์นี้' : 'อธิบายรูปนี้';
   const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(b.effort) ? b.effort : null;
