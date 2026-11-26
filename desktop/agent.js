@@ -16,6 +16,8 @@ const ENV_ERR_RE = /command not found|not found in PATH|Executable doesn't exist
 // ตรวจงานก่อนจบ: ไฟล์โค้ด · คำสั่งที่นับว่า "ตรวจแล้ว" (เทสต์/บิลด์/lint/รันสคริปต์) · ข้อความที่อ้างว่าผ่าน
 const CODE_RE = /\.(m?[jt]sx?|cjs|py|go|rs|java|kt|cs|cpp|cc|c|h|rb|php|swift|vue|svelte|sh|sql)$/i;
 const VERIFY_RE = /\b(test|tests|pytest|jest|vitest|mocha|tsc|lint|eslint|build|compile|py_compile|cargo\s+(test|build|check)|go\s+(test|build|vet)|mvn|gradle|make|ruff|mypy|flake8)\b|\b(node|python3?|deno|bun|php|ruby)\s+[^|;&]*\.(m?js|py|ts|php|rb)\b|\b(node|python3?|deno|bun)\s+(-e|-c|--eval|-p)\s/i;
+// "รับปากแล้วไม่ลงมือ": โมเดลถูก (เช่น DeepSeek Flash) ตอบว่าจะทำ/ทำเลย แต่ไม่เรียกเครื่องมือแล้วจบ → เตือนให้ลงมือจริง
+const PROMISE_RE = /(ไม่ถามแล้ว|ทำเลย|จะ(ทำ|แก้|ตัด|ลบ|เพิ่ม|เขียน|สร้าง|รัน|ห่อ|ย้าย|เปลี่ยน|ปรับ)|เดี๋ยว(ผม|จะ)?(ทำ|แก้)|ขั้นต่อไป|ต่อไปผมจะ|กำลัง(ทำ|แก้)|เข้าใจแล้ว|\bI(?:'| wi)ll\b|\blet me\b|\bnow I\b|\bnext,? I\b|\bI am going to\b|\bgoing to (?:edit|fix|update|remove|add|write|run)\b)/i;
 const CLAIM_RE = /(tests?|เทสต์|ทดสอบ|build|บิลด์|รัน)[^.\n]{0,40}(pass|ผ่าน|สำเร็จ|succeed|green|เรียบร้อย)/i; // เรียกเครื่องมือเดิมด้วย argument เดิม / error เดิม ติดกันเท่านี้ = วนซ้ำ
 
 const sleep = (ms, signal) => new Promise((ok, no) => {
@@ -174,6 +176,12 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     messages.push({ role: 'assistant', content: msg.content || null, ...(msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
     if (msg.content) onEvent({ type: 'text_end' });
     if (!msg.tool_calls.length) {
+      // รับปากแล้วจบโดยไม่เรียกเครื่องมือ (ได้สูงสุด 2 ครั้งต่องาน): สั่งให้ลงมือแก้ไฟล์จริงตอนนี้
+      if (depth === 0 && tools.length && (state.promised || 0) < 2 && round < maxRounds - 1 && PROMISE_RE.test(msg.content || '') && (msg.content || '').length < 3000) {
+        state.promised = (state.promised || 0) + 1; stats.promised = (stats.promised || 0) + 1;
+        messages.push({ role: 'user', content: '[Kyber Harness] You said what you will do but did not call any tool, so nothing was changed. Do it now: call the tools (read the exact lines, then edit_file/write_file, run commands). Do not answer with text only and do not ask for permission again. When the work is really done, give a short summary of what changed.' });
+        onEvent({ type: 'info', text: 'AI บอกว่าจะทำแต่ยังไม่ลงมือ: สั่งให้แก้ไฟล์จริง' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;
+      }
       // ตรวจงานก่อนจบ (ครั้งเดียว): แก้โค้ดแล้วยังไม่ได้รันเทสต์/บิลด์หลังแก้ครั้งล่าสุด หรืออ้างว่า "ผ่าน" ทั้งที่ไม่ได้รันอะไรเลย → ให้ตรวจจริงก่อน
       const unverified = state.codeEditRound >= 0 && state.verifyRound < state.codeEditRound, claim = CLAIM_RE.test(msg.content || '') && state.verifyRound < 0;
       const stillBad = state.pageBad || [...state.errors.keys()].some(k => /^(bash|check_page):/.test(k)); // ตรวจแล้วยังพัง (เทสต์/บิลด์ exit ≠ 0 หรือหน้าเว็บมี error/จอว่าง)
@@ -348,4 +356,4 @@ async function readStream(r, onEvent, onFirst = () => {}, onChunk = () => {}) { 
   return out;
 }
 
-module.exports = { runAgent, readStream, compact, slim, repairHistory, validateArgs, describeParams, maskSecrets, retryAfterMs, backoffMs, TOOL_OUT_MAX, SPILL_AT, READ_TOOLS };
+module.exports = { PROMISE_RE, runAgent, readStream, compact, slim, repairHistory, validateArgs, describeParams, maskSecrets, retryAfterMs, backoffMs, TOOL_OUT_MAX, SPILL_AT, READ_TOOLS };

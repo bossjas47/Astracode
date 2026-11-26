@@ -491,3 +491,19 @@ test('an error sent inside the stream before any answer is retried instead of en
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools: [], callTool: async () => '', fetchImpl, retryWaits: [1, 1], verifyGate: false });
   assert.equal(n, 2); assert.equal(messages.at(-1).content, 'ok');
 });
+
+test('harness: a reply that promises to act but calls no tool is pushed to actually do it (max 2 times)', async () => {
+  const s = script([{ text: 'เข้าใจแล้วครับ ไม่ถามแล้ว ทำเลยครับ' }, { calls: [['read_file', { path: 'a.js' }]] }, { text: 'แก้เสร็จแล้ว: ตัด bridge ออกจาก bundle' }]), called = [];
+  const ev = []; await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: [{ role: 'user', content: 'go' }], tools, fetchImpl: s.fetch, callTool: async n => { called.push(n); return 'x'; }, onEvent: e => ev.push(e), verifyGate: false });
+  assert.deepEqual(called, ['read_file'], 'the tool ran after the nudge');
+  assert.ok(s.seen[1].messages.some(m => m.role === 'user' && /did not call any tool/.test(m.content)));
+  assert.ok(ev.some(e => e.type === 'info' && /ยังไม่ลงมือ/.test(e.text)));
+  // พูดซ้ำแบบเดิมเรื่อยๆ: เตือนได้แค่ 2 ครั้งแล้วจบ (ไม่วนไม่จบ)
+  const s2 = script([{ text: 'ผมจะแก้ให้ครับ' }, { text: 'ผมจะแก้ให้ครับ' }, { text: 'ผมจะแก้ให้ครับ' }, { text: 'ผมจะแก้ให้ครับ' }]);
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: [{ role: 'user', content: 'go' }], tools, fetchImpl: s2.fetch, callTool: async () => 'x', onEvent: () => {}, verifyGate: false });
+  assert.equal(s2.seen.length, 3);
+  // คำตอบสรุปธรรมดา (ไม่มีคำรับปาก) จบได้เลย
+  const s3 = script([{ text: 'สรุป: ไฟล์นี้ใช้ React 18' }]);
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: [{ role: 'user', content: 'go' }], tools, fetchImpl: s3.fetch, callTool: async () => 'x', onEvent: () => {}, verifyGate: false });
+  assert.equal(s3.seen.length, 1);
+});
