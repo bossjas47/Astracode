@@ -297,7 +297,7 @@ const nav = () => {
     ${deskLink() ? `<nav class="side-nav">${deskLink()}</nav>` : ''}`}
     <div class="side-sec"><span>${inCode ? 'Projects' : 'Chats'}</span></div>
     <div class="nav-recents" data-kind="${inCode ? 'code' : 'chat'}"><p class="muted">Loading…</p></div>
-    <button type="button" class="side-user" data-acct aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}"><span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span><span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan?.name || '')} · ${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}% used</small></span>${ic('up', 'sm')}</button>`
+    <button type="button" class="side-user" data-acct aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}"><span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span><span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan?.name || '')} · <span class="su-pct">${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}</span>% used</small></span>${ic('up', 'sm')}</button>`
     : `${navL('/', 'Home', 'sparkles')}${navL('/pricing', 'Pricing', 'tag')}${navL('/plans', 'Plans', 'layers')}${window.astraDesktop ? '' : navL('/#download', 'Desktop app', 'download')}${navL('/blog', 'Blog', 'news')}${navL('/status', 'Status', 'activity')}
     <span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`;
   return `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">Kyber</a>${navRight()}</div>
@@ -757,7 +757,8 @@ document.addEventListener('click', e => { const b = e.target.closest('.dl-code')
 // หลายแพลน: ใบที่เลือกใช้ (0 = อัตโนมัติ: ใบหลักก่อน เต็มแล้วสลับใบ) · จำไว้ต่อเครื่อง
 const subSel = () => { try { return +localStorage.getItem('subSel') || 0; } catch { return 0; } };
 const curSub = () => { const s = me?.subs; if (!s || s.length < 2) return null; return s.find(x => x.id === subSel()) || s.find(x => x.primary) || s[0]; };
-const limHTML = u0 => { const cs = curSub(), u = cs || u0, p = Math.max(u.pct4h, u.pctWeek); return (cs ? `<span class="lname">${esc(cs.name)}</span>` : '') + limHTML0(u, p); };
+// limHTML อัปเดตตัวเลข % used มุมล่างซ้ายด้วย (เดิมค้างค่าตอนเปิดหน้า)
+const limHTML = u0 => { const cs = curSub(), u = cs || u0, p = Math.max(u.pct4h, u.pctWeek); queueMicrotask(() => document.querySelectorAll('.su-pct').forEach(e => { e.textContent = Math.round(p); })); return (cs ? `<span class="lname">${esc(cs.name)}</span>` : '') + limHTML0(u, p); };
 const limHTML0 = (u, p) => { return `<i class="lmini ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"><b></b></i>${Math.round(p)}%${me?.reset_credits > 0 ? '<i class="gdot" title="มีสิทธิ์รีเซ็ตลิมิต"></i>' : ''}`; };
 const EFFORT_INFO = {
   '': ['Instant', 'ตอบทันที ไม่คิดก่อน · เร็วและประหยัดลิมิตที่สุด'],

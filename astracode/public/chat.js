@@ -153,7 +153,7 @@ async function chatView(id) {
       <div class="side-foot">
         <button type="button" class="side-user" id="acct" aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}">
           <span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span>
-          <span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan.name)} · ${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}% used</small></span>
+          <span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan.name)} · <span class="su-pct">${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}</span>% used</small></span>
           ${ic('up', 'sm')}
         </button>
       </div>
