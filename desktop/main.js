@@ -13,7 +13,7 @@ const { ROBLOX_TOOL, ROBLOX_RE, startBridge, robloxTool, installPlugin, pluginDi
 const { runAgent } = require('./agent');
 const { OFFICE_TOOLS, makeDocument, readDocument } = require('./office');
 const { setupTool, SETUP_TOOLS } = require('./setuptools');
-const { builtinSkills, pickHelper, THREE_RE, THREE_SKILL, ROBLOX_SKILL, memoryRead, memoryBlock, memoryLearn, makeAdvisor } = require('./skills');
+const { builtinSkills, pickHelper, pickStrong, THREE_RE, THREE_SKILL, ROBLOX_SKILL, memoryRead, memoryBlock, memoryLearn, makeAdvisor } = require('./skills');
 const { projectMap, makeReviewer, AGENT_TOOLS, ASK_TOOL, READ_ONLY, SUB_TOOLS, Workspace, agentSystem, projectRules, projectHooks, projectCommands, cleanPlugin, wantsAndroid, toolsFor } = require('./agenttools');
 
 const SITE = 'https://kyber.hypatir.dev', OLD_SITE = 'https://astracode.panderx.xyz'; // ย้ายโดเมน 25 พ.ย. 2569 · โดเมนเดิมยังรับ /api และ /v1 ตลอด
@@ -498,11 +498,11 @@ async function runTask(o = {}, sender) {
   // ที่ปรึกษาโมเดลแรง (หน้าเว็บส่งชื่อโมเดลมา เมื่อผู้ใช้เปิดไว้และแพลนมีโมเดลนั้น) · ไม่ส่ง = ปิด
   const advisorModel = typeof o.advisor === 'string' && o.advisor && o.advisor !== model && mode !== 'plan' ? o.advisor.slice(0, 120) : null, advisor = advisorModel ? makeAdvisor({ post, model: advisorModel }) : null;
   try {
-    const seeImages = (await screenCtx()).seeing !== false, helperModel = await modelList().then(ms => pickHelper(ms, model)).catch(() => null); a.helper = helperModel;
-    await runAgent({ advisor, seeImages, helperModel, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
+    const seeImages = (await screenCtx()).seeing !== false, ms0 = await modelList().catch(() => []), helperModel = pickHelper(ms0, model), strongModel = pickStrong(ms0, model), summaryModel = pickStrong(ms0, model, true); a.helper = helperModel; // strong = ผู้ตรวจรอบสองเมื่อตัวหลักเป็นรุ่นเล็ก · summary = ผู้สรุปตอนย่อบทสนทนา (Sonnet Eco)
+    await runAgent({ advisor, seeImages, helperModel, summaryModel, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
       maxDurationMs: Math.min(600, Math.max(0, +o.maxMinutes || 0)) * 60e3, spill: (t, i) => a.ws.spill(t, i),
       checks: (a.map ||= await projectMap(a.ws.root).catch(() => ({ checks: [] }))).checks || [], verifyGate: o.verifyGate !== false && mode !== 'plan',
-      review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model: advisorModel || model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)
+      review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model: advisorModel || strongModel || model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)
         post: body => fetch(SITE + '/v1/chat/completions', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) }) }),
       onCheckpoint: () => { if (Date.now() - (a.savedAt || 0) > 5000) { a.savedAt = Date.now(); agentSave(a); } } }); // บันทึกระหว่างทำ (ทุก ≥5 วินาที): แอปปิด/ค้างกลางงาน เปิดใหม่ทำต่อได้
     if (mode !== 'plan' && mode !== 'ask' && o.memory !== false && a.ws.changed().length) memoryLearn({ post, model: a.helper || model, root: a.ws.root, task: String(o.text || ''), messages: a.messages }).then(l => { if (l?.length) tell({ type: 'info', text: `จำบทเรียนของโปรเจกต์ไว้ ${l.length} ข้อ (.kyber/memory.md)` }); }).catch(() => {}); // ความจำโปรเจกต์: จบงานที่แก้ไฟล์ → สรุปบทเรียนเก็บไว้ใช้งานหน้า

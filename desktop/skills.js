@@ -102,4 +102,11 @@ function pickHelper(models = [], current = '') {
   return !cur || (best.multiplier ?? 1) < (cur.multiplier ?? 1) || ((best.multiplier ?? 1) === (cur.multiplier ?? 1) && (best.cost ?? 0) < (cur.cost ?? 0)) ? best.id : null;
 }
 
-module.exports = { pickHelper, CODING_SKILL, THREE_SKILL, THREE_RE, ROBLOX_SKILL, ROBLOX_RE, builtinSkills, memoryRead, memoryBlock, memoryLearn, makeAdvisor, MEM_FILE };
+// โมเดลที่เก่งพอสำหรับงานที่ต้องคิด (ผู้ตรวจรอบสอง / สรุปตอนย่อบทสนทนา): ตัวหลักเป็นรุ่นเล็ก/Uncen → ใช้ Sonnet Eco หรือ Sol แทน (ต้องอยู่ในแพลนและเสถียร ≥ 95%)
+const WEAK_RE = /flash|uncen|lite|nano|mini|luna|haiku/i, STRONG = ['claude-sonnet-5.5-eco', 'chatgpt-6.2-sol', 'claude-opus-5.5-eco'];
+function pickStrong(models = [], current = '', always = false) {
+  if (!always && current && !WEAK_RE.test(current)) return current;
+  const ok = new Map(models.filter(m => m.id && !(m.ok != null && m.ok < 95)).map(m => [m.id, m]));
+  return STRONG.find(id => ok.has(id)) || current || null;
+}
+module.exports = { pickStrong, pickHelper, CODING_SKILL, THREE_SKILL, THREE_RE, ROBLOX_SKILL, ROBLOX_RE, builtinSkills, memoryRead, memoryBlock, memoryLearn, makeAdvisor, MEM_FILE };

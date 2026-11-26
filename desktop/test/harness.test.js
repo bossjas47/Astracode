@@ -508,3 +508,19 @@ test('harness: a reply that promises to act but calls no tool is pushed to actua
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: [{ role: 'user', content: 'go' }], tools, fetchImpl: s3.fetch, callTool: async () => 'x', onEvent: () => {}, verifyGate: false });
   assert.equal(s3.seen.length, 1);
 });
+
+test('harness: strong model for reviewer/summary when the worker is small; files being edited keep their latest read', () => {
+  const { pickStrong } = require('../skills'), { slim } = require('../agent');
+  const ms = [{ id: 'claude-sonnet-5.5-eco', ok: 99 }, { id: 'chatgpt-6.2-sol', ok: 100 }, { id: 'deepseek-4.1-flash-uncen', ok: 99 }];
+  assert.equal(pickStrong(ms, 'deepseek-4.1-flash-uncen'), 'claude-sonnet-5.5-eco');
+  assert.equal(pickStrong(ms, 'claude-opus-5.5'), 'claude-opus-5.5', 'strong worker keeps itself');
+  assert.equal(pickStrong(ms, 'claude-opus-5.5', true), 'claude-sonnet-5.5-eco', 'summary always uses a capable model');
+  assert.equal(pickStrong([{ id: 'claude-sonnet-5.5-eco', ok: 60 }, { id: 'chatgpt-6.2-sol', ok: 99 }], 'x-flash'), 'chatgpt-6.2-sol', 'skips unstable');
+  const big = 'x'.repeat(5000), m = [{ role: 'user', content: 'go' }];
+  for (let i = 0; i < 12; i++) { m.push({ role: 'assistant', content: null, tool_calls: [{ id: 'r' + i, type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: i % 2 && i < 8 ? 'a.js' : 'b.js' }) } }] }); m.push({ role: 'tool', tool_call_id: 'r' + i, content: big }); }
+  slim(m, 0, new Set(['a.js']));
+  const lastA = m.findIndex(x => x.role === 'tool' && x.tool_call_id === 'r7'), firstA = m.findIndex(x => x.tool_call_id === 'r1' && x.role === 'tool'), oldB = m.findIndex(x => x.tool_call_id === 'r0' && x.role === 'tool');
+  assert.ok(m[firstA].content.startsWith('[old]'), 'an older read of the same file is trimmed');
+  assert.ok(m[oldB].content.startsWith('[old]'), 'old read of a file not being edited is trimmed');
+  assert.equal(m[lastA].content.length, 5000, 'latest read of a file being edited is kept whole');
+});
