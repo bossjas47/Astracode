@@ -417,7 +417,7 @@ function modelUI() {
 }
 // ปุ่ม +: แผ่นล่างแบบ "ทางลัดแถวบน + รายการไอคอนพร้อมคำอธิบาย" · ชื่อเป็นอังกฤษ คำอธิบายเป็นไทย
 const toolRow = (v, icon, title, desc, on) => `<button type="button" class="trow ${on ? 'on' : ''}" data-v="${v}"><span class="tico">${ic(icon)}</span><span class="tbody"><b>${title}</b><small>${desc}</small></span>${on ? `<i class="tchk">${ic('check')}</i>` : ''}</button>`;
-const TOOL_ORDER = ['pc', 'mcp', 'img', 'web', 'bon', 'rsch', 'meet', 'prm', 'skl', 'exp']; // MCP อยู่บน: ลูกค้าหาไม่เจอตอนอยู่ใต้ "เพิ่มเติม"
+const TOOL_ORDER = ['pc', 'mcp', 'img', 'ups', 'web', 'bon', 'rsch', 'meet', 'prm', 'skl', 'exp']; // MCP อยู่บน: ลูกค้าหาไม่เจอตอนอยู่ใต้ "เพิ่มเติม"
 const toolUse = () => { try { return JSON.parse(localStorage.getItem('toolUse') || '{}'); } catch { return {}; } };
 const toolUsed = v => { try { const u = toolUse(); u[v] = (u[v] || 0) + 1; localStorage.setItem('toolUse', JSON.stringify(u)); } catch { /* ไม่มีที่เก็บ */ } };
 function toolRows(web) {
@@ -427,6 +427,7 @@ function toolRows(web) {
     web: site.search && ['globe', 'Web search', 'หาข้อมูลล่าสุดพร้อมแหล่งอ้างอิง', web],
     bon: me.plan?.paid && !chat.project && ['sparkles', '🔥 โหมดเทพ', 'หลายโมเดลตอบพร้อมกัน แล้วรวมเป็นคำตอบที่ดีที่สุด (กินลิมิตตามจริงทุกตัว)', localStorage.getItem('bon') === '1'],
     rsch: site.search && ['search', 'Deep research' + newPill('rsch'), 'ทีม AI ค้นเว็บหลายหัวข้อพร้อมกัน แล้วเขียนรายงานพร้อมอ้างอิง (ปิดแอปได้)'],
+    ups: ['image', 'ขยายภาพให้คม' + newPill('ups'), 'ขยาย 2x/4x หรือกำหนดขนาด เช่น 1500×1000 ข้อความในภาพไม่เพี้ยน (ไม่ใช้ AI วาดใหม่)'],
     meet: ['mic', 'AI ประชุม', 'อัดเสียงหรืออัปไฟล์ประชุม ได้บทถอดความแยกคนพูด สรุป และงานที่ต้องทำ'],
     prm: ['book', 'Prompt library', 'คำสั่งสำเร็จรูป เลือกแล้วใช้ได้เลย'],
     skl: ['sparkles', 'Skills', 'สอนวิธีทำงานให้ AI · เปิดปิดหรือสร้างเอง'],
@@ -478,7 +479,7 @@ function toolSheet() {
     <div class="tlist">${toolRows(web)}</div>`,
     (d, close) => d.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
       close(); toolUsed(b.dataset.v); const pick = (accept, capture) => { const i = $('#file'); i.accept = accept; if (capture) i.setAttribute('capture', capture); else i.removeAttribute('capture'); i.click(); setTimeout(() => { i.accept = ''; i.removeAttribute('capture'); }, 1000); }; // ใช้ช่องไฟล์เดียวกัน เปลี่ยนแค่ชนิดที่เลือกได้
-      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, rsch: () => { seen('rsch'); researchSheet(); }, meet: () => go('/meetings?rec=1'), img: enterImageMode, web: toggleWeb, bon: () => { localStorage.setItem('bon', localStorage.getItem('bon') === '1' ? '0' : '1'); modelUI(); }, mcp: () => connInChat(), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
+      ({ photos: () => pick('image/*'), camera: () => pick('image/*', 'environment'), file: () => pick(''), pc: pcSheet, rsch: () => { seen('rsch'); researchSheet(); }, ups: () => { seen('ups'); upscaleSheet(); }, meet: () => go('/meetings?rec=1'), img: enterImageMode, web: toggleWeb, bon: () => { localStorage.setItem('bon', localStorage.getItem('bon') === '1' ? '0' : '1'); modelUI(); }, mcp: () => connInChat(), skl: () => skillsSheet(chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); }), prm: () => promptLibSheet(p => { const t = $('#t'); t.value = p + t.value; t.oninput(); t.focus(); }), exp: exportMenu })[b.dataset.v]();
     }));
 }
 // Deep research เบื้องหลัง: สั่งแล้วปิดแอปได้ ผลขึ้นเป็นแชตใหม่ + อีเมล
@@ -509,6 +510,48 @@ function estSoon() {
     el.innerHTML = `ข้อความนี้ใช้ลิมิตสัปดาห์ ~${r.pct < 0.1 ? '<0.1' : r.pct}%` + (r.alt ? ` · <button type="button" class="link" data-alt="${r.alt.id}">ใช้ ${esc(r.alt.name)} ~${r.alt.pct < 0.1 ? '<0.1' : r.alt.pct}%</button>` : '');
     el.querySelector('[data-alt]')?.addEventListener('click', b => { const id = +b.currentTarget.dataset.alt; $('#model').value = id; localStorage.setItem('model', id); modelUI(); estSoon(); });
   }, 700);
+}
+
+// ขยายภาพให้คม (ทำในเบราว์เซอร์ ไม่อัปโหลด ไม่ใช้ AI วาดใหม่): ขยายทีละ 2 เท่าด้วยการประมาณค่าคุณภาพสูง แล้วเพิ่มความคม (unsharp mask) · ข้อความ/รายละเอียดเดิมไม่ถูกแต่งเติม
+async function upscaleImage(file, { mode = '2', w = 0, h = 0, sharp = 0.6 } = {}) {
+  const bmp = await createImageBitmap(file), sw = bmp.width, sh = bmp.height;
+  let tw, th;
+  if (mode === 'size' && w > 0 && h > 0) { const k = Math.min(w / sw, h / sh); tw = Math.round(sw * k); th = Math.round(sh * k); } // พอดีกรอบ คงสัดส่วนเดิม
+  else { const k = +mode || 2; tw = sw * k; th = sh * k; }
+  const MAX = 6000; if (Math.max(tw, th) > MAX) { const k = MAX / Math.max(tw, th); tw = Math.round(tw * k); th = Math.round(th * k); }
+  let cur = document.createElement('canvas'); cur.width = sw; cur.height = sh; cur.getContext('2d').drawImage(bmp, 0, 0);
+  while (cur.width * 2 <= tw && cur.height * 2 <= th) { // ขยายทีละ 2 เท่า (คมกว่าขยายทีเดียว)
+    const n = document.createElement('canvas'); n.width = cur.width * 2; n.height = cur.height * 2; const c = n.getContext('2d'); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; c.drawImage(cur, 0, 0, n.width, n.height); cur = n;
+  }
+  const out = document.createElement('canvas'); out.width = tw; out.height = th; const o = out.getContext('2d', { willReadFrequently: true }); o.imageSmoothingEnabled = true; o.imageSmoothingQuality = 'high'; o.drawImage(cur, 0, 0, tw, th);
+  if (sharp > 0) { // unsharp mask 3x3: เพิ่มความคมขอบตัวอักษร
+    const id = o.getImageData(0, 0, tw, th), d = id.data, src = new Uint8ClampedArray(d), W = tw * 4;
+    for (let y = 1; y < th - 1; y++) for (let x = 1; x < tw - 1; x++) { const i = y * W + x * 4; for (let c = 0; c < 3; c++) { const v = src[i + c], blur = (src[i - 4 + c] + src[i + 4 + c] + src[i - W + c] + src[i + W + c] + v * 4) / 8; d[i + c] = v + (v - blur) * sharp * 2; } }
+    o.putImageData(id, 0, 0);
+  }
+  return { blob: await new Promise(r => out.toBlob(r, 'image/png')), w: tw, h: th, sw, sh };
+}
+function upscaleSheet() {
+  sheet('ขยายภาพให้คม', `<div class="sheet-form">
+    <p class="muted" style="font-size:13px;margin:0">ทำในเครื่องของคุณ ไม่อัปโหลดภาพ ไม่ใช้ AI วาดใหม่ ข้อความและรายละเอียดเดิมจึงไม่เพี้ยน · ไม่หักลิมิต</p>
+    <input type="file" id="upf" accept="image/*">
+    <div class="seg" id="upm" role="group" style="margin:4px 0"><button type="button" data-m="2" class="on">2x</button><button type="button" data-m="3">3x</button><button type="button" data-m="4">4x</button><button type="button" data-m="size">กำหนดขนาด</button></div>
+    <div id="upsz" hidden class="row" style="gap:6px"><input id="upw" type="number" min="16" max="6000" value="1500" style="width:110px"> × <input id="uph" type="number" min="16" max="6000" value="1000" style="width:110px"> <small class="muted">คงสัดส่วนเดิม</small></div>
+    <label>ความคม <input id="ups" type="range" min="0" max="1.5" step="0.1" value="0.6"></label>
+    <button class="btn blue" id="upgo" type="button">ขยายภาพ</button><div id="upout"></div></div>`, d => {
+    let mode = '2';
+    d.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { mode = b.dataset.m; d.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); d.querySelector('#upsz').hidden = mode !== 'size'; });
+    d.querySelector('#upgo').onclick = async e => {
+      const f = d.querySelector('#upf').files[0]; if (!f) return toast('เลือกรูปก่อน', 'bad');
+      e.target.disabled = true; e.target.textContent = 'กำลังขยาย…';
+      try {
+        const r = await upscaleImage(f, { mode, w: +d.querySelector('#upw').value, h: +d.querySelector('#uph').value, sharp: +d.querySelector('#ups').value });
+        const url = URL.createObjectURL(r.blob), name = f.name.replace(/\.[^.]+$/, '') + `-${r.w}x${r.h}.png`;
+        d.querySelector('#upout').innerHTML = `<p class="muted" style="font-size:13px">${r.sw}×${r.sh} → <b>${r.w}×${r.h}</b> px · ${(r.blob.size / 1e6).toFixed(1)} MB</p><img src="${url}" style="max-width:100%;border-radius:10px"><a class="btn" href="${url}" download="${esc(name)}" style="margin-top:8px">${ic('download', 'sm')} ดาวน์โหลด PNG</a>`;
+      } catch (x) { toast('ขยายภาพไม่สำเร็จ: ' + x.message, 'bad'); }
+      e.target.disabled = false; e.target.textContent = 'ขยายภาพ';
+    };
+  });
 }
 function toggleWeb() { localStorage.setItem('web', localStorage.getItem('web') === '1' ? '0' : '1'); modelUI(); }
 // เก็บถาวร + ถังขยะ: กู้คืนได้ · ถังขยะลบถาวรเองหลัง 30 วัน
