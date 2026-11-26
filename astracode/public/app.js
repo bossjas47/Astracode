@@ -1393,6 +1393,13 @@ async function sendFp() {
   } catch { /* ไม่สำคัญ ข้ามได้ */ }
 }
 
+// มิเตอร์ลิมิตเก่าค้าง: รีเซ็ต/เติมจากอีกหน้าต่าง (เว็บ ↔ แอปบนคอม) หน้าที่เปิดค้างไว้ยังโชว์ % เดิม → กลับมาที่หน้า/โฟกัสหน้าต่าง ดึงลิมิตใหม่ (ไม่เกินทุก 20 วินาที)
+let meAt = Date.now();
+async function refreshUsage() {
+  if (!me || document.hidden || Date.now() - meAt < 20e3) return; meAt = Date.now();
+  try { const m = await api('/me'); if (!m?.usage) return; Object.assign(me, { usage: m.usage, reset_credits: m.reset_credits, reset_list: m.reset_list, subs: m.subs ?? me.subs }); const lim = $('#lim') || $('#clim'); if (lim) lim.innerHTML = limHTML(me.usage); } catch { /* ออฟไลน์: ใช้ค่าเดิม */ }
+}
+addEventListener('focus', refreshUsage); document.addEventListener('visibilitychange', refreshUsage); setInterval(refreshUsage, 120e3);
 Promise.all([loadMe(), loadSite(), domReady]).then(boot).then(sendFp);
 // เริ่มโหลดหน้าถัดไปตั้งแต่นิ้วแตะลิงก์ (prerender) และโหลด HTML ล่วงหน้าเมื่อชี้/ใกล้แตะ · ไม่แตะ /api (ดาวน์โหลด, OAuth) และลิงก์ที่เปิดแท็บใหม่
 if (!window.DEMO && HTMLScriptElement.supports?.('speculationrules')) {
