@@ -94,7 +94,9 @@ function makeAdvisor({ post, model }) {
 
 // โมเดลประหยัดสำหรับงานเสริม (ย่อบทสนทนา, เขียนบทเรียนโปรเจกต์, ผู้ช่วยค้น): หักลิมิตน้อยสุดแล้วต้นทุนต่ำสุด · ไม่ใช่โมเดลรูป/เสียง · ไม่มีที่ถูกกว่า = null (ใช้โมเดลหลัก)
 function pickHelper(models = [], current = '') {
-  const ok = models.filter(m => m.id && !/image|embed|video|tts|whisper|audio/i.test(m.id + ' ' + (m.owned_by || '')));
+  // ผู้ช่วย (ย่อบทสนทนา / ผู้ช่วยค้น / จดบทเรียน) ต้องเสถียร: ข้ามโมเดลที่ 7 วันล่าสุดตอบสำเร็จ < 95% (เซิร์ฟเวอร์ส่ง ok มากับ /v1/models) และรุ่น uncen
+  // (วัดจริง: ตัวถูกสุดคือ Haiku Eco ตอบว่าง 31% · Luna หมดเวลา 37% → ย่อบทสนทนาล้มเงียบ ๆ และผู้ช่วยค้นพัง)
+  const ok = models.filter(m => m.id && !/image|embed|video|tts|whisper|audio/i.test(m.id + ' ' + (m.owned_by || '')) && !/uncen/i.test(m.id) && !(m.ok != null && m.ok < 95));
   const cur = ok.find(m => m.id === current), best = ok.sort((a, b) => (a.multiplier ?? 1) - (b.multiplier ?? 1) || (a.cost ?? 0) - (b.cost ?? 0))[0];
   if (!best || best.id === current) return null;
   return !cur || (best.multiplier ?? 1) < (cur.multiplier ?? 1) || ((best.multiplier ?? 1) === (cur.multiplier ?? 1) && (best.cost ?? 0) < (cur.cost ?? 0)) ? best.id : null;

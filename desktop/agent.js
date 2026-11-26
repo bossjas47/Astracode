@@ -109,7 +109,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
       const lastUser = [...messages].reverse().find(m => m.role === 'user'), task = typeof lastUser?.content === 'string' ? lastUser.content : JSON.stringify(lastUser?.content || '');
       // ประหยัดลิมิต: วางแผนเฉพาะคำสั่งแรกของบทสนทนา (ที่ไม่สั้นมาก) หรือคำสั่งยาว/งานใหญ่ · "ทำต่อ", "แก้สีปุ่ม" ไม่เรียกโมเดลแรง
       const firstAsk = messages.filter(m => m.role === 'user' && !String(typeof m.content === 'string' ? m.content : '').startsWith('[')).length <= 1;
-      if (lastUser && !String(task).startsWith('[Kyber Harness') && String(task).length >= 1200) { // วัดจริง: Opus = 75% ของค่าใช้จ่ายในงานแก้บั๊กหลายไฟล์ โดยคุณภาพไม่ต่าง → วางแผนเฉพาะคำสั่งใหญ่ (ที่เหลือใช้ตอนติด/ตรวจไม่ผ่าน)
+      if (lastUser && !String(task).startsWith('[Kyber Harness') && ((firstAsk && String(task).length >= 300) || String(task).length >= 1200)) { // คำสั่งแรกของบทสนทนาที่ไม่สั้นมาก หรือคำสั่งยาว (เดิมคำนวณ firstAsk แต่ไม่ได้ใช้ = แทบไม่เคยวางแผน) // วัดจริง: Opus = 75% ของค่าใช้จ่ายในงานแก้บั๊กหลายไฟล์ โดยคุณภาพไม่ต่าง → วางแผนเฉพาะคำสั่งใหญ่ (ที่เหลือใช้ตอนติด/ตรวจไม่ผ่าน)
         onEvent({ type: 'info', text: 'ที่ปรึกษากำลังวางแผนงาน (AI เริ่มสำรวจไปพร้อมกัน)…' });
         // ไม่ให้โมเดลหลักนั่งรอ (Opus ใช้ ~25 วินาที): เริ่มงานเลย แผนมาเมื่อไหร่ค่อยแทรกก่อนรอบถัดไป
         state.planP = Promise.resolve(advisor.plan(task, messages[0]?.role === 'system' ? String(messages[0].content).match(/Project map[\s\S]{0,3500}/)?.[0] || '' : '')).catch(() => null).then(p => { state.plan = p || ''; });
@@ -177,7 +177,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (msg.content) onEvent({ type: 'text_end' });
     if (!msg.tool_calls.length) {
       // รับปากแล้วจบโดยไม่เรียกเครื่องมือ (ได้สูงสุด 2 ครั้งต่องาน): สั่งให้ลงมือแก้ไฟล์จริงตอนนี้
-      if (depth === 0 && tools.length && (state.promised || 0) < 2 && round < maxRounds - 1 && PROMISE_RE.test(msg.content || '') && (msg.content || '').length < 3000) {
+      if (depth === 0 && tools.length && !lastTurn && (state.promised || 0) < 2 && round < maxRounds - 1 && PROMISE_RE.test(msg.content || '') && (msg.content || '').length < 3000) {
         state.promised = (state.promised || 0) + 1; stats.promised = (stats.promised || 0) + 1;
         messages.push({ role: 'user', content: '[Kyber Harness] You said what you will do but did not call any tool, so nothing was changed. Do it now: call the tools (read the exact lines, then edit_file/write_file, run commands). Do not answer with text only and do not ask for permission again. When the work is really done, give a short summary of what changed.' });
         onEvent({ type: 'info', text: 'AI บอกว่าจะทำแต่ยังไม่ลงมือ: สั่งให้แก้ไฟล์จริง' }); onCheckpoint?.({ round, messages, state: snapshot(state) }); continue;

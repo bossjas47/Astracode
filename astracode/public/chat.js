@@ -1462,7 +1462,8 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   if (chat.agQ === undefined) chat.agQ = await api('/agent/quality').then(d => d.flagged || []).catch(() => []); // โมเดลที่สถิติงาน Agent แย่ (14 วัน จากผู้ใช้ทุกคน)
   const stat = chat.agQ.find(x => x.model === vslug(m));
   if ((agentWeak(m) || stat) && !lsGet('agWeakOk:' + m.id)) { const pick = await agentWeakSheet(m, chatModels, stat); if (!pick) return; m = pick; } // โมเดลเล็ก/Uncen มักวนซ้ำหรือใช้เครื่องมือพลาดในงาน Agent: เตือนก่อนเริ่ม
-  const cheap = [...chatModels].sort((a, b) => a.multiplier - b.multiplier).find(x => !/uncen/i.test(x.name)); // ผู้ช่วยค้น (subagent) ใช้โมเดลถูกสุด
+  if (!_mst) _mst = await api('/model-stats').catch(() => ({})); // ผู้ช่วยค้น: ถูกสุดที่ตอบสำเร็จ ≥ 95% ใน 7 วัน (เดิมได้ Haiku Eco/Luna ที่ตอบว่าง/หมดเวลาบ่อย ผู้ช่วยพังเงียบ ๆ)
+  const cheap = [...chatModels].sort((a, b) => a.multiplier - b.multiplier).find(x => !/uncen/i.test(x.name) && !(_mst?.[x.id]?.ok < 95));
   try { if (await PCD.agent.needKey()) await PCD.agent.setKey((await api('/keys', { method: 'POST', body: { name: 'Desktop Agent' } })).key); } // ครั้งแรก: สร้าง API key ของบัญชีนี้ให้แอป (คิดเงินผ่าน /v1 ตามจริง)
   catch (x) { return showErr('สร้าง API key ให้แอปไม่ได้: ' + x.message); }
   const t = $('#t'), images = chat.images.slice(0, IMG_MAX), history = chat.msgs.filter(x => typeof x.content === 'string' && x.content).map(x => ({ role: x.role, content: x.content }));

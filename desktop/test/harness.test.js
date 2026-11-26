@@ -473,6 +473,7 @@ test('helper model: cheapest text model by plan multiplier for side jobs; none c
   const { pickHelper } = require('../skills');
   const ms = [{ id: 'opus', multiplier: 8, cost: 30 }, { id: 'flash', multiplier: 1, cost: 2 }, { id: 'luna', multiplier: 0.3, cost: 1.2 }, { id: 'pic', owned_by: 'image', multiplier: 0.1 }];
   assert.equal(pickHelper(ms, 'opus'), 'luna'); assert.equal(pickHelper(ms, 'luna'), null); assert.equal(pickHelper([], 'x'), null);
+  assert.equal(pickHelper([...ms, { id: 'haiku-eco', multiplier: 0.1, cost: 0.1, ok: 69 }, { id: 'x-uncen', multiplier: 0.05, cost: 0.1 }], 'opus'), 'luna', 'skips unstable (ok < 95) and uncen helpers');
   assert.match(agentSystem({ root: '/p', os: 'x', rules: '' }), /start 2-3 helpers in ONE reply/);
 });
 
