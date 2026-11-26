@@ -513,10 +513,11 @@ function estSoon() {
 }
 
 // ขยายภาพให้คม (ทำในเบราว์เซอร์ ไม่อัปโหลด ไม่ใช้ AI วาดใหม่): ขยายทีละ 2 เท่าด้วยการประมาณค่าคุณภาพสูง แล้วเพิ่มความคม (unsharp mask) · ข้อความ/รายละเอียดเดิมไม่ถูกแต่งเติม
-async function upscaleImage(file, { mode = '2', w = 0, h = 0, sharp = 0.6 } = {}) {
+async function upscaleImage(file, { mode = '2', w = 0, h = 0, sharp = 0.6, to = null } = {}) { // to = [w,h] ขนาดปลายทางแน่นอน (ใช้หลัง AI)
   const bmp = await createImageBitmap(file), sw = bmp.width, sh = bmp.height;
   let tw, th;
-  if (mode === 'size' && w > 0 && h > 0) { const k = Math.min(w / sw, h / sh); tw = Math.round(sw * k); th = Math.round(sh * k); } // พอดีกรอบ คงสัดส่วนเดิม
+  if (to) { [tw, th] = to; }
+  else if (mode === 'size' && w > 0 && h > 0) { const k = Math.min(w / sw, h / sh); tw = Math.round(sw * k); th = Math.round(sh * k); } // พอดีกรอบ คงสัดส่วนเดิม
   else { const k = +mode || 2; tw = sw * k; th = sh * k; }
   const MAX = 6000; if (Math.max(tw, th) > MAX) { const k = MAX / Math.max(tw, th); tw = Math.round(tw * k); th = Math.round(th * k); }
   let cur = document.createElement('canvas'); cur.width = sw; cur.height = sh; cur.getContext('2d').drawImage(bmp, 0, 0);
@@ -531,23 +532,41 @@ async function upscaleImage(file, { mode = '2', w = 0, h = 0, sharp = 0.6 } = {}
   }
   return { blob: await new Promise(r => out.toBlob(r, 'image/png')), w: tw, h: th, sw, sh };
 }
+// AI upscale: ให้โมเดลสร้างรูป (images/edits) วาดภาพเดิมใหม่ให้คมและกู้รายละเอียด แล้วย่อ/ขยายกลับเป็นสัดส่วนและขนาดเดิมที่ต้องการ · หักลิมิตเท่าสร้างรูป 1 รูป
+const AI_UP_PROMPT = 'Restore and upscale this exact image. Output the SAME image at higher quality: remove blur, noise and JPEG artifacts, sharpen edges, recover fine detail. Keep everything identical: same composition, framing, colors, people, faces, objects, background, and every letter, number and symbol of all text exactly as written (do not translate, retype, invent or change any text). Do not add, remove or move anything.';
+async function aiUpscale(file, target) {
+  const bmp = await createImageBitmap(file), r = bmp.width / bmp.height, size = r > 1.2 ? '1536x1024' : r < 0.83 ? '1024x1536' : '1024x1024';
+  const k = Math.min(1, 1536 / Math.max(bmp.width, bmp.height)), c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  const res = await api('/image', { method: 'POST', body: { prompt: AI_UP_PROMPT, images: [c.toDataURL('image/png')], size, inline: true } });
+  const blob = await (await fetch(res.src)).blob();
+  const [tw, th] = target || [bmp.width * 2, bmp.height * 2];
+  return { ...(await upscaleImage(blob, { to: [tw, th], sharp: 0.3 })), sw: bmp.width, sh: bmp.height, usage: res.usage };
+}
 function upscaleSheet() {
   sheet('ขยายภาพให้คม', `<div class="sheet-form">
     <p class="muted" style="font-size:13px;margin:0">ทำในเครื่องของคุณ ไม่อัปโหลดภาพ ไม่ใช้ AI วาดใหม่ ข้อความและรายละเอียดเดิมจึงไม่เพี้ยน · ไม่หักลิมิต</p>
     <input type="file" id="upf" accept="image/*">
+    <div class="seg" id="upk" role="group" style="margin:4px 0"><button type="button" data-k="plain" class="on">รักษาเดิม 100%</button><button type="button" data-k="ai">AI กู้รายละเอียด</button></div>
+    <p class="muted" id="upkn" style="font-size:12.5px;margin:0">ไม่ใช้ AI: ข้อความและรายละเอียดเหมือนเดิมทุกจุด ไม่หักลิมิต · เหมาะกับภาพที่ชัดอยู่แล้วแต่อยากได้ไฟล์ใหญ่ขึ้น</p>
     <div class="seg" id="upm" role="group" style="margin:4px 0"><button type="button" data-m="2" class="on">2x</button><button type="button" data-m="3">3x</button><button type="button" data-m="4">4x</button><button type="button" data-m="size">กำหนดขนาด</button></div>
     <div id="upsz" hidden class="row" style="gap:6px"><input id="upw" type="number" min="16" max="6000" value="1500" style="width:110px"> × <input id="uph" type="number" min="16" max="6000" value="1000" style="width:110px"> <small class="muted">คงสัดส่วนเดิม</small></div>
     <label>ความคม <input id="ups" type="range" min="0" max="1.5" step="0.1" value="0.6"></label>
     <button class="btn blue" id="upgo" type="button">ขยายภาพ</button><div id="upout"></div></div>`, d => {
-    let mode = '2';
+    let mode = '2', kind = 'plain';
+    d.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { kind = b.dataset.k; d.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x === b)); d.querySelector('#upkn').textContent = kind === 'ai' ? 'AI วาดภาพเดิมใหม่ให้คมขึ้นและกู้รายละเอียดที่เบลอ · ตัวหนังสือเล็กหรือเลขอาจเพี้ยนได้ ตรวจก่อนใช้ทุกครั้ง · ใช้ลิมิตเท่าสร้างภาพ 1 รูป (ชั่วโมงละไม่เกิน 10 รูป)' : 'ไม่ใช้ AI: ข้อความและรายละเอียดเหมือนเดิมทุกจุด ไม่หักลิมิต · เหมาะกับภาพที่ชัดอยู่แล้วแต่อยากได้ไฟล์ใหญ่ขึ้น'; });
     d.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { mode = b.dataset.m; d.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); d.querySelector('#upsz').hidden = mode !== 'size'; });
     d.querySelector('#upgo').onclick = async e => {
       const f = d.querySelector('#upf').files[0]; if (!f) return toast('เลือกรูปก่อน', 'bad');
       e.target.disabled = true; e.target.textContent = 'กำลังขยาย…';
       try {
-        const r = await upscaleImage(f, { mode, w: +d.querySelector('#upw').value, h: +d.querySelector('#uph').value, sharp: +d.querySelector('#ups').value });
-        const url = URL.createObjectURL(r.blob), name = f.name.replace(/\.[^.]+$/, '') + `-${r.w}x${r.h}.png`;
-        d.querySelector('#upout').innerHTML = `<p class="muted" style="font-size:13px">${r.sw}×${r.sh} → <b>${r.w}×${r.h}</b> px · ${(r.blob.size / 1e6).toFixed(1)} MB</p><img src="${url}" style="max-width:100%;border-radius:10px"><a class="btn" href="${url}" download="${esc(name)}" style="margin-top:8px">${ic('download', 'sm')} ดาวน์โหลด PNG</a>`;
+        const opt = { mode, w: +d.querySelector('#upw').value, h: +d.querySelector('#uph').value, sharp: +d.querySelector('#ups').value };
+        let r;
+        if (kind === 'ai') { // ขนาดปลายทางคิดแบบเดียวกับโหมดรักษาเดิม (คงสัดส่วนภาพต้นฉบับ)
+          const b0 = await createImageBitmap(f), kk = mode === 'size' ? Math.min(opt.w / b0.width, opt.h / b0.height) : +mode || 2, M = Math.min(1, 6000 / Math.max(b0.width * kk, b0.height * kk));
+          r = await aiUpscale(f, [Math.round(b0.width * kk * M), Math.round(b0.height * kk * M)]);
+        } else r = await upscaleImage(f, opt);
+        const url = URL.createObjectURL(r.blob), name = f.name.replace(/\.[^.]+$/, '') + `-${kind === 'ai' ? 'ai-' : ''}${r.w}x${r.h}.png`, orig = URL.createObjectURL(f);
+        d.querySelector('#upout').innerHTML = `<p class="muted" style="font-size:13px">${r.sw}×${r.sh} → <b>${r.w}×${r.h}</b> px · ${(r.blob.size / 1e6).toFixed(1)} MB${kind === 'ai' ? ' · AI · <b>ตรวจตัวหนังสือ/ตัวเลขเทียบต้นฉบับก่อนใช้</b>' : ''}</p>${kind === 'ai' ? `<div class="up-cmp"><figure><img src="${orig}"><figcaption>ต้นฉบับ</figcaption></figure><figure><img src="${url}"><figcaption>AI</figcaption></figure></div>` : `<img src="${url}" style="max-width:100%;border-radius:10px">`}<a class="btn" href="${url}" download="${esc(name)}" style="margin-top:8px">${ic('download', 'sm')} ดาวน์โหลด PNG</a>`;
       } catch (x) { toast('ขยายภาพไม่สำเร็จ: ' + x.message, 'bad'); }
       e.target.disabled = false; e.target.textContent = 'ขยายภาพ';
     };
