@@ -1636,7 +1636,7 @@ async function folderSheet(id) {
 }
 
 // ---------- tools ของแชต: ไฟล์ให้ดาวน์โหลด [[dl:ชื่อ|base64]] และรัน Python [[py:base64]] (เซิร์ฟเวอร์ใส่ไว้ในคำตอบ) ----------
-const DL_RE = /\[\[dl:([^|\]\n]{1,120})\|([A-Za-z0-9+/=]+)\]\]/g, PY_RE = /\[\[py:([A-Za-z0-9+/=]+)\]\]/g, PY_RES = '[ผลรัน Python]', PY_MAX = 4;
+const DL_RE = /\[\[dl:([^|\]\n]{1,120})\|([A-Za-z0-9+/=]+)\]\]/g, PY_RE = /\[\[py:([A-Za-z0-9+/=]+)\]\]/g, PY_RES = '[ผลรัน Python]', PY_MAX = 8;
 const unb64t = b => { try { return new TextDecoder().decode(Uint8Array.from(atob(b), c => c.charCodeAt(0))); } catch { return ''; } };
 function parseTools(content) {
   const files = [], py = [];
@@ -1705,7 +1705,7 @@ async function pyCloud(files, main) {
   } catch { return null; }
 }
 async function pyRun(ai) {
-  chat.pyRound = (chat.pyRound || 0) + 1; if (chat.pyRound > PY_MAX) return showErr(`AI รัน Python ครบ ${PY_MAX} รอบแล้ว พิมพ์สั่งต่อได้เลย`);
+  chat.pyRound = (chat.pyRound || 0) + 1; if (chat.pyRound > PY_MAX) { chat.pyRound = 0; return toast(`AI แก้และรัน Python ไปแล้ว ${PY_MAX} รอบ หยุดพักไว้กันวนไม่จบ · แตะที่นี่ให้ทำต่อ`, '', { ms: 20000, onClick: () => pyRun(ai) }); } // เดิมขึ้นเป็น error สีแดงจนลูกค้างงว่าเสีย
   const code = parseTools(ai.content).py.at(-1); if (!code) return;
   const files = chat.msgs.filter(m => m.role === 'user').flatMap(m => [...m.content.matchAll(FILE_RE)].map(x => ({ path: '/data/' + x[1].replace(/[\\/]/g, '_'), content: x[2] })));
   ai.pyOut = { text: 'กำลังรัน Python บนคลาวด์…', imgs: [] }; renderAll(); setBusy(true);
