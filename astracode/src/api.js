@@ -10,6 +10,17 @@ export const monthKey = () => new Date(Date.now() + BKK).toISOString().slice(0, 
 export const WALLET_SLOTS = 8;
 export const slug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
 export const V1_CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-api-key, anthropic-version, anthropic-beta', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-expose-headers': 'retry-after, x-request-id, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-astracode-billing, x-kyber-billing, x-astracode-model, x-kyber-model' };
+// อ่าน body: JSON ปกติ · /v1/images/edits จาก OpenAI SDK ส่งเป็น multipart (image / image[] เป็นไฟล์) → แปลงเป็น data URL
+async function readBody(req, path) {
+  if (path === '/v1/images/edits' && /multipart\/form-data/i.test(req.headers.get('content-type') || '')) {
+    const f = await req.formData().catch(() => null); if (!f) return null;
+    const b = {}; for (const [k, v] of f.entries()) if (typeof v === 'string') b[k] = v;
+    const files = [...f.getAll('image'), ...f.getAll('image[]')].filter(x => x && typeof x === 'object' && x.size > 0 && x.size <= 8e6).slice(0, 16);
+    b.images = await Promise.all(files.map(async x => { const a = new Uint8Array(await x.arrayBuffer()); let s = ''; for (let i = 0; i < a.length; i += 32768) s += String.fromCharCode(...a.subarray(i, i + 32768)); return `data:${/^image\/(png|jpeg|webp)$/.test(x.type) ? x.type : 'image/png'};base64,${btoa(s)}`; }));
+    if (b.n) b.n = +b.n; return b;
+  }
+  return req.json().catch(() => null);
+}
 export const CTX_GUARD = 600000; // ตัวอักษร (~150K token)
 export async function v1core(req, env, ctx, path, lg = {}) {
   const cors = V1_CORS, rid = 'req_' + rand(12);
@@ -46,11 +57,11 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     lg.kid = k.kid; lg.uid = k.id;
     if (k.ip_allow && !ipAllowed(k.ip_allow, ip(req, env))) return fail('This IP address is not allowed for this API key.', 403, 'permission_error');
     // คำขอเรียกโมเดล: อ่านแพลน, นับ rate limit (คำสั่งเดียวได้ทั้งตัวนับและเวลารีเซ็ต), อ่าน body, แพ็ก Agent, เพดาน Wallet ต่อวัน พร้อมกัน · เดิมรอทีละคำสั่ง
-    const isCall = req.method === 'POST' && ['/v1/chat/completions', '/v1/images/generations', '/v1/embeddings'].includes(path);
+    const isCall = req.method === 'POST' && ['/v1/chat/completions', '/v1/images/generations', '/v1/images/edits', '/v1/embeddings'].includes(path);
     const isAgentKey = /^(Desktop|Cloud) Agent/.test(k.kname || '');
     let [plan, packUsed, rate, b0, dayCapped] = await Promise.all([planOf(env, k),
       isAgentKey && k.agent_pack_until > Date.now() ? env.DB.prepare('SELECT COALESCE(SUM(pack),0) x FROM usage WHERE user_id=? AND created_at>=?').bind(k.id, k.agent_pack_from || 0).first().then(r => r.x) : null,
-      isCall ? limitedInfo(env, 'api:' + k.kid, 60, 60e3) : null, isCall ? req.json().catch(() => null) : null,
+      isCall ? limitedInfo(env, 'api:' + k.kid, 60, 60e3) : null, isCall ? readBody(req, path) : null,
       isCall && k.balance >= WALLET_MIN ? dayCapHit(env, k.id) : false]);
     // แอป Desktop / Agent บนคลาวด์ ใช้ key ชื่อ "Desktop Agent" / "Cloud Agent": แพลนที่รวม Agent (Pro ขึ้นไป) ใช้ลิมิตแพลน · แพลนอื่นใช้แพ็ก Agent ก่อน แล้วค่อย Wallet
     const packLeft = packUsed == null ? 0 : (k.agent_pack_units || 0) - packUsed;
@@ -143,7 +154,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       }
       return out({ plan: plan.name, api_limit_enabled: !!plan.api_limit, key_use_plan: k.use_plan !== 0, wallet_balance: k.balance, key_spent_month: keySpent, key_budget: k.budget, usage: st, ...extra });
     }
-    const isImg = path === '/v1/images/generations', isEmb = path === '/v1/embeddings';
+    const isImg = path === '/v1/images/generations' || path === '/v1/images/edits', isEmb = path === '/v1/embeddings';
     if ((path !== '/v1/chat/completions' && !isImg && !isEmb) || req.method !== 'POST') return fail('not found', 404);
     const over = rate.over, rrow = rate;
     const secs = Math.max(1, Math.ceil(((rrow?.reset || 0) - Date.now()) / 1e3));
@@ -200,8 +211,10 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (embIn.join('').length > 400000) return fail('ข้อความยาวเกินไป', 413);
       b.stream = false;
     }
-    const msgs = isEmb ? [{ role: 'user', content: embIn.join('\n') }] : isImg ? [{ role: 'user', content: String(b.prompt || '').trim().slice(0, 4000) }] : Array.isArray(b.messages) ? b.messages : [];
-    if (isImg && !msgs[0].content) return fail('prompt is required.', 400);
+    const refImgs = isImg ? (Array.isArray(b.images) ? b.images : b.image ? [].concat(b.image) : []).map(x => typeof x === 'string' ? x : x?.image_url?.url || x?.url).filter(x => typeof x === 'string' && /^(data:image\/(png|jpeg|webp);base64,|https:\/\/)/.test(x)).slice(0, 16) : [];
+    if (path === '/v1/images/edits' && !refImgs.length) return fail('image is required (1-16 reference images).', 400);
+    const msgs = isEmb ? [{ role: 'user', content: embIn.join('\n') }] : isImg ? [{ role: 'user', content: refImgs.length ? [{ type: 'text', text: String(b.prompt || '').trim().slice(0, 4000) }, ...refImgs.map(url => ({ type: 'image_url', image_url: { url } }))] : String(b.prompt || '').trim().slice(0, 4000) }] : Array.isArray(b.messages) ? b.messages : [];
+    if (isImg && !String(b.prompt || '').trim()) return fail('prompt is required.', 400);
     const text = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text).join('\n') : '';
     const hasImg = c => Array.isArray(c) && c.some(x => x?.type === 'image_url');
     const normContent = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x => x?.type === 'text' || x?.type === 'image_url') : '';
@@ -219,7 +232,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       delete extra.response_format;
     }
     if (!hist.length || !['user', 'tool'].includes(hist.at(-1).role)) return fail('messages ต้องลงท้ายด้วยข้อความของ user หรือ tool', 400);
-    if (hist.some(x => hasImg(x.content)) && !m.vision) return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
+    if (hist.some(x => hasImg(x.content)) && !m.vision && m.provider !== 'image') return fail(`โมเดล "${slug(m)}" ไม่รองรับการส่งรูปภาพ`, 400);
     // กันลิมิตหมดไว: เครื่องมืออย่าง OpenCode ที่ตั้ง context ไว้ใหญ่ (เดิมเราแนะนำ 1M) ส่งบทสนทนา 300K+ token ทุกรอบ · ประวัติยาวเกิน ~150K token = ย่อผลเครื่องมือเก่า (เก็บ 6 รอบล่าสุดเต็ม)
     // ผลเดิมของข้อความเดิมย่อแบบเดียวกันทุกครั้ง → prompt cache ส่วนต้นยังใช้ได้ · ปิดได้ด้วย header x-kyber-full-context: 1
     if (req.headers.get('x-kyber-full-context') !== '1' && JSON.stringify(hist).length > CTX_GUARD) slimTools(hist, 6, 4000);

@@ -16,6 +16,24 @@ import { cron, status } from './jobs.js';
 // ---------- AI providers ----------
 // คืน async generator: {t:text} ระหว่างทาง, {usage:{fresh,read,write,out}} ตอนจบ
 // ผลเครื่องมือ/Connector (MCP) ของรอบเก่าในคำตอบเดียวกัน: เก็บแค่หัว+ท้าย (เดิมผลยาว 20K ตัวอักษรถูกส่งซ้ำทุกรอบ = กินลิมิตเร็ว) · 2 รอบล่าสุดเต็ม · ทำซ้ำไม่เปลี่ยน (cache ส่วนต้นยังใช้ได้)
+// ---------- สร้างรูปจากรูปอ้างอิง (image-to-image) ----------
+// OpenAI-style /images/edits (multipart, image[] ได้หลายรูป) · gpt-image รับได้สูงสุด 16 รูป
+export const IMG_REF_MAX = 16;
+const dataToBlob = async u => {
+  if (u.startsWith('data:')) { const mime = u.slice(5, u.indexOf(';')) || 'image/png', bin = atob(u.slice(u.indexOf(',') + 1)), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime }); }
+  const r = await fetch(u, { signal: AbortSignal.timeout(20e3) }); if (!r.ok) throw userErr('โหลดรูปอ้างอิงไม่ได้'); return new Blob([await r.arrayBuffer()], { type: r.headers.get('content-type') || 'image/png' });
+};
+export async function imageEditCall({ base, key, model, prompt, refs, opts = {} }) {
+  const blobs = await Promise.all(refs.slice(0, IMG_REF_MAX).map(dataToBlob));
+  const form = () => { const f = new FormData(); f.append('model', model); f.append('prompt', prompt); f.append('n', '1');
+    for (const [k, v] of Object.entries(opts)) if (v != null && typeof v !== 'object') f.append(k, String(v));
+    blobs.forEach((b, i) => f.append(blobs.length > 1 ? 'image[]' : 'image', b, `ref${i + 1}.${b.type.includes('png') ? 'png' : b.type.includes('webp') ? 'webp' : 'jpg'}`)); return f; };
+  const go = b => fetch(b + '/images/edits', { method: 'POST', headers: { authorization: 'Bearer ' + key }, body: form() });
+  const b0 = base.replace(/\/$/, ''); let r = await go(b0); if (r.status === 404 && !/\/v1$/.test(b0)) r = await go(b0 + '/v1');
+  if (r.status === 404 || r.status === 405) throw userErr('โมเดลสร้างรูปนี้ยังไม่รองรับรูปอ้างอิง ลองสร้างจากคำบรรยายอย่างเดียว');
+  return r;
+}
+
 export const LAZY_CONN = 12;
 export const LAZY_TOOL = { type: 'function', function: { name: 'connectors', description: 'Use the apps the user connected (Gmail, Drive, Sheets, Calendar, GitHub, Notion, ...). action=list shows the tools; action=describe {name} shows one tool\'s parameters; action=call {name, args} runs it. List first, describe before the first call of a tool.', parameters: { type: 'object', properties: { action: { type: 'string', enum: ['list', 'describe', 'call'] }, name: { type: 'string' }, args: { type: 'object' } }, required: ['action'] } } };
 export function lazyConn(tools, a = {}) {
@@ -179,7 +197,10 @@ export async function* callModel(env, m, msgs, { effort, images = [], system = S
     const last = msgs.findLast(x => x.role === 'user'), prompt = (Array.isArray(last?.content) ? last.content.filter(c => c?.type === 'text').map(c => c.text).join('\n') : String(last?.content || '')).replace(/\n\n\[ไฟล์ทั้งหมดในโปรเจกต์\][\s\S]*$/, '').trim().slice(0, 4000);
     if (!prompt) throw new Error('บอกว่าอยากได้รูปแบบไหน');
     const base0 = m.base_url.replace(/\/$/, '');
+    // รูปอ้างอิง (แนบมากับข้อความ หรือส่งผ่าน API): ใช้ /images/edits แทน (สูงสุด IMG_REF_MAX รูป)
+    const refs = [...new Set([...images, ...(Array.isArray(last?.content) ? last.content.filter(c => c?.type === 'image_url').map(c => c.image_url?.url || c.image_url) : [])])].filter(x => typeof x === 'string' && /^(data:image\/|https:\/\/)/.test(x)).slice(0, IMG_REF_MAX);
     const call = async extra => { // 404 = ไม่มีเส้นทางนี้ ลองใส่ /v1 ให้ (ผู้ให้บริการบางรายต้องมี)
+      if (refs.length) return imageEditCall({ base: base0, key, model: m.api_model, prompt, refs, opts: { size: '1024x1024', ...extra, ...imageOpts } });
       const go = b => fetch(b + '/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify({ model: m.api_model, prompt, n: 1, size: '1024x1024', ...extra, ...imageOpts }) });
       const r = await go(base0); return r.status === 404 && !/\/v1$/.test(base0) ? go(base0 + '/v1') : r;
     };
@@ -585,7 +606,7 @@ export async function chat(req, env, u, ctx) {
   const mcLeft = mRow && !ephemeral ? await modelCreditLeft(env, u.id, mRow.id).catch(() => 0) : 0; // เครดิตเฉพาะโมเดลที่แอดมินเพิ่มให้
   if (m && !inPlan && !(mcLeft > 0 && m.provider !== 'embedding')) { if (u.balance >= WALLET_MIN && m.public && m.provider !== 'embedding') offPlan = true; else m = null; }
   if (!m) return bail(err(u.balance >= WALLET_MIN ? 'ใช้โมเดลนี้ไม่ได้' : 'แพลนของคุณใช้โมเดลนี้ไม่ได้ · เติม Wallet เพื่อใช้ทุกโมเดลตามราคาขาย', 403));
-  if (images.length && !m.vision) return bail(err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น'));
+  if (images.length && !m.vision && m.provider !== 'image') return bail(err('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลอื่น')); // โมเดลสร้างรูป: รูปที่แนบ = รูปอ้างอิง
   const mcM = mcLeft > 0 && !!m; // ใช้เครดิตโมเดลก่อน: ไม่หักลิมิต/Wallet ไม่ติดเพดาน
   if (mcM) offPlan = false;
   if (capped && !offPlan && !mcM) return bail(json({ error: `${m.name} ใช้ถึงเพดานรายสัปดาห์แล้ว ลองโมเดลอื่นได้เลย`, cap: true }, 429));

@@ -410,7 +410,7 @@ function modelUI() {
     + (agentOn() ? `<button type="button" class="flag on" data-flag="pcag" aria-label="ปิดโหมด Agent">${ic('sparkles', 'sm')}Agent · ${esc(AG_MODES.find(x => x[0] === agMode())[2])}${ic('x', 'sm')}</button>` : pcOn() && PCD?.agent && !img ? `<button type="button" class="flag" data-flag="pcagon" aria-label="เปิดโหมด Agent">${ic('plus', 'sm')}เปิดโหมด Agent</button>` : '') // ปิดแล้วต้องเปิดคืนได้ในที่เดิม (ลูกค้ากด x แล้วหาทางเปิดไม่เจอ)
     + (chat.skills.length && _skillsCache ? chat.skills.map(id => { const sk = _skillsCache.find(x => x.id === id); return sk ? `<button type="button" class="flag" data-flag="sk" data-sid="${id}">${ic('sparkles', 'sm')}${esc(sk.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '')
     + (chat.mcps.length && _mcpCache ? chat.mcps.map(id => { const mc = _mcpCache.find(x => x.id === id); return mc ? `<button type="button" class="flag" data-flag="mc" data-mid="${id}">${ic('server', 'sm')}${esc(mc.name)}${ic('x', 'sm')}</button>` : ''; }).join('') : '');
-  if (!m?.vision && chat.images.length) { chat.images = []; drawThumbs(); showErr('โมเดลนี้อ่านรูปไม่ได้ จึงเอารูปออกแล้ว'); }
+  if (!m?.vision && m?.provider !== 'image' && chat.images.length) { chat.images = []; drawThumbs(); showErr('โมเดลนี้อ่านรูปไม่ได้ จึงเอารูปออกแล้ว'); } // โมเดลสร้างรูป: รูปที่แนบ = รูปอ้างอิง
 }
 // ปุ่ม +: แผ่นล่างแบบ "ทางลัดแถวบน + รายการไอคอนพร้อมคำอธิบาย" · ชื่อเป็นอังกฤษ คำอธิบายเป็นไทย
 const toolRow = (v, icon, title, desc, on) => `<button type="button" class="trow ${on ? 'on' : ''}" data-v="${v}"><span class="tico">${ic(icon)}</span><span class="tbody"><b>${title}</b><small>${desc}</small></span>${on ? `<i class="tchk">${ic('check')}</i>` : ''}</button>`;
@@ -766,11 +766,12 @@ async function genImage(auto, silent, size) { // size = sq/land/port (AI เล�
   if (chat.busy) return;
   const t = $('#t'), prompt_ = typeof auto === 'string' ? auto : t.value.trim() || await promptSheet('บรรยายรูปที่ต้องการสร้าง', '', { title: 'สร้างรูปด้วย AI', placeholder: 'เช่น แมวส้มใส่แว่นกันแดด สไตล์อนิเมะ', ok: 'Generate image' });
   if (!prompt_?.trim()) return;
-  if (!silent) { t.value = ''; t.style.height = 'auto'; $('#e').textContent = ''; chat.msgs.push({ role: 'user', content: '🎨 ' + prompt_ }); appendMsg(chat.msgs.at(-1)); }
+  if (!silent) { t.value = ''; t.style.height = 'auto'; $('#e').textContent = ''; chat.msgs.push({ role: 'user', content: '🎨 ' + prompt_ + (chat.images.length ? ` (รูปอ้างอิง ${Math.min(chat.images.length, 16)} รูป)` : '') }); appendMsg(chat.msgs.at(-1)); }
   const ai = { role: 'assistant', content: '', model: 'สร้างรูป', streaming: true }; chat.msgs.push(ai); appendMsg(ai);
   setBusy(true);
-  try { const r = await api('/image', { method: 'POST', body: { prompt: prompt_, chat_id: chat.id, silent: !!silent, size: IMG_SIZES[size && IMG_SIZES[size] ? size : imgSize()][0] } }); ai.content = `![${prompt_.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${r.src})`; setUsage(r.usage); }
-  catch (x) { if (silent) chat.msgs.pop(); else { chat.msgs.splice(-2, 2); t.value = prompt_; } showErr(x.message); }
+  const refs = silent ? [] : chat.images.slice(0, 16); if (refs.length) { chat.images = []; drawThumbs(); } // รูปที่แนบไว้ = รูปอ้างอิง (สูงสุด 16)
+  try { const r = await api('/image', { method: 'POST', body: { prompt: prompt_, chat_id: chat.id, silent: !!silent, size: IMG_SIZES[size && IMG_SIZES[size] ? size : imgSize()][0], ...(refs.length ? { images: refs } : {}) } }); ai.content = `![${prompt_.slice(0, 80).replace(/[\[\]\s]+/g, ' ').trim()}](${r.src})`; setUsage(r.usage); }
+  catch (x) { if (silent) chat.msgs.pop(); else { chat.msgs.splice(-2, 2); t.value = prompt_; if (refs.length) { chat.images = refs; drawThumbs(); } } showErr(x.message); }
   ai.streaming = false; setBusy(false); renderAll();
 }
 
@@ -883,13 +884,14 @@ async function addFiles(list) {
   for (const f of list) {
     if ((f.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|opus|flac)$/i.test(f.name)) && typeof meetFileSheet === 'function') { meetFileSheet(f); continue; } // ไฟล์เสียง: ถอดเป็นบันทึกประชุม
     if (f.type.startsWith('image/') && !/\.svg$/i.test(f.name)) {
-      if (!curModel()?.vision) { showErr('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลที่อ่านรูปได้ เช่น Claude'); continue; }
+      const cm = curModel(), isGen = cm?.provider === 'image';
+      if (!cm?.vision && !isGen) { showErr('โมเดลนี้อ่านรูปไม่ได้ เลือกโมเดลที่อ่านรูปได้ เช่น Claude หรือโมเดลสร้างรูป (ใช้เป็นรูปอ้างอิง)'); continue; }
       if (chat.images.length >= IMG_MAX) { showErr(`แนบรูปได้สูงสุด ${IMG_MAX} รูป`); continue; }
-      try { // ย่อเป็น JPEG ไม่เกิน 1280px ก่อนส่ง
-        const bmp = await createImageBitmap(f), s = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+      try { // ย่อเป็น JPEG ไม่เกิน 1280px ก่อนส่ง (รูปอ้างอิงของโมเดลสร้างรูปเก็บละเอียดกว่า 2048px)
+        const maxPx = isGen ? 2048 : 1280, bmp = await createImageBitmap(f), s = Math.min(1, maxPx / Math.max(bmp.width, bmp.height));
         const c = document.createElement('canvas'); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
         c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-        chat.images.push(c.toDataURL('image/jpeg', 0.85));
+        chat.images.push(c.toDataURL('image/jpeg', isGen ? 0.9 : 0.85));
       } catch { showErr('อ่านรูปนี้ไม่ได้ ลองใช้ JPG หรือ PNG'); }
       continue;
     }

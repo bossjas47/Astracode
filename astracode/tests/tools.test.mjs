@@ -370,3 +370,21 @@ test('Code mode harness: write_file over an unread existing file is refused unti
   assert.match(ev2.filter(e => e.t).map(e => e.t).join(''), /ทำสิ่งเดิมซ้ำหลายรอบ/);
   L.fm.close();
 });
+
+test('reference images: pictures attached to an image request (chat with an image model, or /api/image) go to /images/edits', async () => {
+  const hits = [];
+  const fm = await fakeModel((req, res, body) => { hits.push({ url: req.url, raw: body.raw || '' }); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data: [{ b64_json: Buffer.from('PIX').toString('base64') }] })); });
+  const t = await makeEnv({ K: 'k' });
+  const m = addModel(t.DB, { name: 'Img', provider: 'image', base_url: fm.url });
+  const plan = addPlan(t.DB, { models: [m.id], limit_4h: 1e6, limit_week: 1e6, price: 0 });
+  const u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const ref = 'data:image/jpeg;base64,' + Buffer.from('myphoto').toString('base64');
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { text: 'ทำให้เป็นการ์ตูน', model_id: m.id, images: [ref] } }));
+  assert.ok(!ev.some(e => e.error), JSON.stringify(ev.find(e => e.error)));
+  assert.match(hits.at(-1).url, /\/images\/edits$/); assert.match(hits.at(-1).raw, /ทำให้เป็นการ์ตูน/); assert.match(hits.at(-1).raw, /myphoto/);
+  t.DB.raw.prepare("INSERT OR REPLACE INTO settings VALUES ('image_enabled','1'),('image_base_url',?),('image_model','img'),('image_key_name','K')").run(fm.url);
+  const r = await t.json('/api/image', { method: 'POST', cookie: u.cookie, body: { prompt: 'ใส่หมวก', images: [ref, 'data:image/png;base64,' + Buffer.from('two').toString('base64')] } });
+  assert.equal(r.status, 200); assert.match(hits.at(-1).url, /\/images\/edits$/); assert.equal((hits.at(-1).raw.match(/name="image\[\]"/g) || []).length, 2);
+  const r2 = await t.json('/api/image', { method: 'POST', cookie: u.cookie, body: { prompt: 'ทะเล' } }); assert.equal(r2.status, 200); assert.match(hits.at(-1).url, /\/images\/generations$/);
+  fm.close();
+});

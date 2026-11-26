@@ -8,7 +8,7 @@ async function setup(opt = {}) {
     globalThis.__lastBody = body;
     if (q.url.endsWith('/embeddings')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }], usage: { prompt_tokens: 7, total_tokens: 7 } })); }
     if (body.tools) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'get_time', arguments: '' } }] } }] }) + '\n\n'); res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"tz":"UTC"}' } }] } }] }) + '\n\n'); res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 12, completion_tokens: 6 } }) + '\n\n'); res.write('data: [DONE]\n\n'); return res.end(); }
-    if (q.url.endsWith('/images/generations')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ b64_json: Buffer.from('PIXELS').toString('base64') }] })); }
+    if (q.url.endsWith('/images/generations') || q.url.endsWith('/images/edits')) { globalThis.__imgHit = { url: q.url, raw: body.raw || '' }; res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ b64_json: Buffer.from('PIXELS').toString('base64') }] })); }
     fm.sse(res, 'hello');
   });
   const t = await makeEnv({ K: 'k' });
@@ -455,4 +455,19 @@ test('/v1/plugins: an agent saves skills and commands for its user, reads them b
   assert.deepEqual(t.DB.raw.prepare("SELECT name FROM skills WHERE user_id=? AND plugin='ai:team-review' AND as_text=0").all(u.id).map(x => x.name), ['review2']);
   assert.equal((await v1('/v1/plugins', { name: 'leak', title: 'x', skills: [{ name: 'a', content: 'token ghp_abcdefghijklmnopqrstuvwxyz123456' }] })).status, 400);
   assert.equal((await v1('/v1/plugins', { name: 'Bad Name', skills: [{ name: 'a', content: 'b' }] })).status, 400);
+});
+
+test('reference images: /v1/images/edits (JSON or multipart) sends the pictures to the provider edits endpoint; generations without refs stays text-only', async () => {
+  const { fm, v1, key, t } = await setup({ balance: 100 });
+  const png = 'data:image/png;base64,' + Buffer.from('fakepng').toString('base64');
+  const png2 = 'data:image/png;base64,' + Buffer.from('fakepng2').toString('base64');
+  const r = await v1('/v1/images/edits', { model: 'pic-one', prompt: 'make it blue', images: [png, png2, png] });
+  assert.equal(r.status, 200); assert.ok(r.d.data[0].b64_json);
+  assert.match(globalThis.__imgHit.url, /\/images\/edits$/); assert.equal((globalThis.__imgHit.raw.match(/name="image\[\]"/g) || []).length, 2, 'two different refs, duplicate dropped'); assert.match(globalThis.__imgHit.raw, /make it blue/);
+  assert.equal((await v1('/v1/images/edits', { model: 'pic-one', prompt: 'x' })).status, 400, 'edits needs at least one image');
+  const fd = new FormData(); fd.append('model', 'pic-one'); fd.append('prompt', 'cat in hat'); fd.append('image', new Blob([Buffer.from('fakejpg')], { type: 'image/jpeg' }), 'a.jpg');
+  const mr = await t.call('/v1/images/edits', { method: 'POST', rawBody: fd, headers: { authorization: 'Bearer ' + key } }); await Promise.all(t.ctx.pending);
+  assert.equal(mr.status, 200); assert.match(globalThis.__imgHit.raw, /cat in hat/); assert.match(globalThis.__imgHit.raw, /name="image"/);
+  const g = await v1('/v1/images/generations', { model: 'pic-one', prompt: 'a dog' }); assert.equal(g.status, 200); assert.match(globalThis.__imgHit.url, /\/images\/generations$/);
+  fm.close();
 });
