@@ -45,12 +45,18 @@ async function api(path, opt = {}) {
   if (r.status === 401) me = null;
   if (!r.ok) { // ไม่ใช่ JSON = error จาก Vercel/Cloudflare เอง โชว์รหัสกับต้นข้อความไว้หาสาเหตุ
     const raw = json ? '' : (await r.text().catch(() => '')).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    errNote(`API ${opt.method || 'GET'} ${path.split('?')[0]} → ${r.status} ${d?.error || raw || ''}`);
     throw Object.assign(new Error(d?.error || (d?.need2fa ? 'ต้องใช้รหัส 2FA' : `ผิดพลาด (HTTP ${r.status}${raw ? ': ' + raw : ''})`)), { data: d, status: r.status });
   }
   if (/^\/(pricing|plans|settings\/public|status)(\/|\?|$)/.test(path) && (!opt.method || opt.method === 'GET')) return biLang(d);
   return d;
 }
 
+// error ล่าสุดในหน้า (แนบไปกับปุ่ม "แจ้งปัญหา" อัตโนมัติ)
+if (typeof window !== 'undefined') window.__errs = window.__errs || [];
+function errNote(m) { try { window.__errs.push(new Date().toTimeString().slice(0, 8) + ' ' + String(m).slice(0, 240)); if (window.__errs.length > 20) window.__errs.shift(); } catch { /* */ } }
+if (typeof window !== 'undefined') addEventListener('error', e => errNote('JS: ' + (e.message || e.error?.message || 'error') + (e.filename ? ' @' + e.filename.split('/').pop() + ':' + e.lineno : '')));
+if (typeof window !== 'undefined') addEventListener('unhandledrejection', e => errNote('Promise: ' + (e.reason?.message || e.reason || '')));
 // รูปที่ผู้ใช้แนบในข้อความ (เซิร์ฟเวอร์เก็บไว้แล้วอ้างเป็น ![รูปที่แนบ](/api/img/...)): แสดงเป็นรูปย่อ ไม่แสดงเป็นข้อความดิบ
 const ATT_IMG_RE = /\n*!\[รูปที่แนบ\]\((\/api\/img\/\d+\/[\w-]+\.(?:png|jpg))\)/g;
 const attImgsOf = s => [...String(s || '').matchAll(ATT_IMG_RE)].map(m => m[1]);
@@ -330,6 +336,7 @@ function acctMenu(btn, host) {
     <a role="menuitem" href="/plans?topup=1">${ic('wallet')}<span>Top up</span><small>฿${baht(me.balance)}</small></a>
     <hr>
     <a role="menuitem" href="${FB_PAGE}" target="_blank" rel="noopener">${ic('msg')}<span>แชตกับแอดมิน (Facebook)</span></a>
+    <button type="button" role="menuitem" data-ap="bug">${ic('alert')}<span>แจ้งปัญหา / บั๊ก</span></button>
     <a role="menuitem" href="/support">${ic('mail')}<span>Contact &amp; support</span></a>
     ${['admin', 'support', 'viewer'].includes(me.role) ? `<a role="menuitem" href="/admin">${ic('dash')}<span>Admin</span></a>` : ''}
     <button type="button" role="menuitem" data-ap="out" class="ap-out">${ic('logout')}<span>Log out</span></button>`;
@@ -342,6 +349,7 @@ function acctMenu(btn, host) {
     const it = e.target.closest('[role=menuitem]'); if (!it) return;
     close();
     if (it.dataset.ap === 'settings') { e.preventDefault(); settingsSheet(); }
+    if (it.dataset.ap === 'bug') { e.preventDefault(); bugSheet(); }
     if (it.dataset.ap === 'out') { e.preventDefault(); await api('/logout', { method: 'POST' }).catch(() => {}); me = null; go('/'); }
   };
 }
@@ -1382,6 +1390,26 @@ const domReady = new Promise(r => document.readyState === 'loading' ? addEventLi
 const loadSite = async () => { site = await api('/settings/public').catch(() => ({})); };
 
 // ลายนิ้วมือเบราว์เซอร์ (เพื่อจับแอคหลุมที่สมัครหลายบัญชีจากเครื่องเดียว): ค่าหยาบๆ จาก canvas/หน้าจอ/timezone แล้ว hash · ส่งครั้งเดียวต่อวันต่อเครื่อง ไม่เก็บข้อมูลส่วนตัว
+// ปุ่ม "แจ้งปัญหา": เล่าปัญหา + แนบภาพหน้าจอ (≤3) · แนบหน้า/แอป/เบราว์เซอร์/error ล่าสุดให้อัตโนมัติ → เข้าเรื่อง "ติดต่อ" ในหลังบ้าน
+const shrinkShot = f => new Promise((res, rej) => { const im = new Image(); im.onload = () => { const k = Math.min(1, 1600 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(im.src); res(c.toDataURL('image/jpeg', 0.85)); }; im.onerror = rej; im.src = URL.createObjectURL(f); });
+function bugSheet() {
+  const errs = (window.__errs || []).slice(-10), app = window.astraDesktop ? 'แอปบนคอม' : 'เว็บ';
+  sheet('แจ้งปัญหา / บั๊ก', `<form class="sheet-form" id="bgf"><textarea name="text" rows="4" maxlength="4000" required placeholder="เกิดอะไรขึ้น ทำอะไรอยู่ตอนเจอ เช่น กดส่งแล้วขึ้น error / ตัวหนังสืออ่านไม่ออก"></textarea>
+    <label class="muted" style="font-size:13px">ภาพหน้าจอ (ไม่บังคับ สูงสุด 3 ภาพ)</label><input type="file" name="img" accept="image/*" multiple>
+    <label class="sw-row"><span class="sw"><input type="checkbox" name="meta" checked><span></span></span>แนบข้อมูลเครื่องให้ทีมงาน (หน้าเว็บ, ${esc(app)}, เบราว์เซอร์, error ล่าสุด ${errs.length} รายการ · ไม่มีรหัสผ่าน/ข้อความแชต)</label>
+    <button class="btn blue">ส่งให้ทีมงาน</button><p class="muted" style="font-size:12.5px;margin:0">ทีมงานตอบกลับในหน้า <a href="/support">ติดต่อ</a> และแจ้งเตือนเมื่อมีคำตอบ</p></form>`, (d, close) => {
+    d.querySelector('#bgf').onsubmit = async e => {
+      e.preventDefault(); const f = e.target, btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'กำลังส่ง…';
+      try {
+        const images = []; for (const file of [...f.img.files].slice(0, 3)) images.push(await shrinkShot(file).catch(() => null));
+        const ver = window.astraDesktop?.version ? await Promise.resolve(window.astraDesktop.version()).catch(() => '') : '';
+        const meta = f.meta.checked ? { url: location.pathname + location.search, app: app + (ver ? ' ' + ver : ''), ua: navigator.userAgent, screen: `${innerWidth}×${innerHeight} @${devicePixelRatio}x`, theme: document.documentElement.dataset.theme, errors: errs } : null;
+        await api('/bugreport', { method: 'POST', body: { text: f.text.value, images: images.filter(Boolean), meta } });
+        close(); toast('ส่งให้ทีมงานแล้ว ขอบคุณที่ช่วยบอกครับ 🙏', 'ok');
+      } catch (x) { toast(x.message, 'bad'); btn.disabled = false; btn.textContent = 'ส่งให้ทีมงาน'; }
+    };
+  });
+}
 async function sendFp() {
   try {
     if (!me || localStorage.getItem('fpd') === new Date().toDateString()) return;

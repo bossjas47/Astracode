@@ -385,6 +385,23 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     ctx.waitUntil(notify(env, `🎫 เรื่องใหม่จาก ${u.email}: ${subject}`));
     return json({ ok: true, id: t.id });
   }
+  if (path === '/api/bugreport' && M === 'POST') { // ปุ่ม "แจ้งปัญหา": ข้อความ + ภาพหน้าจอ (≤3) + ข้อมูลเครื่อง/หน้า/error ล่าสุด → เปิดเรื่องในหลังบ้าน (ติดต่อ) + แจ้งแอดมิน
+    const b = await req.json().catch(() => ({})), text = String(b.text || '').trim().slice(0, 4000);
+    if (text.length < 3) return err('เล่าปัญหาสั้น ๆ ก่อนส่ง');
+    if (await limited(env, 'bug:' + u.id, 10, DAY)) return err('แจ้งปัญหาได้วันละ 10 ครั้ง', 429);
+    const shots = []; for (const d of (Array.isArray(b.images) ? b.images : []).slice(0, 3)) {
+      if (typeof d !== 'string' || !/^data:image\/(png|jpeg|webp);base64,/.test(d) || d.length > 3e6) continue;
+      if (env.SLIPS) { const ext = d.includes('image/png') ? 'png' : 'jpg', name = 'bug-' + rand(10); await env.SLIPS.put(`img/${u.id}/${name}.${ext}`, unb64(d.slice(d.indexOf(',') + 1)), { httpMetadata: { contentType: ext === 'png' ? 'image/png' : 'image/jpeg' } }); shots.push(`/api/img/${u.id}/${name}.${ext}`); }
+    }
+    const m = b.meta && typeof b.meta === 'object' ? b.meta : {}, line = (k, v) => v ? `${k}: ${String(v).slice(0, 300)}\n` : '';
+    const errs = (Array.isArray(m.errors) ? m.errors : []).slice(-10).map(x => '  • ' + String(x).slice(0, 240)).join('\n');
+    const body = `${text}\n\n— ข้อมูลอัตโนมัติ —\n${line('หน้า', m.url)}${line('แอป', m.app)}${line('เบราว์เซอร์', m.ua)}${line('จอ', m.screen)}${line('ธีม', m.theme)}${line('เวลา', new Date().toISOString())}${errs ? 'error ล่าสุด:\n' + errs + '\n' : 'error ล่าสุด: ไม่มี\n'}${shots.length ? '\nภาพหน้าจอ:\n' + shots.join('\n') : ''}`;
+    const subject = '🐞 ' + text.split('\n')[0].slice(0, 100), now = Date.now();
+    const t = await DB.prepare('INSERT INTO tickets (user_id,subject,created_at,updated_at) VALUES (?,?,?,?) RETURNING id').bind(u.id, subject, now, now).first();
+    await DB.prepare('INSERT INTO ticket_msgs (ticket_id,admin,body,created_at) VALUES (?,0,?,?)').bind(t.id, body.slice(0, 12000), now).run();
+    ctx.waitUntil(notify(env, `🐞 แจ้งปัญหาจาก ${u.email}: ${text.slice(0, 140)}${shots.length ? ` (ภาพ ${shots.length})` : ''}${m.errors?.length ? ` · error ${m.errors.length}` : ''}`));
+    return json({ ok: true, id: t.id });
+  }
   if ((r = path.match(/^\/api\/tickets\/(\d+)$/))) {
     const t = await DB.prepare('SELECT * FROM tickets WHERE id=? AND user_id=?').bind(r[1], u.id).first(); if (!t) return err('ไม่พบเรื่อง', 404);
     if (M === 'POST') {
@@ -423,7 +440,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   }
   if (path === '/api/image' && M === 'POST') { const job = imageGen(req, env, u); ctx.waitUntil(job.catch(() => {})); return await job; } // ปิดหน้าระหว่างรอ: ยังสร้างเสร็จและคิดเงิน (ผู้ให้บริการคิดเงินเราแล้ว)
   if ((r = path.match(/^\/api\/img\/(\d+)\/([\w-]+)\.(png|jpg)$/))) {
-    if (+r[1] !== u.id && u.role !== 'admin') return err('not found', 404);
+    if (+r[1] !== u.id && !['admin', 'support'].includes(u.role)) return err('not found', 404); // ทีมซัพพอร์ตเปิดภาพหน้าจอที่ลูกค้าแนบตอนแจ้งปัญหาได้
     const o = env.SLIPS && await env.SLIPS.get(`img/${r[1]}/${r[2]}.${r[3]}`), cc = { 'cache-control': 'private, max-age=31536000', 'content-security-policy': "default-src 'none'; sandbox", 'x-content-type-options': 'nosniff' }; // รูปเปิดตรงๆ ไม่รันสคริปต์ (เช่น SVG)
     if (o) return new Response(o.body, { headers: { 'content-type': 'image/' + (r[3] === 'jpg' ? 'jpeg' : 'png'), ...cc } });
     await ensureImgTable(env);

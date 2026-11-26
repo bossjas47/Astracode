@@ -74,3 +74,18 @@ test('Live Dashboard: per-key stats, % of the weekly limit and a hot flag when o
   d = (await t.json('/api/keys/live', { cookie: u.cookie })).data;
   assert.equal(d.keys[0].hot, true); assert.ok(d.keys[0].pct1 >= 25); assert.equal(d.keys[0].models[0].model, 'chat-one');
 });
+
+test('bug report: text + screenshot + device info become a support ticket with the image visible to staff', async () => {
+  const t = await makeEnv({ K: 'k', SLIPS: { m: new Map(), async put(k, v) { this.m.set(k, v); }, async get(k) { const v = this.m.get(k); return v ? { body: v } : null; } } });
+  const u = await t.user(), adm = await t.user({ role: 'admin' });
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  assert.equal((await t.json('/api/bugreport', { method: 'POST', cookie: u.cookie, body: { text: '' } })).status, 400);
+  const r = await t.json('/api/bugreport', { method: 'POST', cookie: u.cookie, body: { text: 'ตัวหนังสือดำบนดำ\nหน้า Code', images: [png], meta: { url: '/code?p=1', app: 'เว็บ', theme: 'light', errors: ['API GET /me → 500'] } } });
+  assert.equal(r.status, 200);
+  const tk = t.DB.raw.prepare('SELECT subject FROM tickets WHERE id=?').get(r.data.id); assert.match(tk.subject, /^🐞 ตัวหนังสือดำบนดำ/);
+  const body = t.DB.raw.prepare('SELECT body FROM ticket_msgs WHERE ticket_id=?').get(r.data.id).body;
+  assert.match(body, /หน้า: \/code\?p=1/); assert.match(body, /API GET \/me → 500/);
+  const img = body.match(/\/api\/img\/\d+\/bug-[\w-]+\.png/)[0];
+  assert.equal((await t.call(img, { cookie: adm.cookie })).status, 200, 'staff can open the screenshot');
+  const other = await t.user(); assert.equal((await t.call(img, { cookie: other.cookie })).status, 404, 'other users cannot');
+});

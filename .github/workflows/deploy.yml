@@ -26,6 +26,16 @@ jobs:
         run: |
           npm install --no-save playwright-core
           CHROME_PATH="$(which google-chrome || which chromium-browser || which chromium)" npm run e2e
+      # หน้าจอจริงก่อน deploy: Worker จริง + เบราว์เซอร์จริง · ธีมสว่าง/มืด × คอม/มือถือ · ตัวหนังสืออ่านไม่ได้ หรือ error ของ JavaScript = ไม่ deploy
+      - name: UI check (blocks deploy)
+        working-directory: astracode
+        run: CHROME_PATH="$(which google-chrome || which chromium-browser || which chromium)" npm run uicheck
+      - name: UI check screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uicheck
+          path: astracode/tests/uicheck-out
       # wrangler uploads the Worker, then fails reading the workers.dev subdomain because the token
       # lacks that permission. The next step decides success by asking the live site which version runs.
       - uses: cloudflare/wrangler-action@v3
