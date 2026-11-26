@@ -344,7 +344,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         } catch (e0) {
           wd.done(); const e = wd.err(e0);
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
-          if (!content && !reasoning && !tcs.size && healN < HEAL_TRIES) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
+          if (!content && !reasoning && !tcs.size && healN < HEAL_TRIES && !/upstream 4(0[0-3]|04|13|22)\b/.test(e.message)) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
           if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
           if (content || reasoning || tcs.size) await finish(usage, content.length + reasoning.length + 2, 'part'); // พังกลางคำตอบ: ผู้ให้บริการคิดเงินส่วนที่ทำไปแล้ว
@@ -404,7 +404,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
             wd.done(); const e = wd.err(e0);
             if (gone) break;
             await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
-            if (!sentAny && healN < HEAL_TRIES) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
+            if (!sentAny && healN < HEAL_TRIES && !/upstream 4(0[0-3]|04|13|22)\b/.test(e.message)) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
             const fb = attempt === 0 && !sentAny ? await nextFallback(activeModel) : null;
             if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
             throw e;
