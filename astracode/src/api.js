@@ -1,6 +1,7 @@
 import { claudeCreditLeft, isClaudeEco, modelCreditIds, useClaudeCredit, useModelCredit } from './credits.js';
 import { pickBucket, BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
 import { SSE, callModel, chat, logFallback, logUsage, slimTools, webSearch } from './ai.js';
+import { HEAL_TRIES, MEM_SYS, bumpMemory, burnCheck, healReason, loadMemory, memoryBlock, projectOf } from './apiplus.js';
 import { connCall, connTools } from './connectors.js';
 import { unseal } from './projects.js';
 import { blockedText, dayCapHit, event, getSetting, mail, mailBox, origin, priceOf, siteUrl } from './billing.js';
@@ -52,7 +53,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
   let walletKey = null; // ล็อก Wallet ทีละคำขอ: ต้องปลดทุกทางออก (สำเร็จ/ผิดพลาด) ไม่งั้นผู้ใช้ติดล็อก 3 นาที
   try {
     const key = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '') || req.headers.get('x-api-key') || '';
-    const k = key && await env.DB.prepare('SELECT k.id kid, k.budget, k.models kmodels, k.use_plan, k.spent, k.spent_month, k.ip_allow, k.name kname, u.* FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.key_hash=? AND k.revoked=0 AND (k.expires_at IS NULL OR k.expires_at>?)').bind(await sha(key), Date.now()).first();
+    const k = key && await env.DB.prepare('SELECT k.id kid, k.memory kmem, k.budget, k.models kmodels, k.use_plan, k.spent, k.spent_month, k.ip_allow, k.name kname, u.* FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.key_hash=? AND k.revoked=0 AND (k.expires_at IS NULL OR k.expires_at>?)').bind(await sha(key), Date.now()).first();
     if (!k || k.banned) return fail('API key ไม่ถูกต้อง', 401, 'invalid_api_key');
     lg.kid = k.kid; lg.uid = k.id;
     if (k.ip_allow && !ipAllowed(k.ip_allow, ip(req, env))) return fail('This IP address is not allowed for this API key.', 403, 'permission_error');
@@ -238,6 +239,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     // Claude Eco: ผู้ให้บริการแคชได้แค่ ~21% (วัดจริง) ส่งบริบทยาวซ้ำ = จ่ายเกือบเต็มทุกรอบ → ย่อผลเก่าตั้งแต่ ~60K token
     const guard = isClaudeEco(m) ? CTX_GUARD_ECO : CTX_GUARD;
     if (req.headers.get('x-kyber-full-context') !== '1' && JSON.stringify(hist).length > guard) slimTools(hist, 6, 4000);
+    // Kyber Memory (เปิดต่อ key): แนบโน้ตของโปรเจกต์นี้จากเซสชันก่อนท้าย system · โปรเจกต์ = working directory ที่โปรแกรมใส่ใน system prompt
+    const proj = k.kmem && !isImg && !isEmb ? await projectOf(system, msgs).catch(() => null) : null;
+    if (proj) { const mem = memoryBlock(await loadMemory(env, k.kid, proj).catch(() => '')); if (mem) { system += mem; if (systemBlocks) systemBlocks.push({ type: 'text', text: mem.trim() }); } }
     const histLen = JSON.stringify(hist).length;
     if (histLen > 4e6) return fail('ข้อความยาวเกินไป', 413); // ~1M token: ทุกโมเดล context 1.05M (เดิม 800K ตัวอักษร = เครื่องมือแบบ Claude Code / OpenCode ชนเร็ว)
     const cacheTtl = (histLen + system.length) >= 80000 ? '1h' : null; // context ยาว (~25K+ token): ใช้ cache 1 ชม. กันหมดอายุตอนหยุดอ่านโค้ดเกิน 5 นาที (ถ้า upstream ไม่รองรับ ai.js ถอยกลับ 5 นาทีเอง)
@@ -267,6 +271,15 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const fbInfo = () => activeModel.id !== m.id ? { requested: slug(m), answered_by: slug(activeModel) } : undefined; // บอกลูกค้าตรงๆ เมื่อโมเดลที่ขอล่มแล้วตอบด้วยโมเดลสำรอง
     const usageOut = u => ({ prompt_tokens: u.fresh + u.read + u.write, completion_tokens: u.out, total_tokens: u.fresh + u.read + u.write + u.out, prompt_tokens_details: { cached_tokens: u.read }, ...(u.astra ? { astra: u.astra } : {}) });
     const estUsage = (outChars) => ({ fresh: Math.ceil((JSON.stringify(hist).length + system.length) / 2), read: 0, write: 0, out: Math.ceil(outChars / 2), flag: 'est' });
+    let answerText = null; // คำตอบล่าสุด (ใช้อัปเดต Kyber Memory)
+    const memSummarize = async prompt => { // โมเดลที่ถูกที่สุดที่มีคีย์สรุปโน้ตโปรเจกต์ · ต้นทุนของเรา ไม่หักลิมิตลูกค้า
+      const cm = (await env.DB.prepare("SELECT * FROM models WHERE active=1 AND provider NOT IN ('image','embedding') AND (req_cost IS NULL OR req_cost=0) ORDER BY cost_in+cost_out LIMIT 5").all()).results.find(x => env[x.key_name]);
+      if (!cm) return ''; let s0 = '', us = null;
+      for await (const e of callModel(env, cm, [{ role: 'user', content: prompt }], { system: MEM_SYS, maxTokens: 700 })) { if (e.t) s0 += e.t; if (e.usage) us = e.usage; }
+      if (us) await logUsage(env, k.id, cm, us, { units: false, src: 'system' }).catch(() => {});
+      return s0;
+    };
+    let healN = 0; const healLog = async (why, u0) => { healN++; await event(env, 'heal', activeModel.id, JSON.stringify({ uid: k.id, kid: k.kid, why, n: healN })).catch(() => {}); if (u0) await logUsage(env, k.id, activeModel, u0, { units: false, src: 'system' }).catch(() => {}); }; // คำตอบที่พังไม่คิดเงินลูกค้า (เราจ่ายเอง)
     const finish = async (u, outChars, flag = null) => { // flag: gone = ลูกค้าตัดกลางทาง · part = ผู้ให้บริการพังกลางคำตอบ (โชว์ในหลังบ้าน)
       const f0 = u || (outChars > 0 ? estUsage(outChars) : null), finalU = f0 && flag ? { ...f0, flag: f0.flag ? flag + '+est' : flag } : f0;
       const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' || billingMode === 'credit' || billingMode === 'mcredit' ? { units: billingMode === 'plan', wallet: null, plan, src: 'api' } : billingMode === 'pack' ? { units: false, wallet: null, plan, src: 'agent', pack: true } : { units: false, wallet: 'api', plan, src: 'api' }) : 0;
@@ -275,8 +288,10 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       if (finalU) finalU.astra = { charge_thb: charge, week_pct: plan?.limit_week > 0 && finalU._units ? +(finalU._units / plan.limit_week * 100).toFixed(4) : 0, ...(finalU._pack ? { pack_pct: +(finalU._pack / (k.agent_pack_units || 1) * 100).toFixed(4) } : {}) }; // ค่าใช้จ่ายคำขอนี้: บาทจาก Wallet / % ลิมิตสัปดาห์ (แอป Desktop ใช้คุมเพดานต่องาน)
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
       if (walletKey) await unlimit(env, walletKey);
-      lg.model = slug(activeModel); lg.tin = finalU ? finalU.fresh + finalU.read + finalU.write : 0; lg.tout = finalU?.out || 0; lg.tcr = finalU?.read || 0; lg.charge = charge; lg.logged = true;
+      lg.units = finalU?._units || 0; lg.model = slug(activeModel); lg.tin = finalU ? finalU.fresh + finalU.read + finalU.write : 0; lg.tout = finalU?.out || 0; lg.tcr = finalU?.read || 0; lg.charge = charge; lg.logged = true;
       await apiLog(env, lg, 200);
+      if (billingMode === 'plan' && lg.units > 0) ctx.waitUntil(burnCheck(env, k, plan, (pct, n, top) => mail(env, k.email, `Kyber: API ใช้ลิมิตเร็วผิดปกติ (${pct.toFixed(0)}% ใน 1 ชม.)`, mailBox(`ใช้ลิมิตสัปดาห์ไป ${pct.toFixed(1)}% ภายใน 1 ชั่วโมง`, `${n} คำขอใน 1 ชม.ที่ผ่านมา · กินเยอะสุด: ${top.map(t => `${t.model} (${t.n} ครั้ง, เฉลี่ย ${Math.round((t.tin || 0) / 1000)}K token)`).join(', ')} · ถ้าไม่ได้ตั้งใจ ให้เช็กว่ามี agent/MCP วนทำงานอยู่ไหม หรือเปิด Kyber Memory/ย่อ context`, 'ดู Live Dashboard', siteUrl(env) + '/developers'))).catch(() => {}));
+      if (proj && answerText != null) ctx.waitUntil(bumpMemory(env, k, proj, hist, answerText, memSummarize).catch(() => {}));
       if (k.budget > 0) for (const [pct, label] of [[1, 'ใช้ครบงบแล้ว'], [0.8, 'ใช้ไป 80% ของงบแล้ว']]) { // เตือนครั้งเดียวตอนข้ามเส้น (งบรีเซ็ตทุกเดือน)
         if (spent < k.budget * pct && spent + charge >= k.budget * pct) {
           if (k.webhook_url) await fetch(k.webhook_url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'api_key_budget', threshold: pct, key: k.kname || 'key', spent: +(spent + charge).toFixed(4), budget: k.budget, month }), signal: AbortSignal.timeout(4000), redirect: 'manual' }).catch(() => {}); // ปลายทางที่ผู้ใช้ตั้งเอง: https เท่านั้น ไม่ตามรีไดเรกต์
@@ -305,8 +320,8 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       return out({ object: 'list', data: d.data, model: slug(m), usage: { prompt_tokens: tokens, total_tokens: tokens } }, 200, { 'x-astracode-billing': billingMode });
     }
     if (!b.stream) { // ทำใน waitUntil: ลูกค้าตัดการเชื่อมต่อระหว่างรอ ยังทำต่อจนคิดเงินได้ (ผู้ให้บริการคิดเงินเราแล้ว)
-      const job = (async () => {
       let content = '', reasoning = '', usage = null, finishReason = 'stop', tcs = new Map(), anthIdx = new Map();
+      const job0 = async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
         const wd = watch(activeModel);
         try {
@@ -329,6 +344,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         } catch (e0) {
           wd.done(); const e = wd.err(e0);
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
+          if (!content && !reasoning && !tcs.size && healN < HEAL_TRIES) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
           if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
           if (content || reasoning || tcs.size) await finish(usage, content.length + reasoning.length + 2, 'part'); // พังกลางคำตอบ: ผู้ให้บริการคิดเงินส่วนที่ทำไปแล้ว
@@ -336,6 +352,11 @@ export async function v1core(req, env, ctx, path, lg = {}) {
           return fail('โมเดลตอบไม่ได้ตอนนี้', 502, 'api_error');
         }
       }
+      if (!isImg) { // Self-Heal: คำตอบที่ได้ครบแต่พัง (ว่าง / tool JSON พัง / หลุดภาษาจีน) → ลองโมเดลเดิมใหม่ ไม่คิดเงินรอบที่พัง
+        const why = healReason({ content, reasoning, toolCalls: [...tcs.values()], hist, finish: finishReason });
+        if (why && healN < HEAL_TRIES) { await healLog(why, usage); content = ''; reasoning = ''; usage = null; finishReason = 'stop'; tcs = new Map(); anthIdx = new Map(); return await job0(); }
+      }
+      answerText = content;
       if (isImg) {
         const src = content.match(/\]\((data:[^)]+|https?:[^)]+)\)/)?.[1];
         await finish(src ? usage : null, 0);
@@ -344,8 +365,9 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       }
       const toolCalls = [...tcs.values()]; if (toolCalls.length) finishReason = 'tool_calls';
       const used = await finish(usage, content.length + reasoning.length + JSON.stringify(toolCalls).length);
-      return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined, astra_fallback: fbInfo() }, 200, { 'x-astracode-billing': billingMode, 'x-astracode-model': slug(activeModel) });
-      })();
+      return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined, astra_fallback: fbInfo(), ...(healN ? { kyber_heal: { retries: healN } } : {}) }, 200, { 'x-astracode-billing': billingMode, 'x-astracode-model': slug(activeModel), ...(healN ? { 'x-kyber-heal': String(healN) } : {}) });
+      };
+      const job = job0();
       ctx.waitUntil(job.catch(() => {}));
       return await job;
     }
@@ -359,7 +381,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
     const ka = setInterval(() => { if (!gone) w.write(enc.encode(': ping\n\n')).catch(lost); }, +env.SSE_PING_MS || 15e3); // SSE_PING_MS: ใช้ในเทสต์เท่านั้น
     // โมเดล error ก่อนตอบ: ต้องคืนช่อง Wallet ด้วย (เดิมค้าง 3 นาที → OpenCode ลองซ้ำจนช่องเต็ม 8 ช่อง)
     ctx.waitUntil((async () => {
-      let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0;
+      let usage = null, outChars = 0, finishReason = 'stop', sentAny = false, anthIdx = new Map(), tcCount = 0, streamText = '';
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           const wd = watch(activeModel, upstream.signal);
@@ -367,7 +389,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
             for await (const e of callModel(env, activeModel, hist, { system, systemBlocks, effort, maxTokens, tools, toolChoice, userId: k.id, extra, imageOpts, api: true, cacheTtl, signal: wd.signal })) {
               wd.tick();
               if (!sentAny) { sentAny = true; if (!lg.ttft) lg.ttft = Date.now() - lg.t0; await chunk({ role: 'assistant', content: '' }, fbInfo() ? { astra_fallback: fbInfo() } : {}); } // สตรีม: header ส่งไปก่อนรู้ว่าสลับไหม จึงบอกใน chunk แรก
-              if (e.t) { outChars += e.t.length; await chunk({ content: e.t }); }
+              if (e.t) { outChars += e.t.length; streamText += e.t; await chunk({ content: e.t }); }
               if (e.th) { outChars += e.th.length; await chunk({ reasoning_content: e.th }); }
               if (e.tc_start) { const idx = tcCount++; anthIdx.set(e.tc_start.index, idx); await chunk({ tool_calls: [{ index: idx, id: e.tc_start.id, type: 'function', function: { name: e.tc_start.name, arguments: '' } }] }); }
               if (e.tc_delta) { const idx = anthIdx.get(e.tc_delta.index); if (idx != null) { outChars += e.tc_delta.args.length; await chunk({ tool_calls: [{ index: idx, function: { arguments: e.tc_delta.args } }] }); } }
@@ -375,18 +397,21 @@ export async function v1core(req, env, ctx, path, lg = {}) {
               if (e.stop_reason) finishReason = e.stop_reason;
               if (e.usage) usage = e.usage;
             }
-            wd.done(); break;
+            wd.done();
+            if (!sentAny && !gone && healN < HEAL_TRIES) { await healLog('empty', usage); usage = null; attempt--; continue; } // สตรีมจบโดยไม่มีอะไรเลย = ตอบว่าง
+            break;
           } catch (e0) {
             wd.done(); const e = wd.err(e0);
             if (gone) break;
             await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
+            if (!sentAny && healN < HEAL_TRIES) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
             const fb = attempt === 0 && !sentAny ? await nextFallback(activeModel) : null;
             if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
             throw e;
           }
         }
         if (tcCount > 0 && finishReason === 'stop') finishReason = 'tool_calls';
-        const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars, gone ? 'gone' : null);
+        answerText = streamText.slice(0, 4000); const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars, gone ? 'gone' : null);
         if (!gone) await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
       } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2), 'part').catch(() => {}); else if (walletKey && !lg.logged) await unlimit(env, walletKey).catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       clearInterval(ka); await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});
@@ -413,8 +438,8 @@ export async function agentQuality(env, days = 14) {
   }).sort((a, b) => b.n - a.n);
 }
 export const ensureRemote = env => env.DB.prepare('CREATE TABLE IF NOT EXISTS agent_remote (chat_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, events TEXT, ask TEXT, answer TEXT, inbox TEXT, running INTEGER, updated_at INTEGER)').run();
-export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,req_model,status,tin,tout,tcr,ttft,charge,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-  .bind(lg.kid, lg.uid, lg.path, lg.model || null, lg.req || null, status, lg.tin || 0, lg.tout || 0, lg.tcr || 0, lg.ttft || null, lg.charge || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
+export const apiLog = (env, lg, status) => env.DB.prepare('INSERT INTO api_log (key_id,user_id,path,model,req_model,status,tin,tout,tcr,ttft,charge,units,ms,err,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  .bind(lg.kid, lg.uid, lg.path, lg.model || null, lg.req || null, status, lg.tin || 0, lg.tout || 0, lg.tcr || 0, lg.ttft || null, lg.charge || 0, lg.units || 0, Date.now() - lg.t0, status >= 400 ? (lg.err || '').slice(0, 200) || null : null, Date.now()).run().catch(() => {});
 export const v4 = x => { const p = String(x).split('.'); return p.length === 4 && p.every(n => /^\d{1,3}$/.test(n) && +n < 256) ? p.reduce((a, n) => a * 256 + +n, 0) : null; };
 // IPv6 เป็น BigInt 128 บิต (รองรับ :: ย่อ) · null = ไม่ใช่ IPv6
 export const v6 = x => {

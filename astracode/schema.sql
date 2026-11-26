@@ -240,9 +240,9 @@ CREATE TABLE IF NOT EXISTS project_files (
 );
 
 -- ระบบเพิ่มเติม (เหมือน migrate-6.sql)
-CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT, use_plan INTEGER NOT NULL DEFAULT 1, ip_allow TEXT, expires_at INTEGER);
+CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used INTEGER, revoked INTEGER NOT NULL DEFAULT 0, budget REAL, models TEXT, spent REAL NOT NULL DEFAULT 0, spent_month TEXT, use_plan INTEGER NOT NULL DEFAULT 1, ip_allow TEXT, expires_at INTEGER, memory INTEGER);
 CREATE TABLE IF NOT EXISTS gift_codes (code TEXT PRIMARY KEY, amount REAL NOT NULL, from_user INTEGER NOT NULL, created_at INTEGER NOT NULL, used_by INTEGER, used_at INTEGER); -- โค้ดของขวัญ: โอนเงิน Wallet ให้คนอื่น
-CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, req_model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS api_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, user_id INTEGER NOT NULL, path TEXT, model TEXT, req_model TEXT, status INTEGER, tin INTEGER, tout INTEGER, charge REAL, ms INTEGER, err TEXT, units REAL, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS api_log_key ON api_log(key_id, id);
 CREATE TABLE IF NOT EXISTS wallet_tx (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount REAL NOT NULL, balance_after REAL NOT NULL, kind TEXT NOT NULL, ref TEXT, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS wallet_tx_user ON wallet_tx(user_id, id);

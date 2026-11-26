@@ -26,7 +26,7 @@ PAGES.developers = async () => {
   const draw = (newKey = '') => {
     page(nav() + `<div class="wrap" style="max-width:820px"><section class="hero" style="padding:56px 0 24px"><div class="name">Kyber API</div><h1>API สำหรับนักพัฒนา</h1><p class="muted" style="margin-top:-4px">สร้างโดย Hypatia</p>
       <p>เรียกทุกโมเดลผ่าน API แบบ OpenAI ใช้กับ SDK และเครื่องมือที่รองรับ OpenAI ได้ทันที จ่ายตามจริงจาก Wallet</p></section>
-      <div class="seg devtabs" role="tablist">${[['keys', 'API Key ของฉัน'], ['connect', 'เชื่อมต่อโปรแกรม'], ['docs', 'คู่มือและราคา']].map(([k, l]) => `<button type="button" role="tab" data-dt="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="seg devtabs" role="tablist">${[['keys', 'API Key ของฉัน'], ...(me ? [['live', 'Live']] : []), ['connect', 'เชื่อมต่อโปรแกรม'], ['docs', 'คู่มือและราคา']].map(([k, l]) => `<button type="button" role="tab" data-dt="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div data-pane="keys" ${tab === 'keys' ? '' : 'hidden'}>${me ? `
         <div class="card dv-status ${canUse ? 'ok' : 'warn'}">${h3k(canUse ? '✓ พร้อมใช้ API' : 'ยังใช้ API ไม่ได้')}
           <p style="margin:0">${me.plan.api_limit ? `หักจาก<b>ลิมิตแพลน ${esc(me.plan.name)}</b> ก่อน (4 ชม. ${me.usage.pct4h}% · สัปดาห์ ${me.usage.pctWeek}%) ลิมิตเต็มแล้วตัดจาก Wallet` : `ตัดเงินจาก <b>Wallet</b> ตามที่ใช้จริง`} · Wallet คงเหลือ <b>฿${baht(me.balance)}</b></p>
@@ -50,6 +50,7 @@ PAGES.developers = async () => {
       ${me && kstats.length ? `<div class="card">${h3k('ยอดใช้ API 14 วันล่าสุด')}<div class="ubars">${kstats.map(r => { const mx = Math.max(...kstats.map(x => x.n), 1); return `<div class="ubar" title="${r.d}: ${r.n} ครั้ง · ฿${baht(r.spent)}"><i style="height:${Math.max(4, Math.round(r.n / mx * 100))}%"></i><span>${r.d.slice(8)}</span></div>`; }).join('')}</div></div>` : ''}
         <details class="card"><summary>${h3k('แจ้งเตือนผ่าน Webhook (ไม่บังคับ)')}</summary><form id="whf" class="row stack-m" style="flex-wrap:nowrap;margin-top:10px"><input name="webhook_url" type="url" value="${esc(me.webhook_url || '')}" placeholder="https://... แจ้งเมื่อ key ใช้งบถึง 80% และ 100%"><button class="btn out sm">Save</button></form></details>`
         : `<div class="card" style="text-align:center"><p>เข้าสู่ระบบเพื่อสร้าง API key</p><a class="btn blue" href="/login?next=/developers">Log in</a></div>`}</div>
+      <div data-pane="live" ${tab === 'live' ? '' : 'hidden'}><div id="livebox"><p class="muted">กำลังโหลด…</p></div></div>
       <div data-pane="connect" ${tab === 'connect' ? '' : 'hidden'}><div class="card">${h3k('เชื่อมต่อโปรแกรมใน 3 ขั้น')}
         <div class="cstep"><b>1</b><span>เลือกโปรแกรม</span></div>
         <div class="vchips" id="ctools">${Object.keys(TOOLS).map(t => `<button type="button" data-ct="${t}" class="${t === ctool ? 'on' : ''}">${t}</button>`).join('')}</div>
@@ -122,7 +123,21 @@ PAGES.developers = async () => {
       try { const r = await api('/keys', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); keys.splice(0, keys.length, ...await api('/keys')); draw(r.key); }
       catch (x) { $('#ke').textContent = x.message; }
     });
-    const setTab = t => { tab = t; app.querySelectorAll('[data-dt]').forEach(x => x.classList.toggle('on', x.dataset.dt === t)); app.querySelectorAll('[data-pane]').forEach(x => x.hidden = x.dataset.pane !== t); };
+    const liveDraw = async () => { const box = $('#livebox'); if (!box || !me) return;
+      const d = await api('/keys/live').catch(x => ({ error: x.message })); if (d.error) return box.innerHTML = `<p class="bad">${esc(d.error)}</p>`;
+      if (!d.keys.length) return box.innerHTML = '<p class="muted">ยังไม่มี API key</p>';
+      const mx = Math.max(0.1, ...d.hourly.map(h => h.pct || 0)), pc = v => v == null ? '-' : (v < 0.1 && v > 0 ? '<0.1' : v) + '%';
+      box.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><b>ลิมิตสัปดาห์ที่ API ใช้ · 24 ชม.ล่าสุด (รายชั่วโมง)</b><span class="muted" style="font-size:12px">อัปเดตทุก 30 วินาที${d.heals_24h ? ` · ซ่อมคำตอบพังให้อัตโนมัติ ${d.heals_24h} ครั้ง` : ''}</span></div>
+        <div class="lv-bars">${d.hourly.map(h => `<i title="${h.n} คำขอ · ${pc(h.pct)}" style="height:${Math.max(2, (h.pct || 0) / mx * 100)}%;${(h.pct || 0) >= d.burn_pct ? 'background:#c25b3a' : ''}"></i>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin:4px 0 0">ถ้าชั่วโมงไหนใช้เกิน ${d.burn_pct}% ของลิมิตสัปดาห์ แท่งจะเป็นสีส้ม และระบบอีเมลเตือน (วันละครั้ง) · ไม่ตัดการทำงาน</p></div>
+        ${d.keys.map(k => `<div class="card${k.hot ? ' lv-hot' : ''}"><div class="row" style="justify-content:space-between"><b>${esc(k.name)}</b><span class="muted" style="font-size:12px">${k.last ? 'ล่าสุด ' + new Date(k.last).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : 'ยังไม่ได้ใช้ใน 24 ชม.'}${k.memory ? ' · 🧠 Memory' : ''}</span></div>
+          ${k.hot ? `<p class="lv-warn">${ic('alert', 'sm')} 1 ชม.ที่ผ่านมาใช้ไป ${pc(k.pct1)} ของลิมิตสัปดาห์ เร็วผิดปกติ · เช็กว่ามี agent/MCP วนทำงานอยู่ไหม</p>` : ''}
+          <div class="lv-grid"><div><small>1 ชม.</small><b>${k.n1}</b><span>คำขอ · ${pc(k.pct1)}</span></div><div><small>24 ชม.</small><b>${k.n24}</b><span>คำขอ · ${pc(k.pct24)}</span></div><div><small>คำขอใหญ่สุด</small><b>${k.peak_k}K</b><span>token</span></div><div><small>error</small><b>${k.err24}</b><span>เฉลี่ย ${(k.ms / 1000).toFixed(1)} วิ</span></div></div>
+          ${k.models.length ? `<div class="tw"><table class="tbl"><tr><th>โมเดล</th><th>คำขอ</th><th>ลิมิต</th><th>เฉลี่ยต่อคำขอ</th></tr>${k.models.map(m => `<tr><td>${esc(m.model)}</td><td>${m.n}</td><td>${pc(m.pct)}</td><td>${m.tin_k}K token</td></tr>`).join('')}</table></div>` : ''}</div>`).join('')}`;
+    };
+    let liveT = null;
+    const setTab = t => { clearInterval(liveT); if (t === 'live') { liveDraw(); liveT = setInterval(() => { if (!document.hidden && $('#livebox')) liveDraw(); else if (!$('#livebox')) clearInterval(liveT); }, 30e3); }
+      tab = t; app.querySelectorAll('[data-dt]').forEach(x => x.classList.toggle('on', x.dataset.dt === t)); app.querySelectorAll('[data-pane]').forEach(x => x.hidden = x.dataset.pane !== t); };
     app.querySelectorAll('[data-dt]').forEach(b => b.onclick = () => setTab(b.dataset.dt));
     app.querySelectorAll('[data-goto]').forEach(b => b.onclick = e => { e.preventDefault(); setTab(b.dataset.goto); scrollTo(0, 0); });
     app.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => copy(b.dataset.cp, b));
@@ -154,12 +169,19 @@ PAGES.developers = async () => {
       sheet('ตั้งค่า ' + esc(k.name), `<form class="kset sheet-form"><label>งบต่อเดือน (บาท) เว้นว่าง = ไม่จำกัด</label><input name="budget" type="number" min="0" step="any" value="${k.budget ?? ''}" placeholder="ไม่จำกัด">
         <label class="sw-row"><span class="sw"><input type="checkbox" name="use_plan" ${k.use_plan !== 0 ? 'checked' : ''}><span></span></span>หักจากลิมิตแพลนก่อน (ถ้าแพลนรองรับ)</label>
         <label>โมเดลที่ key นี้ใช้ได้ (ไม่เลือก = ทุกโมเดล)</label><div class="chips-sel">${pr.models.map(m => `<label><input type="checkbox" name="m" value="${slug(m.name)}" ${k.models?.split(',').includes(slug(m.name)) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div>
+        <label class="sw-row" style="margin-top:10px"><span class="sw"><input type="checkbox" id="kmem" ${k.memory ? 'checked' : ''}><span></span></span>Kyber Memory: จำโปรเจกต์ข้ามเซสชัน</label>
+        <p class="muted" style="font-size:12.5px;margin:2px 0 6px">AI จำโครงสร้าง การตัดสินใจ และบั๊กที่เคยแก้ของแต่ละโปรเจกต์ (แยกตามโฟลเดอร์ที่เปิด Claude Code/OpenCode) เปิดใหม่ไม่ต้องอ่านทั้งโปรเจกต์ซ้ำ · ไม่เก็บรหัสผ่าน/คีย์ · <a href="#" id="kmemv">ดู/ล้างความจำ</a></p>
         <details style="margin-top:10px"><summary class="muted">จำกัด IP (สำหรับเซิร์ฟเวอร์)</summary><input name="ip_allow" value="${esc(k.ip_allow || '')}" placeholder="203.0.113.7, 198.51.100.0/24" style="margin-top:6px"></details>
-        <button class="btn blue" style="margin-top:14px">บันทึก</button></form>`, (d, close) => d.querySelector('form').onsubmit = async e => {
+        <button class="btn blue" style="margin-top:14px">บันทึก</button></form>`, (d, close) => {
+        d.querySelector('#kmem').onchange = async e => { try { await api('/keys/' + k.id, { method: 'PUT', body: { memory: e.target.checked } }); k.memory = e.target.checked ? 1 : null; toast(e.target.checked ? 'เปิด Kyber Memory แล้ว' : 'ปิด Kyber Memory แล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); e.target.checked = !e.target.checked; } };
+        d.querySelector('#kmemv').onclick = async e => { e.preventDefault(); const rows = await api('/keys/' + k.id + '/memory').catch(() => []);
+          sheet('ความจำของ ' + esc(k.name), (rows.length ? rows.map(r => `<div class="card"><b>${esc(r.name || 'project')}</b> <span class="muted">· ${r.reqs} คำขอ</span><pre style="white-space:pre-wrap;font-size:12.5px;margin-top:6px">${esc(r.summary || 'ยังไม่ได้สรุป (สรุปครั้งแรกหลังคำขอที่ 3)')}</pre></div>`).join('') : '<p class="muted">ยังไม่มีความจำ · เปิดสวิตช์แล้วใช้งานผ่าน Claude Code/OpenCode สักพัก</p>') + (rows.length ? '<button class="btn red sm" id="kmemx">ล้างความจำทั้งหมดของ key นี้</button>' : ''),
+            (d2, c2) => d2.querySelector('#kmemx')?.addEventListener('click', async () => { if (await confirmSheet('ล้างความจำทั้งหมดของ key นี้?', { title: 'ล้างความจำ', ok: 'ล้าง', danger: true })) { await api('/keys/' + k.id + '/memory', { method: 'DELETE' }); c2(); toast('ล้างแล้ว', 'ok'); } })); };
+        d.querySelector('form').onsubmit = async e => {
         e.preventDefault(); const fd = new FormData(e.target);
         try { await api('/keys/' + k.id, { method: 'PUT', body: { budget: fd.get('budget'), models: fd.getAll('m'), use_plan: fd.get('use_plan') ? 1 : 0, ip_allow: fd.get('ip_allow') } }); keys.splice(0, keys.length, ...await api('/keys')); close(); toast('บันทึกแล้ว', 'ok'); draw(); }
         catch (x) { toast(x.message, 'bad'); }
-      });
+      }; });
     });
     app.querySelectorAll('[data-lg]').forEach(b => b.onclick = async () => { // คำขอล่าสุดของ key
       try { const rows = await api('/keys/' + b.dataset.lg + '/log'); sheet('ประวัติคำขอล่าสุด', rows.length ? `<div class="tw"><table class="tbl"><tr><th>เวลา</th><th>endpoint</th><th>model</th><th>status</th><th>in/out</th><th>cache</th><th>TTFT</th><th>฿</th><th>ms</th></tr>${rows.map(r => { const cp = r.tin > 0 && r.tcr > 0 ? Math.round(r.tcr / r.tin * 100) : 0; return `<tr><td>${new Date(r.created_at).toLocaleString(LOC)}</td><td><code>${esc(r.path)}</code></td><td>${esc(r.model || '-')}</td><td class="${r.status < 400 ? 'ok' : 'bad'}" title="${esc(r.err || '')}">${r.status}</td><td>${r.tin}/${r.tout}</td><td class="${cp >= 50 ? 'ok' : 'muted'}" title="${r.tcr ? r.tcr.toLocaleString() + ' tokens' : ''}">${cp ? cp + '%' : '-'}</td><td class="muted">${r.ttft ? r.ttft + 'ms' : '-'}</td><td>${r.charge}</td><td>${r.ms}</td></tr>`; }).join('')}</table></div>` : 'ยังไม่มีคำขอ (เก็บ 30 วัน)'); }

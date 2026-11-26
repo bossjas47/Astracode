@@ -216,6 +216,8 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if (!await claimCoupon(env, c.code, u.id)) return err('คุณใช้คูปองนี้ไปแล้ว หรือคูปองเต็มสิทธิ์แล้ว'); // atomic: กันกดซ้ำพร้อมกัน และกันเกิน max_uses เมื่อหลายคนกดพร้อมกัน
     return json({ ok: true, amount: c.value, balance: await walletAdd(env, u.id, c.value, 'coupon', c.code) });
   }
+  if (path === '/api/keys/live' && M === 'GET') { const { liveStats } = await import('./apiplus.js'); return json(await liveStats(env, u, await planOf(env, u))); } // Live Dashboard ต่อ key
+  if ((r = path.match(/^\/api\/keys\/(\d+)\/memory$/)) && (M === 'GET' || M === 'DELETE')) { const { memoryApi } = await import('./apiplus.js'); return memoryApi(env, u, +r[1], M); } // Kyber Memory: ดู/ล้างโน้ตโปรเจกต์ของ key
   if (path === '/api/keys/stats') {
     const from = Date.now() - 14 * DAY;
     const rows = (await DB.prepare("SELECT date((created_at+25200000)/1000,'unixepoch') d, COUNT(*) n, COALESCE(SUM(-amount),0) spent FROM wallet_tx WHERE user_id=? AND kind='api' AND created_at>=? GROUP BY d ORDER BY d").bind(u.id, from).all()).results;
@@ -228,7 +230,7 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const { setupApi } = await import('./setup.js'); return setupApi(req, env, u, new URL(req.url).origin);
   }
   if (path === '/api/keys') {
-    if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,ip_allow,expires_at,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
+    if (M === 'GET') return json((await DB.prepare('SELECT id,name,prefix,created_at,last_used,budget,models,use_plan,ip_allow,expires_at,memory,CASE WHEN spent_month=? THEN spent ELSE 0 END spent FROM api_keys WHERE user_id=? AND revoked=0 ORDER BY id DESC').bind(monthKey(), u.id).all()).results);
     if (M === 'POST' && !((await planOf(env, u))?.price > 0) && !(u.balance >= WALLET_MIN) && !(await import('./credits.js').then(C => C.modelCreditIds(env, u.id)).catch(() => new Set())).size) return err('เติม Wallet (ขั้นต่ำ ฿1) หรือใช้แพลนที่ชำระเงิน เพื่อสร้าง API key', 403);
     if (M === 'POST' && (await planOf(env, u))?._team?.api_off) return err('หัวหน้าทีมปิดสิทธิ์สร้าง API key ของคุณไว้', 403);
     if ((await DB.prepare('SELECT COUNT(*) n FROM api_keys WHERE user_id=? AND revoked=0').bind(u.id).first()).n >= 10) return err('สร้าง key ได้สูงสุด 10 อัน');
@@ -242,7 +244,9 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
   }
   if ((r = path.match(/^\/api\/keys\/(\d+)$/)) && M === 'DELETE') { await DB.prepare('UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=?').bind(r[1], u.id).run(); return json({ ok: true }); }
   if ((r = path.match(/^\/api\/keys\/(\d+)$/)) && M === 'PUT') { // งบต่อเดือน (บาท) และโมเดลที่ key นี้ใช้ได้
-    const b = await req.json(), budget = b.budget === '' || b.budget == null ? null : Math.round(+b.budget * 10000) / 10000;
+    const b = await req.json();
+    if (Object.keys(b).length === 1 && 'memory' in b) { await DB.prepare('UPDATE api_keys SET memory=? WHERE id=? AND user_id=? AND revoked=0').bind(b.memory ? 1 : null, r[1], u.id).run(); return json({ ok: true }); } // Kyber Memory เปิด/ปิดต่อ key (ไม่แตะค่าอื่น)
+    const budget = b.budget === '' || b.budget == null ? null : Math.round(+b.budget * 10000) / 10000;
     if (budget != null && !(budget >= 0)) return err('งบต้องเป็นตัวเลข 0 ขึ้นไป');
     const models = Array.isArray(b.models) && b.models.length ? b.models.map(String).filter(x => /^[a-z0-9.-]{1,80}$/.test(x)).slice(0, 50).join(',') : null;
     const usePlan = 'use_plan' in b ? (b.use_plan ? 1 : 0) : 1;
