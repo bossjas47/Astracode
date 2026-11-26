@@ -117,6 +117,7 @@ export async function sessionCookie(env, uid, req) {
     env.DB.prepare('INSERT INTO sessions (token,user_id,expires,created_at,ua,ip) VALUES (?,?,?,?,?,?)').bind(await sha(t), uid, exp, now, ua, ipc),
     env.DB.prepare('DELETE FROM sessions WHERE expires<?').bind(now),
   ]);
+  if (req) import('./abuse.js').then(m => m.recordSignal(env, uid, req, 'session')).catch(() => {}); // เก็บ IP เต็ม/UA ไว้เป็นหลักฐาน (เห็นเฉพาะแอดมิน)
   if (known?.n > 0 && !known.same) { // มีอุปกรณ์อื่นล็อกอินอยู่ แต่เครื่องนี้ไม่เคยเห็น → อีเมลแจ้งเจ้าของบัญชี
     const u = await env.DB.prepare('SELECT email FROM users WHERE id=?').bind(uid).first();
     if (u) await mail(env, u.email, 'Kyber: มีการเข้าสู่ระบบจากอุปกรณ์ใหม่', mailBox('เข้าสู่ระบบจากอุปกรณ์ใหม่', `${esc(ua || 'อุปกรณ์ไม่ทราบชนิด')}${ipc ? ' · ' + esc(ipc) : ''} เวลา ${new Date(now + BKK).toISOString().replace('T', ' ').slice(0, 16)} ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านและกด "ออกจากระบบทุกเครื่อง" ที่หน้าบัญชี`)).catch(() => {});

@@ -386,3 +386,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS bot_convos_sid ON bot_convos(bot_id, sid);
 -- ดึงข้อมูลเอกสารทีละเยอะ (rows = JSON array ของแถว)
 CREATE TABLE IF NOT EXISTS extract_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL, fields TEXT NOT NULL, rows TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS extract_jobs_user ON extract_jobs(user_id, id);
+
+-- จับแอคหลุม/บัญชีโจมตี: สัญญาณต่ออุปกรณ์ (IP เต็ม + user-agent + ลายนิ้วมือเบราว์เซอร์) · เห็นเฉพาะแอดมิน ใช้เชื่อมโยงบัญชีและเก็บหลักฐาน
+CREATE TABLE IF NOT EXISTS account_signals (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, kind TEXT NOT NULL, ip TEXT, ua TEXT, fp TEXT, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS account_signals_user ON account_signals(user_id, id);
+CREATE INDEX IF NOT EXISTS account_signals_ip ON account_signals(ip);
+CREATE INDEX IF NOT EXISTS account_signals_fp ON account_signals(fp);
+-- เคสแอคหลุมที่แอดมินยืนยัน/เก็บหลักฐานไว้ (ring = กลุ่มบัญชีที่โยงกัน · evidence = JSON ที่ดึงตอนสร้างเคส)
+CREATE TABLE IF NOT EXISTS abuse_cases (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, user_ids TEXT NOT NULL, evidence TEXT NOT NULL, note TEXT, status TEXT NOT NULL DEFAULT 'open', admin_id INTEGER, created_at INTEGER NOT NULL);

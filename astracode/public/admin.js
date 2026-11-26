@@ -79,10 +79,11 @@ function forecastHTML(f) {
     <p class="muted" style="font-size:12.5px">คาดกำไร = จ่าย − ใช้ไปแล้ว − (ต้นทุนต่อวัน × วันที่เหลือ) · แย่สุด = ถ้าใช้เต็มลิมิตทุกสัปดาห์จนแพลนหมด (ไม่นับสิทธิ์รีเซ็ตลิมิตที่แจกเพิ่ม)</p>` : ''}
   </section>`;
 }
-const TABS = [['stats', 'pie', 'ภาพรวม'], ['live', 'activity', 'ต้นทุนสด'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['artifacts', 'code', 'Artifact'], ['sites', 'globe', 'Sites'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['connectors', 'layers', 'Connectors'], ['plugins', 'layers', 'Plugins'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
+const TABS = [['stats', 'pie', 'ภาพรวม'], ['live', 'activity', 'ต้นทุนสด'], ['quality', 'check', 'คุณภาพ'], ['apistats', 'braces', 'API'], ['agents', 'server', 'Agent'], ['profit', 'trend', 'กำไร'], ['payments', 'bank', 'ชำระเงิน'], ['users', 'users', 'ผู้ใช้'], ['teams', 'users', 'ทีม'], ['churn', 'trend', 'เลิกใช้'], ['fraud', 'alert', 'กันโกง'], ['abuse', 'shield', 'แอคหลุม'], ['roadmap', 'layers', 'Roadmap'], ['tickets', 'inbox', 'ติดต่อ'], ['artifacts', 'code', 'Artifact'], ['sites', 'globe', 'Sites'], ['plans', 'layers', 'แพลน'], ['teamplans', 'users', 'แพลนทีม'], ['models', 'cpu', 'โมเดล'], ['coupons', 'coupon', 'คูปอง'], ['skills', 'sparkles', 'Skills'], ['connectors', 'layers', 'Connectors'], ['plugins', 'layers', 'Plugins'], ['mcp', 'server', 'MCP'], ['posts', 'news', 'บล็อก'], ['system', 'server', 'ระบบ'], ['settings', 'settings', 'ตั้งค่า']];
 // สีชุดข้อมูล (ตรวจแล้วว่าแยกได้แม้ตาบอดสี บนพื้นเข้ม): น้ำเงิน, ส้ม, เขียวน้ำทะเล
 const SERIES = ['#3987e5', '#d95926', '#199e70'];
 const compact = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(n * 100) / 100); };
+const fullWhen = t => t ? new Date(t).toLocaleString(LOC, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }) : '-';
 const dayLabel = t => new Date(t).toLocaleDateString(LOC, { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
 const ago = t => { if (!t) return 'ไม่เคยใช้'; const m = (Date.now() - t) / 6e4; return m < 60 ? Math.max(1, Math.round(m)) + ' นาทีที่แล้ว' : m < 1440 ? Math.round(m / 60) + ' ชม.ที่แล้ว' : Math.round(m / 1440) + ' วันที่แล้ว'; };
 
@@ -110,7 +111,7 @@ function gatePwCard(box) {
 }
 async function adminView(tab = 'stats') {
   if (!['admin', 'support', 'viewer'].includes(me?.role)) return go('/');
-  const MYTABS = me.role === 'admin' ? TABS : TABS.filter(([k]) => me.role === 'support' ? ['stats', 'quality', 'payments', 'users', 'fraud', 'churn', 'tickets'].includes(k) : k !== 'system'); // สิทธิ์ย่อย: ซ่อนแท็บที่ใช้ไม่ได้
+  const MYTABS = me.role === 'admin' ? TABS : TABS.filter(([k]) => me.role === 'support' ? ['stats', 'quality', 'payments', 'users', 'fraud', 'abuse', 'churn', 'tickets'].includes(k) : k !== 'system'); // สิทธิ์ย่อย: ซ่อนแท็บที่ใช้ไม่ได้
   if (!MYTABS.some(t => t[0] === tab)) tab = MYTABS[0][0];
   const g = await api('/admin-gate').catch(() => null);
   if (g && !g.ok) return adminGateView(tab, g.set);
@@ -872,6 +873,66 @@ ADMIN.fraud = async box => {
     <div class="card"><b>ชวนเพื่อนแต่ใช้ IP เดียวกัน (อาจชวนตัวเองเอาโบนัส/ค่าคอม)</b>${d.refs.length ? `<div class="tw"><table class="tbl"><tr><th>ผู้ถูกชวน</th><th>ผู้ชวน</th><th>ผู้ชวนได้ไปแล้ว</th></tr>${d.refs.map(x => `<tr data-user="${x.rid}" style="cursor:pointer"><td>${esc(x.email)}</td><td>${esc(x.referrer)}</td><td>฿${baht(x.paid)}</td></tr>`).join('')}</table></div>` : '<p class="muted">ไม่พบ</p>'}</div>`;
   box.querySelectorAll('[data-user]').forEach(tr => tr.onclick = () => userDrawer(+tr.dataset.user));
 };
+ADMIN.abuse = async (box, reload) => {
+  box.innerHTML = `<p class="muted hint">จับบัญชีที่ใช้ IP เต็ม/อุปกรณ์เดียวกันหลายบัญชี (แอคหลุม) · ดูหลักฐานครบ แล้วบันทึกเป็นเคส/แบนทั้งวงได้ · ข้อมูลเริ่มเก็บตั้งแต่เปิดใช้ ยิ่งผ่านไปยิ่งแม่น</p>
+    <div class="row" style="gap:8px;margin-bottom:10px"><label class="muted">ช่วง <select id="abdays"><option value="7">7 วัน</option><option value="30" selected>30 วัน</option><option value="90">90 วัน</option></select></label>
+      <label class="muted">อย่างน้อย <select id="abmin"><option value="2">2 บัญชี</option><option value="3" selected>3 บัญชี</option><option value="5">5 บัญชี</option></select></label>
+      <button class="btn blue sm" id="abscan">สแกน</button><button class="btn sm" id="abcases">เคสที่บันทึกไว้</button></div>
+    <div id="ablist"><p class="muted">กด "สแกน" เพื่อหากลุ่มบัญชีที่น่าสงสัย</p></div>`;
+  const list = $('#ablist');
+  const risk = s => s >= 60 ? '#c0392b' : s >= 35 ? '#d9822b' : '#999';
+  const scan = async () => {
+    list.innerHTML = '<p class="muted">กำลังสแกน…</p>';
+    const d = await api(`/admin/abuse/scan?days=${$('#abdays').value}&min=${$('#abmin').value}`).catch(x => ({ error: x.message }));
+    if (d.error) return list.innerHTML = `<p class="err">${esc(d.error)}</p>`;
+    if (!d.clusters.length) return list.innerHTML = '<p class="muted">ไม่พบกลุ่มบัญชีที่น่าสงสัยในช่วงนี้ 🎉</p>';
+    list.innerHTML = d.clusters.map((c, i) => `<div class="card" data-cl="${i}">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div><b style="color:${risk(c.score)}">ความเสี่ยง ${c.score}/100</b> · ${c.ids.length} บัญชี · IP ร่วม ${c.shared_ips} · อุปกรณ์ร่วม ${c.shared_devices}</div>
+        <button class="btn sm" data-ev="${i}">ดูหลักฐาน</button></div>
+      <div class="chips" style="margin-top:6px">${c.flags.map(f => `<span class="pill">${esc(f)}</span>`).join('')}</div>
+      <div class="muted" style="margin-top:4px;font-size:12px">บัญชี: ${c.ids.slice(0, 12).map(id => '#' + id).join(', ')}${c.ids.length > 12 ? ' …' : ''}</div>
+      <div class="ab-ev" hidden></div></div>`).join('');
+    list.querySelectorAll('[data-ev]').forEach(b => b.onclick = () => showEvidence(d.clusters[+b.dataset.ev], b.closest('.card').querySelector('.ab-ev'), b));
+  };
+  const showEvidence = async (cl, host, btn) => {
+    if (!host.hidden) { host.hidden = true; btn.textContent = 'ดูหลักฐาน'; return; }
+    btn.textContent = 'กำลังโหลด…'; host.hidden = false;
+    const ev = await api('/admin/abuse/evidence', { method: 'POST', body: { ids: cl.ids } }).catch(x => ({ error: x.message }));
+    btn.textContent = 'ซ่อนหลักฐาน';
+    if (ev.error) return host.innerHTML = `<p class="err">${esc(ev.error)}</p>`;
+    host.innerHTML = `<div class="tw"><b>บัญชีในวง</b><table class="tbl"><tr><th>#</th><th>อีเมล</th><th>สมัคร</th><th>IP ล่าสุด</th><th>อุปกรณ์</th><th>สถานะ</th></tr>
+      ${ev.accounts.map(a => `<tr data-user="${a.id}"><td>#${a.id}</td><td>${esc(a.email)}</td><td>${dayLabel(a.created_at)}</td><td>${esc(a.last_ip || '-')}</td><td>${a.devices}</td><td>${a.banned ? '<span style="color:#c0392b">แบนแล้ว</span>' : a.plan_id ? 'มีแพลน' : 'ฟรี'}</td></tr>`).join('')}</table></div>
+      <b style="display:block;margin-top:10px">อุปกรณ์/IP ที่ใช้ร่วมกัน</b>
+      <div class="tw"><table class="tbl"><tr><th>ชนิด</th><th>ค่า</th><th>กี่บัญชี</th></tr>${ev.devices.map(x => `<tr><td>${x.t}</td><td style="font-family:monospace;font-size:12px">${esc(x.v)}</td><td>${x.n}</td></tr>`).join('')}</table></div>
+      <b style="display:block;margin-top:10px">ไทม์ไลน์หลักฐาน (${ev.timeline.length} เหตุการณ์)</b>
+      <div class="ab-tl">${ev.timeline.map(t => `<div class="ab-row"><span class="muted">${fullWhen(t.at)}</span> · #${t.uid} ${esc((t.email || '').split('@')[0])} · ${esc(t.event)}</div>`).join('')}</div>
+      <div class="row" style="gap:8px;margin-top:12px">
+        <button class="btn sm" data-exp>ดาวน์โหลดหลักฐาน (JSON)</button>
+        <button class="btn blue sm" data-case>บันทึกเป็นเคส</button>
+        <button class="btn red sm" data-banall>บันทึกเคส + แบนทั้งวง</button></div>`;
+    host.querySelectorAll('[data-user]').forEach(tr => tr.onclick = () => userDrawer(+tr.dataset.user));
+    host.querySelector('[data-exp]').onclick = () => { const blob = new Blob([JSON.stringify({ cluster: cl, evidence: ev, exported_at: new Date().toISOString() }, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `kyber-abuse-${cl.ids.join('-').slice(0, 40)}.json`; a.click(); };
+    const save = async ban => {
+      const label = prompt('ตั้งชื่อเคส (เช่น Tenixe แอคหลุม):', `แอคหลุม ${cl.ids.length} บัญชี`); if (label === null) return;
+      if (ban && !await confirmSheet(`แบน ${cl.ids.length} บัญชีในวงนี้ทั้งหมด? (ตัด session + ไม่นับในรายได้)`, { title: 'แบนทั้งวง', ok: 'แบนทั้งหมด', danger: true })) return;
+      await api('/admin/abuse/case', { method: 'POST', body: { ids: cl.ids, label, ban } }).catch(x => toast(x.message, 'bad'));
+      toast(ban ? 'บันทึกเคสและแบนแล้ว' : 'บันทึกเคสแล้ว', 'ok'); if (ban) scan();
+    };
+    host.querySelector('[data-case]').onclick = () => save(false);
+    host.querySelector('[data-banall]').onclick = () => save(true);
+  };
+  const cases = async () => {
+    const d = await api('/admin/abuse/cases').catch(() => ({ cases: [] }));
+    list.innerHTML = d.cases.length ? d.cases.map(c => `<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(c.label)}</b><span class="muted">${dayLabel(c.created_at)}</span></div>
+      <div class="muted" style="font-size:12px">${c.user_ids.length} บัญชี · ${esc(c.note || '')}</div>
+      <div class="row" style="gap:8px;margin-top:8px"><button class="btn sm" data-cv="${c.id}">ดูหลักฐานที่เก็บไว้</button><button class="btn red sm" data-cd="${c.id}">ลบเคส</button></div><div class="cv" hidden></div></div>`).join('') : '<p class="muted">ยังไม่มีเคสที่บันทึก</p>';
+    list.querySelectorAll('[data-cv]').forEach(b => b.onclick = async () => { const host = b.closest('.card').querySelector('.cv'); if (!host.hidden) { host.hidden = true; return; } host.hidden = false; const c = await api('/admin/abuse/cases/' + b.dataset.cv); const ev = c.evidence; host.innerHTML = `<p class="muted" style="margin-top:8px">เก็บเมื่อ ${fullWhen(ev.saved_at)} · คะแนน ${ev.score} · ${(ev.flags || []).join(' · ')}</p><div class="ab-tl">${(ev.timeline || []).map(t => `<div class="ab-row"><span class="muted">${fullWhen(t.at)}</span> · #${t.uid} · ${esc(t.event)}</div>`).join('')}</div><button class="btn sm" data-x>ดาวน์โหลด JSON</button>`; host.querySelector('[data-x]').onclick = () => { const blob = new Blob([JSON.stringify(c, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `kyber-case-${c.id}.json`; a.click(); }; });
+    list.querySelectorAll('[data-cd]').forEach(b => b.onclick = async () => { if (await confirmSheet('ลบเคสนี้?', { title: 'ลบเคส', ok: 'ลบ', danger: true })) { await api('/admin/abuse/cases/' + b.dataset.cd, { method: 'DELETE' }); cases(); } });
+  };
+  $('#abscan').onclick = scan; $('#abcases').onclick = cases;
+};
+
 ADMIN.churn = async box => {
   const rows = await api('/admin/churn');
   box.innerHTML = `<p class="muted hint">ผู้ใช้ที่แพลนหมดอายุใน 60 วันที่ผ่านมาแล้วไม่ต่อ · ใช้น้อยก่อนหมด = ไม่เห็นคุณค่า · ใช้เยอะแล้วหาย = อาจติดราคาหรือลิมิต</p>

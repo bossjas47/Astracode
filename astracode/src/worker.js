@@ -7,6 +7,7 @@ import { gh, github, projects, seal, unseal } from './projects.js';
 import { admin, adminGate, ensureRoadmap, gateBlock } from './admin.js';
 import { agentApi } from './agent.js';
 import { contextApi, estimateApi, modelStatsApi } from './context.js';
+import { abuseApi, recordSignal, signalApi } from './abuse.js';
 import { autoJoinTeam, oauth, totpOk, userRoutes } from './user.js';
 import { slug, v1 } from './api.js';
 import { pushApi } from './push.js';
@@ -316,6 +317,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (path === '/api/context' && M === 'GET') return await contextApi(req, env, u);
       if (path === '/api/model-stats' && M === 'GET') return await modelStatsApi(env);
       if (path === '/api/estimate' && M === 'GET') return await estimateApi(req, env, u);
+      if (path === '/api/signal' && M === 'POST') return await signalApi(req, env, u);
       if (path === '/api/agent' || path.startsWith('/api/agent/')) return await agentApi(req, env, u, path);
       if (path.startsWith('/api/push/')) return await pushApi(req, env, u, path);
       if ((r = path.match(/^\/api\/roadmap\/(\d+)\/vote$/)) && M === 'POST') { // โหวต/ถอนโหวต 1 คน 1 เสียงต่อข้อ
@@ -460,6 +462,7 @@ export async function route(req, env, ctx, url, path, M) {
       if (path.startsWith('/api/admin/')) {
         if (!staffMay(u.role, M, path)) return err(STAFF.includes(u.role) ? 'สิทธิ์ของคุณทำรายการนี้ไม่ได้ (ติดต่อแอดมินหลัก)' : 'forbidden', 403);
         const gb = await gateBlock(env, u); if (gb) return gb;
+        if (path.startsWith('/api/admin/abuse')) return await abuseApi(req, env, u, path, M);
         if (path.startsWith('/api/admin/sites')) { const r2 = await sitesAdmin(req, env, path, M); if (r2) return r2; }
         if (path.startsWith('/api/admin/artifacts')) { const r2 = await artAdmin(req, env, path, M); if (r2) return r2; } // ดูแล Artifact ที่แชร์ (รายงาน/แกลเลอรี)
         return await admin(req, env, path, url, u); // ต้องผ่านรหัสผ่านชั้นที่สองก่อน
