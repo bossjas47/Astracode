@@ -509,7 +509,7 @@ export async function smartSearch(env, u, hist) {
 }
 // ไฟล์แนบที่ยาวมาก: ส่งเฉพาะท่อนที่เกี่ยวกับคำถาม (เทียบคำ/ชุดอักษร 3 ตัว) แทนการส่งทั้งไฟล์จนล้น context · ไฟล์สั้นส่งเต็ม
 // แนบในข้อความ: รูป 20 · ไฟล์ 20 · รวม 1.8MB (เพดานจริงคือแถวในฐานข้อมูล D1 ~2MB) · ไฟล์ยาวไม่เกิน FILE_FULL ส่งเต็มให้โมเดล (ทุกโมเดล context 1.05M)
-export const ATT_IMGS = 20, FILES_MAX = 20, ATT_BYTES = 1.8e6, FILE_FULL = 700000, FILE_CHUNK = 2000;
+export const ATT_IMGS = 20, FILES_MAX = 20, ATT_BYTES = 1.8e6, FILE_FULL = 700000, FILE_CHUNK = 2000, FILE_CUR = 200000, FILE_OLD = 30000;
 const grams = s => { const out = new Set(), t = String(s).toLowerCase(); for (const w of t.match(/[a-z0-9_]{3,}/g) || []) out.add(w); const th = t.replace(/[\x00-\x7f]+/g, ' '); for (let i = 0; i + 3 <= th.length; i++) { const g = th.slice(i, i + 3); if (!g.includes(' ')) out.add(g); } return out; };
 export function excerptFiles(content, question, full = FILE_FULL) {
   return String(content || '').replace(/(\[\[file:[^\]\n]+\]\]\n)([\s\S]*?)(\n\[\[\/file\]\])/g, (all, open, body, close) => {
@@ -672,7 +672,9 @@ export async function chat(req, env, u, ctx) {
     }
     hist = hist.map(x => ({ ...x, content: stripMarkers(String(x.content || '').replace(/⁣/g, '')) })).filter(x => x.content); // ตัดตัวคั่นรอบความคิดที่มองไม่เห็น + ตัดคำตอบว่าง (กดหยุดตอนยังคิดอยู่)
     while (hist.length && hist[0].role !== 'user') hist.shift();
-    if (!pid) { const q = text; hist.forEach(x => { if (x.role === 'user' && x.content.length > FILE_FULL) x.content = excerptFiles(x.content, q); }); }
+    // ไฟล์แนบในแชต: ข้อความปัจจุบันส่งเต็มถึง FILE_CUR · ข้อความเก่าส่งเฉพาะท่อนที่เกี่ยวกับคำถามตอนนี้ (FILE_OLD)
+    // เดิมไฟล์ไม่เกิน 700K ตัวอักษรถูกส่งซ้ำเต็มทั้งไฟล์ทุกข้อความ (ย้อนหลัง 20 ข้อความ) → คำขอเดียวถึง 1.5M token กินลิมิตหมดใน 4-5 คำถาม
+    if (!pid) { const q = text, lastU = hist.findLastIndex(x => x.role === 'user'); hist.forEach((x, i) => { if (x.role === 'user' && typeof x.content === 'string' && x.content.includes('[[file:')) { const lim = i === lastU ? FILE_CUR : FILE_OLD; if (x.content.length > lim) x.content = excerptFiles(x.content, q, lim); } }); }
     if (pid) hist.forEach((x, i) => { if (i < hist.length - 1 && x.role === 'user') x.content = stripOpenFile(x.content); });
     { const past = await withPastImages(env, u.id, hist, !!m.vision, images.length > 0); if (!images.length && past.length) images.push(...past); } // รูปในข้อความก่อนหน้า (และรูปเดิมตอนกดตอบใหม่) // เนื้อหาไฟล์ที่เปิดอยู่ส่งเฉพาะข้อความล่าสุด (ไม่ซ้ำทุกรอบ ประหยัด token)
     if (!hist.length) { await unlimit(env, lock); return err('ไม่มีข้อความให้ตอบ'); }
