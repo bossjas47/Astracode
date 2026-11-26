@@ -768,7 +768,7 @@ export async function runChat(env, J, send, st) {
   // Smart Router: Opus คิดแผน → ChatGPT 6.2 Sol ลงมือ (ถูกกว่า ~10 เท่า) → Opus ตรวจตอนจบเมื่อมีโค้ด
   if (J.smart && /\bopus\b/i.test(model.name) && !st.gone) {
     const ex = await smartExecutor(env);
-    if (ex && ex.id !== model.id) {
+    if (ex && ex.id !== model.id && (ex.cost_in || 0) * limMult(ex) * 3 <= (model.cost_in || 0) * limMult(model)) { // คุ้มเฉพาะเมื่อตัวลงมือถูกกว่า ≥ 3 เท่า (Opus Eco ถูกกว่า Sol อยู่แล้ว = ไม่สลับ)
       await send({ round: 1, of: 3, doing: 'Opus กำลังวางแผน' });
       const pl = await sideCall(model, lastQ(), SMART_PLAN_SYS, 1500, true);
       if (pl) { planner = model; model = ex; extraSys = SMART_EXEC_SYS + pl + '\n</plan>\n\n'; think += '\u0001'; await send({ smart: { planner: planner.name, executor: ex.name } }); }
