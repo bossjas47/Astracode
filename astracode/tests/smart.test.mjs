@@ -16,7 +16,7 @@ test('Smart Router: Opus plans, ChatGPT 6.2 Sol answers with the plan, Opus revi
   const opus = addModel(t.DB, { name: 'Claude Opus 5.5', base_url: fm.url, api_model: 'opus', cost_in: 50, cost_out: 250 });
   const sol = addModel(t.DB, { name: 'ChatGPT 6.2 Sol', base_url: fm.url, api_model: 'sol' });
   const P = addPlan(t.DB, { models: [opus.id, sol.id], limit_4h: 1000, limit_week: 1000 }); const u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE email=?').run(P.id, Date.now() + 864e6, u.email ?? t.DB.raw.prepare('SELECT email FROM users ORDER BY id DESC').get().email);
-  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: opus.id, text: 'write a loop', smart: true } }));
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: opus.id, text: 'write a loop', smart: true, task: true } }));
   assert.deepEqual(ev.find(e => e.smart)?.smart, { planner: 'Claude Opus 5.5', executor: 'ChatGPT 6.2 Sol' });
   const exec = fm.hits.find(h => h.body.model === 'sol');
   assert.ok(exec && sysOf(exec.body).includes('PLAN: use a loop'), 'Sol gets the plan');
@@ -25,6 +25,17 @@ test('Smart Router: Opus plans, ChatGPT 6.2 Sol answers with the plan, Opus revi
   const msg = t.DB.raw.prepare("SELECT model_id FROM messages WHERE role='assistant'").get();
   assert.equal(msg.model_id, sol.id);
   assert.ok(t.DB.raw.prepare('SELECT COUNT(*) n FROM usage WHERE model_id=?').get(opus.id).n >= 2, 'planner + reviewer billed');
+  fm.close();
+});
+
+test('Smart Router is ignored in plain chat (measured: costs ~2x there)', async () => {
+  const fm = await fakeModel((q, res) => fm.sse(res, 'ok'));
+  const t = await makeEnv({ K: 'k' });
+  const opus = addModel(t.DB, { name: 'Claude Opus 5.5', base_url: fm.url, api_model: 'opus', cost_in: 50 });
+  addModel(t.DB, { name: 'ChatGPT 6.2 Sol', base_url: fm.url, api_model: 'sol' });
+  const P = addPlan(t.DB, { models: [opus.id] }); const u = await t.user(); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(P.id, Date.now() + 864e6, u.id);
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: opus.id, text: 'hi', smart: true } }));
+  assert.ok(!ev.some(e => e.smart)); assert.ok(fm.hits.every(h => h.body.model === 'opus'));
   fm.close();
 });
 

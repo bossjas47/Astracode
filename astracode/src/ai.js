@@ -766,7 +766,7 @@ export async function runChat(env, J, send, st) {
   };
   const lastQ = () => msgs.slice(-6).map(x => ({ role: x.role, content: typeof x.content === 'string' ? x.content.slice(-20000) : x.content }));
   // Smart Router: Opus คิดแผน → ChatGPT 6.2 Sol ลงมือ (ถูกกว่า ~10 เท่า) → Opus ตรวจตอนจบเมื่อมีโค้ด
-  if (J.smart && /\bopus\b/i.test(model.name) && !st.gone) {
+  if (J.smart && (pid || J.agent || J.task) && /\bopus\b/i.test(model.name) && !st.gone) { // เฉพาะงานหลายรอบ (Code/Agent/โหมดงาน) · แชตธรรมดาวัดจริงแล้วแพงกว่าให้ Opus ตอบเอง ~2 เท่า
     const ex = await smartExecutor(env);
     if (ex && ex.id !== model.id && (ex.cost_in || 0) * limMult(ex) * 3 <= (model.cost_in || 0) * limMult(model)) { // คุ้มเฉพาะเมื่อตัวลงมือถูกกว่า ≥ 3 เท่า (Opus Eco ถูกกว่า Sol อยู่แล้ว = ไม่สลับ)
       await send({ round: 1, of: 3, doing: 'Opus กำลังวางแผน' });
