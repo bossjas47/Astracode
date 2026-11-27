@@ -97,3 +97,24 @@ test('stripZW: ลบลายน้ำอักษรล่องหน แต�
   assert.equal(stripZW('👨‍👩‍👧'), '👨‍👩‍👧');
   assert.equal(stripZW('ไม่มีอะไร'), 'ไม่มีอะไร');
 });
+
+test('ต้นทางตอบข้อความปฏิเสธภาษาจีน → สลับไปโมเดลสำรอง ลูกค้าไม่เห็นข้อความจีน', async () => {
+  const { t, fm, m, v1 } = await setup((q, res, body, fm) => fm.sse(res, '这条内容上游没有收下。请换一种说法，或新开一个对话后再试。'));
+  const good = await fakeModel((q, res) => good.sse(res, 'สวัสดีครับ ตอบจากตัวสำรอง'));
+  const fb = addModel(t.DB, { name: 'Backup', base_url: good.url, cost_in: 1, cost_out: 2 });
+  t.DB.raw.prepare('UPDATE models SET fallback_id=? WHERE id=?').run(fb.id, m.id);
+  t.DB.raw.prepare('INSERT INTO plan_models (plan_id, model_id) SELECT plan_id, ? FROM plan_models WHERE model_id=?').run(fb.id, m.id);
+  const r = await v1({ model: 'chat-one', messages: [{ role: 'user', content: 'ทำเว็บให้หน่อย' }] });
+  assert.equal(r.status, 200, r.txt);
+  assert.match(r.d.choices[0].message.content, /ตัวสำรอง/);
+  assert.ok(!/上游/.test(r.txt));
+  assert.equal(fm.hits.length, 1, 'ไม่ลองซ้ำโมเดลเดิม (422)');
+  fm.close(); good.close();
+});
+
+test('callModel: ข้อความปกติไม่โดนกั้น และข้อความปฏิเสธโยน error', async () => {
+  const { UPSTREAM_REFUSAL } = await import('../src/ai.js');
+  assert.ok(UPSTREAM_REFUSAL.test('这条内容上游没有收下。请换一种说法'));
+  assert.ok(!UPSTREAM_REFUSAL.test('สวัสดีครับ วันนี้ช่วยอะไรได้บ้าง'));
+  assert.ok(!UPSTREAM_REFUSAL.test('你好，我可以帮你写代码'));
+});

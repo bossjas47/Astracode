@@ -95,11 +95,22 @@ const capOut = (m, want) => { const cap = gptMax(m); return want && cap ? Math.m
 // ลบทิ้งทุกโมเดล: zero-width space/non-joiner/word joiner/BOM ทั้งหมด · ZWJ (U+200D) เก็บเฉพาะที่อยู่ระหว่างอีโมจิ (เช่น 👨‍👩‍👧)
 const ZW = /[\u200b\u200c\u2060\ufeff]/g, ZWJ_BAD = /(?<![\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\uFE0F])\u200d|\u200d(?!\p{Extended_Pictographic})/gu, ZW_ANY = /[\u200b-\u200d\u2060\ufeff]/;
 export const stripZW = s => ZW_ANY.test(s) ? s.replace(ZW, '').replace(ZWJ_BAD, '') : s;
+// pool ต้นทางบางตัว (เช่น L6 Kiro) ปฏิเสธงานแต่ตอบ 200 เป็นข้อความจีนสำเร็จรูป → ถือเป็น error ให้ระบบสลับไปโมเดลสำรอง (ลูกค้าไม่เห็นข้อความจีน)
+export const UPSTREAM_REFUSAL = /^\s*(这条内容上游没有收下|上游拒绝|内容未通过审核|请换一种说法)/;
 export async function* callModel(...args) {
-  for await (const e of callModelRaw(...args)) {
-    if (typeof e.t === 'string' && ZW_ANY.test(e.t)) { const t = stripZW(e.t); if (t) yield { ...e, t }; }
-    else yield e;
-  }
+  let head = '', held = [], open = true; // เก็บข้อความช่วงแรกไว้ก่อน (≤ 48 ตัวอักษร) เพื่อตรวจว่าเป็นข้อความปฏิเสธไหม
+  try { for await (const e0 of callModelRaw(...args)) {
+    let e = e0;
+    if (typeof e.t === 'string' && ZW_ANY.test(e.t)) { const t = stripZW(e.t); if (!t) continue; e = { ...e, t }; }
+    if (open) {
+      if (typeof e.t === 'string') head += e.t;
+      if (typeof e.t === 'string' || e.th) { held.push(e); if (head.length < 48 && !e.usage) continue; }
+      if (UPSTREAM_REFUSAL.test(head)) throw new Error('upstream 422: pool refused the request (' + head.trim().slice(0, 40) + ')');
+      if (head.length >= 48 || !(typeof e.t === 'string' || e.th)) { open = false; for (const h of held) yield h; held = []; if (typeof e.t === 'string' || e.th) continue; }
+    }
+    yield e;
+  } } catch (x) { if (open && held.length && !UPSTREAM_REFUSAL.test(head)) for (const h of held) yield h; throw x; } // error กลางคำตอบ: ส่งข้อความที่ได้แล้วออกไปก่อน (คิดเงินตามที่ผลิตจริง)
+  if (open) { if (UPSTREAM_REFUSAL.test(head)) throw new Error('upstream 422: pool refused the request (' + head.trim().slice(0, 40) + ')'); for (const h of held) yield h; }
 }
 async function* callModelRaw(env, m, msgs, { effort, images = [], system = SYSTEM, systemBlocks = null, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false, cacheTtl = null } = {}) {
   const key = env[m.key_name];
