@@ -1096,9 +1096,15 @@ function modelSheet(which) {
     d.querySelector('.sheet')?.classList.add('np-sheet');
   });
 }
+// ระดับความคิด (UI 2.5): แต่ละระดับมีแถบสัญญาณบอกความลึก · จุดบอกความเร็วและลิมิตที่ใช้ · แตะแล้วเลือกเลย
+const EFFORT_RANK = { '': 0, minimal: 1, on: 2, low: 2, medium: 3, high: 4, xhigh: 5, max: 5 };
+const effBars = (v, n = 5) => `<span class="ef-bars" aria-hidden="true">${Array.from({ length: n }, (_, i) => `<i class="${i < Math.max(1, EFFORT_RANK[v] ?? 0) && (EFFORT_RANK[v] ?? 0) > 0 ? 'on' : ''}" style="height:${5 + i * 3}px"></i>`).join('')}</span>`;
+const effDots = (k, on) => `<span class="ef-dots" aria-label="${k} ${on} จาก 5">${Array.from({ length: 5 }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</span>`;
 function effortSheet(sel, m) {
-  const cur = $(sel).value, list = modelEfforts(m);
-  sheet('ระดับความคิด', list.map(v => { const [n, d] = EFFORT_INFO[v]; return optHTML(v, n, d, v === cur); }).join('') + '<p class="muted" style="font-size:13px;margin:8px 4px 0">ยิ่งคิดมาก คำตอบยิ่งดีกับโจทย์ยาก แต่ช้าขึ้นและใช้ลิมิตมากขึ้น</p>', pickTo(sel));
+  const cur = $(sel).value, list = modelEfforts(m), rec = list.includes('medium') ? 'medium' : list.includes('on') ? 'on' : '';
+  const row = v => { const [n, d] = EFFORT_INFO[v], r = EFFORT_RANK[v] ?? 0;
+    return `<button type="button" class="ef-row${v === cur ? ' on' : ''}" data-v="${esc(v)}">${effBars(v)}<span class="ef-t"><b>${n}${v === rec ? '<span class="ef-rec">แนะนำ</span>' : ''}</b><small>${d}</small><span class="ef-m">${effDots('ความเร็ว', 5 - Math.min(4, r))}<em>เร็ว</em>${effDots('ลิมิต', 1 + Math.min(4, r))}<em>ใช้ลิมิต</em></span></span>${v === cur ? `<i class="np-ck">${ic('check')}</i>` : ''}</button>`; };
+  sheet('ระดับความคิด', `<div class="ef">${list.map(row).join('')}<p class="ef-note">ยิ่งคิดมาก คำตอบยิ่งดีกับโจทย์ยาก แต่ช้าขึ้นและใช้ลิมิตมากขึ้น · ${esc(m?.name || '')}</p></div>`, (d, close) => { pickTo(sel)(d, close); d.querySelector('.sheet')?.classList.add('np-sheet'); });
 }
 
 const BUILTIN_PROMPTS = [
@@ -1302,7 +1308,8 @@ function limitSheet() {
     ${list.map(x => `<button class="btn blue rst-b" data-k="${esc(x.k)}"><span>รีเซ็ต: ${esc(x.label)}${x.exp ? `<small class="rst-e">หมดอายุ ${when(x.exp)}</small>` : ''}</span><span class="pill">เหลือ ${x.n}</span></button>`).join('')}<div class="err" id="rse"></div></div>` : '';
   // การ์ดต่อรอบ: % ตัวใหญ่ + แถบสีตามระดับ (ปกติ / ใกล้เต็ม / เต็ม) + เวลาที่เหลือก่อนรีเซ็ต
   const left = t => { if (!t) return 'เริ่มนับเมื่อส่งข้อความแรก'; const ms = t - Date.now(); if (ms <= 0) return 'รีเซ็ตแล้ว'; const h = ms / 3600e3; return `รีเซ็ตใน ${h < 1 ? Math.max(1, Math.round(ms / 60e3)) + ' นาที' : h < 48 ? Math.round(h) + ' ชม.' : Math.round(h / 24) + ' วัน'} · ${when(t)}`; };
-  const card = (label, p, t) => { const v = Math.min(100, Math.max(0, +p || 0)), lv = v >= 100 ? 'full' : v >= 80 ? 'hi' : ''; return `<div class="ls-card ${lv}"><div class="ls-row"><span>${label}</span><b>${v < 10 && v > 0 ? v.toFixed(1) : Math.round(v)}%</b></div><div class="ls-bar" role="progressbar" aria-label="${label}" aria-valuenow="${Math.round(v)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.max(v, v > 0 ? 2 : 0)}%"></i></div><small>${v >= 100 ? 'เต็มแล้ว · ' : ''}${left(t)}</small></div>`; };
+  const card = (label, p, t) => { const v = Math.min(100, Math.max(0, +p || 0)), lv = v >= 100 ? 'full' : v >= 80 ? 'hi' : '', rest = Math.max(0, 100 - (v >= 10 ? Math.round(v) : v)), f = x => x < 10 && x > 0 ? x.toFixed(1) : Math.round(x);
+    return `<div class="ls-card lq ${lv}"><div class="lq-top"><span class="lq-l">${label}</span><span class="lq-r">${lv === 'full' ? 'เต็มแล้ว' : `เหลือ <b>${f(rest)}%</b>`}</span></div><div class="lq-num"><b>${f(v)}</b><span>% ใช้ไปแล้ว</span></div><div class="ls-bar lq-bar" role="progressbar" aria-label="${label}" aria-valuenow="${Math.round(v)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${v}%"></i></div><div class="lq-t">${ic('clock', 'sm')}<span>${left(t)}</span></div></div>`; };
   const multi = me.subs?.length > 1, sel = subSel(), cs = curSub();
   const subCard = x => `<div class="ls-sub${x.id === cs?.id ? ' on' : ''}"><div class="ls-head"><span class="ls-plan">${esc(x.name)}${x.primary ? ' <span class="pill">ใบหลัก</span>' : ''}</span><span class="muted">หมดอายุ ${when(x.expires)}</span></div>
     ${x.use4h === false ? '' : card('รอบ 4 ชั่วโมง', x.pct4h, x.reset4h)}${card('สัปดาห์นี้', x.pctWeek, x.resetWeek)}
@@ -1368,9 +1375,13 @@ const promoEnd = () => new Date(site.promo.until).toLocaleString(LOC, { day: 'nu
 function annAdd(b) { let d = app.querySelector(':scope > .ann-dock'); if (!d) { d = document.createElement('div'); d.className = 'ann-dock'; app.prepend(d); } d.append(b); }
 function promoStrip() { // โปรเติม Wallet แถม %: แถบเล็กบนสุด ปิดได้ (จำไว้)
   const tp = site.topup_promo; if (!tp || !me || localStorage.getItem('tpromo') === String(tp.end)) return;
-  const b = document.createElement('div'); b.className = 'ann promo';
-  b.innerHTML = `<span>${ic('sparkles', 'sm')} ${esc(tp.label)} · เติม Wallet ตั้งแต่ ฿${tp.min} แถม ${tp.pct}% ถึง ${new Date(tp.end - 1).toLocaleDateString(LOC, { day: 'numeric', month: 'short' })} · <a href="/plans?topup=1">เติมเลย</a></span><button aria-label="ปิด">${ic('x')}</button>`;
-  b.querySelector('button').onclick = () => { try { localStorage.setItem('tpromo', String(tp.end)); } catch { /* ไม่มีที่เก็บ */ } b.remove(); };
+  if (tp.end <= Date.now()) return;
+  // UI 2.5: แถบนับถอยหลังถึงวันหมดโปรจริง (วัน ชม. นาที วินาที) · แตะข้อความไปหน้าเติมเงิน
+  const b = document.createElement('div'); b.className = 'ann promo cd25';
+  const two = n => String(n).padStart(2, '0'), tick = () => { const ms = Math.max(0, tp.end - Date.now()), s0 = Math.floor(ms / 1000); return `${two(Math.floor(s0 / 86400))}<small>D</small> ${two(Math.floor(s0 / 3600) % 24)}<small>H</small> ${two(Math.floor(s0 / 60) % 60)}<small>M</small> ${two(s0 % 60)}<small>S</small>`; };
+  b.innerHTML = `<a class="cd-l" href="/plans?topup=1"><span class="cd-x">${esc(tp.label)} · </span>เติม Wallet ฿${tp.min}+ แถม ${tp.pct}%<span class="cd-x"> · จบใน</span></a><span class="cd-t" role="timer" aria-label="เวลาที่เหลือของโปร">${tick()}</span><button aria-label="ปิด">${ic('x')}</button>`;
+  const t = b.querySelector('.cd-t'), iv = setInterval(() => { if (!b.isConnected) return clearInterval(iv); t.innerHTML = tick(); if (tp.end <= Date.now()) { clearInterval(iv); b.remove(); } }, 1000);
+  b.querySelector('button').onclick = () => { try { localStorage.setItem('tpromo', String(tp.end)); } catch { /* ไม่มีที่เก็บ */ } clearInterval(iv); b.remove(); };
   annAdd(b);
 }
 function trialStrip() { // คนทดลองใกล้หมด/หมดแล้ว: โค้ดอัปเกรด (จาก /api/me)

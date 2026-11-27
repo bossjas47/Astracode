@@ -55,7 +55,7 @@ async function codeHome() {
     $('#nmdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
     $('#neff').hidden = !efs.length;
     $('#neffort').value = effortFor(m, $('#neffort').value);
-    $('#neff').innerHTML = `${ic('sparkles', 'sm')}${EFFORT_INFO[$('#neffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
+    $('#neff').innerHTML = `${effBars($('#neffort').value)}${EFFORT_INFO[$('#neffort').value]?.[0] || 'Instant'}${ic('down', 'sm')}`;
     $('#nflags').innerHTML = ''
       + (IDE.cloud ? `<button type="button" class="flag agent-on" data-nf="cloud">${ic('terminal', 'sm')}Agent บนคลาวด์${ic('x', 'sm')}</button>` : '')
       + (IDE.agent ? `<button type="button" class="flag agent-on" data-nf="agent">${ic('sparkles', 'sm')}Agent ON${ic('x', 'sm')}</button>` : '')
@@ -939,7 +939,7 @@ function cUI() {
   const efs = modelEfforts(m);
   $('#ceff').hidden = !efs.length;
   $('#ceffort').value = effortFor(m, $('#ceffort').value);
-  $('#ceff').innerHTML = `${ic('sparkles', 'sm')}<span>${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}</span>${ic('down', 'sm')}`;
+  $('#ceff').innerHTML = `${effBars($('#ceffort').value)}<span>${EFFORT_INFO[$('#ceffort').value]?.[0] || 'Instant'}</span>${ic('down', 'sm')}`;
   $('#bmdl').innerHTML = $('#cmdl').innerHTML; $('#beff').innerHTML = $('#ceff').innerHTML; $('#beff').hidden = !efs.length; // แถบสั่งเร็วใช้ค่าเดียวกับกล่อง AI
   $('#cflags').innerHTML = ''
     + (/\bopus\b(?!.*\beco\b)/i.test(m?.name || '') ? `<button type="button" class="flag${localStorage.getItem('smart') === '1' ? ' on' : ''}" data-flag="smart" title="Opus วางแผนและตรวจ · ChatGPT 6.2 Sol ลงมือแก้ไฟล์ · ประหยัดลิมิตในงานหลายรอบ">${ic('sparkles', 'sm')}Smart ${localStorage.getItem('smart') === '1' ? 'เปิด' : 'ปิด'}</button>` : '')

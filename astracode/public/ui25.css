@@ -170,3 +170,55 @@ h1, h2, .hero h1, .shop-hero h1 { letter-spacing: -.025em; text-wrap: balance; }
 .np-empty { text-align: center; color: var(--ash); padding: 18px; margin: 0; }
 .np .opt-more { margin: 8px 12px 4px; }
 @media (max-width: 600px) { .np-sheet { max-height: 88dvh; } }
+
+/* ---------- ระดับความคิด ---------- */
+.ef { display: flex; flex-direction: column; gap: 4px; }
+.ef-row { display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px; border: 0; border-radius: 14px; background: none; color: var(--porcelain); text-align: left; font: inherit; cursor: pointer; }
+.ef-row:hover { background: rgba(var(--ov), .04); }
+.ef-row.on { background: rgba(var(--ov), .08); }
+.ef-row:focus-visible { outline: 2px solid rgba(var(--ov), .5); outline-offset: -2px; }
+.ef-bars { flex: none; display: inline-flex; align-items: flex-end; gap: 2px; height: 18px; }
+.ef-bars i { width: 3px; border-radius: 1px; background: rgba(var(--ov), .2); }
+.ef-bars i.on { background: var(--porcelain); }
+.ef-row .ef-bars { width: 26px; height: 22px; gap: 3px; }
+.ef-row .ef-bars i { width: 3.5px; }
+.ef-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ef-t b { font: 600 15.5px/1.3 var(--noir-font); display: flex; align-items: center; gap: 8px; }
+.ef-t small { color: var(--ash); font-size: 12.5px; line-height: 1.45; }
+.ef-rec { font: 600 10.5px/1.6 var(--noir-font); padding: 0 7px; border-radius: 5px; color: var(--green); box-shadow: 0 0 0 1px color-mix(in srgb, var(--green) 45%, transparent) inset; }
+.ef-m { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 11.5px; color: var(--ash); }
+.ef-m em { font-style: normal; margin-right: 8px; }
+.ef-dots { display: inline-flex; gap: 3px; }
+.ef-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(var(--ov), .16); }
+.ef-dots i.on { background: var(--porcelain); }
+.ef-note { margin: 8px 12px 4px; color: var(--ash); font-size: 12.5px; line-height: 1.5; }
+.cb.pick .ef-bars, #ceff .ef-bars, #neff .ef-bars, #beff .ef-bars { height: 13px; margin-right: 2px; }
+.cb.pick .ef-bars i, #ceff .ef-bars i, #neff .ef-bars i, #beff .ef-bars i { width: 2.5px; }
+
+/* ---------- ลิมิต ---------- */
+.lq { padding: 18px 18px 16px; border-radius: 18px; border: 1px solid var(--hair); background: rgba(var(--ov), .025); }
+.lq + .lq { margin-top: 10px; }
+.lq-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; color: var(--ash); }
+.lq-r b { color: var(--porcelain); font-weight: 600; }
+.lq-num { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 12px; }
+.lq-num b { font: 700 44px/1 var(--noir-font); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.lq-num span { color: var(--ash); font-size: 13.5px; }
+.lq-bar { height: 8px; border-radius: 99px; background: rgba(var(--ov), .1); overflow: hidden; }
+.lq-bar i { display: block; height: 100%; border-radius: 99px; background: var(--spectrum); }
+.lq.hi .lq-bar i { background: linear-gradient(90deg, #6b6ff5, #e0509f, #f3b45a); }
+.lq.full .lq-bar i { background: var(--red); }
+.lq.full .lq-num b { color: var(--red); }
+.lq-t { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: var(--ash); font-size: 12.5px; }
+.lq-t .ic { width: 13px; height: 13px; }
+/* ปุ่มลิมิตบนแถบหัว */
+:root:not([data-theme="light"]) .lim { background: #0b0b0b; border-color: rgba(255, 255, 255, .12); }
+
+/* ---------- แถบโปรนับถอยหลัง ---------- */
+.ann.promo.cd25 { display: flex; align-items: center; gap: 12px; padding: 9px 12px 9px 16px; border-radius: 14px; background: #050505; border: 1px solid rgba(255, 90, 78, .28); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); color: #ededed; }
+:root[data-theme="light"] .ann.promo.cd25 { background: #fff; color: #111; border-color: rgba(209, 36, 47, .25); box-shadow: 0 8px 24px rgba(0, 0, 0, .08); }
+.cd25 .cd-l { flex: 1; min-width: 0; color: inherit; font: 600 12.5px/1.4 var(--noir-font); letter-spacing: .02em; text-decoration: none; }
+.cd25 .cd-t { flex: none; font: 700 14px/1 'JetBrains Mono', ui-monospace, monospace; color: #ff6a5e; padding: 6px 11px; border-radius: 999px; box-shadow: 0 0 0 1px rgba(255, 90, 78, .5) inset; font-variant-numeric: tabular-nums; white-space: nowrap; }
+:root[data-theme="light"] .cd25 .cd-t { color: #c8202b; }
+.cd25 .cd-t small { font-size: 9px; opacity: .7; margin: 0 1px 0 1px; }
+.cd25 > button { flex: none; border: 0; background: none; color: var(--ash); cursor: pointer; padding: 4px; }
+@media (max-width: 520px) { .cd25 .cd-x { display: none; } .cd25 .cd-t { font-size: 12.5px; padding: 5px 9px; } }

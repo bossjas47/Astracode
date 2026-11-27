@@ -426,7 +426,7 @@ function modelUI() {
   const efs = modelEfforts(m);
   $('#eff').hidden = !efs.length;
   $('#effort').value = effortFor(m, $('#effort').value);
-  $('#eff').innerHTML = `${ic('sparkles', 'sm')}${(EFFORT_INFO[$('#effort').value] || EFFORT_INFO[''])[0]}${ic('down', 'sm')}`;
+  $('#eff').innerHTML = `${effBars($('#effort').value)}${(EFFORT_INFO[$('#effort').value] || EFFORT_INFO[''])[0]}${ic('down', 'sm')}`;
   const img = isImgMode(); $('#t').placeholder = img ? 'Describe the image you want · attach a picture as a reference' : 'Ask anything · type / for Skills';
   $('#flags').innerHTML = (img ? `<button type="button" class="flag on" data-flag="img" aria-label="ออกจากโหมดสร้างภาพ">${ic('palette', 'sm')}สร้างภาพ${ic('x', 'sm')}</button><button type="button" class="flag" data-flag="imgsize" aria-label="ขนาดภาพ">${ic('image', 'sm')}${IMG_SIZES[imgSize()][1]}</button><button type="button" class="flag" data-flag="enh">${ic('sparkles', 'sm')}ปรับ prompt</button><button type="button" class="flag ${localStorage.getItem('imgAuto') !== '0' ? 'on' : ''}" data-flag="enhauto" aria-pressed="${localStorage.getItem('imgAuto') !== '0'}">ปรับอัตโนมัติ: ${localStorage.getItem('imgAuto') !== '0' ? 'เปิด' : 'ปิด'}</button>` : '')
     + (!img && isTask() && /\bopus\b(?!.*\beco\b)/i.test(m?.name || '') ? `<button type="button" class="flag${localStorage.getItem('smart') === '1' ? ' on' : ''}" data-flag="smart" title="Opus วางแผนและตรวจ · ChatGPT 6.2 Sol ลงมือ · ประหยัดลิมิตมากในงานโค้ด/งานหลายขั้นตอน">${ic('sparkles', 'sm')}Smart ${localStorage.getItem('smart') === '1' ? 'เปิด' : 'ปิด'}</button>` : '')
