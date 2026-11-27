@@ -317,8 +317,8 @@ const nav = () => {
     <button type="button" class="side-user" data-acct aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}"><span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span><span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan?.name || '')} · <span class="su-pct">${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}</span>% used</small></span>${ic('up', 'sm')}</button>`
     : `${navL('/', 'Home', 'sparkles')}${navL('/pricing', 'Pricing', 'tag')}${navL('/plans', 'Plans', 'layers')}${window.astraDesktop ? '' : navL('/#download', 'Desktop app', 'download')}${navL('/blog', 'Blog', 'news')}${navL('/status', 'Status', 'activity')}
     <span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`;
-  return `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">Kyber</a>${navRight()}</div>
-  <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">Kyber</a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
+  return `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">Kyber<span class="v25">2.5</span></a>${navRight()}</div>
+  <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">Kyber<span class="v25">2.5</span></a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
   ${body}</div></nav>`;
 };
 // แชตล่าสุด / โปรเจกต์ในแถบข้างของหน้าอื่น (โหลดครั้งเดียวต่อ 60 วินาที)

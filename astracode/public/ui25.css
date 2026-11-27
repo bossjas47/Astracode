@@ -70,3 +70,9 @@
 .ag25 .agr code, .ag25 .agi code { background: none; padding: 0; border: 0; }
 .compose .cbox textarea:focus, .compose .cbox textarea:focus-visible { outline: none; box-shadow: none; }
 :root[data-theme="light"] .agr.now .tag { color: #0b7f9c; } :root[data-theme="light"] .side-sub.run, :root[data-theme="light"] .cq-item button[data-cqnow] { color: #0b7f9c; }
+
+/* ---------- Code / Harness: ปุ่มส่งและปุ่มงานใหม่ชุดเดียวกับแชต ---------- */
+#cgo.send:not(.stop), #cwgo.send:not(.stop), .cbox .send:not(.stop) { background: var(--spectrum); color: #fff; }
+.cw-new { background: var(--porcelain); color: var(--on-porcelain); min-height: 42px; margin-bottom: 8px; }
+.cw-new:hover { background: var(--porcelain); filter: brightness(.95); }
+.cw-new .ic { background: none; color: var(--on-porcelain); padding: 0; }
