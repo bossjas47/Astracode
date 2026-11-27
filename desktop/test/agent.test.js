@@ -167,3 +167,12 @@ test('agent: a provider that drops the stream in the middle of a big write_file 
   assert.equal(seen.length, 2, 'the run ended instead of continuing');
   assert.match(JSON.stringify(seen[1].messages), /append=true/);
 });
+
+test('agent: segment mode (long run) does not force a wrap-up near the round cap and reports capped so the app can continue', async () => {
+  const replies = Array.from({ length: 10 }, (_, i) => ({ choices: [{ message: { content: null, tool_calls: [{ id: 'r' + i, type: 'function', function: { name: 'read_file', arguments: '{"path":"a' + i + '.txt"}' } }] } }] }));
+  const f = fakeFetch(replies), messages = [{ role: 'user', content: 'งานยาว' }]; let stats = null;
+  await runAgent({ base: 'http://x', key: 'k', model: 'm', messages, tools: [{ type: 'function', function: { name: 'read_file', parameters: {} } }], callTool: async () => 'ok', fetchImpl: f.fetch, maxRounds: 8, segment: true, onEvent: e => { if (e.type === 'stats') stats = e.stats; } });
+  assert.equal(stats.capped, 'rounds');
+  assert.ok(!JSON.stringify(messages).includes('Only 3 rounds left'), 'no wrap-up nudge in a segment');
+  assert.ok(f.seen.every(b => (b.tools || []).length), 'tools are still offered on the last round of a segment');
+});

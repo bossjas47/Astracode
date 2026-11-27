@@ -74,7 +74,7 @@ function repairHistory(messages) {
 // ตัวเลือกใหม่ (ไม่ส่ง = พฤติกรรมเดิม): maxDurationMs · maxTokens (token รวมทั้งงาน) · depth (ผู้ช่วย = 1: ห้าม task ซ้อน) · toolKind(name) → 'read'|อื่นๆ
 //   spill(text, info) → path ของไฟล์ที่เก็บผลเต็ม · onCheckpoint({ round, messages, state }) · retryWaits (ระบุเอง = ไม่สุ่ม ใช้ในเทสต์)
 async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {},
-  retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000,
+  retryWaits = null, segment = false, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000,
   verifyGate = true, checks = [], review = null, advisor = null, pinned = null, seeImages = true, slimOld = true, helperModel = null, summaryModel = null, steer = null }) {
   const url = base.replace(/\/$/, '') + '/chat/completions', t0 = Date.now();
   const post = (body, sig = signal) => fetchImpl(url, { method: 'POST', signal: sig, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
@@ -100,7 +100,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
   const finish = () => { stats.ms = Date.now() - t0; stats.cacheHit = stats.promptTokens ? Math.round(stats.cachedTokens / stats.promptTokens * 1000) / 10 : 0; onEvent({ type: 'stats', stats }); return messages; };
   for (let round = 0; round < maxRounds; round++) {
     if (signal?.aborted) throw new Error('หยุดแล้ว'); state.round = round;
-    if (maxDurationMs && Date.now() - t0 > maxDurationMs) { stop(`ทำงานครบเวลา ${Math.round(maxDurationMs / 60000)} นาทีแล้ว`); return finish(); }
+    if (maxDurationMs && Date.now() - t0 > maxDurationMs) { stats.capped = 'time'; if (!segment) stop(`ทำงานครบเวลา ${Math.round(maxDurationMs / 60000)} นาทีแล้ว`); return finish(); }
     if (maxTokens && stats.promptTokens + stats.outTokens > maxTokens) { stop(`ใช้ token ครบเพดาน ${maxTokens.toLocaleString()} แล้ว`); return finish(); }
     for (const m of inbox()) { // ข้อความที่ผู้ใช้พิมพ์แทรก (แนบรูปได้: โมเดลที่อ่านรูปได้จะเห็นรูปด้วย)
       const text = typeof m === 'string' ? m : String(m?.text || ''), imgs = typeof m === 'string' ? [] : (m?.images || []).filter(u => /^data:image\//.test(u)).slice(0, 4);
@@ -125,7 +125,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
       state.planIn = true; messages.push({ role: 'user', content: `[Kyber Harness · advisor plan] A senior engineer (${advisor.model}) suggests this plan. Use it as guidance, verify against the real files, and adapt if the code says otherwise:\n${state.plan.slice(0, 4000)}` }); stats.advised = (stats.advised || 0) + 1; onEvent({ type: 'info', text: 'ที่ปรึกษาวางแผนให้แล้ว' });
     }
     // 1) ใกล้ครบรอบ: บอกให้สรุป (เดิมวนจนครบแล้วจบเงียบ ๆ ผู้ใช้ไม่ได้สรุปว่าทำอะไรไป)
-    if (depth === 0 && maxRounds >= 8 && round === maxRounds - 3) { messages.push({ role: 'user', content: '[Kyber Harness] Only 3 rounds left in this run. Finish now: make only the last essential fix (if any), then give the final summary (what changed, how it was verified, what is left). Do not start new work.' }); onEvent({ type: 'info', text: 'ใกล้ครบรอบ: ให้ AI สรุปงาน' }); }
+    if (depth === 0 && !segment && maxRounds >= 8 && round === maxRounds - 3) { messages.push({ role: 'user', content: '[Kyber Harness] Only 3 rounds left in this run. Finish now: make only the last essential fix (if any), then give the final summary (what changed, how it was verified, what is left). Do not start new work.' }); onEvent({ type: 'info', text: 'ใกล้ครบรอบ: ให้ AI สรุปงาน' }); }
     // 1) หยุดเมื่องานเสร็จจริง: ตรวจผ่านหลังแก้ล่าสุด + ไม่มี error ค้าง + ไม่มี todo ค้าง → 3 รอบที่ไม่แก้อะไร = เตือนให้สรุป · 6 รอบ = ปิดเครื่องมือให้สรุปเลย
     // (วัดจริง: งานเสร็จตั้งแต่ราวครึ่งทาง แต่โมเดลวนตรวจซ้ำจนครบ 60 รอบ ทุกรอบส่งบทสนทนาทั้งหมดใหม่)
     const quiet = state.codeEditRound >= 0 && state.verifyRound >= state.codeEditRound && !state.pageBad && !state.errors.size && !(state.todos || []).some(t => t.status && t.status !== 'completed') ? round - state.codeEditRound : 0;
@@ -133,7 +133,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
       state.doneHint = true; messages.push({ role: 'user', content: '[Kyber Harness] Your last checks passed and you have not changed anything since. If every part of the request is done, give the final summary now. If something is still missing, make that change next (more checking alone is not needed).' }); onEvent({ type: 'info', text: 'ตรวจผ่านแล้ว: ให้ AI สรุปงาน' });
     }
     const doneStop = depth === 0 && quiet >= 6 && round < maxRounds - 1;
-    const lastTurn = depth === 0 && ((maxRounds >= 8 && round === maxRounds - 1) || doneStop); // รอบสุดท้าย / งานเสร็จแล้ว: ไม่ส่งเครื่องมือ = โมเดลต้องตอบสรุปเป็นข้อความ
+    const lastTurn = depth === 0 && ((!segment && maxRounds >= 8 && round === maxRounds - 1) || doneStop); // segment = งานยาว: ครบรอบแล้วระบบต่อช่วงใหม่ให้ ไม่ต้องรีบสรุป // รอบสุดท้าย / งานเสร็จแล้ว: ไม่ส่งเครื่องมือ = โมเดลต้องตอบสรุปเป็นข้อความ
     if (lastTurn) { messages.push({ role: 'user', content: doneStop ? '[Kyber Harness] The work is verified and nothing has changed for several rounds, so tools are off now. Write the final summary for the user: what you changed, how you checked it, and anything left to do.' : '[Kyber Harness] This is the last round: tools are off now. Write the final summary for the user: what you changed, how you checked it, and anything left to do.' }); if (doneStop) { stats.doneStop = 1; onEvent({ type: 'info', text: 'งานผ่านการตรวจแล้ว: ให้ AI สรุปและจบงาน' }); } }
     const body = { model, messages, stream: true, ...(tools.length && !lastTurn ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}) };
     const tReq = Date.now(); let r, attempt = 0, msg = null, stalls = 0;
@@ -274,7 +274,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (images.length) messages.push({ role: 'user', content: [{ type: 'text', text: 'ภาพจากเครื่องมือด้านบน' }, ...images.slice(0, 4).map(url => ({ type: 'image_url', image_url: { url } }))] }); // tool message ส่งรูปไม่ได้ จึงแนบเป็นข้อความถัดไป
     onCheckpoint?.({ round, messages, state: snapshot(state) }); // บันทึกทุกรอบ: แอป/เครื่องเสมือนรีสตาร์ตแล้วทำต่อได้
   }
-  stop(`ทำงานครบ ${maxRounds} รอบแล้ว`);
+  stats.capped = 'rounds'; if (!segment) stop(`ทำงานครบ ${maxRounds} รอบแล้ว`);
   return finish();
 }
 // ลดขนาดบริบท (ทำทุกรอบ ไม่ต้องเรียกโมเดล): ของเก่าที่โมเดลไม่ต้องเห็นซ้ำทุกรอบ

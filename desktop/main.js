@@ -1,5 +1,5 @@
 // AstraCode Desktop: เปิดเว็บ AstraCode ตัวจริงในหน้าต่างแอป + สะพานให้เว็บทำงานกับไฟล์ คำสั่ง และ MCP ในเครื่อง
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu, Tray, nativeImage, clipboard, desktopCapturer, screen, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu, Tray, nativeImage, clipboard, desktopCapturer, screen, globalShortcut, powerSaveBlocker } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { localTool, runCmd, isDanger, isServer, portOf } = require('./tools');
@@ -428,7 +428,7 @@ async function runTask(o = {}, sender) {
       const r = await dialog.showMessageBox(web, { type: 'warning', title: 'โปรเจกต์นี้มี hook', message: 'ให้รันคำสั่งนี้เองทุกครั้งหลัง Agent แก้ไฟล์?', detail: hooks.after_edit, buttons: ['อนุญาต', 'ไม่ใช้ hook'], defaultId: 1, cancelId: 1, noLink: true });
       if (r.response === 0) { settings.trustedHooks = { ...settings.trustedHooks, [path.resolve(root)]: hooks.after_edit }; save(); } else hooks = null;
     }
-    a.ws = new Workspace(root, { hooks, ask: req => approve(a, req), onTodos: t => tell({ type: 'todos', todos: t }), shot: shotUrl, pageCheck: (u, wait) => shotUrl(u, 1280, wait), // check_page: เปิดไฟล์ HTML/three.js จริง ดู error + ภาพ
+    a.ws = new Workspace(root, { hooks, ask: req => approve(a, req), onTodos: t => { a.todos = t; tell({ type: 'todos', todos: t }); }, shot: shotUrl, pageCheck: (u, wait) => shotUrl(u, 1280, wait), // check_page: เปิดไฟล์ HTML/three.js จริง ดู error + ภาพ
       search: async q => { const r = await fetch(SITE + '/v1/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ query: q }) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error?.message_th || d.error?.message || 'ค้นเว็บไม่ได้'); return d.results || []; },
       // ผู้ช่วยค้น: บทสนทนาแยก เครื่องมืออ่านอย่างเดียว ใช้โมเดลประหยัดถ้าหน้าเว็บส่งมา
       subagent: async (title, prompt) => {
@@ -488,7 +488,7 @@ async function runTask(o = {}, sender) {
   const budget = +o.budget > 0 ? +o.budget : 0, t0 = Date.now(), stat = { rounds: 0, tools: 0 };
   const onEvent = d => {
     if (d.type === 'usage') stat.rounds++; if (d.type === 'tool') stat.tools++;
-    if (d.type === 'stats') { const x = d.stats, tt = [...x.ttft].sort((p, q) => p - q); stat.harness = { retries: x.retries, stuck: x.stuck, toolErrors: x.toolErrors, cacheHit: x.cacheHit, ttftMs: tt[tt.length >> 1] || 0, perTool: { ...x.perTool, _gated: { calls: x.gated || 0, errors: 0 }, _reviewed: { calls: x.reviewed || 0, errors: 0 } } }; return; } // สถิติตัวคุมรอบ: ส่งไปกับ agent/stat ไม่ส่งเข้าหน้าเว็บ
+    if (d.type === 'stats') { a.lastStats = d.stats; const x = d.stats, tt = [...x.ttft].sort((p, q) => p - q); stat.harness = { retries: x.retries, stuck: x.stuck, toolErrors: x.toolErrors, cacheHit: x.cacheHit, ttftMs: tt[tt.length >> 1] || 0, perTool: { ...x.perTool, _gated: { calls: x.gated || 0, errors: 0 }, _reviewed: { calls: x.reviewed || 0, errors: 0 } } }; return; } // สถิติตัวคุมรอบ: ส่งไปกับ agent/stat ไม่ส่งเข้าหน้าเว็บ
     if (d.type === 'usage' && d.usage?.astra) { a.cost.charge += d.usage.astra.charge_thb || 0; a.cost.pct += d.usage.astra.week_pct || 0; tell({ type: 'cost', ...a.cost }); if (budget && a.cost.charge >= budget && !ac.signal.aborted) { tell({ type: 'info', text: `ถึงเพดานงานนี้ ฿${budget} แล้ว หยุดให้ก่อน (สั่ง "ทำต่อ" ได้)` }); ac.abort(); } }
     tell(d);
   };
@@ -500,12 +500,30 @@ async function runTask(o = {}, sender) {
   try {
     const seeImages = (await screenCtx()).seeing !== false, ms0 = await modelList().catch(() => []), helperModel = pickHelper(ms0, model), strongModel = pickStrong(ms0, model), summaryModel = pickStrong(ms0, model, true); a.helper = helperModel; // strong = ผู้ตรวจรอบสองเมื่อตัวหลักเป็นรุ่นเล็ก · summary = ผู้สรุปตอนย่อบทสนทนา (Sonnet Eco)
     a.steer = {};
-    await runAgent({ steer: a.steer, advisor, seeImages, helperModel, summaryModel, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
+    const runSeg = async (segOpts = {}) => runAgent({ steer: a.steer, advisor, seeImages, helperModel, summaryModel, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
       maxDurationMs: Math.min(600, Math.max(0, +o.maxMinutes || 0)) * 60e3, spill: (t, i) => a.ws.spill(t, i),
       checks: (a.map ||= await projectMap(a.ws.root).catch(() => ({ checks: [] }))).checks || [], verifyGate: o.verifyGate !== false && mode !== 'plan',
       review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model: advisorModel || strongModel || model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)
         post: body => fetch(SITE + '/v1/chat/completions', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) }) }),
-      onCheckpoint: () => { if (Date.now() - (a.savedAt || 0) > 5000) { a.savedAt = Date.now(); agentSave(a); } } }); // บันทึกระหว่างทำ (ทุก ≥5 วินาที): แอปปิด/ค้างกลางงาน เปิดใหม่ทำต่อได้
+      onCheckpoint: () => { if (Date.now() - (a.savedAt || 0) > 5000) { a.savedAt = Date.now(); agentSave(a); } }, ...segOpts }); // บันทึกระหว่างทำ (ทุก ≥5 วินาที): แอปปิด/ค้างกลางงาน เปิดใหม่ทำต่อได้
+    // งานยาว (ตั้งได้ถึง 24 ชม.): ครบรอบของช่วงแล้วไม่หยุด ต่อช่วงใหม่เองจนงานเสร็จ / ครบเวลา / ลิมิตหรือเพดานเงินหมด / ไม่คืบหน้า 2 ช่วงติด
+    const hours = Math.min(24, Math.max(0, +o.hours || 0)), deadline = hours ? t0 + hours * 3600e3 : 0;
+    const keepAwake = hours ? powerSaveBlocker.start('prevent-app-suspension') : null; // คอมไม่หลับระหว่างงานยาว (จอดับได้)
+    a.stall = 0; a.lastMark = null;
+    try {
+      for (let seg = 1; ; seg++) {
+        a.lastStats = null; const left = deadline - Date.now(), lastSeg = !hours || left < 30 * 60e3;
+        await runSeg(hours ? { segment: !lastSeg, maxRounds: 60, maxDurationMs: Math.max(60e3, left) } : {});
+        if (!hours || ac.signal.aborted || !a.lastStats?.capped || Date.now() >= deadline || seg >= 300) break;
+        const done = (a.todos || []).filter(t => t.status === 'completed').length, mark = a.ws.changed().length + ':' + done;
+        a.stall = a.lastMark === mark ? (a.stall || 0) + 1 : 0; a.lastMark = mark;
+        if (a.stall >= 2) { tell({ type: 'info', text: 'งานยาว: 2 ช่วงล่าสุดไม่มีความคืบหน้า หยุดไว้ก่อน (สั่ง "ทำต่อ" ได้)' }); break; }
+        const hLeft = Math.max(0, (deadline - Date.now()) / 3600e3);
+        tell({ type: 'info', text: `งานยาว: ต่อช่วงที่ ${seg + 1} (เหลือเวลาราว ${hLeft.toFixed(1)} ชม.)` });
+        a.messages.push({ role: 'user', content: `[Kyber Harness] Long run: segment ${seg} ended, about ${hLeft.toFixed(1)} hours left. Continue the same task from your todo list without redoing finished work. When everything is done and verified, give the final summary and stop.` });
+        agentSave(a);
+      }
+    } finally { if (keepAwake != null) powerSaveBlocker.stop(keepAwake); }
     if (mode !== 'plan' && mode !== 'ask' && o.memory !== false && a.ws.changed().length) memoryLearn({ post, model: a.helper || model, root: a.ws.root, task: String(o.text || ''), messages: a.messages }).then(l => { if (l?.length) tell({ type: 'info', text: `จำบทเรียนของโปรเจกต์ไว้ ${l.length} ข้อ (.kyber/memory.md)` }); }).catch(() => {}); // ความจำโปรเจกต์: จบงานที่แก้ไฟล์ → สรุปบทเรียนเก็บไว้ใช้งานหน้า
     tell({ type: 'done', changed: a.ws.changed(), outputs: [...new Set([...a.outputs, ...a.ws.changed()])].filter(p => !/\.(js|ts|py|css|json|lock|map)$/i.test(p) || a.outputs.has(p)).slice(0, 20), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
   } catch (x) {
