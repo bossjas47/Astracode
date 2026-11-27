@@ -784,8 +784,11 @@ export async function runChat(env, J, send, st) {
   let vids = 0;
   const toolsNow = () => [...mcpTools, ...zipTools, ...(useTools ? vidT : []), ...(useTools && !pid ? [...webTools(searchOn), ...chatTools({ image: !!imgPrompt, art: artPaid(J.plan), local: !!J.local }), ...(J.task ? CODE_TOOLS.filter(t => t.function.name === 'todo_write') : [])] : []), ...(useTools && ws ? (J.perm === 'plan' ? CODE_TOOLS.filter(t => !WRITE_TOOLS.has(t.function.name)) : CODE_TOOLS) : [])];
   let imgUsed = false, pyStop = false; // รูป 1 รูปต่อคำตอบ · run_python = จบคำตอบให้หน้าเว็บรันแล้วส่งผลกลับ
+  // แชตธรรมดา + ขอเขียนโปรแกรม/หน้าเว็บ: ให้วางแผนสั้น ๆ ก่อนเขียน แล้วให้โค้ดครบไฟล์เดียว (โมเดลเล็กพลาดน้อยลงมาก) · ผลทดลองดู CHAT_CODE_SYS
+  const lastAsk = String(typeof hist?.at?.(-1)?.content === 'string' ? hist.at(-1).content : '').slice(0, 2000);
+  const buildAsk = !pid && !J.agent && !J.task && CHAT_BUILD_RE.test(lastAsk);
   let extraSys = ''; // Smart Router / โหมดเทพ: แผนจาก Opus หรือคำตอบผู้สมัครที่ต้องรวม
-  const sysNow = () => extraSys + (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + (pid && J.perm === 'plan' ? PLAN_NOTE : '') + localSys(J.local, !!pid) + (J.task ? TASK_SYS : '');
+  const sysNow = () => (buildAsk ? CHAT_CODE_SYS : '') + extraSys + (zipIds.length ? system + ZIP_SYS : system) + (useTools && ws ? CODE_TOOLS_NOTE : '') + (pid && J.perm === 'plan' ? PLAN_NOTE : '') + localSys(J.local, !!pid) + (J.task ? TASK_SYS : '');
   // ตัวตัดวงจร: โมเดลที่ error ตั้งแต่ 3 ครั้งใน 5 นาทีล่าสุดถือว่าล่ม ถ้ามีโมเดลสำรองที่ยังปกติให้สลับไปเลย ไม่ต้องรอให้พังซ้ำ
   if (down) {
     const fb = await env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(model.fallback_id).first();
@@ -845,6 +848,25 @@ export async function runChat(env, J, send, st) {
     checks++;
     if (!touched.size && !probs.length) return `[Automatic check] You stopped before doing the work. Your checklist still has unfinished items:\n${open.map(x => '- ' + x).join('\n')}\nDo not just describe the next step: call the tools now and keep going until every item is done, then update the checklist and give a short summary. If an item truly cannot be done, say why in one line.`;
     return `[Automatic check before you finish]\n${probs.length ? 'Problems found in the files you changed:\n' + probs.map(x => '- ' + x).join('\n') + '\n' : ''}${open.length ? 'Your checklist still has unfinished items:\n' + open.map(x => '- ' + x).join('\n') + '\n' : ''}Fix these now with the tools (read the exact lines first if needed), then update the checklist and give a short summary. If an item is truly not needed, say why in one line.`;
+  };
+  // แชตธรรมดา: ตรวจโค้ดในคำตอบก่อนจบ (เหมือน harness แบบย่อ) · HTML เปิดในเบราว์เซอร์จริงดู error · โค้ดยาวภาษาอื่นให้อ่านทวนหาบั๊ก · ไม่เกิน 2 ครั้งต่อคำตอบ
+  let chatChecked = 0;
+  const chatCheck = async (part, round) => {
+    if (pid || ws || J.agent || J.task || st.gone || chatChecked >= 2 || !part) return '';
+    const blocks = [...part.matchAll(/```([\w+-]*)[^\n]*\n([\s\S]*?)```/g)];
+    const html = blocks.filter(b => /^html?$/i.test(b[1]) || /<!doctype html|<html[\s>]/i.test(b[2])).map(b => b[2]).at(-1);
+    if (html && html.split('\n').length >= 10) {
+      await send({ round: round + 2, of: round + 3, doing: 'เปิดโค้ดในเบราว์เซอร์ตรวจ error' });
+      const errs = await import('./agent.js').then(m => m.pageErrors(env, new Map([['index.html', html]]))).catch(() => null);
+      if (!errs?.length) return '';
+      chatChecked++; await event(env, 'chatcheck', model.id, 'html:' + errs.length).catch(() => {});
+      return `[Automatic check] I opened the HTML from your answer in a real browser and it throws JavaScript errors:\n${errs.slice(0, 6).map(e => '- ' + String(e).slice(0, 300)).join('\n')}\nFix them now: one short line saying what was wrong, then the COMPLETE corrected file in one \`\`\`html block (no placeholders).`;
+    }
+    const code = blocks.filter(b => CHAT_CODE_LANG.test(b[1])).map(b => b[2]).join('\n');
+    if (chatChecked || code.split('\n').length < 80) return '';
+    chatChecked = 2; await event(env, 'chatcheck', model.id, 'review').catch(() => {});
+    await send({ round: round + 2, of: round + 3, doing: 'อ่านทวนโค้ดหาบั๊ก' });
+    return '[Automatic check] Before the user runs it, re-read the code you just wrote for real bugs only: undefined names, missing imports, wrong signatures, unclosed blocks, placeholders left in. If you find any, list them in one line each, then give the complete corrected code. If there are none, reply with exactly: ✓ ตรวจโค้ดซ้ำแล้ว ไม่พบปัญหา';
   };
   let ctxUsed = 0, lastCtx = 0, cumIn = 0, capped = false, trimmedSent = false, roundsOut = false; // roundsOut = หยุดเพราะครบรอบทั้งที่ยังมีงานต่อ (หน้า Code สั่งทำต่อเอง) // context ที่ใช้รอบล่าสุด · input รวมทุกรอบของคำตอบนี้ (เพดาน ANSWER_IN_MAX)
   const H = { read: new Set(), sigs: [], probs: [], hinted: new Set() }; // Kyber Harness: ไฟล์ที่อ่านแล้ว (กันเขียนทับ) · ลายเซ็นแต่ละรอบ (จับการวนซ้ำ)
@@ -1016,7 +1038,7 @@ export async function runChat(env, J, send, st) {
     const reqs = pid && !st.gone && round < maxRounds && !/```[^\n]*\bpath=/.test(part) && !/^\s*RUN\s+\S/m.test(part.replace(/```[\s\S]*?```/g, '')) ? toolReqs(part) : []; // RUN รันที่เครื่องผู้ใช้ จึงหยุดรอ
     if (!reqs.length && pid && !st.gone && round >= maxRounds && toolReqs(part).length) roundsOut = true; // ขออ่าน/รันต่อแต่ครบรอบแล้ว
     if (!reqs.length) { // โมเดลตอบจบ: ตรวจไฟล์ที่แก้ในคำตอบนี้ก่อน ถ้าเจอปัญหา/งานค้างให้แก้ต่ออีกรอบ
-      const note = round < maxRounds + 2 ? await reviewNote(round) : '';
+      const note = round < maxRounds + 2 ? (await reviewNote(round) || await chatCheck(part, round)) : '';
       if (!note) break;
       await send({ t: '\n\n' }); out += '\n\n'; lastKind = 't';
       msgs = [...msgs, { role: 'assistant', content: part || '(done)' }, { role: 'user', content: note }]; imgs = [];
@@ -1184,6 +1206,14 @@ export async function mcpCall(url, token, name, args, env) {
 }
 
 // ---------- โหมด Code: เครื่องมืออ่าน/ค้นไฟล์ (แบบข้อความ ใช้ได้กับทุกโมเดล) ----------
+export const CHAT_BUILD_RE = /(เขียน|สร้าง|ทำ|ช่วย|write|build|create|make|code)[\s\S]{0,60}(โค้ด|โปรแกรม|สคริปต์|เว็บ|หน้าเว็บ|เกม|แอป|แอนิเมชัน|อนิเมชัน|animation|html|javascript|python|script|program|game|app|website|web ?page|component)/i;
+export const CHAT_CODE_LANG = /^(js|javascript|mjs|ts|typescript|jsx|tsx|py|python|java|c|cpp|c\+\+|cs|csharp|go|rs|rust|php|kt|kotlin|swift|dart|lua|rb|ruby|vue|svelte)$/i;
+export const CHAT_CODE_SYS = `When the user asks you to build a program, page, game or animation:
+1. First write a short plan (3-6 bullets): the parts, how they fit, tricky details.
+2. Then give the COMPLETE runnable code. For web things use ONE self-contained HTML file (inline CSS/JS, no external libraries or images unless asked). Never leave placeholders, "..." or TODO.
+3. Before you finish, re-read the code once and fix bugs: undefined names, wrong element ids, unclosed tags or brackets, animation that never starts.
+
+`;
 export const AGENT_ROUNDS = 20, AGENT_IN_MAX = 1.2e6; // โหมด Agent ในหน้า Code (แพลนชำระเงิน)
 // ---------- zip ที่แนบในแชต: เครื่องมืออ่านไฟล์ให้ AI ----------
 // แอป Kyber Desktop: แชต/โหมด Code ใช้ไฟล์ คำสั่ง และ MCP ในเครื่องผู้ใช้ได้ (หน้าเว็บในแอปเป็นคนทำตามบรรทัดคำสั่ง แล้วส่งผลกลับเป็นข้อความถัดไป)

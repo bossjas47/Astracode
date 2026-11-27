@@ -1865,6 +1865,7 @@ async function gitPanel() {
 // ---------- หน้าหลักโหมด Code ----------
 async function codeView(id, prompt) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  if (!prompt) try { const h = JSON.parse(sessionStorage.getItem('kHandoff') || 'null'); if (h?.id === +id) { prompt = h.prompt; sessionStorage.removeItem('kHandoff'); } } catch { /* ไม่มีงานส่งต่อ */ } // ปุ่ม "ทำต่อด้วย Agent" ในแชต
   const [d] = await Promise.all([api('/projects/' + id), needCM()]);
   IDE.node?.f.remove(); IDE.node = null; // เทอร์มินัลของโปรเจกต์ก่อน
   Object.assign(IDE, { ghDefault: null, prs: {}, pid: d.id, name: d.name, instructions: d.instructions || '', gh: d.gh, files: new Map(d.files.map(f => [f.path, f.content])), states: new Map(), open: [], active: null,

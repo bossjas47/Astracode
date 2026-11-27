@@ -63,3 +63,24 @@ test('upstream problems are classified and re-alerted every 6h; /v1/models hides
     assert.equal(sent.length, 2, 'still broken after 6h: alerted again');
   } finally { globalThis.fetch = real; }
 });
+
+test('plain chat code: a build request gets the plan-first prompt, and a long code answer gets one automatic bug re-read', async () => {
+  const seen = []; const longCode = '```python\n' + Array.from({ length: 90 }, (_, i) => `x${i} = ${i}`).join('\n') + '\n```';
+  const fm = await fakeModel((q, res, body) => { seen.push(body); fm.sse(res, seen.length === 1 ? 'แผน: ...\n' + longCode : '✓ ตรวจโค้ดซ้ำแล้ว ไม่พบปัญหา'); });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Coder', base_url: fm.url });
+  addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user({ balance: 100 });
+  const ev = await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'ช่วยเขียนโปรแกรม python คำนวณภาษี' } }));
+  assert.equal(seen.length, 2, 'one extra round for the re-read'); assert.match(JSON.stringify(seen[0].messages), /short plan/);
+  assert.match(JSON.stringify(seen[1].messages), /Automatic check/);
+  assert.match(ev.map(e => e.t || '').join(''), /ตรวจโค้ดซ้ำแล้ว/);
+  fm.close();
+});
+
+test('plain chat: a short non-code answer is not re-checked and has no plan prompt', async () => {
+  const seen = []; const fm = await fakeModel((q, res, body) => { seen.push(body); fm.sse(res, "สวัสดีครับ"); });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Talk', base_url: fm.url });
+  addPlan(t.DB, { models: [m.id], price: 0 }); const u = await t.user({ balance: 100 });
+  await readSSE(await t.call('/api/chat', { method: 'POST', cookie: u.cookie, body: { model_id: m.id, text: 'สวัสดี' } }));
+  assert.equal(seen.length, 1); assert.doesNotMatch(JSON.stringify(seen[0].messages), /short plan/);
+  fm.close();
+});

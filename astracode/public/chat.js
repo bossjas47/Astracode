@@ -332,6 +332,7 @@ async function chatView(id) {
     }
     if (b.dataset.mem != null) remember(chat.msgs[+b.dataset.mem], b);
     if (b.dataset.rem != null) remember({ content: parseMem(chat.msgs[+b.dataset.rem].content).mem }, b);
+    if (b.dataset.toagent) { toAgent(String(chat.msgs[+b.dataset.toagent - 1]?.content || '')); return; }
     if (b.dataset.copy) { const r = bubbleText(b.closest('.msg')); copy(r?.text || chat.msgs[+b.dataset.copy].content, b, r?.html); }
     if (b.dataset.vote != null) { const m = chat.msgs[+b.dataset.vote], v = m.vote === +b.dataset.v ? 0 : +b.dataset.v; api('/feedback', { method: 'POST', body: { message_id: m.id, vote: v } }).then(() => { m.vote = v || null; renderAll(); }).catch(x => toast(x.message, 'bad')); }
     if (b.dataset.report != null) reportMsg(chat.msgs[+b.dataset.report]);
@@ -1055,6 +1056,15 @@ function bubbleText(el) {
   return text ? { text, html: c.innerHTML } : null;
 }
 // รูปแบบเดียวกับที่เซิร์ฟเวอร์บันทึก: [[file:ชื่อ]] ... [[/file]]
+// งานสร้างโปรแกรม/เว็บ/เกม ในแชตธรรมดา → เสนอให้ทำต่อด้วย Agent (อ่าน/เขียนไฟล์ รัน ตรวจเอง) ได้ผลดีกว่าตอบครั้งเดียวมาก
+const BUILD_ASK = /(เขียน|สร้าง|ทำ|ช่วย|write|build|create|make)[\s\S]{0,60}(โปรแกรม|เว็บ|หน้าเว็บ|เกม|แอป|แอนิเมชัน|อนิเมชัน|animation|website|web ?page|game|app|program|ระบบ)/i;
+async function toAgent(prompt) {
+  if (window.PCD?.agent && pcOn?.()) { localStorage.setItem('pcAgent', '1'); $('#t').value = prompt; toast('เปิดโหมด Agent แล้ว กดส่งเพื่อให้ Agent ทำงานนี้'); $('#t').focus(); modelUI?.(); return; }
+  try {
+    const { id } = await api('/projects', { method: 'POST', body: { name: prompt.replace(/\s+/g, ' ').slice(0, 40) || 'งานจากแชต', empty: true } });
+    sessionStorage.setItem('kHandoff', JSON.stringify({ id, prompt })); delete sideCache.code; switchMode('code', '/code?p=' + id);
+  } catch (x) { toast(x.message, 'bad'); }
+}
 function msgHTML(m, i, isNew) {
   if (m.role === 'user' && m.content.startsWith(APPR_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('check', 'sm')} ผลจากเครื่องมือที่อนุญาต</summary><pre>${esc(m.content.slice(APPR_RES.length).trim())}</pre></details></div>`;
   if (m.role === 'user' && m.content.startsWith(PY_RES)) return `<div class="msg user pcres ${isNew ? 'new' : ''}"><details><summary>${ic('terminal', 'sm')} ผลรัน Python</summary>${m.imgs ? `<div class="mimgs">${m.imgs.map(d => `<img src="${d}" alt="">`).join('')}</div>` : ''}<pre>${esc(m.content.slice(PY_RES.length).trim())}</pre></details></div>`;
@@ -1073,7 +1083,7 @@ function msgHTML(m, i, isNew) {
     ${vidCards(m.content)}${ufCards(m.content)}${arts.map(a => `<button type="button" class="art-card" data-art="${a.id}" data-artv="${a.v}">${ic('code', 'sm')}<span><b>${esc(a.t)}</b><small>Artifact · v${a.v} · tap to open</small></span></button>`).join('')}${toolCards(m, i, dlFiles, pyCodes, approves)}${memSaved.map(x => `<div class="mem-saved">${ic('check', 'sm')}<span>จำแล้ว: ${esc(x.t)}</span><button type="button" data-unmem="${x.id}">ยกเลิก</button></div>`).join('')}
     ${!m.streaming && i >= 0 ? zipBtn(m, i) : ''}
     ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ''}
-    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
+    ${m.streaming ? '' : `<div class="acts">${m.model ? `<span class="muted">${esc(m.model)}</span>` : ''}${i < 0 ? '' : `<button data-copy="${i}" class="cp-msg">${ic('copy', 'sm')} คัดลอก</button>`}${i > 0 && !m.agent && /```/.test(m.content || '') && BUILD_ASK.test(String(chat.msgs[i - 1]?.content || '')) ? `<button data-toagent="${i}" title="ให้ Agent เขียนไฟล์ รันดูผล และแก้เองจนผ่าน">${ic('code', 'sm')} ทำต่อด้วย Agent</button>` : ''}${i < 0 ? '' : `${m.id ? `<button data-vote="${i}" data-v="1" class="${m.vote === 1 ? 'on' : ''}" aria-label="คำตอบดี" aria-pressed="${m.vote === 1}">${ic('thumbup')}</button><button data-vote="${i}" data-v="-1" class="${m.vote === -1 ? 'on' : ''}" aria-label="คำตอบไม่ดี" aria-pressed="${m.vote === -1}">${ic('thumbdown')}</button><button data-report="${i}" aria-label="รายงานคำตอบนี้">Report</button><button data-branch="${i}" title="เปิดแชตใหม่ที่มีข้อความถึงตรงนี้ แล้วถามต่อคนละทาง" aria-label="แตกกิ่ง">${ic('branch')}</button>` : ''}${'speechSynthesis' in window ? `<button data-say="${i}" aria-label="อ่านออกเสียง">${ic('volume')}</button>` : ''}${last && !chat.busy && !m.agent ? '<button data-regen>Regenerate</button>' : ''}`}${tokHTML(m)}</div>`}</div>`;
 }
 // token ที่ใช้ตอบ + ลิมิตที่ใช้ไป (เฉพาะข้อความที่เพิ่งตอบ)
 const tokHTML = m => m.tin || m.tout ? `<span class="tok" title="Input ${num(m.tin)} · Output ${num(m.tout)} token">↑${kTok(m.tin || 0)} ↓${kTok(m.tout || 0)}${m.pct != null ? ` · ลิมิต +${m.pct < 0.1 ? '<0.1' : m.pct.toFixed(1)}%` : ''}</span>` : '';
