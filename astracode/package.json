@@ -6,6 +6,7 @@
     "lint": "npx --yes eslint@9 src",
     "e2e": "node tests/e2e.mjs",
     "uicheck": "node tests/uicheck.mjs",
+    "agentcheck": "node tests/agentqueue.e2e.mjs",
     "eval": "node tests/bench/harness-eval.mjs",
     "eval:live": "node tests/bench/live-eval.mjs"
   }

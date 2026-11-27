@@ -2428,3 +2428,11 @@ button.cw-model { background: none; cursor: pointer; font: inherit; font-size: 1
 .lv-hot { border-color: #c25b3a !important; } .lv-warn { color: #c25b3a; font-size: 13px; margin: 6px 0 0; }
 @media (max-width: 560px) { .lv-grid { grid-template-columns: repeat(2, 1fr); } }
 .up-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .up-cmp figure { margin: 0; } .up-cmp img { width: 100%; border-radius: 10px; } .up-cmp figcaption { font-size: 12px; color: var(--muted, #888); text-align: center; }
+/* คิวข้อความ: สั่งงานถัดไปไว้รอระหว่างงานเดิมยังทำ */
+.cq{display:flex;flex-direction:column;gap:4px;margin:0 0 6px}
+.cq-item{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 10px;border:1px dashed var(--hair);border-radius:10px;background:rgba(var(--ov),.03);font-size:13px}
+.cq-n{flex:none;font-size:11px;font-weight:600;color:var(--ash);text-transform:none}
+.cq-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--porcelain)}
+.cq-item button{flex:none;border:0;background:none;color:var(--ash);cursor:pointer;font:inherit;font-size:12px;padding:2px 6px;border-radius:6px}
+.cq-item button:hover{background:var(--hair);color:var(--porcelain)}
+.cq>small{font-size:11px;padding-left:4px}

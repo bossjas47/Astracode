@@ -30,6 +30,10 @@ jobs:
       - name: UI check (blocks deploy)
         working-directory: astracode
         run: CHROME_PATH="$(which google-chrome || which chromium-browser || which chromium)" npm run uicheck
+      # แชต + แอป Desktop (จำลอง): โมเดลหลุดแล้วทำต่อเอง · พิมพ์ระหว่างทำ = เข้าคิว · สลับแชตแล้วงานไม่หยุด
+      - name: Agent chat check (blocks deploy)
+        working-directory: astracode
+        run: CHROME_PATH="$(which google-chrome || which chromium-browser || which chromium)" npm run agentcheck
       - name: UI check screenshots
         if: failure()
         uses: actions/upload-artifact@v4

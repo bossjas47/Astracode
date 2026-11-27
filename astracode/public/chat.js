@@ -41,7 +41,7 @@ let autoRetry = 0; // ลองซ้ำอัตโนมัติได้ค�
 // กดหยุด = สั่งเซิร์ฟเวอร์หยุดตอบจริง (แค่ปิดจอหรือหลุดเน็ต AI จะตอบต่อเบื้องหลัง)
 function stopRun() { if (chat.enhancing) return chat.enhancing.abort(); fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stop: true, chat_id: chat.id || null }) }).catch(() => {}); chat.ctrl?.abort(); }
 // สลับแชตโดยไม่โหลดหน้าใหม่
-function openChat(id, space = null) { chat.spaceId = id ? null : space; chat.spaceName = chat.spaceId ? chat.folders?.find(f => f.id === space)?.name || 'this workspace' : null; if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
+function openChat(id, space = null) { chat.spaceId = id ? null : space; chat.spaceName = chat.spaceId ? chat.folders?.find(f => f.id === space)?.name || 'this workspace' : null; if (chat.agentBusy) agDetach(); else if (chat.busy) stopRun(); setUrl(id ? '/chat?id=' + id : '/chat'); chatView(id); }
 PAGES.chat = () => qs().get('mode') === 'cowork' ? switchMode('cowork', location.pathname + location.search, true) : chatView(qs().get('id'));
 PAGES.code = () => switchMode('code', here(), true);
 // ---------- Chat กับ Code อยู่ในหน้าเดียว: แถบข้างเดียวกัน ฝั่งขวาสลับระหว่างแชต (.main) กับโหมด Code (#cmain) ไม่โหลดหน้าใหม่ ----------
@@ -165,7 +165,7 @@ async function chatView(id) {
       <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select>
       <select id="effort" hidden>${EFFORTS.map(([v]) => `<option value="${v}" ${v === (localStorage.getItem('effort') || '') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="msgs" id="msgs"></div>
-      <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div><div id="flags" class="cflags"></div><div id="est" class="est" hidden></div>
+      <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div><div id="flags" class="cflags"></div><div id="est" class="est" hidden></div><div id="queue" class="cq" hidden></div>
         <form id="f" class="cbox"><input type="file" id="file" multiple hidden>
           <textarea id="t" rows="1" placeholder="Ask anything · type / for Skills" aria-label="Message"></textarea>
           <div class="crow"><button type="button" class="cb" id="plus" aria-label="แนบไฟล์และเครื่องมือ">${ic('plus')}</button>${('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? `<button type="button" class="cb" id="mic" aria-label="พิมพ์ด้วยเสียง">${ic('mic')}</button>` : ''}
@@ -280,7 +280,8 @@ async function chatView(id) {
     .then(fs => { fs = fs.filter(Boolean); if (fs.length) addFiles(fs); else toast('ไฟล์ที่แชร์หมดอายุแล้ว แชร์ใหม่อีกครั้ง', 'bad'); history.replaceState(null, '', '/chat'); }).catch(() => {});
   slashSkills(t, () => chat.skills, ids => { chat.skills = ids; localStorage.setItem('skills', JSON.stringify(ids)); modelUI(); });
   t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); $('#f').requestSubmit(); } };
-  $('#f').onsubmit = e => { e.preventDefault(); chat.busy ? stopRun() : send(); };
+  $('#f').onsubmit = e => { e.preventDefault(); if (!chat.busy) return send(); if ($('#t').value.trim()) return qAdd(); stopRun(); }; // กำลังทำงาน: มีข้อความ = เข้าคิว · ช่องว่าง = หยุด
+  t.addEventListener('input', goIcon);
   $('#file').onchange = async e => { await addFiles([...e.target.files]); e.target.value = ''; };
   // เลือกข้อความในคำตอบ → แถบลอย "อธิบาย / แปล / ถามต่อ" เหนือช่องพิมพ์ (มือถือ: เมนูคัดลอกของระบบบังบริเวณข้อความ จึงไม่วางติดข้อความ)
   let selT = null;
@@ -328,7 +329,7 @@ async function chatView(id) {
     if (b.dataset.s != null) { t.value = SUGGEST[+b.dataset.s][2]; t.focus(); t.oninput(); }
     if (b.dataset.nospace != null) { chat.spaceId = chat.spaceName = null; renderAll(); }
   };
-  $('#lim').innerHTML = limHTML(me.usage); modelUI(); renderAll(); loadSide();
+  $('#lim').innerHTML = limHTML(me.usage); modelUI(); agRestore(); renderAll(); loadSide(); qDraw(); if (!chat.busy) setTimeout(() => qNext(chat.id), 400);
   if (chat.id && chat.msgs.at(-1)?.role === 'user') send({ resume: true }); // ข้อความล่าสุดยังไม่มีคำตอบ: ต่อสตรีมที่ AI ยังทำอยู่
 }
 
@@ -1097,7 +1098,26 @@ function chatWorkTick() {
   el.hidden = false; el.innerHTML = `<span class="cw-dot"></span><span>${esc(String(what).slice(0, 80))}…</span><span class="muted">${sec >= 60 ? Math.floor(sec / 60) + ' นาที ' : ''}${sec % 60} วิ</span>`;
 }
 setInterval(chatWorkTick, 500);
-function setBusy(b) { chat.busy = b; const g = $('#go'); g.innerHTML = ic(b ? 'stop' : 'up'); g.setAttribute('aria-label', b ? 'หยุด' : 'ส่ง'); g.classList.toggle('stop', b); }
+function setBusy(b) { chat.busy = b; goIcon(); qDraw(); }
+function goIcon() { const g = $('#go'); if (!g) return; const q = chat.busy && !!$('#t')?.value.trim(); g.innerHTML = ic(!chat.busy ? 'up' : q ? 'clock' : 'stop'); g.setAttribute('aria-label', !chat.busy ? 'ส่ง' : q ? 'เข้าคิว (ส่งเมื่องานนี้เสร็จ)' : 'หยุด'); g.title = q ? 'เข้าคิว: ส่งให้เองเมื่องานนี้เสร็จ' : ''; g.classList.toggle('stop', chat.busy && !q); }
+// ---------- คิวข้อความ: สั่งงานถัดไปไว้รอระหว่างที่งานเดิมยังทำ (ต่อแชต) ----------
+const CQ = new Map(), cqKey = () => chat.id || 0;
+function qDraw() {
+  const el = $('#queue'); if (!el) return; const q = CQ.get(cqKey()) || []; el.hidden = !q.length; if (!q.length) { el.innerHTML = ''; return; }
+  el.innerHTML = q.map((t, i) => `<div class="cq-item"><span class="cq-n">คิว ${i + 1}</span><span class="cq-t">${esc(t.slice(0, 160))}</span>${chat.agentBusy ? `<button type="button" data-cqnow="${i}" title="ส่งเข้างานที่กำลังทำ ให้ Agent เห็นก่อนขั้นถัดไป">แทรกเลย</button>` : ''}<button type="button" data-cqdel="${i}" aria-label="ลบออกจากคิว">${ic('x', 'sm')}</button></div>`).join('') + `<small class="muted">${chat.busy ? 'จะส่งให้เองทีละข้อเมื่องานปัจจุบันเสร็จ' : 'รอส่ง'}</small>`;
+}
+function qAdd() { const t = $('#t'), v = t.value.trim(); if (!v) return; const k = cqKey(); CQ.set(k, [...(CQ.get(k) || []), v]); t.value = ''; t.style.height = 'auto'; draft.del(); goIcon(); qDraw(); toast('เข้าคิวแล้ว จะส่งให้เองเมื่องานนี้เสร็จ', 'ok'); }
+function qNext(cid) { // งานเสร็จ: ส่งข้อความถัดไปในคิวของแชตนี้ (เฉพาะตอนกำลังเปิดแชตนั้นอยู่ และช่องพิมพ์ว่าง ไม่ทับที่ลูกค้าพิมพ์ค้าง)
+  const k = cid || 0, q = CQ.get(k), t = $('#t'); if (!q?.length || chat.busy || cqKey() !== k || !t) return false;
+  if (t.value.trim()) { toast(`มีข้อความรอในคิว ${q.length} ข้อ · ล้างช่องพิมพ์แล้วจะส่งต่อให้`, ''); return false; }
+  const v = q.shift(); if (!q.length) CQ.delete(k); qDraw(); t.value = v; send(); return true;
+}
+document.addEventListener('click', e => {
+  const d = e.target.closest?.('[data-cqdel]'), n = e.target.closest?.('[data-cqnow]'); if (!d && !n) return;
+  const q = CQ.get(cqKey()) || [], i = +(d || n).dataset[d ? 'cqdel' : 'cqnow'], v = q.splice(i, 1)[0]; if (!q.length) CQ.delete(cqKey());
+  if (n && v != null && chat.agentBusy) { const t = $('#t'), keep = t.value; t.value = v; agentSteer(); setTimeout(() => { if (!t.value.trim()) t.value = keep; }, 300); }
+  qDraw();
+});
 
 // อ่าน SSE จาก /api/chat แล้วเรียก onData ทีละ event
 async function stream(body, signal, onData) {
@@ -1156,7 +1176,7 @@ const draft = {
   del() { clearTimeout(chat.draftT); try { sessionStorage.removeItem(this.key()); } catch { /* ข้าม */ } },
 };
 async function send({ regenerate = false, resume = false, edit_id = null, edit_text = '' } = {}) {
-  if (chat.busy) { if (chat.agentBusy && !regenerate && !resume && !edit_id) agentSteer(); return; } // Agent กำลังทำ: Enter = พิมพ์แทรก (ปุ่มส่ง = หยุด)
+  if (chat.busy) { if (!regenerate && !resume && !edit_id && $('#t').value.trim()) qAdd(); return; } // กำลังทำงาน: ข้อความเข้าคิว ส่งเองเมื่องานนี้เสร็จ (กด "แทรกเลย" ในคิว = ให้ Agent เห็นทันที)
   if (!regenerate && !resume && !edit_id && isImgMode() && $('#t').value.trim() !== chat.enhanced && (chat.images.length || localStorage.getItem('imgAuto') !== '0')) { // โหมดสร้างภาพ: ปรับ prompt ก่อนส่ง (แนบรูป = ต้องปรับ เพราะใช้รูปเป็นแรงบันดาลใจ)
     setBusy(true); const ok = await enhancePrompt(true); setBusy(false);
     if (ok === 'net') { chat.imgWake = 'send'; if (document.visibilityState === 'visible') imgWake(); return; } // เน็ตหลุดตอนปิดจอ: กลับมาแล้วส่งต่อให้เอง
@@ -1262,6 +1282,7 @@ async function send({ regenerate = false, resume = false, edit_id = null, edit_t
   loadSide();
   if (!streamErr && !aborted && !empty && pcOn() && (pcCalls(ai.content).length || fileBlocks(ai.content).length)) return pcAct(ai);
   if (!streamErr && !aborted && !empty && parseTools(ai.content).py.length) return pyRun(ai); // AI เรียก run_python: รันในเบราว์เซอร์แล้วส่งผลกลับให้ทำต่อ
+  if (!streamErr && !aborted && !empty) setTimeout(() => qNext(chat.id), 600); else qDraw();
   if (!streamErr && !aborted && Date.now() - t0 > 15000) PCD?.notify('Kyber ตอบเสร็จแล้ว', ai.content.replace(/[#*`>\[\]]/g, '').slice(0, 140)); // แอป Desktop: แจ้งเตือนเมื่อสลับไปทำอย่างอื่นระหว่างรอ
 }
 
@@ -1422,7 +1443,12 @@ function agentHTML(m, i) {
     ${m.outputs?.length ? `<div class="agout">${m.outputs.map(p => `<button type="button" class="fchip" data-agopen="${esc(p)}">${ic('filetext', 'sm')}<span>${esc(p.split('/').pop())}</span><small>เปิด</small></button>`).join('')}</div>` : ''}
     ${done && last ? `<div class="acts">${m.mode === 'plan' && !m.error ? `<button class="btn blue sm" data-agplan>${ic('play', 'sm')} อนุมัติแผน ลงมือเลย</button>` : ''}${m.changed?.length ? `<span class="muted">แก้ ${m.changed.length} ไฟล์: ${m.changed.slice(0, 6).map(esc).join(', ')}${m.changed.length > 6 ? '…' : ''}</span><button data-agundo="${i}">${ic('undo', 'sm')} ย้อนทั้งรอบ</button>` : ''}<button data-aggit="status">${ic('branch', 'sm')} Git</button></div>` : ''}</div>`;
 }
-let agSub = null;
+// งาน Agent ที่วิ่งอยู่ต่อแชต: สลับไปแชตอื่นแล้วงานไม่หยุด กลับมาเห็นสดต่อ · แอปรันหลายแชตพร้อมกันได้ (แยก session ต่อแชต)
+const AGBG = new Map(); // chatId → { ai, ctrl }
+function agDetach() { chat.agentBusy = false; chat.ctrl = null; chat.busy = false; } // ออกจากแชตที่ Agent กำลังทำ: ไม่หยุดงาน
+function agRestore() { const r = chat.id && AGBG.get(chat.id); if (!r) return; if (chat.msgs.at(-1) !== r.ai) chat.msgs.push(r.ai); chat.agentBusy = true; chat.ctrl = r.ctrl; setBusy(true); }
+const AG_AUTO_MAX = 3, AG_CONT = '[ระบบ] การเชื่อมต่อกับโมเดลขาดกลางทาง ทำงานเดิมต่อจากจุดที่ค้างไว้: ดูว่าทำอะไรเสร็จแล้ว (อย่าทำซ้ำ) แล้วทำส่วนที่เหลือให้เสร็จ';
+const agCanCont = e => !/หยุดแล้ว|ยกเลิก|ลิมิต|limit|เครดิต|ยอดเงิน|wallet|API key|ไม่ได้เชื่อม|ข้อมูลไม่ครบ|ค้างอยู่ในแอป|แพลน|402|401|403/i.test(e); // error ที่ลองต่อแล้วไม่หาย (ลิมิตเต็ม/สิทธิ์/ผู้ใช้หยุดเอง) = ไม่ทำต่อเอง
 const agSid = () => 'c' + chat.id; // ผูกกับแชต: ปิดแอปแล้วเปิดแชตเดิม Agent จำงานเดิม (ไฟล์ session ในเครื่อง)
 async function agentExpand(text) { // คำสั่งลัด /review /test … และของโปรเจกต์ (.astra/commands/*.md)
   const m = /^\/([\w-]+)\s*([\s\S]*)$/.exec(text); if (!m) return text;
@@ -1473,50 +1499,67 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   catch (x) { chat.msgs.pop(); renderAll(); t.value = text0; return showErr('บันทึกแชตไม่ได้: ' + x.message); }
   const text = await agentExpand(text0);
   const ai = { role: 'assistant', content: '', thinking: '', model: m.name + ' · Agent', streaming: true, agent: true, mode, steps: [], todos: null, tin: 0, tout: 0 }; chat.msgs.push(ai); appendMsg(ai);
-  const sid = agSid(), t0 = Date.now(), rid = Math.random().toString(36).slice(2, 10); let raf = 0, held = false; // rid = รหัสงานรอบนี้ · held = กำลังหยุดงานเดิมที่ค้าง (ไม่รับเหตุการณ์ของมัน)
-  setBusy(true); chat.agentBusy = true; chat.ctrl = { abort: () => PCD.agent.stop(sid) }; // ปุ่มหยุดเดิม = หยุด Agent · Enter = พิมพ์แทรก
+  const cid = chat.id, sid = 'c' + cid, t0 = Date.now(); let rid = '', raf = 0, held = false, userStop = false; // rid = รหัสงานรอบนี้ · held = กำลังหยุดงานเดิมที่ค้าง (ไม่รับเหตุการณ์ของมัน)
+  const here = () => chat.id === cid && chat.msgs.at(-1) === ai; // ลูกค้าสลับไปแชตอื่นได้ งานยังวิ่งต่อเบื้องหลัง (วาดหน้าจอเฉพาะตอนเปิดแชตนี้อยู่)
+  const ctrl = { abort: () => { userStop = true; PCD.agent.stop(sid); } }; AGBG.set(cid, { ai, ctrl });
+  setBusy(true); chat.agentBusy = true; chat.ctrl = ctrl; qDraw(); // ปุ่มหยุด = หยุด Agent · พิมพ์ระหว่างทำ = เข้าคิว
   // วาดข้อความ Agent ใหม่ทุกเหตุการณ์ (เครื่องมือ/ค่าใช้จ่าย/ข้อความ) · ช่อง "พิมพ์คำตอบ" ต้องคงข้อความ โฟกัส และตำแหน่งเคอร์เซอร์ไว้ (เดิมถูกสร้างใหม่ทุกครั้ง พิมพ์ไม่ติด)
-  const paint = () => { if (raf) return; raf = requestAnimationFrame(() => {
-    raf = 0; const box = $('#msgs'), el = box?.lastElementChild, stick = box && nearBottom(box) && !el?.querySelector('.agask input:focus'); if (!el) return;
+  const paint = () => { if (raf || !here()) return; raf = requestAnimationFrame(() => {
+    raf = 0; if (!here()) return; const box = $('#msgs'), el = box?.lastElementChild, stick = box && nearBottom(box) && !el?.querySelector('.agask input:focus'); if (!el) return;
     const inp = el.querySelector('.agask input'), keep = inp && { v: inp.value, f: document.activeElement === inp, a: inp.selectionStart, b: inp.selectionEnd };
     el.outerHTML = msgHTML(ai, chat.msgs.length - 1);
     const n = keep && box.lastElementChild?.querySelector('.agask input');
     if (n) { n.value = keep.v; if (keep.f) { n.focus({ preventScroll: true }); try { n.setSelectionRange(keep.a, keep.b); } catch { /* ช่องชนิดนี้ไม่มีเคอร์เซอร์ */ } } }
     if (stick) box.scrollTop = box.scrollHeight;
   }); };
-  agSub?.(); agSub = PCD.agent.onEvent(d => {
+  const unsub = PCD.agent.onEvent(d => {
     if (d.sid !== sid || held || (d.rid && d.rid !== rid)) return; // เหตุการณ์ของงานเดิม (แอปรุ่นใหม่ส่ง rid มาด้วย)
-    if (d.type === 'delta') { ai.content += d.text; if (d.text.includes('[[uf:')) ufLive(ai.content); }
+    if (d.type === 'delta') { ai.content += d.text; if (d.text.includes('[[uf:') && here()) ufLive(ai.content); }
     if (d.type === 'think') ai.thinking += d.text;
     if (d.type === 'tool') ai.steps.push({ id: d.id, name: d.name, args: d.args, step: d.step, st: 'run' });
     if (d.type === 'sub') ai.steps.push({ name: 'sub', title: d.title, tool: d.name, args: d.args });
     if (d.type === 'tool_result') { const s = ai.steps.findLast(x => x.id === d.id) || ai.steps.findLast(x => x.st === 'run'); if (s) { s.st = d.ok ? 'ok' : 'bad'; s.preview = d.preview; } }
     if (d.type === 'todos') ai.todos = d.todos;
     if (d.type === 'usage') { ai.tin += d.usage.prompt_tokens || 0; ai.tout += d.usage.completion_tokens || 0; }
-    if (d.type === 'cost') ai.cost = { charge: d.charge, pct: d.pct };
+    if (d.type === 'cost') ai.cost = { charge: (ai.costBase?.charge || 0) + (d.charge || 0), pct: (ai.costBase?.pct || 0) + (d.pct || 0) };
     if (d.type === 'info') ai.steps.push({ name: 'info', text: d.text });
     if (d.type === 'text_end' && ai.content && !/\n$/.test(ai.content)) ai.content += '\n\n';
     if (d.type === 'ask') ai.ask = { id: d.id, question: d.question, options: d.options || [] };
     if (d.type === 'answered') { ai.ask = null; ai.steps.push({ name: 'info', text: 'คุณตอบ: ' + d.text }); }
-    if (d.type === 'done' || d.type === 'error') { ai.changed = d.changed; ai.outputs = d.outputs || []; ai.ask = null; if (d.type === 'error') ai.error = d.text; }
+    if (d.type === 'done' || d.type === 'error') { ai.changed = [...new Set([...(ai.changed || []), ...(d.changed || [])])]; ai.outputs = [...new Set([...(ai.outputs || []), ...(d.outputs || [])])]; ai.ask = null; if (d.type === 'error') ai.error = d.text; }
     paint();
   });
-  const run = () => PCD.agent.run({ sid, rid, chatId: chat.id, text, images, style: localStorage.getItem('pcAgentStyle') === 'work' ? 'work' : 'code', model: vslug(m), subModel: cheap ? vslug(cheap) : null, mode, effort: m.effort !== 'none' ? $('#effort')?.value || null : null, budget: +localStorage.getItem('pcAgentBudget') || 0, remote: localStorage.getItem('pcAgentRemote') === '1', maxRounds: +localStorage.getItem('pcAgentMax') || 80, slot: 'chat', history, advisor: agAdvisor(m), memory: localStorage.getItem('pcMemory') !== '0' });
-  try { await run(); }
-  catch (x) {
-    // แอปรุ่นเก่า: งานเดิมยังวิ่งอยู่ในแอปแต่หน้าเว็บไม่รู้ (รีเฟรช/เปิดแชตใหม่/งานค้าง) → หยุดงานเดิมแล้วส่งใหม่ให้เอง 1 ครั้ง แทนการตอบ "กำลังทำงานอยู่" ทุกข้อความ
-    if (/กำลังทำงานอยู่ในแชตนี้/.test(x.message)) {
-      held = true; ai.steps.push({ name: 'info', text: 'หยุดงาน Agent เดิมที่ค้างอยู่ แล้วเริ่มงานนี้ใหม่…' }); paint();
-      await PCD.agent.stop(sid).catch(() => {}); await new Promise(r => setTimeout(r, 2500)); held = false;
-      try { await run(); } catch (y) { ai.error = /กำลังทำงานอยู่ในแชตนี้/.test(y.message) ? 'Agent งานเดิมยังค้างอยู่ในแอป: ปิดแอปจากไอคอนที่ถาด (ออกจากแอป) แล้วเปิดใหม่' : String(y.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
-    } else ai.error = String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  const run = txt => { rid = Math.random().toString(36).slice(2, 10); return PCD.agent.run({ sid, rid, chatId: cid, text: txt, images, style: localStorage.getItem('pcAgentStyle') === 'work' ? 'work' : 'code', model: vslug(m), subModel: cheap ? vslug(cheap) : null, mode, effort: m.effort !== 'none' ? $('#effort')?.value || null : null, budget: +localStorage.getItem('pcAgentBudget') || 0, remote: localStorage.getItem('pcAgentRemote') === '1', maxRounds: +localStorage.getItem('pcAgentMax') || 80, slot: 'chat', history, advisor: agAdvisor(m), memory: localStorage.getItem('pcMemory') !== '0' }); };
+  const clean = x => String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  const attempt = async txt => {
+    ai.error = null;
+    try { await run(txt); }
+    catch (x) {
+      // แอปรุ่นเก่า: งานเดิมยังวิ่งอยู่ในแอปแต่หน้าเว็บไม่รู้ (รีเฟรช/เปิดแชตใหม่/งานค้าง) → หยุดงานเดิมแล้วส่งใหม่ให้เอง 1 ครั้ง แทนการตอบ "กำลังทำงานอยู่" ทุกข้อความ
+      if (/กำลังทำงานอยู่ในแชตนี้/.test(x.message)) {
+        held = true; ai.steps.push({ name: 'info', text: 'หยุดงาน Agent เดิมที่ค้างอยู่ แล้วเริ่มงานนี้ใหม่…' }); paint();
+        await PCD.agent.stop(sid).catch(() => {}); await new Promise(r => setTimeout(r, 2500)); held = false;
+        try { await run(txt); } catch (y) { ai.error = /กำลังทำงานอยู่ในแชตนี้/.test(y.message) ? 'Agent งานเดิมยังค้างอยู่ในแอป: ปิดแอปจากไอคอนที่ถาด (ออกจากแอป) แล้วเปิดใหม่' : clean(y); }
+      } else ai.error = clean(x);
+    }
+  };
+  await attempt(text);
+  // โมเดลขาดกลางทาง (ตอบไม่ได้/หลุด/ไม่ตอบ): ทำต่อให้เองสูงสุด 3 ครั้ง (รอ 5/10/15 วินาที) · Agent จำงานเดิมในเครื่อง จึงทำต่อจากจุดเดิม ไม่เริ่มใหม่ · เดิมลูกค้าต้องมากด "ทำต่อ" เอง
+  for (let n = 1; n <= AG_AUTO_MAX && ai.error && !userStop && agCanCont(ai.error) && lsGet('agAutoCont') !== '0'; n++) {
+    const w = 5 * n; ai.steps.push({ name: 'info', text: `โมเดลหยุดกลางทาง (${ai.error.slice(0, 90)}) · ทำต่อให้อัตโนมัติใน ${w} วินาที (ครั้งที่ ${n}/${AG_AUTO_MAX}) · กดหยุดเพื่อยกเลิก` });
+    ai.costBase = ai.cost; ai.error = null; paint();
+    await new Promise(r => setTimeout(r, w * 1000)); if (userStop) { ai.error = 'หยุดแล้ว'; break; }
+    await attempt(AG_CONT);
   }
-  agSub?.(); agSub = null; cancelAnimationFrame(raf); ai.streaming = false; ai.content = ai.content.trim(); setBusy(false); chat.agentBusy = false; chat.ctrl = null;
+  unsub?.(); cancelAnimationFrame(raf); AGBG.delete(cid); ai.streaming = false; ai.content = ai.content.trim();
   for (const s of ai.steps) if (s.st === 'run') s.st = 'bad';
   const did = ai.steps.filter(s => !['info', 'sub'].includes(s.name)), sum = did.length ? `> Agent ${did.length} ขั้นตอน: ${[...new Set(did.map(s => s.name))].join(', ')}${ai.changed?.length ? ' · แก้ ' + ai.changed.slice(0, 10).join(', ') : ''}\n\n` : '';
-  api('/chats/append', { method: 'POST', body: { chat_id: chat.id, messages: [{ role: 'assistant', content: sum + (ai.content || ai.error || '(ไม่มีข้อความ)') }] } }).then(() => loadSide()).catch(() => {});
-  renderAll(); api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {});
+  api('/chats/append', { method: 'POST', body: { chat_id: cid, messages: [{ role: 'assistant', content: sum + (ai.content || ai.error || '(ไม่มีข้อความ)') }] } }).then(() => loadSide()).catch(() => {});
+  if (chat.id === cid) { setBusy(false); chat.agentBusy = false; chat.ctrl = null; renderAll(); }
+  else toast(`Agent ในแชต "${String(text0).slice(0, 30)}" ${ai.error ? 'หยุดแล้ว' : 'ทำงานเสร็จแล้ว'} · แตะเพื่อเปิด`, ai.error ? 'bad' : 'ok', { ms: 15000, onClick: () => openChat(cid) });
+  api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {});
   if (Date.now() - t0 > 15000) PCD.notify('Agent ทำงานเสร็จแล้ว', (ai.content || ai.error || '').replace(/[#*`>]/g, '').slice(0, 140));
+  if (!ai.error && !userStop) setTimeout(() => qNext(cid), 800); else if (chat.id === cid) qDraw(); // งานเสร็จ: ส่งข้อความถัดไปในคิว (หยุด/ผิดพลาด = คิวรอไว้ให้ลูกค้าตัดสินใจ)
 }
 document.addEventListener('click', e => {
   const o = e.target.closest?.('[data-agopen]'); if (o && PCD?.agent) { PCD.agent.open('chat', o.dataset.agopen).catch(x => toast(String(x.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'bad')); return; }
