@@ -99,6 +99,7 @@ const ZW = /[\u200b\u200c\u2060\ufeff]/g, ZWJ_BAD = /(?<![\p{Extended_Pictograph
 export const stripZW = s => ZW_ANY.test(s) ? s.replace(ZW, '').replace(ZWJ_BAD, '') : s;
 // pool ต้นทางบางตัว (เช่น L6 Kiro) ปฏิเสธงานแต่ตอบ 200 เป็นข้อความจีนสำเร็จรูป → ถือเป็น error ให้ระบบสลับไปโมเดลสำรอง (ลูกค้าไม่เห็นข้อความจีน)
 export const UPSTREAM_REFUSAL = /^\s*(这条内容上游没有收下|上游拒绝|内容未通过审核|请换一种说法)/;
+const NO_SAMPLING = new Set(); // โมเดลที่ต้นทางไม่รับ temperature/top_p
 export async function* callModel(...args) {
   let head = '', held = [], open = true; // เก็บข้อความช่วงแรกไว้ก่อน (≤ 48 ตัวอักษร) เพื่อตรวจว่าเป็นข้อความปฏิเสธไหม
   try { for await (const e0 of callModelRaw(...args)) {
@@ -199,7 +200,12 @@ async function* callModelRaw(env, m, msgs, { effort, images = [], system = SYSTE
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify(body),
     });
+    if (NO_SAMPLING.has(m.id)) { delete body.temperature; delete body.top_p; delete body.top_k; }
     let res = await busyRetry(postA);
+    // บาง channel ไม่รับ temperature/top_p (เช่น Sonnet/Haiku Eco บน Kiro): ตัดออกแล้วลองใหม่ จำไว้ต่อโมเดล · เดิม API client ที่ส่ง temperature (Cline/OpenCode ฯลฯ) error ทุกครั้ง
+    if (res.status === 400 && ('temperature' in body || 'top_p' in body || 'top_k' in body) && /not supported|unsupported|temperature|top_p/i.test(await res.clone().text().catch(() => ''))) {
+      NO_SAMPLING.add(m.id); delete body.temperature; delete body.top_p; delete body.top_k; res = await busyRetry(postA);
+    }
     if (res.status === 400 && cc.ttl) { const t = await res.text(); if (!/ttl|cache_control/i.test(t)) throw new Error(`upstream 400: ${t.slice(0, 300)}`); cc = { type: 'ephemeral' }; const strip = x => { if (Array.isArray(x)) x.forEach(strip); else if (x && typeof x === 'object') { if (x.cache_control) x.cache_control = cc; Object.values(x).forEach(strip); } }; strip(body); res = await postA(); } // ผู้ให้บริการไม่รองรับ ttl: ใช้ 5 นาที
     if (!res.ok) throw new Error(`upstream ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const u = { fresh: 0, read: 0, write: 0, out: 0 };
@@ -450,7 +456,16 @@ export async function putImage(env, uid, mime, b64s) {
   await env.DB.batch(ops);
   return `/api/img/${uid}/${key}.${ext}`;
 }
-export const modelDown = async (env, id) => (await env.DB.prepare("SELECT COUNT(*) n FROM events WHERE kind='error' AND model_id=? AND created_at>?").bind(id, Date.now() - 300e3).first()).n >= 3;
+// ตัวตัดวงจร: ถือว่าโมเดลล่มเมื่อ (ก) error ≥3 ครั้งใน 5 นาที หรือ (ข) เจอ error ที่ลองใหม่ยังไงก็ไม่หาย (channel ถูกปิด / key ไม่ผูก / เครดิตต้นทางหมด / ไม่มีโมเดล) แม้ครั้งเดียวใน 3 นาที
+// → ส่งไปตัวสำรองตั้งแต่แรก ลูกค้าไม่ต้องรอให้ตัวที่ล่มตอบ error ก่อน · cache ในหน่วยความจำ 20 วินาที กัน query ซ้ำทุกคำขอ
+const DEAD_SQL = "(detail LIKE '%disabled by the administrator%' OR detail LIKE '%not bound to this Channel%' OR detail LIKE '%unavailable on the selected Channel%' OR detail LIKE '%model_not_found%' OR detail LIKE '%nsufficient%' OR detail LIKE '%GROUP_DISABLED%' OR detail LIKE '%insufficient_credit%')";
+const downMemo = new WeakMap(); // แยกตามฐานข้อมูล (เทสต์สร้างฐานใหม่ทุกครั้ง)
+export const modelDown = async (env, id) => {
+  let mm = downMemo.get(env.DB); if (!mm) downMemo.set(env.DB, mm = new Map());
+  const c = mm.get(id); if (c && Date.now() - c.t < (c.v ? 20e3 : 5e3)) return c.v; // ล่ม: จำ 20 วิ · ปกติ: จำ 5 วิ (ล่มเมื่อไหร่รู้เร็ว)
+  const now = Date.now(), r = await env.DB.prepare(`SELECT COUNT(*) n, SUM(CASE WHEN created_at>? AND ${DEAD_SQL} THEN 1 ELSE 0 END) dead FROM events WHERE kind='error' AND model_id=? AND created_at>?`).bind(now - 180e3, id, now - 300e3).first().catch(() => null);
+  const v = !!r && (r.n >= 3 || r.dead >= 1); mm.set(id, { t: now, v }); return v;
+};
 // คะแนน 👍/👎 ต่อคำตอบ และรายงานคำตอบที่ไม่เหมาะสม (สร้างตารางเองตอนใช้ครั้งแรก)
 export let fbTable;
 export const ensureFb = env => fbTable ||= env.DB.batch([

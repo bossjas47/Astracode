@@ -130,3 +130,34 @@ test('channel ถูกปิด (503 disabled by the administrator): ไม่�
   assert.equal(fm.hits.length, 1, 'ยิงโมเดลที่ปิดแค่ครั้งเดียว'); assert.ok(Date.now() - t0 < 5000, 'สลับภายในไม่กี่วินาที');
   fm.close(); good.close();
 });
+
+test('ตัวตัดวงจร /v1: เจอ error "channel ถูกปิด" ครั้งเดียว คำขอถัดไปไปตัวสำรองตั้งแต่แรก', async () => {
+  const { t, fm, m, v1 } = await setup((q, res) => { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'This Channel is currently disabled by the administrator.' } })); });
+  const good = await fakeModel((q, res) => good.sse(res, 'ตอบจากตัวสำรอง'));
+  const fb = addModel(t.DB, { name: 'Backup3', base_url: good.url, cost_in: 1, cost_out: 2 });
+  t.DB.raw.prepare('UPDATE models SET fallback_id=? WHERE id=?').run(fb.id, m.id);
+  t.DB.raw.prepare('INSERT INTO plan_models (plan_id, model_id) SELECT plan_id, ? FROM plan_models WHERE model_id=?').run(fb.id, m.id);
+  await v1({ model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(fm.hits.length, 1);
+  await new Promise(r => setTimeout(r, 5200)); // หมดอายุ cache สถานะ 'ปกติ' 5 วินาที
+  const r = await v1({ model: 'chat-one', messages: [{ role: 'user', content: 'hi again' }] });
+  assert.match(r.d.choices[0].message.content, /ตัวสำรอง/);
+  assert.equal(fm.hits.length, 1, 'ไม่ยิงตัวที่ล่มซ้ำ');
+  fm.close(); good.close();
+});
+
+test('Claude channel ที่ไม่รับ temperature: ตัดออกแล้วลองใหม่ ลูกค้าได้คำตอบ', async () => {
+  const t = await makeEnv({ K: 'k' }); let n = 0;
+  const fm = await fakeModel((q, res, body) => { n++; if ('temperature' in body) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'One or more request parameters are not supported on this endpoint.' } })); }
+    res.writeHead(200, { 'content-type': 'text/event-stream' }); const ev = (ty, d) => res.write(`event: ${ty}\ndata: ${JSON.stringify({ type: ty, ...d })}\n\n`);
+    ev('message_start', { message: { usage: { input_tokens: 5 } } }); ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'สวัสดี' } }); ev('message_delta', { delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } }); res.end(); });
+  const m = addModel(t.DB, { name: 'Claude Test Eco', base_url: fm.url, provider: 'anthropic', cost_in: 1, cost_out: 2 });
+  const u = await t.user(), plan = addPlan(t.DB, { name: 'P', price: 100, limit_4h: 1000, limit_week: 1000, api_limit: 1, models: [m.id] });
+  t.DB.raw.prepare('UPDATE users SET plan_id=?,plan_expires=? WHERE id=?').run(plan.id, Date.now() + 864e5, u.id);
+  const key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const r = await t.call('/v1/chat/completions', { method: 'POST', body: { model: 'claude-test-eco', temperature: 0.2, messages: [{ role: 'user', content: 'hi' }] }, headers: { authorization: 'Bearer ' + key } });
+  const d = await r.json(); await Promise.all(t.ctx.pending);
+  assert.equal(r.status, 200, JSON.stringify(d)); assert.equal(d.choices[0].message.content, 'สวัสดี'); assert.equal(n, 2);
+  fm.close();
+});

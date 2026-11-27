@@ -1,6 +1,6 @@
 import { claudeCreditLeft, isClaudeEco, modelCreditIds, useClaudeCredit, useModelCredit } from './credits.js';
 import { pickBucket, BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
-import { SSE, UPSTREAM_DEAD, callModel, chat, logFallback, logUsage, slimTools, webSearch } from './ai.js';
+import { SSE, UPSTREAM_DEAD, callModel, chat, modelDown, logFallback, logUsage, slimTools, webSearch } from './ai.js';
 import { HEAL_TRIES, MEM_SYS, bumpMemory, burnCheck, healReason, loadMemory, memoryBlock, projectOf } from './apiplus.js';
 import { connCall, connTools } from './connectors.js';
 import { unseal } from './projects.js';
@@ -307,6 +307,10 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       return { signal: ac.signal, tick: () => arm(idle), done: () => { clearTimeout(t); outer?.removeEventListener('abort', onOuter); }, err: e => stalled ? new Error(`no response from the model within ${Math.round(stalled / 1000)} s`) : e };
     };
     const nextFallback = async cur => cur.fallback_id ? env.DB.prepare('SELECT * FROM models WHERE id=? AND active=1').bind(cur.fallback_id).first() : null;
+    if (!isEmb && activeModel.fallback_id && await modelDown(env, activeModel.id)) { // ตัวตัดวงจร (/v1): ตัวที่ขอล่มอยู่ → ไปตัวสำรองเลย ไม่ต้องรอ error ก่อน
+      const fb = await nextFallback(activeModel);
+      if (fb && env[fb.key_name] && !await modelDown(env, fb.id) && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'ล่ม (ตัวตัดวงจร)', 'api', k.id); activeModel = fb; }
+    }
     if (isEmb) {
       const key = env[m.key_name];
       if (billingMode === 'wallet' && k.balance < Math.ceil(embIn.join('').length / 2) * (await priceOf(env, m)).in / 1e6) { if (walletKey) await unlimit(env, walletKey); return fail('ยอดเงินใน Wallet ไม่พอสำหรับคำขอนี้', 402, 'insufficient_quota'); }
