@@ -131,6 +131,18 @@ test('channel ถูกปิด (503 disabled by the administrator): ไม่�
   fm.close(); good.close();
 });
 
+test('maxplus ทั้งช่องล่ม (503 "MaxPlus AI is temporarily unavailable"): ไม่ลองซ้ำ สลับตัวสำรองทันที', async () => {
+  const { t, fm, m, v1 } = await setup((q, res) => { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ type: 'error', error: { type: 'service_unavailable', message: 'MaxPlus AI is temporarily unavailable. Please try again shortly.', code: 'service_error' } })); });
+  const good = await fakeModel((q, res) => good.sse(res, 'ตอบจากตัวสำรอง'));
+  const fb = addModel(t.DB, { name: 'Backup3', base_url: good.url, cost_in: 1, cost_out: 2 });
+  t.DB.raw.prepare('UPDATE models SET fallback_id=? WHERE id=?').run(fb.id, m.id);
+  t.DB.raw.prepare('INSERT INTO plan_models (plan_id, model_id) SELECT plan_id, ? FROM plan_models WHERE model_id=?').run(fb.id, m.id);
+  const r = await v1({ model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(r.status, 200, r.txt); assert.match(r.d.choices[0].message.content, /ตัวสำรอง/);
+  assert.equal(fm.hits.length, 1, 'ยิงช่องที่ล่มแค่ครั้งเดียว');
+  fm.close(); good.close();
+});
+
 test('ตัวตัดวงจร /v1: เจอ error "channel ถูกปิด" ครั้งเดียว คำขอถัดไปไปตัวสำรองตั้งแต่แรก', async () => {
   const { t, fm, m, v1 } = await setup((q, res) => { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'This Channel is currently disabled by the administrator.' } })); });
   const good = await fakeModel((q, res) => good.sse(res, 'ตอบจากตัวสำรอง'));
