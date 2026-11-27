@@ -935,6 +935,7 @@ async function runForAI(msg, cmds) {
 function cUI() {
   const m = me.models.find(x => x.id === +$('#cmodel').value) || me.models[0];
   $('#cmdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
+  const mw = $('#cmwarn'); if (mw) mw.innerHTML = modelWarnHTML(m, { harness: true }); // หน้าโค้ด = งาน Harness เสมอ
   const efs = modelEfforts(m);
   $('#ceff').hidden = !efs.length;
   $('#ceffort').value = effortFor(m, $('#ceffort').value);
@@ -1902,7 +1903,7 @@ async function codeView(id, prompt) {
         <div id="cmsgs" class="msgs"></div>
         <div class="compose"><div class="err" id="ce"></div>
           <form id="cf" class="cbox"><div id="catts" class="catts" hidden></div><input type="file" id="catt" multiple hidden accept="image/png,image/jpeg,image/webp,.md,.markdown,.txt,.csv,.json,.html,.css,.js,.ts,.py,.xml,.yml,.yaml,.log"><textarea id="ct" rows="1" placeholder="สั่ง AI เช่น เพิ่มปุ่มรีเซ็ต" aria-label="ข้อความถึง AI"></textarea>
-            <div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="แนบรูปหรือไฟล์ในข้อความ" title="แนบรูป / ไฟล์ .md ให้ AI อ่าน">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
+            <div id="cmwarn"></div><div id="cflags" class="cflags"></div><div class="crow"><button type="button" class="cb" id="cplus" aria-label="เครื่องมือ">${ic('plus')}</button><button type="button" class="cb" id="cup" aria-label="แนบรูปหรือไฟล์ในข้อความ" title="แนบรูป / ไฟล์ .md ให้ AI อ่าน">${ic('clip')}</button><button type="button" class="cb pick" id="cmdl" aria-haspopup="dialog"></button><button type="button" class="cb pick" id="ceff" aria-haspopup="dialog"></button>
               <button class="send" id="cgo" aria-label="ส่ง">${ic('up')}</button></div></form></div></aside>
     </div>
     <nav class="ide-nav">${(cl ? [['ai', 'sparkles', 'AI'], ['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['run', 'play', 'Preview']] : [['files', 'folder', 'ไฟล์'], ['code', 'code', 'โค้ด'], ['ai', 'sparkles', 'AI'], ['run', 'play', 'ผลลัพธ์']]).map(([k, i, l]) => `<button data-pane-btn="${k}" class="${k === (cl ? 'ai' : 'code') ? 'on' : ''}"><span>${ic(i)}</span>${l}</button>`).join('')}</nav></div>`;

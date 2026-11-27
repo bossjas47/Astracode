@@ -98,7 +98,7 @@ document.addEventListener('click', e => { const b = e.target.closest?.('[data-cw
 async function cwPickModel() {
   let list = CW.models; if (!list) try { list = CW.models = await api('/cowork/models'); } catch (x) { return toast(x.message, 'bad'); }
   const cur = CW.modelId || list[0]?.id;
-  sheet('โมเดลของ Kyber Harness', `<div class="opts">${list.map((m, i) => `<button type="button" class="opt ${m.id === cur ? 'on' : ''}" data-cwm="${m.id}"><b>${esc(m.name)}</b><small class="muted">${i === 0 ? 'มาตรฐาน คุ้มลิมิต เหมาะกับงานทั่วไป' : 'คิดลึกกว่า เหมาะกับรายงานใหญ่ งานวิเคราะห์ยาก · ใช้ลิมิตมากกว่า'}</small></button>`).join('')}</div>`, (d, close) => {
+  sheet('โมเดลของ Kyber Harness', `<div class="opts">${list.map((m, i) => `<button type="button" class="opt ${m.id === cur ? 'on' : ''}" data-cwm="${m.id}"><b>${esc(m.name)}</b>${modelWarnHTML(m, { harness: true })}<small class="muted">${i === 0 ? 'มาตรฐาน คุ้มลิมิต เหมาะกับงานทั่วไป' : 'คิดลึกกว่า เหมาะกับรายงานใหญ่ งานวิเคราะห์ยาก · ใช้ลิมิตมากกว่า'}</small></button>`).join('')}</div>`, (d, close) => {
     d.querySelectorAll('[data-cwm]').forEach(b => b.onclick = () => { const m = list.find(x => x.id === +b.dataset.cwm); CW.modelId = m.id; CW.modelName = m.name; try { localStorage.setItem('cwModel', m.id); } catch { /* ไม่มีที่เก็บ */ } const s = $('#cwmod span'); if (s) s.textContent = m.name.replace('Claude ', ''); close(); toast('ข้อความถัดไปใช้ ' + m.name, 'ok'); });
   });
 }

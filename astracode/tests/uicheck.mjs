@@ -18,7 +18,7 @@ const asset = p => { let f = join(pub, p); if (!existsSync(f) || p.endsWith('/')
 // ---- ข้อมูลตัวอย่าง: ผู้ใช้แพลน Pro + งาน Harness ที่เสร็จแล้ว + แชตที่มีโค้ด ----
 const t = await makeEnv({ K: 'k' });
 t.env.ASSETS = { fetch: async r => asset(new URL(r.url).pathname) };
-const ids = ['Claude Sonnet 5.5 Eco', 'Claude Opus 5.5', 'ChatGPT 6.2 Sol', 'DeepSeek 4.1 Flash 1017'].map(n => addModel(t.DB, { name: n, base_url: 'http://127.0.0.1:9' }).id);
+const ids = ['Claude Sonnet 5.5 Eco', 'Claude Opus 5.5', 'ChatGPT 6.2 Sol', 'DeepSeek 4.1 Flash 1017', 'DeepSeek 4.1 Flash Uncen'].map(n => addModel(t.DB, { name: n, base_url: 'http://127.0.0.1:9' }).id);
 const plan = addPlan(t.DB, { name: 'Pro', price: 749, limit_4h: 16, limit_week: 64, models: ids }); t.DB.raw.prepare('UPDATE plans SET cowork=1 WHERE id=?').run(plan.id);
 const u = await t.user({ email: 'ui@kyber.test' }); t.DB.raw.prepare('UPDATE users SET plan_id=?, plan_expires=? WHERE id=?').run(plan.id, Date.now() + 20 * 864e5, u.id);
 const now = Date.now();
@@ -71,7 +71,7 @@ const problems = [];
 for (const theme of THEMES) for (const [sz, vp] of SIZES) {
   const ctx = await browser.newContext({ viewport: vp, locale: 'th-TH' });
   await ctx.addCookies([{ name: 'sid', value: sid, domain: 'localhost', path: '/' }]);
-  await ctx.addInitScript(th => { try { localStorage.setItem('theme', th); } catch { /* */ } }, theme);
+  await ctx.addInitScript(([th, mid]) => { try { localStorage.setItem('theme', th); localStorage.setItem('model', String(mid)); } catch { /* */ } }, [theme, ids[4]]); // เลือกโมเดล Uncen: ตรวจป้ายเตือนอ่านออกทุกธีมด้วย
   for (const path of PAGES) {
     const p = await ctx.newPage(), errs = [];
     p.on('pageerror', e => errs.push('JS error: ' + e.message.split('\n')[0]));

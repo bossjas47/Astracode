@@ -177,7 +177,7 @@ async function chatView(id) {
       <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select>
       <select id="effort" hidden>${EFFORTS.map(([v]) => `<option value="${v}" ${v === (localStorage.getItem('effort') || '') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="msgs" id="msgs"></div>
-      <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div><div id="flags" class="cflags"></div><div id="est" class="est" hidden></div><div id="queue" class="cq" hidden></div>
+      <div class="compose"><button type="button" class="scroll-fab" id="sdown" hidden aria-label="เลื่อนลงล่างสุด">${ic('down')}</button><div id="notice">${notice(me.usage)}</div><div class="err" id="e"></div><div class="thumbs" id="thumbs"></div><div id="flags" class="cflags"></div><div id="mwarn"></div><div id="est" class="est" hidden></div><div id="queue" class="cq" hidden></div>
         <form id="f" class="cbox"><input type="file" id="file" multiple hidden>
           <textarea id="t" rows="1" placeholder="Ask anything · type / for Skills" aria-label="Message"></textarea>
           <div class="crow"><button type="button" class="cb" id="plus" aria-label="แนบไฟล์และเครื่องมือ">${ic('plus')}</button>${('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? `<button type="button" class="cb" id="mic" aria-label="พิมพ์ด้วยเสียง">${ic('mic')}</button>` : ''}
@@ -411,6 +411,7 @@ const HELLO = ['How can I help today?', 'What are we working on?', 'Ask me anyth
 function modelUI() {
   const m = curModel();
   estSoon();
+  const mw = $('#mwarn'); if (mw) mw.innerHTML = isImgMode() ? '' : modelWarnHTML(m, { harness: agentOn(), flagged: chat.agQ || [] }); // Uncen กำลังปรับคุณภาพ · โหมด Agent + โมเดลไม่เหมาะ = เตือน
   $('#mdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
   const efs = modelEfforts(m);
   $('#eff').hidden = !efs.length;

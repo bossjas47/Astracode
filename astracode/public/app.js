@@ -1030,6 +1030,17 @@ const MODEL_CATS = [['general', 'ทั่วไป'], ['code', 'เขียน
 const catsOf = m => [...new Set([...String(m.cats || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean), ...(m.provider === 'image' ? ['image'] : [])])];
 let _mst = null; // คุณภาพจริงต่อโมเดล (เสถียร % · ลิมิตกี่เท่า) ดึงครั้งเดียวต่อหน้า
 const mstTag = s => s && (s.ok != null || s.ag != null) ? `<span class="vq" title="7 วันล่าสุด: คำขอที่สำเร็จ · กินลิมิตต่อข้อความเทียบตัวที่ประหยัดสุด${s.pass != null ? ' · ผ่านแบบทดสอบโค้ด' : ''}">${s.ok != null ? `${s.ok >= 98 ? '✓' : s.ok >= 90 ? '•' : '⚠'} เสถียร ${s.ok}%` : ''}${s.x ? ` · ลิมิต ${s.x}x` : ''}${s.pass != null ? ` · ผ่านเทสต์ ${s.pass}%` : ''}${s.ag != null ? ` · Agent จบงาน ${s.ag}% (${s.agn} งาน)` : ''}</span>` : '';
+// ป้ายเตือนใต้กล่องพิมพ์ตามโมเดลที่เลือก (หน้าแชต + หน้าโค้ด)
+// ตระกูล Uncen: กำลังปรับคุณภาพ · Harness (Agent/Code) + โมเดลที่ไม่เหมาะกับงานหลายขั้นตอน: เตือนว่าอาจพลาด
+const isUncen = m => /uncen/i.test(m?.name || '');
+const harnessWeak = (m, flagged = []) => /uncen|flash|lite|nano|mini\b/i.test(m?.name || '') || flagged.some(x => x.model === m?.name?.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, ''));
+function modelWarnHTML(m, { harness = false, flagged = [] } = {}) {
+  if (!m) return '';
+  const w = [];
+  if (isUncen(m)) w.push(['upd', 'กำลังอยู่ระหว่างการอัปเดตคุณภาพ · Model จะตอบช้าลงและสะดุดเป็นบางครั้ง']);
+  if (harness && harnessWeak(m, flagged)) w.push(['weak', 'Model นี้ไม่เก่งงานด้านนี้ (Agent / เขียนโค้ดหลายขั้นตอน) อาจมีข้อผิดพลาดได้ · แนะนำ Claude Sonnet / Opus หรือ ChatGPT 6.2']);
+  return w.map(([k, t]) => `<div class="mwarn mwarn-${k}" role="status">${ic('alert', 'sm')}<span>${t}</span></div>`).join('');
+}
 function modelSheet(which) {
   const cur = $(which).value, auto = $(which).querySelector('option[value="auto"]');
   const have = new Set(me.models.flatMap(catsOf)), cats = MODEL_CATS.filter(([k]) => have.has(k));
@@ -1039,7 +1050,7 @@ function modelSheet(which) {
   const mult = m => m.mcredit > 0 ? `<span class="vfree">เครดิต ฿${m.mcredit}</span>` : me.plan?.free_models?.includes(m.id) ? '<span class="vfree">ฟรีไม่จำกัด</span>' : me.claude_credit && /^claude\b.*\beco$/i.test(m.name.trim()) ? `<span class="vfree">แถม ≈$${me.claude_credit.usd}</span>` : site.picker_mult === '0' ? '' : `<span class="vmult">×${m.multiplier}</span>`; // โมเดลฟรีของแพลน: ไม่หักลิมิต
   sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', catChips + chips
     + (auto ? vOpt('auto', `<span class="vlogo auto">${ic('sparkles')}</span>`, 'อัตโนมัติ', 'ระบบเลือกโมเดลให้: ถามทั่วไปใช้โมเดลประหยัด โจทย์ยากหรือโค้ดใช้โมเดลเก่ง', '', cur === 'auto', 'auto') : '')
-    + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : ''), (m.note ? `<span class="vnote">${esc(m.note)}</span>` : '') + ([m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป'), mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase(), catsOf(m).join(' '))).join('')
+    + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : '') + (isUncen(m) ? ' <span class="vupd">กำลังอัปเดต</span>' : ''), (m.note ? `<span class="vnote">${esc(m.note)}</span>` : '') + ([m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป'), mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase(), catsOf(m).join(' '))).join('')
     + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', (d, close) => {
       pickTo(which)(d, close); newSeen(me.models);
       const paint = () => d.querySelectorAll('.vopt[data-v]').forEach(b => { const q = _mst?.[b.dataset.v]; const sm = b.querySelector('small'); if (q && sm && !sm.querySelector('.vq')) sm.insertAdjacentHTML('beforeend', ' ' + mstTag(q)); });
