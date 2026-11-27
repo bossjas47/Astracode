@@ -576,6 +576,7 @@ export const logFallback = (env, from, to, why, src, uid) => event(env, 'fallbac
 export async function logUsage(env, uid, m, usage, { units = true, wallet = null, plan = null, job = null, ms = null, ttft = null, src = null, flag = null, pack = false, prep = null } = {}) {
   const L = flat(m) ? null : longPart(m, usage);
   const cost = flat(m) ? m.req_cost : (usage.fresh * m.cost_in + usage.read * m.cost_cache + usage.write * m.cost_cache_write + usage.out * m.cost_out) / 1e6 + longExtra(m, L, { in: m.cost_in, cache: m.cost_cache, write: m.cost_cache_write, out: m.cost_out }); // โมเดลคิดเหมาต่อ request: ต้นทุนคงที่ ไม่ขึ้นกับ token
+  const real = cost * (m.cost_x > 0 ? m.cost_x : 1); // ต้นทุนจริงที่ผู้ให้บริการขึ้นราคา (cost_x) บันทึกให้หลังบ้านเห็น · ลิมิตลูกค้ายังคิดจากต้นทุนเดิม (เรารับส่วนต่างเอง)
   const un = units ? Math.max(cost * limMult(m), 1e-9) : 0; // หน่วยลิมิต = ต้นทุนจริง (บาท) × ตัวคูณโมเดล · 0 = ไม่หักลิมิตผู้ใช้
   usage._units = un; usage._cost = cost; // ให้ /v1 บอกลูกค้าว่าคำขอนี้ใช้ลิมิตไปกี่ % (ไม่เปิดเผยต้นทุน)
   const pk = pack ? Math.max(cost * limMult(m), 1e-9) : null; usage._pack = pk; // แพ็ก Agent: หักจากโควตาแพ็ก (คอลัมน์ pack) ไม่ใช่ลิมิตแพลน
@@ -585,12 +586,12 @@ export async function logUsage(env, uid, m, usage, { units = true, wallet = null
   if (wallet) { const p = await priceOf(env, m); charge = Math.round((p.req > 0 ? p.req : (usage.fresh * p.in + usage.read * p.cache + usage.write * p.write + usage.out * p.out) / 1e6 + longExtra(m, L, p)) * 10000) / 10000; } // ราคาขาย context ยาวขึ้นตามสัดส่วนเดียวกับต้นทุน
   const subId = units && plan?._sub ? plan._sub.sid ?? plan._sub.id : null; // หลายแพลน: หักจากใบไหน (เฉพาะแถวที่หักลิมิต)
   await env.DB.prepare(`INSERT INTO usage (user_id,model_id,tokens_in,tokens_out,tokens_cache,units,cost,created_at,ms,ttft,src,charge,flag,pack,prep${subId ? ',sub_id' : ''}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?${subId ? ',?' : ''})`)
-    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, cost, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null, flag || usage.flag || null, pk, prep, ...(subId ? [subId] : [])).run(); // prep = ms ที่ระบบเตรียมก่อนเรียกโมเดล (แยกจาก ttft ของโมเดล)
+    .bind(uid, m.id, usage.fresh + usage.write, usage.out, usage.read, un, real, now, ms, ttft || null, src || (job ? 'agent' : null), charge || null, flag || usage.flag || null, pk, prep, ...(subId ? [subId] : [])).run(); // prep = ms ที่ระบบเตรียมก่อนเรียกโมเดล (แยกจาก ttft ของโมเดล)
   // ต้นทุน/token ต่องาน Agent · ctx_peak = input ของรอบที่ใหญ่สุด (ใช้แสดง context ของทีม)
   if (job) { const tin = usage.fresh + usage.read + usage.write; await env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, units=COALESCE(units,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, un, tin, usage.out, tin, job).run()
     .catch(() => env.DB.prepare('UPDATE agent_jobs SET cost=COALESCE(cost,0)+?, tin=COALESCE(tin,0)+?, tout=COALESCE(tout,0)+?, ctx_peak=MAX(COALESCE(ctx_peak,0),?) WHERE id=?').bind(cost, tin, usage.out, tin, job).run()); } // ฐานข้อมูลที่ยังไม่มีคอลัมน์ units (เพิ่มตอนเริ่มงาน Agent ครั้งแรก): บันทึกแบบเดิม
   if (charge > 0) await walletAdd(env, uid, -charge, wallet, m.name);
-  if (cost >= 0.5) await costWatch(env, uid, m, now).catch(() => {});
+  if (real >= 0.5) await costWatch(env, uid, m, now).catch(() => {});
   return charge; // ยอดที่ตัดจาก wallet (0 ถ้าไม่ได้ตัด)
 }
 // เตือนแอดมินทันที (ไม่รอ cron) เมื่อคำขอแพงทำให้ต้นทุน 1 ชม. ล่าสุดของผู้ใช้คนนี้ หรือของทั้งระบบ เกินที่ตั้งไว้ · แจ้งซ้ำได้ชั่วโมงละครั้ง

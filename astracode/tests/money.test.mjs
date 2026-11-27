@@ -237,3 +237,15 @@ test('fake-slip guard: temp-mail accounts cannot pay; 3 rejected slips in a day 
   rej(2); assert.equal((await send(u)).status, 403);
   assert.equal(t.DB.raw.prepare('SELECT banned FROM users WHERE id=?').get(u.id).banned, 1);
 });
+
+test('cost_x: a provider price rise is recorded as real cost for the admin while the customer limit and wallet price stay as before', async () => {
+  const t = await makeEnv(); await t.json('/api/version');
+  const { logUsage } = await import('../src/ai.js');
+  t.DB.raw.prepare("INSERT INTO models (name,provider,api_model,base_url,key_name,cost_in,cost_out,cost_cache,cost_cache_write,price_in,price_out,price_cache,price_cache_write,active,cost_x) VALUES ('U','openai','u','http://x','K',10,50,1,12,40,200,4,48,1,1.5)").run();
+  const m = t.DB.raw.prepare("SELECT * FROM models WHERE name='U'").get(), u = await t.user({ balance: 100 });
+  await logUsage(t.env, u.id, m, { fresh: 1e6, read: 0, write: 0, out: 0 }, { units: true });
+  const r = t.DB.raw.prepare('SELECT cost, units FROM usage ORDER BY id DESC LIMIT 1').get();
+  assert.equal(r.cost, 15, 'real cost = 10 × 1.5'); assert.equal(r.units, 10, 'limit still counts the old cost');
+  await logUsage(t.env, u.id, m, { fresh: 1e6, read: 0, write: 0, out: 0 }, { units: false, wallet: 'api' });
+  assert.equal(t.DB.raw.prepare('SELECT charge FROM usage ORDER BY id DESC LIMIT 1').get().charge, 40, 'wallet price unchanged');
+});
