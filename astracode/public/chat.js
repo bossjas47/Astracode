@@ -1117,18 +1117,18 @@ function goIcon() { const g = $('#go'); if (!g) return; const q = chat.busy && !
 const CQ = new Map(), cqKey = () => chat.id || 0;
 function qDraw() {
   const el = $('#queue'); if (!el) return; const q = CQ.get(cqKey()) || []; el.hidden = !q.length; if (!q.length) { el.innerHTML = ''; return; }
-  el.innerHTML = q.map((t, i) => `<div class="cq-item"><span class="cq-n">คิว ${i + 1}</span><span class="cq-t">${esc(t.slice(0, 160))}</span>${chat.agentBusy ? `<button type="button" data-cqnow="${i}" title="ส่งเข้างานที่กำลังทำ ให้ Agent เห็นก่อนขั้นถัดไป">แทรกเลย</button>` : ''}<button type="button" data-cqdel="${i}" aria-label="ลบออกจากคิว">${ic('x', 'sm')}</button></div>`).join('') + `<small class="muted">${chat.busy ? 'จะส่งให้เองทีละข้อเมื่องานปัจจุบันเสร็จ' : 'รอส่ง'}</small>`;
+  el.innerHTML = q.map((t, i) => `<div class="cq-item"><span class="cq-n">คิว ${i + 1}</span><span class="cq-t">${esc(t.text.slice(0, 160))}${t.images?.length ? ` <small class="muted">+ รูป ${t.images.length}</small>` : ''}</span>${chat.agentBusy ? `<button type="button" data-cqnow="${i}" title="ส่งเข้างานที่กำลังทำ ให้ Agent เห็นก่อนขั้นถัดไป">แทรกเลย</button>` : ''}<button type="button" data-cqdel="${i}" aria-label="ลบออกจากคิว">${ic('x', 'sm')}</button></div>`).join('') + `<small class="muted">${chat.busy ? 'จะส่งให้เองทีละข้อเมื่องานปัจจุบันเสร็จ' : 'รอส่ง'}</small>`;
 }
-function qAdd() { const t = $('#t'), v = t.value.trim(); if (!v) return; const k = cqKey(); CQ.set(k, [...(CQ.get(k) || []), v]); t.value = ''; t.style.height = 'auto'; draft.del(); goIcon(); qDraw(); toast('เข้าคิวแล้ว จะส่งให้เองเมื่องานนี้เสร็จ', 'ok'); }
+function qAdd() { const t = $('#t'), v = t.value.trim(); if (!v) return; const k = cqKey(); CQ.set(k, [...(CQ.get(k) || []), { text: v, images: chat.images.slice(0, IMG_MAX) }]); chat.images = []; drawThumbs(); t.value = ''; t.style.height = 'auto'; draft.del(); goIcon(); qDraw(); toast('เข้าคิวแล้ว จะส่งให้เองเมื่องานนี้เสร็จ', 'ok'); }
 function qNext(cid) { // งานเสร็จ: ส่งข้อความถัดไปในคิวของแชตนี้ (เฉพาะตอนกำลังเปิดแชตนั้นอยู่ และช่องพิมพ์ว่าง ไม่ทับที่ลูกค้าพิมพ์ค้าง)
   const k = cid || 0, q = CQ.get(k), t = $('#t'); if (!q?.length || chat.busy || cqKey() !== k || !t) return false;
   if (t.value.trim()) { toast(`มีข้อความรอในคิว ${q.length} ข้อ · ล้างช่องพิมพ์แล้วจะส่งต่อให้`, ''); return false; }
-  const v = q.shift(); if (!q.length) CQ.delete(k); qDraw(); t.value = v; send(); return true;
+  const v = q.shift(); if (!q.length) CQ.delete(k); qDraw(); t.value = v.text; chat.images = v.images || []; drawThumbs(); send(); return true;
 }
 document.addEventListener('click', e => {
   const d = e.target.closest?.('[data-cqdel]'), n = e.target.closest?.('[data-cqnow]'); if (!d && !n) return;
   const q = CQ.get(cqKey()) || [], i = +(d || n).dataset[d ? 'cqdel' : 'cqnow'], v = q.splice(i, 1)[0]; if (!q.length) CQ.delete(cqKey());
-  if (n && v != null && chat.agentBusy) { const t = $('#t'), keep = t.value; t.value = v; agentSteer(); setTimeout(() => { if (!t.value.trim()) t.value = keep; }, 300); }
+  if (n && v != null && chat.agentBusy) agentSteer(v.text, v.images || []);
   qDraw();
 });
 
@@ -1469,9 +1469,9 @@ async function agentExpand(text) { // คำสั่งลัด /review /test 
   const custom = await PCD.agent.commands('chat').catch(() => []), c = custom.find(x => x.name === m[1])?.text || AG_CMDS.find(x => x[0] === m[1])?.[1];
   return c ? c.replace(/\$ARGUMENTS/g, m[2]).trim() : text;
 }
-function agentSteer() {
-  const t = $('#t'), text = t.value.trim(); if (!text || !chat.agentBusy) return;
-  PCD.agent.steer(agSid(), text).then(ok => { if (!ok) return toast('Agent จบงานแล้ว ส่งเป็นคำสั่งใหม่ได้เลย'); t.value = ''; t.style.height = 'auto'; const u = { role: 'user', content: text, steer: true }; chat.msgs.splice(chat.msgs.length - 1, 0, u); renderAll(); api('/chats/append', { method: 'POST', body: { chat_id: chat.id, messages: [{ role: 'user', content: text }] } }).catch(() => {}); toast('ส่งถึง Agent แล้ว จะเห็นก่อนขั้นถัดไป', 'ok'); });
+function agentSteer(text = $('#t').value.trim(), images = chat.images.slice(0, IMG_MAX)) { // แทรกเข้างานที่กำลังทำ (แนบรูปได้) · แอปใหม่ตัดคำตอบที่กำลังพิมพ์แล้วอ่านข้อความนี้ทันที
+  const t = $('#t'); if (!text || !chat.agentBusy) return;
+  PCD.agent.steer(agSid(), text, images).then(ok => { if (!ok) return toast('Agent จบงานแล้ว ส่งเป็นคำสั่งใหม่ได้เลย'); if (t.value.trim() === text) { t.value = ''; t.style.height = 'auto'; } if (images === chat.images || images.length && chat.images[0] === images[0]) { chat.images = []; drawThumbs(); } const u = { role: 'user', content: text, steer: true, imgs: images.length ? images : null }; chat.msgs.splice(chat.msgs.length - 1, 0, u); renderAll(); api('/chats/append', { method: 'POST', body: { chat_id: chat.id, messages: [{ role: 'user', content: text }] } }).catch(() => {}); toast('ส่งถึง Agent แล้ว', 'ok'); });
 }
 // โมเดลที่ไม่เหมาะกับงาน Agent (หลายขั้นตอน ใช้เครื่องมือ): รุ่นเล็ก/เร็ว/Uncen มักเรียกเครื่องมือเดิมซ้ำหรือหยุดกลางทาง
 const agentWeak = m => /uncen|flash|lite|nano|mini\b/i.test(m?.name || '');

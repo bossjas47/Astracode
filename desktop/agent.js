@@ -75,7 +75,7 @@ function repairHistory(messages) {
 //   spill(text, info) → path ของไฟล์ที่เก็บผลเต็ม · onCheckpoint({ round, messages, state }) · retryWaits (ระบุเอง = ไม่สุ่ม ใช้ในเทสต์)
 async function runAgent({ base, key, model, messages, tools = [], callTool, onEvent = () => {}, signal, maxRounds = 80, fetchImpl = fetch, compactAt = COMPACT_AT, inbox = () => [], effort = null, onStep = () => {},
   retryWaits = null, maxDurationMs = 0, maxTokens = 0, depth = 0, toolKind = null, spill = null, onCheckpoint = null, firstByteMs = 300000, stallMs = 180000,
-  verifyGate = true, checks = [], review = null, advisor = null, pinned = null, seeImages = true, slimOld = true, helperModel = null, summaryModel = null }) {
+  verifyGate = true, checks = [], review = null, advisor = null, pinned = null, seeImages = true, slimOld = true, helperModel = null, summaryModel = null, steer = null }) {
   const url = base.replace(/\/$/, '') + '/chat/completions', t0 = Date.now();
   const post = (body, sig = signal) => fetchImpl(url, { method: 'POST', signal: sig, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) });
   // นาฬิกาเฝ้าคำขอ: ไม่ได้คำตอบเลยภายใน firstByteMs หรือสตรีมเงียบ (ไม่มีข้อมูลแม้แต่ ping) เกิน stallMs → ตัดการเชื่อมต่อ
@@ -85,6 +85,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     signal?.addEventListener('abort', out, { once: true });
     w.arm = ms => { clearTimeout(w.t); w.t = setTimeout(() => { w.stalled = ms; ac.abort(); }, ms); };
     w.stop = () => { clearTimeout(w.t); signal?.removeEventListener('abort', out); };
+    w.kill = () => { clearTimeout(w.t); ac.abort(); }; // ผู้ใช้พิมพ์แทรก: ตัดคำตอบปัจจุบันทิ้ง แล้วเริ่มรอบใหม่พร้อมข้อความนั้น
     w.err = () => new Error(`โมเดลไม่ตอบภายใน ${sec(w.stalled)} วินาที`);
     w.arm(firstByteMs); return w;
   };
@@ -101,7 +102,11 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     if (signal?.aborted) throw new Error('หยุดแล้ว'); state.round = round;
     if (maxDurationMs && Date.now() - t0 > maxDurationMs) { stop(`ทำงานครบเวลา ${Math.round(maxDurationMs / 60000)} นาทีแล้ว`); return finish(); }
     if (maxTokens && stats.promptTokens + stats.outTokens > maxTokens) { stop(`ใช้ token ครบเพดาน ${maxTokens.toLocaleString()} แล้ว`); return finish(); }
-    for (const m of inbox()) { messages.push({ role: 'user', content: m }); onEvent({ type: 'steer' }); }
+    for (const m of inbox()) { // ข้อความที่ผู้ใช้พิมพ์แทรก (แนบรูปได้: โมเดลที่อ่านรูปได้จะเห็นรูปด้วย)
+      const text = typeof m === 'string' ? m : String(m?.text || ''), imgs = typeof m === 'string' ? [] : (m?.images || []).filter(u => /^data:image\//.test(u)).slice(0, 4);
+      messages.push({ role: 'user', content: imgs.length && seeImages ? [{ type: 'text', text }, ...imgs.map(url => ({ type: 'image_url', image_url: { url } }))] : text + (imgs.length ? `\n(แนบรูป ${imgs.length} รูป แต่โมเดลนี้อ่านรูปไม่ได้)` : '') });
+      onEvent({ type: 'steer' });
+    }
     if (slimOld) stats.slimmed = (stats.slimmed || 0) + slim(messages, SLIM_MIN, state.changed); // slimOld=false: ใช้วัดเทียบกับโปรแกรม AI ทั่วไปที่ไม่ย่อ
     if (JSON.stringify(messages).length > compactAt) await compact({ post, model: summaryModel || helperModel || model, messages, onEvent, state, pinned }); // ย่อบทสนทนาด้วยโมเดลประหยัด (ถ้ามี)
     // ที่ปรึกษาโมเดลแรง: วางแผนให้ครั้งเดียวต่อคำสั่งผู้ใช้ (ก่อนรอบแรก) · เรียกไม่ได้ = ทำงานต่อตามปกติ
@@ -134,12 +139,12 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
     const tReq = Date.now(); let r, attempt = 0, msg = null, stalls = 0;
     const onEv = e => { if (e.type === 'usage') { const u = e.usage || {}; stats.promptTokens += u.prompt_tokens || 0; stats.outTokens += u.completion_tokens || 0; stats.cachedTokens += u.prompt_tokens_details?.cached_tokens || 0; } onEvent(e); };
     for (;;) { // ผู้ให้บริการล่ม/คนเยอะชั่วคราว/โมเดลเงียบ: รอแล้วลองรอบเดิมใหม่ ไม่ทิ้งงานที่ทำมาแล้ว · เคารพ Retry-After
-      let netErr = null, got = false; const wd = watch();
-      try { r = await post(body, wd.signal); } catch (e) { wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว'); netErr = wd.stalled ? wd.err() : e; }
+      let netErr = null, got = false; const wd = watch(); let steered = false; if (steer) steer.cut = false; if (steer) steer.now = () => { steered = true; steer.cut = true; wd.kill(); };
+      try { r = await post(body, wd.signal); } catch (e) { wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว'); if (steered) break; netErr = wd.stalled ? wd.err() : e; }
       if (!netErr && r.ok) {
         try { msg = await readStream(r, onEv, () => { got = true; stats.ttft.push(Date.now() - tReq); }, () => wd.arm(stallMs)); wd.stop(); break; }
         catch (e) {
-          wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว');
+          wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว'); if (steered) { msg = null; break; }
           if (!wd.stalled) { if (got) throw e; netErr = e; netErr.soft = true; r = null; } // error กลางสตรีมก่อนได้คำตอบใด ๆ (เช่น "โมเดลตอบไม่ได้ตอนนี้"): ลองใหม่ ไม่ทิ้งทั้งงาน
           else {
           if (got) throw new Error(`${wd.err().message} (หยุดกลางคำตอบ สั่ง "ทำต่อ" ได้)`); // ส่งข้อความไปแล้วบางส่วน: ลองใหม่จะซ้ำ จึงจบงานแทนการค้าง
@@ -156,6 +161,8 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
       try { await r?.body?.cancel?.(); } catch { /* ไม่มี body */ }
       await sleep(w, signal);
     }
+    if (steer) steer.now = null;
+    if (!msg && steer?.cut) { steer.cut = false; onEvent({ type: 'text_end' }); onEvent({ type: 'info', text: 'หยุดคำตอบเดิมไว้ แล้วอ่านข้อความที่คุณแทรกก่อน' }); round--; continue; }
     if (!msg) { const d = await r.json().catch(() => ({})); throw new Error(d.error?.message_th || d.error?.message || 'HTTP ' + r.status); }
     stats.rounds++;
     // คำตอบชนเพดานความยาว (finish_reason=length): ไม่ทิ้งงานแล้วให้โมเดลเขียนใหม่ทั้งก้อน (เปลือง token ซ้ำๆ)

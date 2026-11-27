@@ -325,7 +325,7 @@ const agentLoad = sid => { try { return JSON.parse(fs.readFileSync(agentFile(sid
 h('desk:agentNeedKey', () => !settings.key);
 h('desk:agentSetKey', (_, key) => { if (!/^sk-(astra|kyber)-[0-9a-f]+$/.test(String(key))) return false; settings.key = String(key); save(); return true; });
 h('desk:agentStop', (_, sid) => { const a = agents.get(String(sid)); a?.ac?.abort(); a?.ws?.stopAll(); return true; });
-h('desk:agentSteer', (_, sid, text) => { const a = agents.get(String(sid)); if (!a?.ac) return false; a.inbox.push('[ผู้ใช้พิมพ์แทรกระหว่างทำงาน] ' + String(text).slice(0, 20000)); return true; });
+h('desk:agentSteer', (_, sid, text, images) => { const a = agents.get(String(sid)); if (!a?.ac) return false; a.inbox.push({ text: '[ผู้ใช้พิมพ์แทรกระหว่างทำงาน] ' + String(text).slice(0, 20000), images: Array.isArray(images) ? images.filter(u => typeof u === 'string' && /^data:image\//.test(u) && u.length < 8e6).slice(0, 4) : [] }); a.steer?.now?.(); return true; }); // แทรกแล้วมีผลทันที: ตัดคำตอบที่โมเดลกำลังพิมพ์ แล้วเริ่มรอบใหม่ (ระหว่างรันเครื่องมือ: เห็นทันทีที่เครื่องมือเสร็จ)
 h('desk:agentUndo', async (_, sid, step) => { const a = agents.get(String(sid)); return a?.ws ? await (step != null ? a.ws.undoTo(+step) : a.ws.undo()) : []; });
 h('desk:agentAnswer', (_, sid, id, text) => { const a = agents.get(String(sid)), f = a?.asks?.get(String(id)); if (!f) return false; a.asks.delete(String(id)); f(String(text ?? '').slice(0, 4000)); return true; });
 // เปิดไฟล์ผลลัพธ์ที่ Agent ทำ (เฉพาะในโฟลเดอร์งาน) ด้วยโปรแกรมของเครื่อง
@@ -499,7 +499,8 @@ async function runTask(o = {}, sender) {
   const advisorModel = typeof o.advisor === 'string' && o.advisor && o.advisor !== model && mode !== 'plan' ? o.advisor.slice(0, 120) : null, advisor = advisorModel ? makeAdvisor({ post, model: advisorModel }) : null;
   try {
     const seeImages = (await screenCtx()).seeing !== false, ms0 = await modelList().catch(() => []), helperModel = pickHelper(ms0, model), strongModel = pickStrong(ms0, model), summaryModel = pickStrong(ms0, model, true); a.helper = helperModel; // strong = ผู้ตรวจรอบสองเมื่อตัวหลักเป็นรุ่นเล็ก · summary = ผู้สรุปตอนย่อบทสนทนา (Sonnet Eco)
-    await runAgent({ advisor, seeImages, helperModel, summaryModel, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
+    a.steer = {};
+    await runAgent({ steer: a.steer, advisor, seeImages, helperModel, summaryModel, pinned: () => a.ws.pinnedNotes(), base: SITE + '/v1', key: settings.key, model, messages: a.messages, tools, callTool, onEvent, signal: ac.signal, maxRounds: Math.min(200, Math.max(5, +o.maxRounds || 80)), effort: ['low', 'medium', 'high', 'xhigh', 'max', 'minimal', 'on'].includes(o.effort) ? o.effort : null, inbox: () => a.inbox.splice(0), onStep: () => ++a.ws.step,
       maxDurationMs: Math.min(600, Math.max(0, +o.maxMinutes || 0)) * 60e3, spill: (t, i) => a.ws.spill(t, i),
       checks: (a.map ||= await projectMap(a.ws.root).catch(() => ({ checks: [] }))).checks || [], verifyGate: o.verifyGate !== false && mode !== 'plan',
       review: o.review === false || mode === 'plan' ? null : makeReviewer({ ws: a.ws, model: advisorModel || strongModel || model, task: String(o.text || '').slice(0, 4000), // ผู้ตรวจรอบสองใช้โมเดลเดียวกับงาน (รุ่นเล็กมักเตือนผิด)

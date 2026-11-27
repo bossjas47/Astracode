@@ -55,6 +55,15 @@ ok('มีข้อความแจ้งว่าทำต่ออัตโ�
 await p.waitForTimeout(1500);
 const runs2 = await p.evaluate(() => window.__runs);
 ok('งานเสร็จแล้วส่งข้อความในคิวให้เอง', runs2.some(r => r.text === 'แล้วเขียนเทสต์ด้วย') && await p.locator('.cq-item').count() === 0);
+// คิวแนบรูป + กด "แทรกเลย" ส่งข้อความพร้อมรูปเข้างานที่กำลังทำ
+await p.waitForFunction(() => !chat.busy, null, { timeout: 15000 }).catch(() => {});
+await p.evaluate(() => { window.__ms = 2500; window.__steers = []; const s0 = window.astraDesktop.agent.steer; window.astraDesktop.agent.steer = async (sid, t, imgs) => { window.__steers.push({ t, n: (imgs || []).length }); return true; }; });
+await p.fill('#t', 'งานถัดไป'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+await p.evaluate(() => { chat.images = ['data:image/png;base64,AAAA']; }); await p.fill('#t', 'ดูรูปนี้ด้วย'); await p.keyboard.press('Enter'); await p.waitForTimeout(200);
+ok('คิวเก็บรูปไว้ด้วย', /รูป 1/.test(await p.locator('.cq-item').first().innerText()) && await p.evaluate(() => !chat.images.length));
+await p.click('[data-cqnow="0"]'); await p.waitForTimeout(300);
+ok('แทรกเลย: ส่งข้อความพร้อมรูปเข้างาน', await p.evaluate(() => window.__steers.length === 1 && window.__steers[0].t === 'ดูรูปนี้ด้วย' && window.__steers[0].n === 1));
+await p.waitForFunction(() => !chat.busy, null, { timeout: 20000 }).catch(() => {});
 await p.waitForFunction(() => !chat.busy, null, { timeout: 15000 }).catch(() => {});
 // สลับแชตระหว่างทำงาน → งานไม่หยุด และผลลงแชตเดิม
 const cidA = await p.evaluate(() => chat.id); await p.evaluate(() => { window.__ms = 3000; });

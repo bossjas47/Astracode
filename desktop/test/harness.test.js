@@ -524,3 +524,24 @@ test('harness: strong model for reviewer/summary when the worker is small; files
   assert.ok(m[oldB].content.startsWith('[old]'), 'old read of a file not being edited is trimmed');
   assert.equal(m[lastA].content.length, 5000, 'latest read of a file being edited is kept whole');
 });
+
+test('harness: steer cuts the answer being typed and restarts the round with the user message (with image)', async () => {
+  const seen = [], steer = {}, inbox = [];
+  const fetch = async (url, init) => {
+    seen.push(JSON.parse(init.body));
+    if (seen.length === 1) { // คำตอบแรกพิมพ์ช้า: ผู้ใช้แทรกกลางทาง
+      return { ok: true, status: 200, body: (async function* () {
+        yield enc('data: ' + JSON.stringify({ choices: [{ delta: { content: 'กำลังทำแบบเดิม…' } }] }) + '\n\n');
+        inbox.push({ text: '[ผู้ใช้พิมพ์แทรกระหว่างทำงาน] เปลี่ยนเป็นสีแดง', images: ['data:image/png;base64,AAAA'] }); steer.now();
+        await new Promise((ok, no) => init.signal.aborted ? no(new Error('aborted')) : init.signal.addEventListener('abort', () => no(new Error('aborted')), { once: true }));
+      })() };
+    }
+    return { ok: true, status: 200, body: (async function* () { yield enc('data: ' + JSON.stringify({ choices: [{ delta: { content: 'เปลี่ยนเป็นสีแดงแล้ว' }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]'); })() };
+  };
+  const ev = [], messages = [{ role: 'system', content: 's' }, { role: 'user', content: 'ทำปุ่ม' }];
+  await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages, tools: [], fetchImpl: fetch, onEvent: e => ev.push(e), inbox: () => inbox.splice(0), steer, verifyGate: false, maxRounds: 5 });
+  assert.equal(seen.length, 2, 'ตัดคำตอบแรกแล้วเริ่มรอบใหม่ทันที');
+  const last = seen[1].messages.at(-1);
+  assert.equal(last.role, 'user'); assert.match(JSON.stringify(last.content), /สีแดง/); assert.match(JSON.stringify(last.content), /image_url/);
+  assert.ok(ev.some(e => e.type === 'info' && /แทรก/.test(e.text)));
+});
