@@ -181,7 +181,7 @@ class Workspace {
   async read_file(a, f) {
     const st = await fs.stat(f); if (st.isDirectory()) return this.list_dir(a, f);
     if (st.size > 5e6) return `Error: ไฟล์ใหญ่ ${Math.round(st.size / 1e6)}MB`;
-    const buf = await fs.readFile(f); if (buf.includes(0)) return 'Error: ไม่ใช่ไฟล์ข้อความ';
+    const buf = await fs.readFile(f); if (buf.includes(0)) return /\.(png|jpe?g|gif|webp|bmp)$/i.test(f) ? 'Error: this is an image file; read_file shows text only. To see a web page use check_page or screenshot_url; do not convert images to text.' : 'Error: not a text file (binary)';
     const lines = buf.toString('utf8').split(/\r?\n/), from = Math.max(1, +a.offset || 1), n = Math.min(+a.limit || 2000, 5000);
     const part = lines.slice(from - 1, from - 1 + n).map((l, i) => `${String(from + i).padStart(6)}\t${l.length > 2000 ? l.slice(0, 2000) + '…' : l}`).join('\n');
     return part + (from - 1 + n < lines.length ? `\n…(ทั้งหมด ${lines.length} บรรทัด อ่านต่อด้วย offset=${from + n})` : '') || '(ไฟล์ว่าง)';
@@ -261,7 +261,7 @@ class Workspace {
   }
   async web_search(a) { const rs = await this.search(String(a.query || '')); return rs.length ? rs.map((x, i) => `[${i + 1}] ${x.title}\n${x.url}\n${x.content}`).join('\n\n') : 'ไม่พบผลลัพธ์'; }
   async screenshot_url(a) {
-    if (!this.shot) return 'Error: จับภาพหน้าเว็บใช้ได้เฉพาะในแอป'; const u = String(a.url || ''); if (!/^https?:\/\//i.test(u)) return 'Error: ต้องเป็นลิงก์ http(s)';
+    if (!this.shot) return 'Error: screenshots are not available in this environment (only in the Kyber desktop app). Do not try to capture or view the page another way (no headless browsers, no image-to-text scripts): check the code instead (check_syntax, read_file) and finish.'; const u = String(a.url || ''); if (!/^https?:\/\//i.test(u)) return 'Error: ต้องเป็นลิงก์ http(s)';
     const r = await this.shot(u, Math.min(1920, Math.max(360, +a.width || 1280))), img = typeof r === 'string' ? r : r.image, logs = r?.logs || [];
     return { text: `ภาพหน้าจอของ ${u} (แนบด้านล่าง)${logs.length ? '\nข้อความใน console ของหน้าเว็บ:\n' + logs.join('\n') : '\nconsole ไม่มี error'}`, images: [img] };
   }
@@ -274,7 +274,7 @@ class Workspace {
   pinnedNotes() { return (this.notesList || []).length ? 'Your notes so far (notes tool):\n' + this.notesList.map(x => '- ' + x).join('\n') : ''; }
   async check_page(a) {
     const p = String(a.path || ''), wait = Math.min(15000, Math.max(0, +a.wait_ms || 1500));
-    if (!this.pageCheck && !this.shot) return 'Error: ตรวจหน้าเว็บด้วยเบราว์เซอร์ใช้ได้ในแอปคอมและ Kyber Harness บนคลาวด์';
+    if (!this.pageCheck && !this.shot) return 'Error: the browser page check is not available in this environment (only in the Kyber desktop app and cloud harness). Do not try to open or screenshot the page another way (no headless browsers, no image-to-text scripts): check the code instead (check_syntax, read_file) and finish.';
     let target, srv = null;
     if (/^https?:\/\//i.test(p)) target = p;
     else { // ไฟล์ในโปรเจกต์: เปิดผ่านเว็บเซิร์ฟเวอร์ชั่วคราวในเครื่อง (file:// โหลด ES module / import map / fetch ไม่ได้ เพราะ CORS)
