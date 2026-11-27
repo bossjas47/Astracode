@@ -518,10 +518,11 @@ async function landing() {
   // ถูกกว่าซื้อ API ทางการ: เฉพาะโมเดลที่ตั้งราคาทางการไว้และเราถูกกว่า (เรียงตามลำดับโมเดลในระบบ) · ทางการแปลงเป็นบาทด้วยอัตราเดียวกับหน้าราคา
   const vs = pr.models.filter(m => m.official?.in > 0 && m.official?.out > 0 && m.out > 0).map(m => ({ m, pct: Math.round((1 - m.out / (m.official.out * usdRate())) * 100) })).filter(x => x.pct > 0).slice(0, 6);
   const vsRow = ({ m, pct }) => `<tr><td><b>${esc(m.name)}</b><div><span class="pill sale">ถูกกว่า <b>${pct}%</b></span></div></td><td class="vsp"><div>Input ${curSign()}${money(toCur(m.in))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.in * usdRate()))}</small></div><div>Output ${curSign()}${money(toCur(m.out))}<small class="muted"> · ทางการ ${curSign()}${money(toCur(m.official.out * usdRate()))}</small></div></td></tr>`;
-  page(nav() + `<section class="hero"><div class="name">Kyber</div><p class="muted" style="margin:-6px auto 10px">สร้างโดย Hypatia · เดิมคือ AstraCode</p><a class="k25-pill" href="/kyber25"><b>ใหม่</b>Kyber 2.5 · Agent ที่ฟังคุณทันที →</a>
-    <h1>AI ทุกตัว<br>ที่ทำงานแทนคุณได้จริง</h1>
+  page(nav() + `<section class="hero"><div class="name">Kyber</div><p class="muted" style="margin:-6px auto 10px">สร้างโดย Hypatia · เดิมคือ AstraCode</p>
+    <h1>AI ทุกตัว<br><span class="h1-2">ที่ทำงานแทนคุณได้จริง</span></h1>
     <p>Claude, ChatGPT, Gemini และ DeepSeek ในที่เดียว ใช้ได้ทั้งมือถือ เว็บ และแอปบนคอมที่ให้ Agent คุมเครื่องทำงานจนเสร็จ${cheapest ? ` · เริ่มต้น <b>${fmtPlanPrice(cheapest.price)}</b>/เดือน` : ''}</p>
     ${me ? `<div class="row" style="justify-content:center"><a class="btn blue" href="/chat">Open Chat</a><a class="btn out" href="/account">My account</a>${window.astraDesktop ? '' : `<a class="btn out" href="#download" data-dlgo>${ic('download', 'sm')} ดาวน์โหลดแอปคอม</a>`}</div>` : '<div id="homeAuth" class="home-auth"></div>'}
+    <div class="k25-row"><a class="k25-pill" href="/kyber25"><b>ใหม่</b>Kyber 2.5 · Agent ที่ฟังคุณทันที →</a></div>
     <a class="statusb" href="/status" id="stb" hidden></a>
     <div class="showcase" aria-hidden="true" inert>
       <div class="sc-bar"><span class="sc-dots"><i></i><i></i><i></i></span><span class="sc-pill">Claude Sonnet 5.5</span><span class="sc-pill">Thinking · High</span><span class="sp"></span><span class="lim"><i class="lmini" style="--p:24"><b></b></i>24%</span></div>
@@ -825,7 +826,7 @@ function sheet(title, html, bind) {
   const close = () => { if (d.classList.contains('out')) return; d.classList.add('out'); setTimeout(() => d.remove(), matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180); }; // ปิดแบบเลื่อนลง/จางหาย
   d.onclick = e => { if (e.target === d || e.target.closest('.x')) close(); };
   d.onkeydown = e => { if (e.key === 'Escape') close(); };
-  document.body.append(d); (d.querySelector('.opt.on') || d.querySelector('.sheet-b button, .sheet-b a'))?.focus();
+  document.body.append(d); const sh = d.querySelector('.sheet'); sh?.setAttribute('tabindex', '-1'); (d.querySelector('.opt.on') || sh)?.focus({ preventScroll: true });
   bind?.(d, close);
 }
 // ---------- AI ประชุม: เสียง → WAV 16kHz mono ช่วงละ 3 นาที → ส่งทีละช่วง (ถอดทันทีที่เซิร์ฟเวอร์) ----------
@@ -1114,8 +1115,8 @@ const effDots = (k, on) => `<span class="ef-dots" aria-label="${k} ${on} จา�
 function effortSheet(sel, m) {
   const cur = $(sel).value, list = modelEfforts(m), rec = list.includes('medium') ? 'medium' : list.includes('on') ? 'on' : '';
   const row = v => { const [n, d] = EFFORT_INFO[v], r = EFFORT_RANK[v] ?? 0;
-    return `<button type="button" class="ef-row${v === cur ? ' on' : ''}" data-v="${esc(v)}">${effBars(v)}<span class="ef-t"><b>${n}${v === rec ? '<span class="ef-rec">แนะนำ</span>' : ''}</b><small>${d}</small><span class="ef-m">${effDots('ความเร็ว', 5 - Math.min(4, r))}<em>เร็ว</em>${effDots('ลิมิต', 1 + Math.min(4, r))}<em>ใช้ลิมิต</em></span></span>${v === cur ? `<i class="np-ck">${ic('check')}</i>` : ''}</button>`; };
-  sheet('ระดับความคิด', `<div class="ef">${list.map(row).join('')}<p class="ef-note">ยิ่งคิดมาก คำตอบยิ่งดีกับโจทย์ยาก แต่ช้าขึ้นและใช้ลิมิตมากขึ้น · ${esc(m?.name || '')}</p></div>`, (d, close) => { pickTo(sel)(d, close); d.querySelector('.sheet')?.classList.add('np-sheet'); });
+    return `<button type="button" class="ef-row${v === cur ? ' on' : ''}" data-v="${esc(v)}">${effBars(v)}<span class="ef-t"><b>${n}${v === rec ? '<span class="ef-rec">แนะนำ</span>' : ''}</b><small>${d}</small><span class="ef-m">${effDots('ความเร็ว', Math.max(1, 5 - r))}<em>เร็ว</em>${effDots('ลิมิต', Math.max(1, r))}<em>ใช้ลิมิต</em></span></span>${v === cur ? `<i class="np-ck">${ic('check')}</i>` : ''}</button>`; };
+  sheet('ระดับความคิด', `<div class="ef">${list.map(row).join('')}<p class="ef-note">ยิ่งคิดมาก คำตอบยิ่งดีกับโจทย์ยาก แต่ช้าขึ้นและใช้ลิมิตมากขึ้น${m?.name ? ` · โมเดล: ${esc(m.name)}` : ''}</p></div>`, (d, close) => { pickTo(sel)(d, close); d.querySelector('.sheet')?.classList.add('np-sheet'); });
 }
 
 const BUILTIN_PROMPTS = [

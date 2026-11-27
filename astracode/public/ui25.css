@@ -81,7 +81,7 @@
 .k25-hero { text-align: center; padding: 72px 0 32px; }
 .k25-tag { display: inline-block; padding: 6px 14px; border-radius: 999px; background: none; color: var(--porcelain); box-shadow: 0 0 0 1px var(--hair) inset; font: 600 13px var(--font); }
 .k25-hero h1 { font: 700 clamp(36px, 6vw, 64px)/1.08 var(--display); margin: 20px 0 14px; letter-spacing: -.5px; }
-.k25-hero h1 span { background: linear-gradient(180deg, var(--porcelain) 20%, var(--ash)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.k25-hero h1 span { color: var(--ash); }
 .k25-sub { max-width: 680px; margin: 0 auto; color: var(--ash); font-size: 17px; line-height: 1.6; }
 .k25-cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 26px; }
 .k25-shot { margin: 28px 0 12px; border-radius: 20px; overflow: hidden; border: 1px solid var(--hair); box-shadow: 0 30px 80px rgba(0, 0, 0, .35); background: #0b0c11; }
@@ -121,7 +121,8 @@
 
 /* ตัวอักษร: หัวข้อตัวชิด น้ำหนักชัด */
 h1, h2, .hero h1, .shop-hero h1 { letter-spacing: -.025em; text-wrap: balance; }
-:root:not([data-theme="light"]) .hero h1 { background: linear-gradient(180deg, #fff 35%, #9a9a9a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* หัวข้อสองโทนแบบภาพอ้างอิง: บรรทัดแรกขาว บรรทัดที่สองเทา (สีทึบ ไม่ใช่ตัวอักษรไล่สี) */
+.hero h1 .h1-2 { color: var(--ash); }
 
 /* ปุ่ม: หลัก = แคปซูลขาว · รอง = เส้นบาง */
 :root:not([data-theme="light"]) .btn.blue { background: #f2f2f2; color: #000; }
@@ -231,3 +232,25 @@ h1, h2, .hero h1, .shop-hero h1 { letter-spacing: -.025em; text-wrap: balance; }
 .side-qn .qn .ic { width: 17px; height: 17px; color: var(--ash); flex: none; }
 .side-qn .qn span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .side-qn .qn small { flex: none; color: var(--ash); font-size: 11.5px; max-width: 46%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- แก้ตามผลตรวจดีไซน์ ---------- */
+/* ไม่มีแสงฟุ้งหลังหัวข้อหน้าแรก (Noir ไม่ใช้ glow) */
+:root:not([data-theme="light"]) .hero::before, :root:not([data-theme="light"]) [data-page=home] .hero::before { display: none; }
+.k25-row { display: flex; justify-content: center; margin: 16px 0 0; }
+.k25-pill { margin: 0; }
+/* สีม่วงครามของธีมเดิมที่ค้างบนพื้นดำ → ขาว/เส้นบาง */
+:root:not([data-theme="light"]) .ls-plan { background: rgba(255, 255, 255, .08); color: var(--porcelain); }
+:root:not([data-theme="light"]) .av, :root:not([data-theme="light"]) .av.sm, :root:not([data-theme="light"]) .av.lg { background: #1a1a1a; color: var(--porcelain); border: 1px solid rgba(255, 255, 255, .12); }
+:root:not([data-theme="light"]) .vc-us { background: rgba(255, 255, 255, .04); box-shadow: 0 0 0 1px rgba(255, 255, 255, .1) inset; }
+:root:not([data-theme="light"]) .vc-us b { color: var(--porcelain); }
+:root:not([data-theme="light"]) .flag { background: rgba(255, 255, 255, .07); color: var(--porcelain); }
+:root:not([data-theme="light"]) .flag.on { background: var(--porcelain); color: var(--on-porcelain); }
+:root[data-theme="light"] .ls-plan { background: rgba(0, 0, 0, .06); color: #111; }
+:root[data-theme="light"] :focus-visible { outline-color: #111; }
+.sheet:focus, .sheet:focus-visible { outline: none; }
+/* การ์ดลิมิต: เส้นบางบนพื้นดำ ไม่ใช่กล่องเทาซ้อนเทา */
+:root:not([data-theme="light"]) .lq { background: none; border-color: rgba(255, 255, 255, .12); }
+/* ที่จับลากของแผ่นเลือกโมเดลบนมือถือ */
+@media (max-width: 600px) { .np-sheet::before { content: ""; display: block; width: 40px; height: 5px; margin: 0 auto 6px; border-radius: 3px; background: rgba(var(--ov), .22); } }
+/* แถบโปร: บนมือถือให้ข้อเสนอไม่ตกบรรทัดเดี่ยว */
+@media (max-width: 520px) { .cd25 .cd-l { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } }

@@ -1,143 +1,78 @@
 ---
 name: Kyber
-description: UI 2.0 "Prism": one calm light work surface; the only colour that moves is Kyber's light (a cyan → indigo → magenta spectrum) on quota and progress.
+description: UI 2.5 "Noir": pure black ground, quiet white hairlines, white ink and white pill actions; colour only where it means something (status, new, offer); Kyber's spectrum lives only on quota meters.
 colors:
-  ground: "#f6f7fb"
-  surface: "#ffffff"
-  ink: "#0e1116"
-  muted: "#5b6170"
-  hairline: "#e3e6ee"
-  graphite: "#eef0f6"
-  indigo: "#4b4fe0"
-  link: "#3d41c9"
+  ground: "#000000"
+  surface: "#0b0b0b"
+  surface-2: "#121212"
+  hairline: "rgba(255,255,255,0.10)"
+  hairline-strong: "rgba(255,255,255,0.18)"
+  ink: "#f2f2f2"
+  muted: "#9a9a9a"
+  on-ink: "#000000"
+  green: "#3ccf8e"
+  amber: "#f3b45a"
+  red: "#ff5a4e"
+  offer-red: "#ff6a5e"
   spectrum-start: "#14b8d9"
-  spectrum-mid: "#4b4fe0"
-  spectrum-end: "#d9409a"
-  green: "#12805c"
-  yellow: "#9a6700"
-  red: "#d1242f"
-  night-ground: "#0e1116"
-  night-surface: "#151922"
-  night-text: "#eef0f6"
-  night-indigo: "#8b8fff"
+  spectrum-mid: "#6b6ff5"
+  spectrum-end: "#e0509f"
+  day-ground: "#f6f7fb"
+  day-surface: "#ffffff"
+  day-ink: "#0e1116"
 typography:
+  family: "Anuphan, system-ui, -apple-system, Prompt, sans-serif"
+  numeric: "JetBrains Mono (×multipliers, countdown, token counts; never for prose)"
   display:
-    fontFamily: "system-ui, -apple-system, Prompt, ui-sans-serif, sans-serif"
-    fontSize: "40px mobile / 56px from 768px"
+    fontSize: "clamp(36px, 6vw, 64px)"
     fontWeight: 700
-    lineHeight: 1.25
-  headline:
-    fontFamily: "system-ui, -apple-system, Prompt, ui-sans-serif, sans-serif"
-    fontSize: "26px mobile / 32px"
-    fontWeight: 700
-    lineHeight: 1.3
+    letterSpacing: "-0.025em"
+  sheet-title:
+    fontSize: "22px"
+    fontWeight: 600
   body:
-    fontFamily: "system-ui, -apple-system, Prompt, ui-sans-serif, sans-serif"
-    fontSize: "15px (chat answers 16.5px / 1.75, user-adjustable S·M·L)"
-    fontWeight: 400
+    fontSize: "15px"
     lineHeight: 1.5
 rounded:
-  field: "12px"
+  row: "14px"
   card: "18px"
   sheet: "24px"
   pill: "9999px"
-spacing:
-  sm: "8px"
-  md: "16px"
-  lg: "24px"
 components:
-  button-primary:
-    backgroundColor: "{colors.ink}"
-    textColor: "#ffffff"
-    rounded: "{rounded.pill}"
-    height: "44px"
-  button-secondary:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    border: "1px {colors.hairline}"
-    rounded: "{rounded.pill}"
-    height: "44px"
-  card:
-    backgroundColor: "{colors.surface}"
-    border: "1px {colors.hairline}"
-    rounded: "{rounded.card}"
-    padding: "16-22px"
-  meter:
-    track: "{colors.hairline}"
-    fill: "linear-gradient(90deg, spectrum-start, spectrum-mid, spectrum-end)"
-    rounded: "{rounded.pill}"
+  button-primary: { background: "{colors.ink}", text: "{colors.on-ink}", rounded: "{rounded.pill}", height: "44px" }
+  button-secondary: { background: "transparent", border: "1px {colors.hairline-strong}", text: "{colors.ink}", rounded: "{rounded.pill}" }
+  meter: { track: "rgba(255,255,255,0.10)", fill: "linear-gradient(90deg, spectrum-start, spectrum-mid, spectrum-end)", hi: "indigo→magenta→amber", full: "{colors.red}" }
 ---
 
-# Design System: Kyber (UI 2.0 · Prism)
+# Design System: Kyber (UI 2.5 · Noir)
 
 ## Overview
 
-**Thesis:** one calm white work surface where the only colour that moves is Kyber's light. Quota and progress are drawn as light refracted through a prism. Everything else is ink on white with indigo for selection and links.
+Premium noir. The app sits on pure black; surfaces are separated by white hairlines at 8–18% rather than by grey fills. Ink is near-white, primary actions are white pills, secondary actions are hairline pills. Colour is never decoration: green/amber/red for live status, a white "ใหม่" tag, amber "กำลังอัปเดต", red for an offer's countdown, and Kyber's spectrum only on quota meters. Dark is the default theme; the light theme stays available and keeps the same structure on a cool white ground.
 
-Light theme is the default; a cool night theme is available (`data-theme=dark`). The user always sees where they are, which model answers, how much of the 4-hour and weekly limit is left, and what each answer cost.
-
-**Key characteristics**
-- Ground `#f6f7fb`, white surfaces with 1px `#e3e6ee` hairlines and a soft cool shadow on floating cards (`--shadow-1`). No glass, no blur as decoration.
-- Primary actions are ink pills (`#0e1116`, white text). Secondary actions are white pills with a hairline.
-- Indigo `#4b4fe0` marks selection, focus rings and links (`#3d41c9`).
-- The spectrum (`#14b8d9 → #4b4fe0 → #d9409a`) appears only on: limit meters, the plan "more than Free" bar, the logo's upper arm, and one blurred band behind the home hero.
+Layering: `public/style.css` holds the base system; `public/ui25.css` is the Noir layer loaded after it on every page.
 
 ## Colors
 
-- **Neutrals:** ground `#f6f7fb`, surface `#ffffff`, graphite `#eef0f6` (quiet fills, chips), hairline `#e3e6ee`, muted text `#5b6170`, ink `#0e1116`.
-- **Accent:** indigo `#4b4fe0`; link `#3d41c9`; tint `rgba(75,79,224,.08)` for promo strips and the value card.
-- **Status:** green `#12805c`, yellow `#9a6700`, red `#d1242f`. A meter at ≥80% turns indigo→magenta→orange; at 100% red.
-- **Night theme:** ground `#0e1116`, surfaces `#151922` / `#1b202b`, borders `#2c3342`, muted `#a3abbd`, text `#eef0f6`, indigo `#8b8fff`.
-
-**The One Light Rule.** The spectrum is never a button fill, never text, never a border. If it is not showing an amount (limit, progress, share of Free), it is not the spectrum.
+- Ground `#000`, surfaces `#0b0b0b` (composer, sheets) and `#121212`, hairlines white 10% (strong 18%).
+- Ink `#f2f2f2`, muted `#9a9a9a`; text on white pills is `#000`.
+- Status: green `#3ccf8e` (≥95% success), amber `#f3b45a` (≥80%, updating), red `#ff5a4e` (down, full).
+- Offer: countdown digits `#ff6a5e` inside a red hairline pill.
+- Spectrum `#14b8d9 → #6b6ff5 → #e0509f`: quota meters only (sidebar user bar, limit sheet, account limit cards).
 
 ## Typography
 
-Font stack: `system-ui, -apple-system, 'Prompt', ui-sans-serif, sans-serif` for body and display (Thai falls through to Prompt); Inter is loaded for Latin. Code uses JetBrains Mono on the Code page.
-
-- **Display** 700, 40px mobile / 56px desktop, tight tracking (-0.02em), `text-wrap: balance`.
-- **Headline** 700, 26–32px for section titles; plan and page headers (`.shop-hero h1`) 32–40px, left-aligned.
-- **Body** 15px / 1.5; muted copy in `#5b6170`. Chat answers 16.5px / 1.75 (user setting S 14.5 · M 16.5 · L 18).
-- **Numbers** that matter (prices, %, token prices) are ink and bold, `tabular-nums`. Never grey.
-
-## Layout
-
-- Centered columns: 720px for shop, plans and pricing headers and the plan list; 980px for feature grids.
-- **Phone first:** 16px gutters, no horizontal page scroll (`html, body { overflow-x: clip }`); anything wide scrolls inside its own box with a fade mask (`.shop-ctl`, `.acc-nav`).
-- **Chat:** 56px top bar with the quota pill (mini spectral meter + %), answers without bubbles, user messages in ink bubbles, a footer under each answer with model and cost. Composer is a white card: input, then one row of [+] [model] [effort] [ink send].
-- **Side menu:** the ☰ panel on every page matches the chat sidebar: Chat / Code / Harness switch, New chat, Workspace (and Artifacts), My files, Video, Chats list, account row.
-- **Plans:** a vertical list of plan rows. Each row shows name, price and "limit × Free" with a spectral bar; the featured or selected plan is expanded; others expand on tap. One promo strip above the list, never one per card.
-- **Account:** sticky category chips with a scroll-spy highlight; the limit card comes first.
-- **Announcements** stack in one dock (`.ann-dock`) at the bottom (top on the chat page); they never overlap.
-
-## Elevation & Depth
-
-Flat by default. Floating or interactive cards get `--shadow-1` (soft, cool, low opacity). Featured plan: 2px ink border. Selected plan: 2px indigo border plus a 4px indigo halo. Sheets and dialogs sit on a dim scrim.
-
-## Shapes
-
-Pills (9999px) for buttons, segmented controls, chips and the quota pill; 18px for cards and plan rows; 24px for sheets and the account header cards; 12px for fields and feature-icon tiles.
+Anuphan for Thai and Latin at every size; headings tight (-0.025em), balanced. JetBrains Mono only for measurements: model ×multipliers, the promo countdown, token counts. Section labels inside lists are 12px muted with light tracking (+0.02em; Thai reads poorly with wide tracking). No eyebrow/kicker labels above headings.
 
 ## Components
 
-- **Buttons:** primary = ink pill; secondary = white pill with hairline; danger = red text pill. 44px touch targets.
-- **Segmented control (`.seg`):** graphite track, the active option is an ink pill (or a white card with shadow inside the sidebar mode switch).
-- **Meters (`.meter`, `.bar1`, `.ls-bar`, `.pl-bar`, `.lmini`):** hairline track, spectrum fill.
-- **Plan row (`.pl .tile.plan`):** see Layout; CTA inside the expanded row (ink for featured, outline otherwise).
-- **Canvas / Artifact preview:** white header; a device bar to preview in full width, phone (iPhone frame), tablet (iPad frame) or desktop frame, with model presets, rotate and zoom %.
-- **Feature list (`.fi`):** icon tile + title + one line; linked items get an indigo arrow.
+- **Model picker sheet:** search field, segmented view (แนะนำ · ทั้งหมด · ค่าย, remembered), "อัตโนมัติ" card, grouped rows: 36px brand tile, name + tags, one-line note with a live status dot (7-day success), mono ×multiplier right, selected row on white 7% with a white check. Grab handle on phones.
+- **Limit sheet / account limit cards:** hairline cards; label + "เหลือ X%", big used % (44px), 8px spectrum meter, reset line with clock icon.
+- **Effort sheet:** rows with signal bars (depth), two 5-dot meters (speed, limit), "แนะนำ" on Medium; the composer chip shows the same bars.
+- **Countdown promo strip:** black strip, offer text, mono D/H/M/S pill, tied to the real promo end, hidden after expiry.
+- **Sidebar quick links (every page and the phone drawer):** Workspace, Artifacts, API นักพัฒนา, แอปบนคอม, แพลนและเติมเงิน (balance), above the chat list; a "กำลังทำงาน" section lists chats with a running Agent.
+- **Agent card:** live header (step, elapsed, tokens, limit), plan chips, step rows with Thai tool labels and diff counts, latest diff preview.
 
 ## Do's and Don'ts
 
-**Do**
-- Keep 44px touch targets and a visible indigo focus ring.
-- Keep body text at 4.5:1 or better; prices and percentages in ink.
-- Test at 390px width: nothing may cause horizontal page scroll.
-- Keep every feature reachable from the ☰ menu on every page.
-
-**Don't**
-- Don't add glass, blur or gradient text; don't put an eyebrow/kicker label above headings.
-- Don't use the spectrum for anything that is not an amount.
-- Don't repeat the same badge or promo on every card; say it once above the group.
-- Don't change copy or behavior while restyling.
-- Don't break the CSP: no inline scripts, no new script origins beyond cdn.jsdelivr.net; fonts only from Google Fonts.
+Do keep 44px targets, palette-drawn focus rings, Thai copy unchanged, and every feature one tap from the quick links. Don't add glow, glass, gradient fills on surfaces, leftover indigo chips, or colour that carries no meaning; don't put labels above headings.

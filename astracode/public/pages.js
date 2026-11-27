@@ -648,8 +648,8 @@ PAGES.translate = async () => {
 PAGES.kyber25 = async () => {
   const f = (t, d) => `<div class="k25-f"><b>${t}</b><p>${d}</p></div>`;
   page(nav() + `<div class="k25">
-  <section class="k25-hero"><span class="k25-tag">ใหม่ · Kyber 2.5</span>
-    <h1>เร็วขึ้น เสถียรขึ้น<br><span>และโปร่งใสกว่าเดิม</span></h1>
+  <section class="k25-hero">
+    <h1>Kyber 2.5<br><span>เร็วขึ้น เสถียรขึ้น โปร่งใสกว่าเดิม</span></h1>
     <p class="k25-sub">อัปเดตใหญ่ทั้งเว็บ แอปบนคอม และ API: Agent ที่ฟังคุณทันที งานไม่หยุดแม้สลับแชต และโมเดลขัดข้องเมื่อไหร่ ระบบสลับตัวสำรองให้ก่อนคุณจะเห็น error</p>
     <div class="k25-cta"><a class="btn blue" href="/chat">เริ่มใช้ Kyber 2.5</a><a class="btn out" href="/status">ดูสถานะระบบแบบสด</a></div></section>
   <section class="k25-shot"><img src="/img/k25-agent.png" alt="การ์ดงาน Agent ของ Kyber 2.5 แสดงแผนงาน ขั้นตอน และโค้ดที่แก้แบบสด" width="1532" height="880" loading="lazy"></section>
