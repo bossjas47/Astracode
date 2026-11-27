@@ -2455,3 +2455,4 @@ button.cw-model { background: none; cursor: pointer; font: inherit; font-size: 1
 /* แถบแจ้งแอป Desktop รุ่นเก่า */
 .dupd{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:9999;display:flex;align-items:center;gap:10px;max-width:min(860px,calc(100% - 24px));padding:10px 12px 10px 16px;border-radius:14px;background:#1d4ed8;color:#fff;font:500 13.5px/1.45 var(--font);box-shadow:0 10px 30px rgba(0,0,0,.25)}
 .dupd b{font-weight:700}.dupd .btn{flex:none;background:#fff;color:#1d4ed8;border-color:#fff}.dupd button{flex:none;background:none;border:0;color:#fff;cursor:pointer;padding:4px}
+.compose #mwarn, .compose #queue, .compose #est { max-width: 760px; margin-left: auto; margin-right: auto; } /* ป้ายเตือน/คิว: กว้างเท่ากล่องพิมพ์ */
