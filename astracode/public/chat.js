@@ -1687,15 +1687,15 @@ async function pluginSheet() {
 // ---------- มือถือ/เครื่องอื่น: ดูและสั่ง Agent ที่ทำงานบนคอม (เปิดแชตเดียวกัน) ----------
 let remoteT = null;
 async function remoteWatch() {
-  clearTimeout(remoteT); const id = chat.id; if (!id || chat.agentBusy) return $('#rmt')?.remove();
+  clearTimeout(remoteT); const id = chat.id; if (!id || chat.agentBusy || (window.PCD?.agent && chat.pc)) return $('#rmt')?.remove(); // บนคอมเครื่องเดียวกันไม่ต้องโชว์ (เห็นงานในแชตอยู่แล้ว)
   const d = await api('/remote/' + id).catch(() => null); if (chat.id !== id) return;
   if (!d || !Array.isArray(d.events) || (!d.running && !d.ask && Date.now() - d.updated_at > 10 * 60e3)) return $('#rmt')?.remove();
   let box = $('#rmt'); if (!box) { box = document.createElement('div'); box.id = 'rmt'; box.className = 'rmt'; $('#msgs')?.before(box); }
   const evs = d.events.filter(x => ['tool', 'sub', 'info', 'done', 'error', 'tool_result'].includes(x.type)).slice(-14);
-  box.innerHTML = `<div class="rmt-h">${ic('server', 'sm')} <b>Agent บนคอม</b> <span class="muted">${d.running ? (d.live ? 'กำลังทำงาน' : 'ขาดการติดต่อ') : 'หยุดแล้ว'}</span></div>
+  box.innerHTML = `<div class="rmt-h">${ic('server', 'sm')} <b>Agent บนคอม</b> <span class="muted">${d.running ? (d.live ? 'กำลังทำงาน' : 'ขาดการติดต่อ') : d.live ? 'คอมออนไลน์ · พร้อมรับงาน' : 'หยุดแล้ว'}</span></div>${d.live && !d.running ? '<p class="muted" style="margin:4px 0 6px;font-size:12.5px">งานที่ต้องใช้คอม (ไฟล์ในเครื่อง, SSH, โปรแกรม) ให้พิมพ์ในช่องนี้ Agent บนคอมจะเริ่มทำทันที · ช่องแชตด้านล่างคุยกับ AI บนเซิร์ฟเวอร์ ซึ่งเข้าถึงคอมไม่ได้</p>' : ''}
     <div class="rmt-ev">${evs.map(x => x.type === 'tool' ? `<div>${ic(AG_ICON[x.name] || 'server', 'sm')} ${esc(x.name)} <code>${esc(String(agArg(x)).slice(0, 80))}</code></div>` : x.type === 'tool_result' ? '' : x.type === 'sub' ? `<div class="muted">↳ ${esc(x.name)} <code>${esc(String(agArg(x)).slice(0, 60))}</code></div>` : x.type === 'done' ? `<div><b>เสร็จ:</b> ${esc((x.final || '').slice(0, 300))}</div>` : `<div class="${x.type === 'error' ? 'bad' : 'muted'}">${esc(x.text || '')}</div>`).join('')}</div>
     ${d.ask ? `<div class="rmt-ask"><b>${esc(d.ask.title)}</b><pre>${diffPre(d.ask.detail || '')}</pre><div class="row"><button class="btn blue sm" data-rv="yes">อนุญาต</button>${d.ask.allowAll ? '<button class="btn out sm" data-rv="all">อนุญาตทั้งงาน</button>' : ''}<button class="btn red sm" data-rv="no">ไม่อนุญาต</button></div></div>` : ''}
-    ${d.running ? `<form class="row rmt-say"><input placeholder="พิมพ์แทรกถึง Agent…" maxlength="2000"><button class="btn out sm">ส่ง</button></form>` : ''}`;
+    ${d.running || d.live ? `<form class="row rmt-say"><input placeholder="${d.running ? 'พิมพ์แทรกถึง Agent…' : 'สั่งงานใหม่ให้ Agent บนคอม…'}" maxlength="2000"><button class="btn out sm">ส่ง</button></form>` : ''}`;
   box.querySelectorAll('[data-rv]').forEach(b => b.onclick = async () => { await api(`/remote/${id}/answer`, { method: 'POST', body: { id: d.ask.id, v: b.dataset.rv } }).catch(x => toast(x.message, 'bad')); toast('ส่งคำตอบแล้ว', 'ok'); remoteWatch(); });
   box.querySelector('.rmt-say')?.addEventListener('submit', async e => { e.preventDefault(); const i = e.target.querySelector('input'); if (!i.value.trim()) return; await api(`/remote/${id}/say`, { method: 'POST', body: { text: i.value } }).catch(x => toast(x.message, 'bad')); i.value = ''; toast('ส่งถึง Agent แล้ว', 'ok'); });
   if (!box.contains(document.activeElement)) remoteT = setTimeout(remoteWatch, d.running || d.ask ? 3000 : 15000); else remoteT = setTimeout(remoteWatch, 6000);

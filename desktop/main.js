@@ -457,6 +457,8 @@ async function runTask(o = {}, sender) {
   const imgs = (Array.isArray(o.images) ? o.images : []).filter(x => typeof x === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(x) && x.length < 4e6).slice(0, 4);
   a.messages.push({ role: 'user', content: imgs.length ? [{ type: 'text', text }, ...imgs.map(url => ({ type: 'image_url', image_url: { url } }))] : text });
   const ac = a.ac = new AbortController(); a.ws.signal = ac.signal; let ended; a.running = new Promise(ok => { ended = ok; });
+  a.lastOpts = { ...o, text: '', images: [], history: [] }; // งานจากมือถือใช้ค่าเดียวกับงานล่าสุดบนคอม (โมเดล โหมด โฟลเดอร์)
+  a.fromPhone = text => { if (a.ac) return; runTask({ ...a.lastOpts, text: '[สั่งจากมือถือ] ' + text, rid: 'm' + Date.now().toString(36), preApproved: true }, web && !web.isDestroyed() ? web.webContents : null).catch(x => a.remote?.push({ type: 'error', text: String(x.message).slice(0, 300) })); };
   if (o.remote && !a.remote) a.remote = await remoteStart(a, o.chatId).catch(x => { tell({ type: 'info', text: 'สั่งจากมือถือ: ' + x.message }); return null; });
   const hub = makeHub({ site: SITE, key: settings.key }), rtools = await hub.has().catch(() => false) ? [CONNECTORS_TOOL] : []; // Connector: เครื่องมือเดียวแบบโหลดเท่าที่ใช้ (เดิมส่งคำอธิบายทุกเครื่องมือทุกรอบ)
   // ชุดเครื่องมือเดียวกันทุกโหมด (โหมดวางแผนกันไว้ใน callTool แทน) → สลับ วางแผน ↔ ลงมือ แล้ว prompt cache ยังใช้ต่อได้ · android_tools ใส่เมื่องานเกี่ยวกับ Android (เปิดแล้วคงไว้ทั้ง session)
@@ -566,8 +568,9 @@ async function remoteStart(a, chatId) {
   if (r.response !== 0) throw new Error('ไม่ได้เปิด');
   const api = async (p, body) => { const x = await fetch(SITE + '/v1/remote/' + p, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) }); return x.json().catch(() => ({})); };
   let buf = [], t = null, waiting = null, askId = 0;
-  const flush = async () => { clearTimeout(t); t = null; const ev = buf.splice(0); const d = await api('push', { chat_id: +chatId, events: ev, ask: waiting?.q || null, running: !!a.ac }).catch(() => ({})); for (const m of d.inbox || []) if (a.ac) a.inbox.push('[ผู้ใช้พิมพ์จากมือถือ] ' + String(m).slice(0, 20000)); if (waiting && d.answer?.id === waiting.q.id) { const w = waiting; waiting = null; w.ok(d.answer.v); } };
-  const poll = setInterval(() => { if (a.ac || waiting) flush(); }, 3000); // ระหว่างทำงาน: ดึงคำตอบ/ข้อความจากมือถือทุก 3 วินาที
+  const flush = async () => { clearTimeout(t); t = null; const ev = buf.splice(0); const d = await api('push', { chat_id: +chatId, events: ev, ask: waiting?.q || null, running: !!a.ac }).catch(() => ({})); const msgs = (d.inbox || []).map(m => String(m).slice(0, 20000)); if (a.ac) for (const m of msgs) a.inbox.push('[ผู้ใช้พิมพ์จากมือถือ] ' + m); else if (msgs.length && a.lastOpts) a.fromPhone(msgs.join('\n\n')); /* Agent ว่างอยู่: ข้อความจากมือถือเริ่มงานใหม่บนคอมเลย (เข้าถึงไฟล์/SSH/โปรแกรมในเครื่องได้) */ if (waiting && d.answer?.id === waiting.q.id) { const w = waiting; waiting = null; w.ok(d.answer.v); } };
+  let idleAt = 0; // ว่างอยู่: เช็กทุก 10 วินาที ให้มือถือรู้ว่าคอมออนไลน์ และรับงานใหม่ที่สั่งจากมือถือ
+  const poll = setInterval(() => { if (a.ac || waiting) flush(); else if (Date.now() - idleAt > 10e3) { idleAt = Date.now(); flush(); } }, 3000); // ระหว่างทำงาน: ดึงคำตอบ/ข้อความจากมือถือทุก 3 วินาที
   app.on('before-quit', () => clearInterval(poll));
   return {
     stop: () => { clearInterval(poll); clearTimeout(t); }, // ล้างแชต Agent: เลิกดึงข้อมูลจากมือถือ
