@@ -394,7 +394,7 @@ const PERF = [
   "UPDATE chats SET has_code=1 WHERE has_code IS NULL AND id IN (SELECT DISTINCT chat_id FROM messages WHERE instr(content, '```') > 0)", // เติมย้อนหลังครั้งเดียว
 ];
 // เพิ่มเมื่อแก้ NEW_COLS / PERF / ตารางที่สร้างเอง: isolate ใหม่เห็นเลขตรงกันแล้วข้ามทั้งหมด (เดิมสั่ง CREATE ~15 คำสั่งทีละรอบทุก isolate ก่อนตอบคำขอแรก)
-export const SCHEMA_VER = '2026-11-26a';
+export const SCHEMA_VER = '2026-11-27a';
 export const ensureCols = env => colsDone ||= (async () => {
   try { if ((await env.DB.prepare("SELECT value FROM settings WHERE key='schema_ver'").first())?.value === SCHEMA_VER) return; } catch { /* ยังไม่มีตาราง settings: ทำต่อ */ }
   let todo = NEW_COLS.map(([t, c, ty]) => `ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`), apiLog = true;
