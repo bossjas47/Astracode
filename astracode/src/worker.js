@@ -100,6 +100,12 @@ export default {
       }
       return new Response(null, { status: 303, headers: { location: '/chat?' + q } });
     }
+    if (path === '/api/desktop/latest' && M === 'GET') { // เวอร์ชันล่าสุดของแอป Desktop (จาก latest.yml ที่ workflow อัปไว้) · หน้าเว็บในแอปเก่าใช้เตือนให้อัปเดต
+      const ck = new Request('https://cache.local/desktop-latest'), c = globalThis.caches?.default, hit = c && await c.match(ck).catch(() => null); if (hit) return hit;
+      const t = await fetch('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/latest.yml').then(r => r.ok ? r.text() : '').catch(() => '');
+      const r = json({ version: (t.match(/^version:\s*([\d.]+)/m) || [])[1] || null }); r.headers.set('cache-control', 'public, max-age=600');
+      if (c && t) await c.put(ck, r.clone()).catch(() => {}); return r;
+    }
     if (path === '/download/cli' && M === 'GET') return Response.redirect('https://github.com/bossjas47/Astracode/releases/download/desktop-latest/astra-cli.zip', 302); // Agent ในเทอร์มินัล (workflow desktop.yml)
     if (path === '/download/desktop' && M === 'GET') { // ตัวติดตั้ง Kyber Desktop (workflow desktop.yml อัปขึ้น R2)
       const os = new URL(req.url).searchParams.get('os'), f = { linux: 'AstraCode-Desktop-linux.AppImage' }[os];

@@ -569,7 +569,19 @@ h('desk:version', () => app.getVersion());
 // อัปเดตอัตโนมัติจาก GitHub Release (desktop-latest): โหลดเบื้องหลัง ติดตั้งตอนปิดแอปครั้งถัดไป
 function autoUpdate() {
   if (!app.isPackaged) return;
-  try { const { autoUpdater } = require('electron-updater'); autoUpdater.checkForUpdatesAndNotify().catch(() => {}); setInterval(() => autoUpdater.checkForUpdatesAndNotify().catch(() => {}), 6 * 3600e3); } catch { /* ไม่มีโมดูล: ข้าม */ }
+  try {
+    const { autoUpdater } = require('electron-updater');
+    // โหลดเสร็จแล้ว: เดิมรอติดตั้งตอนปิดแอป แต่แอปซ่อนในถาด ลูกค้าแทบไม่เคยปิดจริง เลยค้างรุ่นเก่าเป็นสัปดาห์
+    // → ถามรีสตาร์ทตอนนี้ (รอให้ Agent ทุกงานจบก่อน) · ไม่สะดวก = ติดตั้งตอนปิดแอปเหมือนเดิม และถามใหม่วันถัดไป
+    let asked = 0;
+    autoUpdater.on('update-downloaded', async info => {
+      for (let i = 0; i < 120 && [...agents.values()].some(a => a.ac); i++) await new Promise(r => setTimeout(r, 30e3)); // Agent ทำงานอยู่: รอสูงสุด 1 ชม.
+      if (Date.now() - asked < 20 * 3600e3) return; asked = Date.now();
+      const r = await dialog.showMessageBox(web && !web.isDestroyed() ? web : undefined, { type: 'info', title: 'Kyber Desktop', message: `เวอร์ชันใหม่ ${info?.version || ''} พร้อมติดตั้งแล้ว`, detail: 'แก้บั๊กและเพิ่มความเร็ว · รีสตาร์ทแอปตอนนี้ใช้เวลาไม่กี่วินาที งานและแชตยังอยู่ครบ', buttons: ['รีสตาร์ทตอนนี้', 'ไว้ทีหลัง'], defaultId: 0, cancelId: 1 }).catch(() => ({ response: 1 }));
+      if (r.response === 0) { quitting = true; autoUpdater.quitAndInstall(true, true); }
+    });
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {}); setInterval(() => autoUpdater.checkForUpdatesAndNotify().catch(() => {}), 3 * 3600e3);
+  } catch { /* ไม่มีโมดูล: ข้าม */ }
 }
 
 // ส่ง error ของแอปให้หลังบ้าน (ไม่มีเนื้อหางาน · ตัดชื่อผู้ใช้ในพาธออก) ไม่เกิน 20 ครั้งต่อการเปิดแอป

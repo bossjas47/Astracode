@@ -2452,3 +2452,6 @@ button.cw-model { background: none; cursor: pointer; font: inherit; font-size: 1
 .st-tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0}.st-tbl th{text-align:left;font-weight:500;color:var(--ash);padding:6px 8px 6px 0;border-bottom:1px solid var(--hair)}.st-tbl td{padding:8px 8px 8px 0;border-bottom:1px solid var(--hair);vertical-align:top}
 .st-list{margin:6px 0 0;padding-left:18px;line-height:1.8;font-size:14px}
 @media (max-width:600px){.st-tbl{font-size:12px}.st-tbl th:nth-child(6),.st-tbl td:last-child{display:none}}
+/* แถบแจ้งแอป Desktop รุ่นเก่า */
+.dupd{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:9999;display:flex;align-items:center;gap:10px;max-width:min(860px,calc(100% - 24px));padding:10px 12px 10px 16px;border-radius:14px;background:#1d4ed8;color:#fff;font:500 13.5px/1.45 var(--font);box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.dupd b{font-weight:700}.dupd .btn{flex:none;background:#fff;color:#1d4ed8;border-color:#fff}.dupd button{flex:none;background:none;border:0;color:#fff;cursor:pointer;padding:4px}

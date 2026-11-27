@@ -1432,6 +1432,21 @@ function bugSheet() {
     };
   });
 }
+// แอป Desktop รุ่นเก่า (ไม่ได้ปิดแอปจริงนาน อัปเดตเลยไม่ติดตั้ง): แถบแจ้งด้านบน + ปุ่มโหลดรุ่นใหม่ · ปิดได้ แสดงใหม่วันถัดไป
+const verLt = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
+async function desktopUpdateBar() {
+  try {
+    const D = window.astraDesktop; if (!D?.version || document.getElementById('dupd')) return;
+    if (localStorage.getItem('dupdOff') === new Date().toDateString()) return;
+    const [mine, latest] = await Promise.all([Promise.resolve(D.version()).catch(() => ''), fetch('/api/desktop/latest').then(r => r.json()).then(d => d.version).catch(() => null)]);
+    if (!mine || !latest || !verLt(mine, latest)) return;
+    const b = document.createElement('div'); b.id = 'dupd'; b.className = 'dupd'; b.setAttribute('role', 'status');
+    b.innerHTML = `<span>แอปของคุณเป็นรุ่น <b>${esc(mine)}</b> · รุ่นใหม่ <b>${esc(latest)}</b> แก้บั๊ก Agent และเร็วขึ้น · วิธีอัปเดต: คลิกขวาไอคอน Kyber ที่ถาดมุมขวาล่าง → ออก แล้วเปิดใหม่ หรือ</span><a class="btn blue sm" href="/download/desktop?os=win">โหลดรุ่นใหม่</a><button type="button" aria-label="ปิด">${ic('x', 'sm')}</button>`;
+    b.querySelector('button').onclick = () => { try { localStorage.setItem('dupdOff', new Date().toDateString()); } catch { /* */ } b.remove(); };
+    document.body.prepend(b);
+  } catch { /* ไม่ใช่แอป / ออฟไลน์ */ }
+}
+if (typeof window !== 'undefined' && window.astraDesktop) setTimeout(desktopUpdateBar, 3000);
 async function sendFp() {
   try {
     if (!me || localStorage.getItem('fpd') === new Date().toDateString()) return;
