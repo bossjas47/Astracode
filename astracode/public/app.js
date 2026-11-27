@@ -1391,7 +1391,7 @@ function promoStrip() { // โปรเติม Wallet แถม %: แถบ�
   // UI 2.5: แถบนับถอยหลังถึงวันหมดโปรจริง (วัน ชม. นาที วินาที) · แตะข้อความไปหน้าเติมเงิน
   const b = document.createElement('div'); b.className = 'ann promo cd25';
   const two = n => String(n).padStart(2, '0'), tick = () => { const ms = Math.max(0, tp.end - Date.now()), s0 = Math.floor(ms / 1000); return `${two(Math.floor(s0 / 86400))}<small>D</small> ${two(Math.floor(s0 / 3600) % 24)}<small>H</small> ${two(Math.floor(s0 / 60) % 60)}<small>M</small> ${two(s0 % 60)}<small>S</small>`; };
-  b.innerHTML = `<a class="cd-l" href="/plans?topup=1"><span class="cd-x">${esc(tp.label)} · </span>เติม Wallet ฿${tp.min}+ แถม ${tp.pct}%<span class="cd-x"> · จบใน</span></a><span class="cd-t" role="timer" aria-label="เวลาที่เหลือของโปร">${tick()}</span><button aria-label="ปิด">${ic('x')}</button>`;
+  b.innerHTML = `<a class="cd-l" href="/plans?topup=1"><span class="cd-x">${esc(tp.label)} · </span>แถม ${tp.pct}% · เติม Wallet ฿${tp.min}+<span class="cd-x"> · จบใน</span></a><span class="cd-t" role="timer" aria-label="เวลาที่เหลือของโปร">${tick()}</span><button aria-label="ปิด">${ic('x')}</button>`;
   const t = b.querySelector('.cd-t'), iv = setInterval(() => { if (!b.isConnected) return clearInterval(iv); t.innerHTML = tick(); if (tp.end <= Date.now()) { clearInterval(iv); b.remove(); } }, 1000);
   b.querySelector('button').onclick = () => { try { localStorage.setItem('tpromo', String(tp.end)); } catch { /* ไม่มีที่เก็บ */ } clearInterval(iv); b.remove(); };
   annAdd(b);

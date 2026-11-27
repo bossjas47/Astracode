@@ -254,3 +254,7 @@ h1, h2, .hero h1, .shop-hero h1 { letter-spacing: -.025em; text-wrap: balance; }
 @media (max-width: 600px) { .np-sheet::before { content: ""; display: block; width: 40px; height: 5px; margin: 0 auto 6px; border-radius: 3px; background: rgba(var(--ov), .22); } }
 /* แถบโปร: บนมือถือให้ข้อเสนอไม่ตกบรรทัดเดี่ยว */
 @media (max-width: 520px) { .cd25 .cd-l { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } }
+/* รอบแก้ที่ 2 */
+:root:not([data-theme="light"]) [data-page=home] .hero::after { display: none; }
+:root:not([data-theme="light"]) .acc-av { background: #1a1a1a; color: var(--porcelain); border: 1px solid rgba(255, 255, 255, .14); }
+:root:not([data-theme="light"]) .pl-bar > i { background: var(--porcelain); }
