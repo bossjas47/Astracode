@@ -1052,26 +1052,49 @@ function modelWarnHTML(m, { harness = false, flagged = [] } = {}) {
   if (harness && harnessWeak(m, flagged)) w.push(['weak', 'Model นี้ไม่เก่งงานด้านนี้ (Agent / เขียนโค้ดหลายขั้นตอน) อาจมีข้อผิดพลาดได้ · แนะนำ Claude Sonnet / Opus หรือ ChatGPT 6.2']);
   return w.map(([k, t]) => `<div class="mwarn mwarn-${k}" role="status">${ic('alert', 'sm')}<span>${t}</span></div>`).join('');
 }
+// ---------- หน้าเลือกโมเดล (UI 2.5 Noir): ค้นหา · มุมมอง แนะนำ/ทั้งหมด/ค่าย · แถวโมเดลพร้อมสถานะจริงและตัวคูณลิมิต ----------
+const PICK_GROUPS = [['code', 'สำหรับงานโค้ดและ Agent'], ['general', 'ใช้ประจำวัน'], ['write', 'งานเขียน'], ['docs', 'อ่านเอกสารและรูป'], ['math', 'คณิตและตรรกะ'], ['image', 'สร้างรูป']];
 function modelSheet(which) {
   const cur = $(which).value, auto = $(which).querySelector('option[value="auto"]');
-  const have = new Set(me.models.flatMap(catsOf)), cats = MODEL_CATS.filter(([k]) => have.has(k));
-  const catChips = cats.length ? `<div class="vchips" role="group" aria-label="ใช้ทำอะไร"><button type="button" class="on" data-cf="">ทุกงาน</button>${cats.map(([k, l]) => `<button type="button" data-cf="${k}">${l}</button>`).join('')}</div>` : '';
-  const vendors = [...new Map(me.models.map(m => [vendorOf(m.name).toLowerCase(), vendorOf(m.name)])).values()];
-  const chips = site.picker_filter !== '0' && vendors.length > 1 ? `<div class="vchips" role="group" aria-label="ค่าย"><button type="button" class="on" data-vf="">ทั้งหมด</button>${vendors.map(v => `<button type="button" data-vf="${esc(v.toLowerCase())}">${vendorLogo(v, 'xs')}${esc(v)}</button>`).join('')}</div>` : '';
-  const mult = m => m.mcredit > 0 ? `<span class="vfree">เครดิต ฿${m.mcredit}</span>` : me.plan?.free_models?.includes(m.id) ? '<span class="vfree">ฟรีไม่จำกัด</span>' : me.claude_credit && /^claude\b.*\beco$/i.test(m.name.trim()) ? `<span class="vfree">แถม ≈$${me.claude_credit.usd}</span>` : site.picker_mult === '0' ? '' : `<span class="vmult">×${m.multiplier}</span>`; // โมเดลฟรีของแพลน: ไม่หักลิมิต
-  sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', catChips + chips
-    + (auto ? vOpt('auto', `<span class="vlogo auto">${ic('sparkles')}</span>`, 'อัตโนมัติ', 'ระบบเลือกโมเดลให้: ถามทั่วไปใช้โมเดลประหยัด โจทย์ยากหรือโค้ดใช้โมเดลเก่ง', '', cur === 'auto', 'auto') : '')
-    + pickOrder(me.models).map(m => vOpt(m.id, vendorLogo(m.name), esc(m.name) + (m.new_until > Date.now() ? ' <span class="vnew">ใหม่</span>' : '') + (isUncen(m) ? ' <span class="vupd">กำลังอัปเดต</span>' : ''), (m.note ? `<span class="vnote">${esc(m.note)}</span>` : '') + ([m.locked ? ic('lock', 'sm') + ' ต้องเติมเครดิต' : m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป'), mult(m), String(m.id) === cur, vendorOf(m.name).toLowerCase(), catsOf(m).join(' '))).join('')
-    + '<a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a>', (d, close) => {
-      pickTo(which)(d, close); newSeen(me.models);
-      const paint = () => d.querySelectorAll('.vopt[data-v]').forEach(b => { const q = _mst?.[b.dataset.v]; const sm = b.querySelector('small'); if (q && sm && !sm.querySelector('.vq')) sm.insertAdjacentHTML('beforeend', ' ' + mstTag(q)); });
-      if (_mst) paint(); else api('/model-stats').then(r => { _mst = r || {}; paint(); }).catch(() => {});
-      const filt = () => { // กรองพร้อมกันได้ทั้งค่ายและหมวดงาน
-        const vf = d.querySelector('[data-vf].on')?.dataset.vf || '', cf = d.querySelector('[data-cf].on')?.dataset.cf || '';
-        d.querySelectorAll('.vopt').forEach(o => o.hidden = o.dataset.vk !== 'auto' && (!!vf && o.dataset.vk !== vf || !!cf && !o.dataset.vc.split(' ').includes(cf)));
-      };
-      for (const a of ['vf', 'cf']) d.querySelectorAll(`[data-${a}]`).forEach(c => c.onclick = () => { d.querySelectorAll(`[data-${a}]`).forEach(x => x.classList.toggle('on', x === c)); filt(); });
+  const free = m => m.mcredit > 0 ? `เครดิต ฿${m.mcredit}` : me.plan?.free_models?.includes(m.id) ? 'ฟรีไม่จำกัด' : me.claude_credit && /^claude\b.*\beco$/i.test(m.name.trim()) ? `แถม ≈$${me.claude_credit.usd}` : '';
+  const right = m => { const f = free(m); return f ? `<span class="np-free">${esc(f)}</span>` : site.picker_mult === '0' ? '' : `<span class="np-x">×${m.multiplier}</span>`; };
+  const tags = m => (m.new_until > Date.now() ? '<span class="np-new">ใหม่</span>' : '') + (isUncen(m) ? '<span class="np-upd">กำลังอัปเดต</span>' : '') + (m.locked ? `<span class="np-lock">${ic('lock', 'sm')}</span>` : '');
+  const line = m => esc(m.note || [m.wallet && 'จ่ายจาก Wallet', m.vision && 'อ่านรูป', m.effort !== 'none' && 'Thinking'].filter(Boolean).join(' · ') || 'ทั่วไป');
+  const row = m => `<button type="button" class="np-row${String(m.id) === cur ? ' on' : ''}${m.locked ? ' lock' : ''}" data-v="${m.id}" data-q="${esc((m.name + ' ' + (m.note || '')).toLowerCase())}">${vendorLogo(m.name)}<span class="np-t"><b>${esc(m.name)}${tags(m)}</b><small><i class="np-dot" data-dot="${m.id}"></i>${line(m)}</small></span>${right(m)}${String(m.id) === cur ? `<i class="np-ck">${ic('check')}</i>` : ''}</button>`;
+  const ms = pickOrder(me.models), groupOf = m => (PICK_GROUPS.find(([k]) => catsOf(m).includes(k)) || ['other'])[0];
+  const views = {
+    rec: () => [...PICK_GROUPS, ['other', 'อื่น ๆ']].map(([k, l]) => { const g = ms.filter(m => groupOf(m) === k); return g.length ? `<div class="np-sec">${l}</div>${g.map(row).join('')}` : ''; }).join(''),
+    all: () => ms.map(row).join(''),
+    vendor: () => [...new Map(ms.map(m => [vendorOf(m.name), 1])).keys()].map(v => `<div class="np-sec">${esc(v)}</div>${ms.filter(m => vendorOf(m.name) === v).map(row).join('')}`).join(''),
+  };
+  let view = 'rec'; try { view = localStorage.getItem('pickView') || 'rec'; } catch { /* */ } if (!views[view]) view = 'rec';
+  sheet(which.endsWith('2') ? 'โมเดลที่ 2 (เทียบ)' : 'เลือกโมเดล', `<div class="np">
+      <label class="np-search">${ic('search', 'sm')}<input type="search" placeholder="ค้นหาโมเดล หรือพิมพ์งานที่จะทำ…" aria-label="ค้นหาโมเดล" autocomplete="off"></label>
+      <div class="np-seg" role="tablist" aria-label="มุมมอง">${[['rec', 'แนะนำ'], ['all', 'ทั้งหมด'], ['vendor', 'ค่าย']].map(([k, l]) => `<button type="button" role="tab" data-pv="${k}" aria-selected="${k === view}" class="${k === view ? 'on' : ''}">${l}</button>`).join('')}</div>
+      ${auto ? `<button type="button" class="np-auto${cur === 'auto' ? ' on' : ''}" data-v="auto"><span class="vlogo auto">${ic('sparkles')}</span><span class="np-t"><b>อัตโนมัติ</b><small>ระบบเลือกให้: ถามทั่วไปใช้โมเดลประหยัด โจทย์ยากหรือโค้ดใช้โมเดลเก่ง</small></span>${cur === 'auto' ? `<i class="np-ck">${ic('check')}</i>` : ''}</button>` : ''}
+      <div class="np-list" id="npList">${views[view]()}</div>
+      <p class="np-empty" hidden>ไม่พบโมเดลที่ตรงกับคำค้น</p>
+      <a class="opt-more" href="/pricing">ดูราคาและรายละเอียดโมเดล →</a></div>`, (d, close) => {
+    // สถานะจริง 7 วัน: สำเร็จ ≥95% เขียว · ≥80% เหลือง · ต่ำกว่านั้นแดง (ยังไม่มีข้อมูล = เทา)
+    const paint = () => d.querySelectorAll('[data-dot]').forEach(e => { const s = _mst?.[e.dataset.dot]; if (!s?.ok) return; e.className = 'np-dot ' + (s.ok >= 95 ? 'g' : s.ok >= 80 ? 'y' : 'r'); e.title = `สำเร็จ ${s.ok}% ใน 7 วัน`; });
+    const bind = () => { pickTo(which)(d, close); paint(); };
+    const q = d.querySelector('.np-search input'), list = d.querySelector('#npList'), empty = d.querySelector('.np-empty');
+    const filt = () => {
+      const t = q.value.trim().toLowerCase(); let n = 0;
+      list.querySelectorAll('.np-row').forEach(r => { const hit = !t || r.dataset.q.includes(t); r.hidden = !hit; if (hit) n++; });
+      list.querySelectorAll('.np-sec').forEach(h => { let x = h.nextElementSibling, any = false; while (x && !x.classList.contains('np-sec')) { if (!x.hidden) any = true; x = x.nextElementSibling; } h.hidden = !any; });
+      empty.hidden = n > 0;
+    };
+    d.querySelectorAll('[data-pv]').forEach(b => b.onclick = () => {
+      view = b.dataset.pv; try { localStorage.setItem('pickView', view); } catch { /* */ }
+      d.querySelectorAll('[data-pv]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', String(x === b)); });
+      list.innerHTML = views[view](); bind(); filt();
     });
+    q.oninput = filt;
+    bind(); newSeen(me.models);
+    if (!_mst) api('/model-stats').then(r => { _mst = r || {}; paint(); }).catch(() => {});
+    d.querySelector('.sheet')?.classList.add('np-sheet');
+  });
 }
 function effortSheet(sel, m) {
   const cur = $(sel).value, list = modelEfforts(m);

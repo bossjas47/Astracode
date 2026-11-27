@@ -2,9 +2,9 @@
 (() => {
   const root = document.documentElement, mq = matchMedia('(prefers-color-scheme: light)'), get = k => { try { return localStorage.getItem(k); } catch { return null; } };
   const apply = () => {
-    const pref = get('theme') || 'light', t = pref === 'auto' ? (mq.matches ? 'light' : 'dark') : pref;
+    const pref = get('theme') || 'dark', t = pref === 'auto' ? (mq.matches ? 'light' : 'dark') : pref;
     root.dataset.theme = t;
-    const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'light' ? '#f6f7fb' : '#0e1116';
+    const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'light' ? '#f6f7fb' : '#000000';
     // เอฟเฟกต์กระจก: auto = ปิดเบลอบนเครื่องสเปกต่ำ (RAM ≤ 4GB หรือ ≤ 4 คอร์) หรือเมื่อระบบขอลดความโปร่งใส
     const fx = get('fx') || 'auto', weak = navigator.deviceMemory <= 4 || navigator.hardwareConcurrency <= 4 || matchMedia('(prefers-reduced-transparency: reduce)').matches;
     root.toggleAttribute('data-lite', fx === 'off' || (fx === 'auto' && weak));
