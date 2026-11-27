@@ -2,7 +2,8 @@
 LIBS.qr = [CDN + 'qrcode-generator@1.4.4/qrcode.js', 'sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k'];
 const TX_KIND = { topup: 'เติมเงิน', coupon: 'คูปอง', referral: 'ชวนเพื่อน', plan: 'ซื้อแพลน', renew: 'ต่ออายุอัตโนมัติ', overflow: 'ใช้เกินลิมิต', api: 'API', admin: 'ปรับโดยแอดมิน' };
 const h3 = t => `<div class="acc-t">${t}</div>`;
-const meterRow = (label, p, sub) => `<div class="acc-meter ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}"><div class="am-h"><span>${label}</span><b>${p}%</b></div><div class="bar1 lg"><div style="width:${Math.min(100, p)}%"></div></div><small class="muted">${sub}</small></div>`;
+const meterRow = (label, p, sub) => { const v = Math.min(100, Math.max(0, +p || 0)), lv = v >= 100 ? 'full' : v >= 80 ? 'hi' : '', f = x => x < 10 && x > 0 ? x.toFixed(1) : Math.round(x), rest = Math.max(0, 100 - (v >= 10 ? Math.round(v) : v)); // UI 2.5: แบบเดียวกับหน้าลิมิต
+  return `<div class="ls-card lq ${lv}"><div class="lq-top"><span class="lq-l">${label}</span><span class="lq-r">${lv === 'full' ? 'เต็มแล้ว' : `เหลือ <b>${f(rest)}%</b>`}</span></div><div class="lq-num"><b>${f(v)}</b><span>% ใช้ไปแล้ว</span></div><div class="ls-bar lq-bar" role="progressbar" aria-label="${label}" aria-valuenow="${Math.round(v)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${v}%"></i></div><div class="lq-t">${ic('clock', 'sm')}<span>${sub}</span></div></div>`; };
 const sw = (id, on, label, hint) => `<label class="tg"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span><b>${label}</b><small class="muted">${hint}</small></span></label>`;
 
 const kfmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n || 0);
@@ -55,7 +56,7 @@ PAGES.account = async function account() {
           <a class="btn out sm" href="/plans?plan=${x.plan_id}&sub=${x.id}">ต่ออายุใบนี้</a>${x.primary ? '' : `<button type="button" class="btn out sm" data-subprim="${x.id}">ตั้งเป็นใบหลัก</button>`}</div></div>`).join('')}
       <a class="btn blue sm" href="/plans" style="margin-top:6px">${ic('plus', 'sm')} ซื้อแพลนเพิ่ม</a></div>` : `<div class="card acc-c" id="sec-limit">${h3('ลิมิตการใช้งาน')}
       ${u.use4h === false ? '' : meterRow('รอบ 4 ชม.', u.pct4h, u.reset4h ? 'รีเซ็ต ' + when(u.reset4h) : 'เริ่มนับเมื่อส่งข้อความแรก')}
-      ${meterRow('รอบสัปดาห์', u.pctWeek, 'รีเซ็ต ' + when(u.resetWeek))}</div>`}
+      ${meterRow('รอบสัปดาห์', u.pctWeek, u.resetWeek ? 'รีเซ็ต ' + when(u.resetWeek) : 'เริ่มนับเมื่อส่งข้อความแรก')}</div>`}
     <div class="acc-ov">
       <div class="acc-big"><span class="muted">Wallet</span><b>฿${baht(w.balance)}</b><a class="btn blue sm" href="/plans?topup=1">Top up</a></div>
       <div class="acc-big"><span class="muted">แพลน</span><b>${esc(me.plan.name)}</b><span class="muted">${me.plan.expires ? 'หมดอายุ ' + when(me.plan.expires) : 'ไม่มีวันหมดอายุ'}</span>${(me.model_credits || []).map(c => `<span class="cc-pill">เครดิตโมเดล ฿${c.left} · ใช้ได้กับ ${esc(c.names)} · ถึง ${when(c.expires_at)}</span>`).join('')}${me.claude_credit ? `<span class="cc-pill">🎁 แถม Claude Eco เหลือ ≈ $${me.claude_credit.usd} · ใช้ได้ถึง ${when(me.claude_credit.exp)}<label class="cc-sw"><input type="checkbox" id="ccfirst" ${me.claude_credit.first ? 'checked' : ''}> ใช้เครดิตแถมก่อนลิมิต <small>(ปิด = ใช้ลิมิตก่อน เครดิตไว้ใช้ตอนลิมิตเต็ม · ใช้กับ API ด้วย)</small></label></span>` : ''}</div>
