@@ -281,10 +281,24 @@ PAGES.status = async () => {
   page(nav() + `<div class="wrap" style="max-width:820px"><section class="hero" style="padding:56px 0 24px"><h1>สถานะระบบ</h1>
     <p class="${down.length ? 'warn' : 'ok'}" style="font-size:19px">${down.length ? `${ic('alert', 'sm')} บางโมเดลมีปัญหา: ` + down.map(m => esc(m.name)).join(', ') : '● ระบบทำงานปกติ'}</p>
     <p class="muted">อัปเดต ${when(d.updated)}</p></section>
-    ${d.models.map(m => `<div class="card st"><div class="row"><b>${esc(m.name)}</b><span class="sp"></span><span class="${m.state === 'down' ? 'bad' : m.down ? 'warn' : 'ok'}">${m.state === 'down' ? `${ic('alert', 'sm')} ล่ม · สลับโมเดลสำรองอัตโนมัติ` : m.down ? `${ic('alert', 'sm')} ไม่เสถียร` : '● ปกติ'}</span><span class="muted">${m.uptime}% ใน 30 วัน</span></div>
+    ${d.models.map(m => `<div class="card st"><div class="row"><b>${esc(m.name)}</b><span class="sp"></span><span class="${m.state === 'down' ? 'bad' : m.down ? 'warn' : 'ok'}">${m.routed || m.state === 'down' ? `${ic('alert', 'sm')} ต้นทางขัดข้อง · ใช้ตัวสำรองให้อัตโนมัติ` : m.down ? `${ic('alert', 'sm')} ไม่เสถียร` : '● ปกติ'}</span><span class="muted">${m.uptime}% ใน 30 วัน</span></div>
+      <div class="st-meta muted">${m.ok24 != null ? `<span>สำเร็จ 24 ชม. <b>${m.ok24}%</b></span>` : '<span>24 ชม.: ยังไม่มีการใช้งาน</span>'}${m.ttft ? `<span>เริ่มตอบเฉลี่ย <b>${(m.ttft / 1000).toFixed(1)} วิ</b></span>` : ''}${m.n24 ? `<span>${m.n24.toLocaleString(LOC)} ข้อความ</span>` : ''}</div>
       <div class="bars">${m.days.map(x => { const t = x.ok + x.err, r = t ? x.err / t : 0; return `<i class="${!t ? 'none' : r > 0.2 ? 'bad' : r > 0 ? 'mid' : 'good'}" title="${new Date(x.d).toLocaleDateString(LOC)} · สำเร็จ ${x.ok} · ผิดพลาด ${x.err}"></i>`; }).join('')}</div>
       <div class="row muted" style="font-size:12px"><span>30 วันก่อน</span><span class="sp"></span><span>วันนี้</span></div></div>`).join('')}
-    <p class="muted" style="text-align:center">สีเทา = ไม่มีการใช้งานวันนั้น · มีปัญหา? <a href="/support">แจ้งเรา</a></p>${footer()}</div>`);
+    <p class="muted" style="text-align:center">สีเทา = ไม่มีการใช้งานวันนั้น · มีปัญหา? <a href="/support">แจ้งเรา</a></p>
+    <section class="card st-open"><h2>ผลทดสอบจริงที่เราเปิดเผย</h2>
+      <p class="muted">ทดสอบผ่าน API จริงของ Kyber ด้วย Kyber Harness ตัวเดียวกับแอปบนคอม · ตรวจผลด้วยเบราว์เซอร์จริงที่โมเดลมองไม่เห็น</p>
+      <table class="st-tbl"><tr><th>งาน</th><th>โมเดล</th><th>ผลตรวจ</th><th>เวลา</th><th>ต้นทุน</th><th>Cache</th></tr>
+        <tr><td rowspan="2">แอป Kanban 4 ไฟล์ แก้ต่อ 3 รอบ</td><td>Opus 5.5 Agent</td><td>16/16</td><td>5.1 นาที</td><td>฿8.82</td><td>62%</td></tr>
+        <tr><td>Opus 5.5 Eco</td><td>16/16</td><td>8.4 นาที</td><td>฿10.33</td><td>20%</td></tr>
+        <tr><td rowspan="2">เว็บร้านกาแฟ (เฉลี่ย 2 รอบ)</td><td>Opus 5.5 Agent</td><td>6/6</td><td>2.4 นาที</td><td>฿3.61</td><td>57%</td></tr>
+        <tr><td>Opus 5.5 Eco</td><td>6/6</td><td>4.9 นาที</td><td>฿4.61</td><td>25%</td></tr></table>
+      <p class="muted" style="font-size:12.5px">ทดสอบ 27 พ.ย. 2026 · ต้นทุน = token ที่ผู้ให้บริการรายงาน × ราคาต้นทุน · ผลของงานอื่นอาจต่างจากนี้</p></section>
+    <section class="card st-open"><h2>สิ่งที่เราทำเพื่อให้ตรวจสอบได้</h2><ul class="st-list">
+      <li>ทุกคำตอบแสดง token และลิมิตที่ใช้จริงใต้ข้อความ</li>
+      <li>ถ้าโมเดลที่เลือกขัดข้อง ระบบสลับไปตัวสำรองอัตโนมัติ และบอกในแชตว่าตอบด้วยตัวไหน</li>
+      <li>สถานะและอัตราสำเร็จในหน้านี้ คำนวณจากการใช้งานจริงของลูกค้าทุกคน ไม่ได้ใส่ตัวเลขเอง</li>
+      <li>โมเดลที่ต้นทางเลิกให้บริการ เราซ่อนจากรายการทันที ไม่ปล่อยให้ลูกค้าเลือกแล้วเจอ error</li></ul></section>${footer()}</div>`);
 };
 
 // ---------- ใบเสร็จ (พิมพ์ / บันทึกเป็น PDF) ----------

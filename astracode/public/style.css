@@ -2446,3 +2446,9 @@ button.cw-model { background: none; cursor: pointer; font: inherit; font-size: 1
 :root[data-theme="light"] .vupd{color:#8a4f04}
 /* คอม (เมาส์): แถบชิปเลือกโมเดลขึ้นบรรทัดใหม่แทนการเลื่อนข้าง (ซ่อนแถบเลื่อนไว้ เมาส์เลื่อนข้างไม่ได้ ลูกค้าเห็นไม่ครบ) */
 @media (hover: hover) and (pointer: fine) { .vchips { flex-wrap: wrap; overflow-x: visible; } }
+/* หน้าสถานะ: ตัวเลข 24 ชม. + ผลทดสอบ */
+.st-meta{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12.5px;margin:4px 0 8px}.st-meta b{color:var(--porcelain);font-weight:600}
+.st-open{margin-top:20px}.st-open h2{font-size:19px;margin:0 0 6px}
+.st-tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0}.st-tbl th{text-align:left;font-weight:500;color:var(--ash);padding:6px 8px 6px 0;border-bottom:1px solid var(--hair)}.st-tbl td{padding:8px 8px 8px 0;border-bottom:1px solid var(--hair);vertical-align:top}
+.st-list{margin:6px 0 0;padding-left:18px;line-height:1.8;font-size:14px}
+@media (max-width:600px){.st-tbl{font-size:12px}.st-tbl th:nth-child(6),.st-tbl td:last-child{display:none}}

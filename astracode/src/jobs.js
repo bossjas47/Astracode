@@ -1,5 +1,5 @@
 import { BKK, DAY, ensureSubs, mirrorPrimary, multiOn, ensureCols, err, esc, json, limited, unlimit } from './core.js';
-import { SSE, callModel, ensureImgTable, runChat } from './ai.js';
+import { SSE, callModel, ensureImgTable, modelDown, runChat } from './ai.js';
 import { reapAgentJobs, runAgent } from './agent.js';
 import { event, getSetting, mail, mailBox, notify, origin, priceOf, siteUrl, walletAdd } from './billing.js';
 import { admin } from './admin.js';
@@ -209,12 +209,20 @@ export async function status(env) {
     env.DB.prepare(`SELECT model_id, ${day('created_at')} d, COUNT(*) n, MAX(created_at) last FROM events WHERE kind='error' AND created_at>=? GROUP BY model_id, d`).bind(from).all(),
     env.DB.prepare("SELECT model_id, COUNT(*) n FROM events WHERE kind='error' AND created_at>? GROUP BY model_id").bind(now - 300e3).all(),
   ]);
+  // 24 ชม.: ความเร็วเริ่มตอบ (เฉลี่ย) · สำเร็จกี่ % · ตัวไหนระบบกำลังส่งไปตัวสำรองอัตโนมัติ
+  const [sp, ok24, bad24] = await Promise.all([
+    env.DB.prepare('SELECT model_id, CAST(AVG(ttft) AS INT) ttft, COUNT(*) n FROM usage WHERE created_at>? AND ttft>0 GROUP BY model_id').bind(now - DAY).all().then(r => r.results).catch(() => []),
+    env.DB.prepare('SELECT model_id, COUNT(*) n FROM usage WHERE created_at>? GROUP BY model_id').bind(now - DAY).all().then(r => r.results).catch(() => []),
+    env.DB.prepare("SELECT model_id, COUNT(*) n FROM events WHERE kind='error' AND created_at>? GROUP BY model_id").bind(now - DAY).all().then(r => r.results).catch(() => []),
+  ]);
+  const routed = new Set(); for (const m of models.results) if (await modelDown(env, m.id).catch(() => false)) routed.add(m.id);
   const today = Math.floor((now + BKK) / DAY);
   return { updated: now, models: models.results.map(m => {
     const days = Array.from({ length: 30 }, (_, i) => { const d = today - 29 + i, o = ok.results.find(x => x.model_id === m.id && x.d === d)?.n || 0, e = bad.results.find(x => x.model_id === m.id && x.d === d)?.n || 0; return { d: d * DAY, ok: o, err: e }; });
     const last = Math.max(0, ...bad.results.filter(x => x.model_id === m.id).map(x => x.last)), n5 = recent.results.find(x => x.model_id === m.id)?.n || 0;
     const o = days.reduce((a, x) => a + x.ok, 0), e = days.reduce((a, x) => a + x.err, 0);
-    return { name: m.name, uptime: o + e ? Math.round(o / (o + e) * 1000) / 10 : 100, down: now - last < 900e3, state: n5 >= 3 ? 'down' : now - last < 900e3 ? 'degraded' : 'ok', days }; // down = ผิดพลาด ≥3 ครั้งใน 5 นาที (ระบบสลับไปโมเดลสำรองเอง) · degraded = มี error ใน 15 นาที
+    const g = ok24.find(x => x.model_id === m.id)?.n || 0, b = bad24.find(x => x.model_id === m.id)?.n || 0, s = sp.find(x => x.model_id === m.id);
+    return { name: m.name, ok24: g + b ? Math.round(g / (g + b) * 1000) / 10 : null, n24: g, ttft: s?.n >= 5 ? s.ttft : null, routed: routed.has(m.id), uptime: o + e ? Math.round(o / (o + e) * 1000) / 10 : 100, down: now - last < 900e3, state: n5 >= 3 ? 'down' : now - last < 900e3 ? 'degraded' : 'ok', days }; // down = ผิดพลาด ≥3 ครั้งใน 5 นาที (ระบบสลับไปโมเดลสำรองเอง) · degraded = มี error ใน 15 นาที
   }) };
 }
 
