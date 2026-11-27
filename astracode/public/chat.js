@@ -96,9 +96,21 @@ document.addEventListener('click', e => {
   else if (u.pathname === '/chat' && u.searchParams.get('mode') === 'cowork') { e.preventDefault(); switchMode('cowork', u.pathname + u.search); }
   else if (u.pathname === '/chat' && curMode() !== 'chat') { e.preventDefault(); switchMode('chat', u.search ? u.pathname + u.search : null); }
 });
+// ลิมิตแพลนเต็มแต่มีเงินใน Wallet: เปิด "ใช้ Wallet ต่อเมื่อลิมิตเต็ม" ในแตะเดียว แล้วส่งข้อความเดิมต่อ
+let wovAsked = false;
+async function walletOffer(bal) {
+  if (wovAsked) return; wovAsked = true;
+  const ok = await confirmSheet(`ลิมิตของแพลนเต็มแล้ว ใช้เงินใน Wallet (฿${baht(bal)}) ต่อเลยไหม? คิดตามราคาขายต่อข้อความ จนกว่าลิมิตจะรีเซ็ต (ปิดได้ที่หน้าบัญชี)`, { title: 'ใช้ Wallet ต่อ', ok: 'ใช้ Wallet ต่อ' });
+  wovAsked = false; if (!ok) return; await walletOn();
+}
+async function walletOn() {
+  try { await api('/me', { method: 'PUT', body: { wallet_overflow: true } }); me.wallet_overflow = 1; setUsage(me.usage); toast('เปิดแล้ว ลิมิตเต็มจะตัดจาก Wallet แทน · กดส่งอีกครั้งได้เลย', 'ok'); }
+  catch (x) { toast(x.message, 'bad'); }
+}
+document.addEventListener('click', e => { if (e.target.closest?.('[data-wov]')) walletOn(); });
 function notice(u) {
   if (u.pct4h >= 100 || u.pctWeek >= 100)
-    return `<div class="notice full">ลิมิตเต็ม · รีเซ็ต ${when(u.pct4h >= 100 ? u.reset4h : u.resetWeek)}${me.balance >= 1 ? ' · โมเดลนอกแพลนยังใช้ได้ด้วย Wallet' : ''} <a class="btn blue sm" href="/plans?topup=1">เติมเงิน</a> <a class="btn out sm" href="/plans">Upgrade</a></div>`;
+    return `<div class="notice full">ลิมิตเต็ม · รีเซ็ต ${when(u.pct4h >= 100 ? u.reset4h : u.resetWeek)}${me.balance >= 1 ? (me.wallet_overflow ? ' · กำลังใช้ Wallet ต่อ (฿' + baht(me.balance) + ')' : '') : ''} ${me.balance >= 1 && !me.wallet_overflow ? `<button type="button" class="btn blue sm" data-wov>ใช้ Wallet ต่อ (฿${baht(me.balance)})</button>` : '<a class="btn blue sm" href="/plans?topup=1">เติมเงิน</a>'} <a class="btn out sm" href="/plans">Upgrade</a></div>`;
   const p = Math.max(u.pct4h, u.pctWeek);
   // ใช้ Wallet อย่างเดียว (ไม่มีแพลน) แล้วเงินใกล้หมด: เตือนก่อนส่งไม่ได้
   if (!me.plan?.paid && me.balance > 0 && me.balance < 10) return `<div class="notice hi">เงินใน Wallet เหลือ ฿${(+me.balance).toFixed(2)} · <a href="/plans?topup=1">เติมเงิน (ขั้นต่ำ ฿10)</a></div>`;
@@ -1126,6 +1138,7 @@ async function stream(body, signal, onData) {
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
     if (r.status === 429 && 'pct4h' in d) setUsage(d);
+    if (r.status === 429 && 'pct4h' in d && d.wallet >= 1 && !me.wallet_overflow) walletOffer(d.wallet); // เติม Wallet แล้วแต่ยังไม่เปิด "ใช้ต่อเมื่อลิมิตเต็ม": ถามเปิดในแตะเดียว (เดิมต้องไปหาในหน้าบัญชีเอง)
     throw Object.assign(new Error(r.status === 429 && 'pct4h' in d ? (d.wallet > 0 ? 'ลิมิตเต็มแล้ว · เปิด "ใช้ Wallet เมื่อลิมิตเต็ม" ในหน้าบัญชีเพื่อใช้ต่อ' : 'ลิมิตเต็มแล้ว') : d.error || 'ผิดพลาด'), { status: r.status });
   }
   const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
