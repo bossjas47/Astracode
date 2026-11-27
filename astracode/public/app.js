@@ -269,7 +269,7 @@ if (typeof MutationObserver !== 'undefined') new MutationObserver(() => { clearT
 // แอป Kyber Desktop รุ่นเก่า (0.2.x): ปุ่มเปิดหน้าต่าง "ทำงานในเครื่อง" (ครั้งแรกสร้าง API key ชื่อ Desktop) · รุ่นใหม่ (มี .fs) ทำงานในเครื่องจากแชต/Code ได้เลย จึงไม่ต้องมีปุ่มนี้
 const osName = () => /Mac/i.test(navigator.platform) ? 'mac' : /Linux/i.test(navigator.platform) && !/Android/i.test(navigator.userAgent) ? 'linux' : 'win';
 const dlLink = (cls = '') => window.astraDesktop ? '' : `<a class="${cls}" href="/#download">${ic('download')}<span>ดาวน์โหลดแอปคอม</span></a>`;
-const deskLink = (cls = '') => window.astraDesktop && !window.astraDesktop.fs && me ? `<a class="${cls}" href="#" data-desk>${ic('code')}<span>💻 ทำงานในเครื่อง</span></a>` : '';
+const deskLink = (cls = '') => window.astraDesktop && !window.astraDesktop.fs && me ? `<a class="${cls}" href="#" data-desk>${ic('code')}<span>ทำงานในเครื่อง</span></a>` : '';
 document.addEventListener('click', async e => {
   const b = e.target.closest?.('[data-desk]'); if (!b || !window.astraDesktop) return; e.preventDefault();
   try { let k = ''; if (await window.astraDesktop.needKey()) k = (await api('/keys', { method: 'POST', body: { name: 'Desktop' } })).key; await window.astraDesktop.openAgent(k); }
@@ -302,6 +302,17 @@ const langSeg = () => `<div class="seg langseg" role="group" aria-label="Languag
 document.addEventListener('click', e => { if (e.target.closest?.('[data-reload]')) location.reload(); else if (e.target.matches?.('input[data-select],textarea[data-select]')) e.target.select(); });
 document.addEventListener('submit', e => { if (e.target.matches?.('form[data-nosubmit]')) e.preventDefault(); }, true);
 document.addEventListener('click', e => { const b = e.target.closest?.('[data-lang]'); if (!b || b.dataset.lang === (window.LANG || 'th')) return; try { localStorage.setItem('lang', b.dataset.lang); } catch { /* ไม่มีที่เก็บ */ } location.reload(); });
+// ทางลัดในแถบข้าง (UI 2.5): ของที่ลูกค้าหาไม่เจอเดิมซ่อนอยู่ในตั้งค่า ยกขึ้นมาไว้แถวเดียวกัน · onChat = หน้าแชตเปิดแผ่นในหน้าเดียว
+const sideQuick = (onChat = false) => {
+  const it = (tag, attrs, icon, t, sub = '') => `<${tag} class="qn" ${attrs}>${ic(icon, 'sm')}<span>${t}</span>${sub ? `<small${tag === 'button' && attrs.includes('spc') ? ' id="spcN"' : ''}>${sub}</small>` : ''}</${tag}>`;
+  return `<nav class="side-qn" aria-label="ทางลัด">
+    ${onChat ? it('button', 'type="button" id="spc"', 'folder', 'Workspace', 'เครื่องมือ + โฟลเดอร์') : it('a', 'href="/chat?open=spaces"', 'folder', 'Workspace')}
+    ${me?.plan?.artifacts ? (onChat ? it('button', 'type="button" id="arts"', 'code', 'Artifacts') : it('a', 'href="/chat?open=arts"', 'code', 'Artifacts')) : ''}
+    ${it('a', 'href="/developers"', 'braces', 'API นักพัฒนา', 'คีย์ · เอกสาร')}
+    ${window.astraDesktop ? deskLink('qn') : it('a', 'href="/#download"', 'download', 'แอปบนคอม', 'Windows · Linux')}
+    ${it('a', 'href="/plans"', 'layers', 'แพลนและเติมเงิน', me ? '฿' + baht(me.balance) : '')}
+  </nav>`;
+};
 // การ์ดโปรไฟล์ในเมนูข้าง: วงกลมตัวอักษร + อีเมล + แพลน (กดไปหน้าบัญชี)
 const navProfile = () => `<a class="prof${curl().pathname === '/account' ? ' on' : ''}" href="/account"><span class="nav-av">${esc((me.email || '?')[0].toUpperCase())}</span><span class="pi"><b>${esc(me.email)}</b><small>${esc(me.plan?.name || '')}${me.role === 'admin' ? ' · Admin' : ''}</small></span></a>`;
 // แถบข้างเดียวกับหน้าแชตทุกหน้า: จอกว้างแสดงค้างไว้ · มือถือเป็นลิ้นชักจากปุ่มเมนู
@@ -310,12 +321,11 @@ const nav = () => {
   const path = curl().pathname, inCode = path.startsWith('/code');
   const body = me ? `<div class="mode-seg" role="group" aria-label="Mode"><a href="/chat" class="${inCode ? '' : path === '/chat' ? 'on' : ''}">${ic('msg', 'sm')}<span>Chat</span></a><a href="/code" class="${inCode ? 'on' : ''}">${ic('code', 'sm')}<span>Code</span></a><a href="/chat?mode=cowork" title="Kyber Harness">${ic('layers', 'sm')}<span>Harness</span></a></div>
     <a class="side-new" href="${inCode ? '/code' : '/chat'}">${ic('plus', 'sm')}<span>${inCode ? 'New project' : 'New chat'}</span></a>
-    ${inCode ? '' : `<div class="work-tiles${me.plan?.artifacts ? '' : ' one'}"><a class="wtile" href="/chat?open=spaces">${ic('folder')}<b>Workspace</b><small>เครื่องมือ + โฟลเดอร์งาน</small></a>${me.plan?.artifacts ? `<a class="wtile" href="/chat?open=arts">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></a>` : ''}</div>
-    ${deskLink() ? `<nav class="side-nav">${deskLink()}</nav>` : ''}`}
+    ${inCode ? '' : sideQuick(false)}
     <div class="side-sec"><span>${inCode ? 'Projects' : 'Chats'}</span></div>
     <div class="nav-recents" data-kind="${inCode ? 'code' : 'chat'}"><p class="muted">Loading…</p></div>
     <button type="button" class="side-user" data-acct aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}"><span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span><span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan?.name || '')} · <span class="su-pct">${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}</span>% used</small></span>${ic('up', 'sm')}</button>`
-    : `${navL('/', 'Home', 'sparkles')}${navL('/pricing', 'Pricing', 'tag')}${navL('/plans', 'Plans', 'layers')}${window.astraDesktop ? '' : navL('/#download', 'Desktop app', 'download')}${navL('/blog', 'Blog', 'news')}${navL('/status', 'Status', 'activity')}
+    : `${navL('/', 'Home', 'sparkles')}${navL('/pricing', 'Pricing', 'tag')}${navL('/plans', 'Plans', 'layers')}${navL('/developers', 'API', 'braces')}${window.astraDesktop ? '' : navL('/#download', 'Desktop app', 'download')}${navL('/blog', 'Blog', 'news')}${navL('/status', 'Status', 'activity')}
     <span class="sp"></span>${langSeg()}<a class="btn out" href="/login">Log in</a><a class="btn blue" href="/login">Get started free</a>`;
   return `<nav class="nav"><div class="nav-top"><button class="nav-btn" type="button" aria-label="Menu" aria-expanded="false">${ic('menu')}</button><a class="logo" href="/">Kyber<span class="v25">2.5</span></a>${navRight()}</div>
   <div class="nav-scrim"></div><div class="nav-panel"><div class="nav-head"><a class="logo" href="/">Kyber<span class="v25">2.5</span></a><button class="nav-btn nav-x" type="button" aria-label="Close menu">${ic('x')}</button></div>
@@ -344,6 +354,7 @@ function acctMenu(btn, host) {
     <button type="button" role="menuitem" data-ap="settings">${ic('settings')}<span>Settings</span></button>
     <a role="menuitem" href="/plans">${ic('layers')}<span>Plans &amp; upgrade</span></a>
     <a role="menuitem" href="/pricing">${ic('tag')}<span>Pricing (ราคาต่อโมเดล)</span></a>
+    <a role="menuitem" href="/developers">${ic('braces')}<span>API สำหรับนักพัฒนา</span></a>
     <a role="menuitem" href="/plans?topup=1">${ic('wallet')}<span>Top up</span><small>฿${baht(me.balance)}</small></a>
     <hr>
     <a role="menuitem" href="${FB_PAGE}" target="_blank" rel="noopener">${ic('msg')}<span>แชตกับแอดมิน (Facebook)</span></a>

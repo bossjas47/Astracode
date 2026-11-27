@@ -148,11 +148,7 @@ async function chatView(id) {
       </div>
       <div class="side-pane" id="paneChat" ${sideMode === 'chat' ? '' : 'hidden'}>
         <a class="side-new25" href="/chat" data-chat="">${ic('plus', 'sm')}<span>งานใหม่</span></a>
-        <div class="work-tiles${me?.plan?.artifacts ? '' : ' one'}">
-          <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">เครื่องมือ + โฟลเดอร์งาน</small></button>
-          ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
-        </div>
-        ${deskLink() ? `<nav class="side-nav">${deskLink()}</nav>` : ''}
+        ${sideQuick(true)}
         <div class="side-sec"><span>แชต</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
