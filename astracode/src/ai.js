@@ -91,7 +91,17 @@ export function nearEffort(errText, cur) {
 // เพดาน output ตามค่ายของโมเดล (ไม่ส่ง = ผู้ให้บริการบางรายใช้ค่าน้อยจนคิดหมดก่อนตอบ) · ค่ายที่ไม่รู้เพดานไม่ส่ง เพราะค่าเกินอาจถูกปฏิเสธ
 export const gptMax = m => { const a = m.api_model || ''; return /^(gpt|o\d|gemini|qwen)/i.test(a) ? 256000 : /^deepseek/i.test(a) ? 356000 : /claude|sonnet|opus|haiku/i.test(a) ? 64000 : /kimi|moonshot|glm|grok|minimax/i.test(a) ? 32000 : undefined; }; // ไม่ส่ง = ผู้ให้บริการ/gateway ใช้ค่าเริ่มต้นต่ำ (4-8K) งานเขียนไฟล์ใหญ่ถูกตัดกลาง
 const capOut = (m, want) => { const cap = gptMax(m); return want && cap ? Math.min(want, cap) : want || cap; }; // ลูกค้า API ขอเกินเพดาน: ลดให้ ไม่ปล่อยให้ผู้ให้บริการปฏิเสธ
-export async function* callModel(env, m, msgs, { effort, images = [], system = SYSTEM, systemBlocks = null, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false, cacheTtl = null } = {}) {
+// บาง pool (เช่น L6 Kiro ของ Fable 5.2) แอบต่อท้ายคำตอบด้วยตัวอักษรล่องหนเป็นลายน้ำ ~36 ตัว → ติดไปในโค้ด/ไฟล์ลูกค้าจนพัง
+// ลบทิ้งทุกโมเดล: zero-width space/non-joiner/word joiner/BOM ทั้งหมด · ZWJ (U+200D) เก็บเฉพาะที่อยู่ระหว่างอีโมจิ (เช่น 👨‍👩‍👧)
+const ZW = /[\u200b\u200c\u2060\ufeff]/g, ZWJ_BAD = /(?<![\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\uFE0F])\u200d|\u200d(?!\p{Extended_Pictographic})/gu, ZW_ANY = /[\u200b-\u200d\u2060\ufeff]/;
+export const stripZW = s => ZW_ANY.test(s) ? s.replace(ZW, '').replace(ZWJ_BAD, '') : s;
+export async function* callModel(...args) {
+  for await (const e of callModelRaw(...args)) {
+    if (typeof e.t === 'string' && ZW_ANY.test(e.t)) { const t = stripZW(e.t); if (t) yield { ...e, t }; }
+    else yield e;
+  }
+}
+async function* callModelRaw(env, m, msgs, { effort, images = [], system = SYSTEM, systemBlocks = null, maxTokens, tools, toolChoice, userId, signal, extra = {}, imageOpts = {}, api = false, cacheTtl = null } = {}) {
   const key = env[m.key_name];
   const fetch = (url, init) => globalThis.fetch(url, { ...init, signal }); // signal = ตัดการเชื่อมต่อเมื่อโมเดลเงียบนานเกินไป
   if (!key) throw new Error('missing key ' + m.key_name);

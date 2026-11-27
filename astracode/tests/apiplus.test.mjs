@@ -89,3 +89,11 @@ test('bug report: text + screenshot + device info become a support ticket with t
   assert.equal((await t.call(img, { cookie: adm.cookie })).status, 200, 'staff can open the screenshot');
   const other = await t.user(); assert.equal((await t.call(img, { cookie: other.cookie })).status, 404, 'other users cannot');
 });
+
+test('stripZW: ลบลายน้ำอักษรล่องหน แต่อีโมจิครอบครัวยังอยู่', async () => {
+  const { stripZW } = await import('../src/ai.js');
+  assert.equal(stripZW('ok‍‍‌⁠‌‌‍‌​​‌‌'), 'ok');
+  assert.equal(stripZW('def a():​\n  return 1⁠'), 'def a():\n  return 1');
+  assert.equal(stripZW('👨‍👩‍👧'), '👨‍👩‍👧');
+  assert.equal(stripZW('ไม่มีอะไร'), 'ไม่มีอะไร');
+});
