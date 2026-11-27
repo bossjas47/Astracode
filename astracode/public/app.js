@@ -37,6 +37,17 @@ const biLang = v => typeof v === 'string' ? (v.includes(' || ') ? v.split(' || '
   : Array.isArray(v) ? v.map(biLang) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, biLang(x)])) : v;
 // ?next= ต้องเป็นเส้นทางในเว็บเราเท่านั้น (กัน open redirect เช่น //evil.com, https://evil.com, /\evil.com)
 const safeNext = n => /^\/(?![\/\\])/.test(String(n || '')) ? n : '/chat';
+// แถบที่เลื่อนข้างได้ (ซ่อน scrollbar): หมุนล้อเมาส์ = เลื่อนซ้าย-ขวา · เดิมบนคอมเลื่อนไม่ได้เลย (ได้แค่ทัชแพด/จอสัมผัส)
+if (typeof document !== 'undefined') document.addEventListener('wheel', e => {
+  if (e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+  for (let el = e.target; el && el !== document.body; el = el.parentElement) {
+    if (el.scrollWidth <= el.clientWidth + 1) continue;
+    const ox = getComputedStyle(el).overflowX; if (ox !== 'auto' && ox !== 'scroll') continue;
+    if (el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)) return; // กล่องที่เลื่อนลงได้: ปล่อยเลื่อนลงตามปกติ
+    const max = el.scrollWidth - el.clientWidth; if ((e.deltaY < 0 && el.scrollLeft <= 0) || (e.deltaY > 0 && el.scrollLeft >= max - 1)) return;
+    el.scrollLeft += e.deltaY; e.preventDefault(); return;
+  }
+}, { passive: false });
 async function api(path, opt = {}) {
   if (opt.body && !(opt.body instanceof FormData)) { opt.body = JSON.stringify(opt.body); opt.headers = { 'content-type': 'application/json' }; }
   const pre = !opt.method && !opt.body && window.__pre?.[path]; if (pre) delete window.__pre[path]; // คำขอที่ theme.js เริ่มไว้ตั้งแต่หัวหน้า (ใช้ครั้งเดียว)

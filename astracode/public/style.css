@@ -2444,3 +2444,5 @@ button.cw-model { background: none; cursor: pointer; font: inherit; font-size: 1
 :root[data-theme="light"] .mwarn-upd{color:#8a4f04}:root[data-theme="light"] .mwarn-weak{color:#a8201a}
 .vupd{font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:6px;background:rgba(217,119,6,.16);color:#fbbf6a;margin-left:4px;vertical-align:1px}
 :root[data-theme="light"] .vupd{color:#8a4f04}
+/* คอม (เมาส์): แถบชิปเลือกโมเดลขึ้นบรรทัดใหม่แทนการเลื่อนข้าง (ซ่อนแถบเลื่อนไว้ เมาส์เลื่อนข้างไม่ได้ ลูกค้าเห็นไม่ครบ) */
+@media (hover: hover) and (pointer: fine) { .vchips { flex-wrap: wrap; overflow-x: visible; } }
