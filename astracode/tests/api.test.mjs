@@ -225,6 +225,25 @@ test('api: OpenRouter-style /v1/credits and /v1/key answer instead of 404; /v1/m
   void m;
 });
 
+test('api: an answer the provider breaks mid-stream is logged for the admin but not charged to the customer', async () => {
+  const fm = await fakeModel((q, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'abcdefghij'.repeat(50) } }] }) + '\n\n');
+    setTimeout(() => { res.write('data: ' + JSON.stringify({ error: { message: 'The upstream service could not complete this stream.' } }) + '\n\n'); res.end(); }, 100);
+  });
+  const t = await makeEnv({ K: 'k' }), m = addModel(t.DB, { name: 'Breaks Midway', base_url: fm.url, cost_in: 1000, cost_out: 2000 });
+  const u = await t.user({ balance: 100 }), key = 'sk-astra-' + Math.random().toString(36).slice(2, 12);
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'k', await sha(key), key.slice(0, 14), Date.now());
+  const r = await t.call('/v1/chat/completions', { method: 'POST', body: { model: 'breaks-midway', stream: true, messages: [{ role: 'user', content: 'hi' }] }, headers: { authorization: 'Bearer ' + key } });
+  const txt = await r.text(); await Promise.all(t.ctx.pending);
+  assert.match(txt, /could not answer/);
+  const row = t.DB.raw.prepare("SELECT units, charge, cost, flag FROM usage WHERE user_id=? AND src='api'").get(u.id);
+  assert.ok(row, 'the failed answer was not logged for the admin'); assert.ok(row.cost > 0);
+  assert.equal(row.units, 0); assert.ok(!row.charge); assert.match(row.flag, /part.*refund/);
+  assert.equal(t.DB.raw.prepare('SELECT balance FROM users WHERE id=?').get(u.id).balance, 100);
+  void m; fm.close();
+});
+
 test('api: a client that disconnects mid-stream is still billed (the provider already charged us for the input)', async () => {
   const fm = await fakeModel((q, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });

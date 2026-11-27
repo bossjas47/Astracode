@@ -280,11 +280,14 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       return s0;
     };
     let healN = 0; const healLog = async (why, u0) => { healN++; await event(env, 'heal', activeModel.id, JSON.stringify({ uid: k.id, kid: k.kid, why, n: healN })).catch(() => {}); if (u0) await logUsage(env, k.id, activeModel, u0, { units: false, src: 'system' }).catch(() => {}); }; // คำตอบที่พังไม่คิดเงินลูกค้า (เราจ่ายเอง)
-    const finish = async (u, outChars, flag = null) => { // flag: gone = ลูกค้าตัดกลางทาง · part = ผู้ให้บริการพังกลางคำตอบ (โชว์ในหลังบ้าน)
-      const f0 = u || (outChars > 0 ? estUsage(outChars) : null), finalU = f0 && flag ? { ...f0, flag: f0.flag ? flag + '+est' : flag } : f0;
-      const charge = finalU ? await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' || billingMode === 'credit' || billingMode === 'mcredit' ? { units: billingMode === 'plan', wallet: null, plan, src: 'api' } : billingMode === 'pack' ? { units: false, wallet: null, plan, src: 'agent', pack: true } : { units: false, wallet: 'api', plan, src: 'api' }) : 0;
-      if (finalU && billingMode === 'mcredit') await useModelCredit(env, k.id, activeModel.id, finalU._cost || 0).catch(() => {});
-      if (finalU && billingMode === 'credit') await useClaudeCredit(env, k.id, finalU._cost || 0).catch(() => {}); // หักจากเครดิตที่แถมแทนลิมิต
+    const finish = async (u, outChars, flag = null, chat = false) => { // flag: gone = ลูกค้าตัดกลางทาง · part = ผู้ให้บริการพังกลางคำตอบ (โชว์ในหลังบ้าน)
+      const f0 = u || (outChars > 0 ? estUsage(outChars) : null);
+      // ไม่คิดเงินลูกค้าเมื่อเป็นความผิดของผู้ให้บริการ: พังกลางคำตอบ (part) หรือตอบว่างเปล่า · ยังบันทึกต้นทุนไว้ให้หลังบ้านเห็น (flag มี +refund)
+      const failed = flag === 'part' || (chat && !flag && outChars === 0 && f0 && !(f0.out > 0)); // chat: คำตอบแชตที่ว่างจริง (ไม่ใช่ embeddings/รูป)
+      const finalU = f0 && (flag || failed) ? { ...f0, flag: [flag, f0.flag && flag ? 'est' : f0.flag, failed && 'refund'].filter(Boolean).join('+') } : f0;
+      const charge = !finalU ? 0 : failed ? await logUsage(env, k.id, activeModel, finalU, { units: false, wallet: null, plan, src: billingMode === 'pack' ? 'agent' : 'api' }) : await logUsage(env, k.id, activeModel, finalU, billingMode === 'plan' || billingMode === 'credit' || billingMode === 'mcredit' ? { units: billingMode === 'plan', wallet: null, plan, src: 'api' } : billingMode === 'pack' ? { units: false, wallet: null, plan, src: 'agent', pack: true } : { units: false, wallet: 'api', plan, src: 'api' });
+      if (finalU && !failed && billingMode === 'mcredit') await useModelCredit(env, k.id, activeModel.id, finalU._cost || 0).catch(() => {});
+      if (finalU && !failed && billingMode === 'credit') await useClaudeCredit(env, k.id, finalU._cost || 0).catch(() => {}); // หักจากเครดิตที่แถมแทนลิมิต
       if (finalU) finalU.astra = { charge_thb: charge, week_pct: plan?.limit_week > 0 && finalU._units ? +(finalU._units / plan.limit_week * 100).toFixed(4) : 0, ...(finalU._pack ? { pack_pct: +(finalU._pack / (k.agent_pack_units || 1) * 100).toFixed(4) } : {}) }; // ค่าใช้จ่ายคำขอนี้: บาทจาก Wallet / % ลิมิตสัปดาห์ (แอป Desktop ใช้คุมเพดานต่องาน)
       await env.DB.prepare('UPDATE api_keys SET spent=CASE WHEN spent_month=?1 THEN spent ELSE 0 END + ?2, spent_month=?1, last_used=?3 WHERE id=?4').bind(month, charge, Date.now(), k.kid).run();
       if (walletKey) await unlimit(env, walletKey);
@@ -368,7 +371,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         return out({ created, data: [src.startsWith('data:') ? { b64_json: src.slice(src.indexOf(',') + 1) } : { url: src }] }, 200, { 'x-astracode-billing': billingMode });
       }
       const toolCalls = [...tcs.values()]; if (toolCalls.length) finishReason = 'tool_calls';
-      const used = await finish(usage, content.length + reasoning.length + JSON.stringify(toolCalls).length);
+      const used = await finish(usage, content.length + reasoning.length + (toolCalls.length ? JSON.stringify(toolCalls).length : 0), null, true);
       return out({ id, object: 'chat.completion', created, model: slug(activeModel), choices: [{ index: 0, message: { role: 'assistant', content: content || (toolCalls.length ? null : ''), ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finishReason }], usage: used ? usageOut(used) : undefined, astra_fallback: fbInfo(), ...(healN ? { kyber_heal: { retries: healN } } : {}) }, 200, { 'x-astracode-billing': billingMode, 'x-astracode-model': slug(activeModel), ...(healN ? { 'x-kyber-heal': String(healN) } : {}) });
       };
       const job = job0();
@@ -415,7 +418,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
           }
         }
         if (tcCount > 0 && finishReason === 'stop') finishReason = 'tool_calls';
-        answerText = streamText.slice(0, 4000); const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars, gone ? 'gone' : null);
+        answerText = streamText.slice(0, 4000); const used = await finish(usage, gone ? Math.max(outChars, 2) : outChars, gone ? 'gone' : null, true);
         if (!gone) await chunk({}, { usage: used ? usageOut(used) : null }, finishReason);
       } catch (e) { if (sentAny && !lg.logged) await finish(usage, Math.max(outChars, 2), 'part').catch(() => {}); else if (walletKey && !lg.logged) await unlimit(env, walletKey).catch(() => {}); await w.write(enc.encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.', message_th: 'โมเดลตอบไม่ได้ตอนนี้', type: 'api_error' } }) + '\n\n')).catch(() => {}); }
       clearInterval(ka); await w.write(enc.encode('data: [DONE]\n\n')).catch(() => {}); await w.close().catch(() => {});

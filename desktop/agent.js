@@ -145,6 +145,8 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
         try { msg = await readStream(r, onEv, () => { got = true; stats.ttft.push(Date.now() - tReq); }, () => wd.arm(stallMs)); wd.stop(); break; }
         catch (e) {
           wd.stop(); if (signal?.aborted) throw new Error('หยุดแล้ว'); if (steered) { msg = null; break; }
+          // ผู้ให้บริการตัดสตรีมกลางคำสั่งเขียนไฟล์ใหญ่ (เช่น EA ทั้งไฟล์ในครั้งเดียว): ไม่จบงาน · ทำเหมือนชนเพดานความยาว ให้ AI แบ่งเขียนเป็นส่วน
+          if (got && (stats.midcut || 0) < 2 && e.partial?.tool_calls?.some(tc => (tc.function?.arguments || '').length > 4000)) { stats.midcut = (stats.midcut || 0) + 1; msg = { ...e.partial, finish: 'length' }; onEvent({ type: 'text_end' }); break; }
           if (!wd.stalled) { if (got) throw e; netErr = e; netErr.soft = true; r = null; } // error กลางสตรีมก่อนได้คำตอบใด ๆ (เช่น "โมเดลตอบไม่ได้ตอนนี้"): ลองใหม่ ไม่ทิ้งทั้งงาน
           else {
           if (got) throw new Error(`${wd.err().message} (หยุดกลางคำตอบ สั่ง "ทำต่อ" ได้)`); // ส่งข้อความไปแล้วบางส่วน: ลองใหม่จะซ้ำ จึงจบงานแทนการค้าง
@@ -360,8 +362,10 @@ async function readStream(r, onEvent, onFirst = () => {}, onChunk = () => {}) { 
       if (tc.id) c.id = tc.id; if (tc.function?.name) c.function.name += tc.function.name; if (tc.function?.arguments) c.function.arguments += tc.function.arguments;
     }
   };
-  for await (const chunk of r.body) { onChunk(); buf += dec.decode(chunk, { stream: true }); let i; while ((i = buf.indexOf('\n')) >= 0) { take(buf.slice(0, i).trim()); buf = buf.slice(i + 1); } }
-  buf += dec.decode(); take(buf.trim()); // บรรทัดสุดท้ายที่ไม่มี \n ปิดท้าย (usage / stop) ไม่หล่นหาย
+  try {
+    for await (const chunk of r.body) { onChunk(); buf += dec.decode(chunk, { stream: true }); let i; while ((i = buf.indexOf('\n')) >= 0) { take(buf.slice(0, i).trim()); buf = buf.slice(i + 1); } }
+    buf += dec.decode(); take(buf.trim());
+  } catch (e) { e.partial = { ...out, tool_calls: out.tool_calls.filter(Boolean) }; throw e; } // ให้ผู้เรียกเห็นว่าพังตอนเขียนอะไรค้างอยู่ // บรรทัดสุดท้ายที่ไม่มี \n ปิดท้าย (usage / stop) ไม่หล่นหาย
   out.tool_calls = out.tool_calls.filter(Boolean).map(c => ({ ...c, id: c.id || 'call_' + Math.random().toString(36).slice(2, 10) }));
   return out;
 }

@@ -152,3 +152,18 @@ test('runAgent: a 503 from the model is retried and the task continues', async (
   await runAgent({ base: 'http://x/v1', key: 'k', model: 'm', messages: msgs, fetchImpl, callTool: async () => '', retryWaits: [1], onEvent: e => e.type === 'info' && infos.push(e.text) });
   assert.equal(n, 2); assert.equal(msgs.at(-1).content, 'ok'); assert.match(infos[0], /503/);
 });
+
+test('agent: a provider that drops the stream in the middle of a big write_file does not end the run; the model is told to write in parts', async () => {
+  const big = '{"path":"ea.mq5","content":"' + 'x'.repeat(6000);
+  const broken = () => (async function* () {
+    yield new TextEncoder().encode('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'w1', type: 'function', function: { name: 'write_file', arguments: '' } }] } }] }) + '\n\n');
+    yield new TextEncoder().encode('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: big } }] } }] }) + '\n\n');
+    yield new TextEncoder().encode('data: ' + JSON.stringify({ error: { message: 'The model could not answer right now.' } }) + '\n\n');
+  })();
+  const seen = []; let n = 0;
+  const fetchImpl = async (url, init) => { seen.push(JSON.parse(init.body)); n++; return n === 1 ? { ok: true, status: 200, body: broken() } : { ok: true, status: 200, body: sse({ choices: [{ message: { content: 'แบ่งเขียนแล้ว' } }] }) }; };
+  const messages = [{ role: 'user', content: 'เขียน EA' }];
+  await runAgent({ base: 'http://x', key: 'k', model: 'm', messages, tools: [{ type: 'function', function: { name: 'write_file', parameters: {} } }], callTool: async () => 'ok', fetchImpl, retryWaits: [] });
+  assert.equal(seen.length, 2, 'the run ended instead of continuing');
+  assert.match(JSON.stringify(seen[1].messages), /append=true/);
+});
