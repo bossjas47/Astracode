@@ -334,9 +334,9 @@ async function compact({ post, model, messages, onEvent, state = null, pinned = 
   const old = body.slice(0, body.length - keep.length); if (!old.length) return;
   const text = old.map(m => `[${m.role}] ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? m.tool_calls ?? '')}`.slice(0, 4000)).join('\n').slice(-200000);
   onEvent({ type: 'info', text: 'บทสนทนายาวแล้ว กำลังย่อส่วนเก่า…' });
-  const r = await post({ model, stream: false, max_tokens: 2000, messages: [{ role: 'system', content: 'Summarize this agent work log so the agent can continue: the user goal, files read and changed (with paths), commands run and their results, decisions, and what is left to do. Bullet points, at most 400 words, same language as the user.' }, { role: 'user', content: text }] });
-  const d = await r.json().catch(() => ({})), sum = d.choices?.[0]?.message?.content;
-  if (!r.ok || !sum) return; // ย่อไม่สำเร็จ: ทำต่อแบบเดิม
+  const r = await post({ model, stream: false, max_tokens: 2000, messages: [{ role: 'system', content: 'Summarize this agent work log so the agent can continue: the user goal, files read and changed (with paths), commands run and their results, decisions, and what is left to do. Bullet points, at most 400 words, same language as the user.' }, { role: 'user', content: text }] }).catch(() => null);
+  const d = r ? await r.json().catch(() => ({})) : {}, sum = d.choices?.[0]?.message?.content;
+  if (!r?.ok || !sum) return; // ย่อไม่สำเร็จ (รวมเน็ตหลุด): ทำต่อแบบเดิม ไม่ทิ้งงาน
   const s = state ? snapshot(state) : null;
   const facts = s ? [s.todos?.length ? 'Current todo list:\n' + s.todos.map(t => `- [${t.status}] ${t.content}`).join('\n') : '', s.changed.length ? 'Files already changed in this task: ' + s.changed.join(', ') : '', s.errors.length ? 'Unresolved errors:\n' + s.errors.map(e => '- ' + e).join('\n') : '', pinned?.() || ''].filter(Boolean).join('\n\n') : '';
   messages.splice(0, messages.length, ...(sys ? [sys] : []), { role: 'user', content: '[สรุปงานก่อนหน้า]\n' + sum + (facts ? '\n\n[สถานะงานที่ต้องคงไว้]\n' + facts : '') }, { role: 'assistant', content: 'รับทราบ ทำงานต่อจากสรุปนี้' }, ...keep);
