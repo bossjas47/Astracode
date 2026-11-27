@@ -992,8 +992,8 @@ function confirmSheet(msg, { title = 'ยืนยัน', ok = 'OK', cancel = '
 function promptSheet(msg, def = '', { title = 'กรอกข้อมูล', placeholder = '', ok = 'Save', cancel = 'Cancel', type = 'text' } = {}) {
   return new Promise(res => {
     let done = false;
-    sheet(title, `<form class="sheet-form"><p class="sheet-msg">${esc(msg)}</p><input name="val" type="${esc(type)}" value="${esc(def)}" placeholder="${esc(placeholder)}" required><div class="sheet-acts"><button type="button" class="btn out" data-c>${esc(cancel)}</button><button class="btn blue">${esc(ok)}</button></div></form>`, (d, close) => {
-      const inp = d.querySelector('input[name=val]');
+    sheet(title, `<form class="sheet-form"><p class="sheet-msg">${esc(msg)}</p>${type === 'textarea' ? `<textarea name="val" rows="6" placeholder="${esc(placeholder)}">${esc(def)}</textarea>` : `<input name="val" type="${esc(type)}" value="${esc(def)}" placeholder="${esc(placeholder)}" required>`}<div class="sheet-acts"><button type="button" class="btn out" data-c>${esc(cancel)}</button><button class="btn blue">${esc(ok)}</button></div></form>`, (d, close) => {
+      const inp = d.querySelector('[name=val]');
       setTimeout(() => { inp.focus(); inp.select(); }, 30);
       const fin = v => { if (done) return; done = true; close(); res(v); };
       d.querySelector('form').onsubmit = e => { e.preventDefault(); fin(inp.value); };

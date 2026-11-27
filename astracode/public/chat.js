@@ -1136,7 +1136,7 @@ function goIcon() { const g = $('#go'); if (!g) return; const q = chat.busy && !
 const CQ = new Map(), cqKey = () => chat.id || 0;
 function qDraw() {
   const el = $('#queue'); if (!el) return; const q = CQ.get(cqKey()) || []; el.hidden = !q.length; if (!q.length) { el.innerHTML = ''; return; }
-  el.innerHTML = q.map((t, i) => `<div class="cq-item"><span class="cq-n">คิว ${i + 1}</span><span class="cq-t">${esc(t.text.slice(0, 160))}${t.images?.length ? ` <small class="muted">+ รูป ${t.images.length}</small>` : ''}</span>${chat.agentBusy ? `<button type="button" data-cqnow="${i}" title="ส่งเข้างานที่กำลังทำ ให้ Agent เห็นก่อนขั้นถัดไป">แทรกเลย</button>` : ''}<button type="button" data-cqdel="${i}" aria-label="ลบออกจากคิว">${ic('x', 'sm')}</button></div>`).join('') + `<small class="muted">${chat.busy ? 'จะส่งให้เองทีละข้อเมื่องานปัจจุบันเสร็จ' : 'รอส่ง'}</small>`;
+  el.innerHTML = q.map((t, i) => `<div class="cq-item"><span class="cq-n">คิว ${i + 1}</span><span class="cq-t">${esc(t.text.slice(0, 160))}${t.images?.length ? ` <small class="muted">+ รูป ${t.images.length}</small>` : ''}</span><button type="button" data-cqedit="${i}" title="แก้ไขข้อความในคิว" aria-label="แก้ไขคิว ${i + 1}">${ic('pen', 'sm')}</button>${chat.agentBusy ? `<button type="button" data-cqnow="${i}" title="ส่งเข้างานที่กำลังทำ ให้ Agent เห็นก่อนขั้นถัดไป">แทรกเลย</button>` : ''}<button type="button" data-cqdel="${i}" aria-label="ลบออกจากคิว">${ic('x', 'sm')}</button></div>`).join('') + `<small class="muted">${chat.busy ? 'จะส่งให้เองทีละข้อเมื่องานปัจจุบันเสร็จ' : 'รอส่ง'}</small>`;
 }
 function qAdd() { const t = $('#t'), v = t.value.trim(); if (!v) return; const k = cqKey(); CQ.set(k, [...(CQ.get(k) || []), { text: v, images: chat.images.slice(0, IMG_MAX) }]); chat.images = []; drawThumbs(); t.value = ''; t.style.height = 'auto'; draft.del(); goIcon(); qDraw(); toast('เข้าคิวแล้ว จะส่งให้เองเมื่องานนี้เสร็จ', 'ok'); }
 function qNext(cid) { // งานเสร็จ: ส่งข้อความถัดไปในคิวของแชตนี้ (เฉพาะตอนกำลังเปิดแชตนั้นอยู่ และช่องพิมพ์ว่าง ไม่ทับที่ลูกค้าพิมพ์ค้าง)
@@ -1144,6 +1144,14 @@ function qNext(cid) { // งานเสร็จ: ส่งข้อควา�
   if (t.value.trim()) { toast(`มีข้อความรอในคิว ${q.length} ข้อ · ล้างช่องพิมพ์แล้วจะส่งต่อให้`, ''); return false; }
   const v = q.shift(); if (!q.length) CQ.delete(k); qDraw(); t.value = v.text; chat.images = v.images || []; drawThumbs(); send(); return true;
 }
+document.addEventListener('click', async e => { // แก้ไขข้อความที่รอในคิว (ลูกค้าขอ): แก้แล้วยังอยู่ลำดับเดิม · ลบข้อความทั้งหมด = เอาออกจากคิว
+  const ed = e.target.closest?.('[data-cqedit]'); if (!ed) return;
+  const k = cqKey(), q = CQ.get(k) || [], i = +ed.dataset.cqedit, cur = q[i]; if (!cur) return;
+  const next = await promptSheet('แก้ไขข้อความที่รอในคิว', cur.text, { title: `แก้ไขคิว ${i + 1}`, ok: 'บันทึก', type: 'textarea' }); if (next == null) return;
+  const q2 = CQ.get(k) || [], j = q2.indexOf(cur); if (j < 0) return toast('ข้อความนี้ถูกส่งไปแล้ว', '');
+  if (!String(next).trim()) { q2.splice(j, 1); if (!q2.length) CQ.delete(k); } else q2[j] = { ...cur, text: String(next).trim() };
+  qDraw();
+});
 document.addEventListener('click', e => {
   const d = e.target.closest?.('[data-cqdel]'), n = e.target.closest?.('[data-cqnow]'); if (!d && !n) return;
   const q = CQ.get(cqKey()) || [], i = +(d || n).dataset[d ? 'cqdel' : 'cqnow'], v = q.splice(i, 1)[0]; if (!q.length) CQ.delete(cqKey());
