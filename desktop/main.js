@@ -488,6 +488,8 @@ async function runTask(o = {}, sender) {
     return a.ws.call(name, args);
   };
   const budget = +o.budget > 0 ? +o.budget : 0, t0 = Date.now(), stat = { rounds: 0, tools: 0 };
+  // แจ้งเตือนเข้ามือถือเมื่องานจบ: งานนานเกิน 1 นาที หรือไม่ได้ดูหน้าจอแอปอยู่ (ลูกค้าเดินไปทำอย่างอื่น) · ส่งผ่าน Web Push ของบัญชี
+  const phone = (ok, body) => { if (o.notify === false || (Date.now() - t0 < 60e3 && web && !web.isDestroyed() && web.isFocused())) return; fetch(SITE + '/v1/agent/notify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key }, body: JSON.stringify({ chat_id: +o.chatId || 0, ok, body: String(body || o.text || '').slice(0, 300) }) }).catch(() => {}); };
   const onEvent = d => {
     if (d.type === 'usage') stat.rounds++; if (d.type === 'tool') stat.tools++;
     if (d.type === 'stats') { a.lastStats = d.stats; const x = d.stats, tt = [...x.ttft].sort((p, q) => p - q); stat.harness = { retries: x.retries, stuck: x.stuck, toolErrors: x.toolErrors, cacheHit: x.cacheHit, ttftMs: tt[tt.length >> 1] || 0, perTool: { ...x.perTool, _gated: { calls: x.gated || 0, errors: 0 }, _reviewed: { calls: x.reviewed || 0, errors: 0 } } }; return; } // สถิติตัวคุมรอบ: ส่งไปกับ agent/stat ไม่ส่งเข้าหน้าเว็บ
@@ -527,9 +529,11 @@ async function runTask(o = {}, sender) {
       }
     } finally { if (keepAwake != null) powerSaveBlocker.stop(keepAwake); }
     if (mode !== 'plan' && mode !== 'ask' && o.memory !== false && a.ws.changed().length) memoryLearn({ post, model: a.helper || model, root: a.ws.root, task: String(o.text || ''), messages: a.messages }).then(l => { if (l?.length) tell({ type: 'info', text: `จำบทเรียนของโปรเจกต์ไว้ ${l.length} ข้อ (.kyber/memory.md)` }); }).catch(() => {}); // ความจำโปรเจกต์: จบงานที่แก้ไฟล์ → สรุปบทเรียนเก็บไว้ใช้งานหน้า
+    phone(true, String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || ''));
     tell({ type: 'done', changed: a.ws.changed(), outputs: [...new Set([...a.outputs, ...a.ws.changed()])].filter(p => !/\.(js|ts|py|css|json|lock|map)$/i.test(p) || a.outputs.has(p)).slice(0, 20), runFrom: a.ws.runFrom, final: String(a.messages.filter(m => m.role === 'assistant' && m.content).at(-1)?.content || '').slice(0, 4000) });
   } catch (x) {
     tell({ type: 'error', text: ac.signal.aborted ? 'หยุดแล้ว' : x.message, changed: a.ws.changed(), runFrom: a.ws.runFrom });
+    if (!ac.signal.aborted) phone(false, x.message);
     if (!ac.signal.aborted) { stat.error = String(x.message).slice(0, 300); if (!/HTTP 4\d\d|ยอดเงิน|ลิมิต|API key/i.test(x.message)) report('agent', x); }
     if (/API key/i.test(x.message) && /ไม่ถูกต้อง|invalid/i.test(x.message)) { settings.key = ''; save(); } // key ถูกลบที่เว็บ: ให้สร้างใหม่รอบหน้า
   } finally {

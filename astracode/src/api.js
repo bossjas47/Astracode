@@ -86,6 +86,15 @@ export async function v1core(req, env, ctx, path, lg = {}) {
       await env.DB.prepare('INSERT OR REPLACE INTO agent_remote (chat_id,user_id,events,ask,answer,inbox,running,updated_at) VALUES (?,?,?,?,NULL,NULL,?,?)').bind(cid, k.id, evJson, b.ask ? JSON.stringify(b.ask).slice(0, 5000) : null, b.running ? 1 : 0, Date.now()).run();
       return out({ answer: row?.answer ? parse(row.answer, null) : null, inbox: row?.inbox ? parse(row.inbox, []) : [] });
     }
+    // แอปบนคอม: Agent ทำงานเสร็จ/หยุด → แจ้งเตือนเข้ามือถือ (Web Push ของบัญชีนี้ ทุกเครื่องที่เปิดแจ้งเตือนไว้) · แตะแล้วเปิดแชตนั้น
+    if (path === '/v1/agent/notify' && req.method === 'POST') {
+      const b = await req.json().catch(() => ({})), cid = +b.chat_id || 0;
+      if (await limited(env, 'anotify:' + k.id, 30, 3600e3)) return out({ ok: false, sent: 0 });
+      if (cid && !await env.DB.prepare('SELECT 1 FROM chats WHERE id=? AND user_id=?').bind(cid, k.id).first()) return fail('ไม่พบแชต', 404);
+      const { sendPush } = await import('./push.js');
+      const sent = await sendPush(env, k.id, { title: String(b.ok === false ? 'Agent บนคอมหยุดก่อนเสร็จ' : 'Agent บนคอมทำงานเสร็จแล้ว').slice(0, 80), body: String(b.body || '').replace(/\s+/g, ' ').slice(0, 200), url: cid ? '/chat?id=' + cid : '/chat' });
+      return out({ ok: true, sent });
+    }
     // สถิติ Agent ในแอป Desktop (ไม่มีเนื้อหางาน): สำเร็จไหม กี่รอบ ใช้เงินเท่าไร → หลังบ้านเลือกโมเดลเริ่มต้นจากข้อมูลจริง
     if (path === '/v1/agent/stat' && req.method === 'POST') {
       const b = await req.json().catch(() => ({})), n = (v, mx) => Math.max(0, Math.min(mx, +v || 0));

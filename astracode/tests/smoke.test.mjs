@@ -88,3 +88,14 @@ test('chat background: presets/3D/own image are saved to the account, others and
   assert.equal((await t.json('/api/me/bg', { method: 'POST', body: { image: 'data:image/svg+xml;base64,AAAA' }, headers: { cookie: u.cookie } })).status, 400);
   assert.equal((await put(u, null)).status, 200); assert.equal((await t.json('/api/me', { headers: { cookie: u.cookie } })).data.bg, null);
 });
+
+test('desktop Agent finished: /v1/agent/notify pushes to the key owner, only for their own chats, rate limited', async () => {
+  const t = await makeEnv(), u = await t.user({ balance: 10 }), o = await t.user();
+  const key = 'sk-astra-' + Math.random().toString(36).slice(2, 12), { sha } = await import('./helpers.mjs');
+  t.DB.raw.prepare('INSERT INTO api_keys (user_id,name,key_hash,prefix,created_at) VALUES (?,?,?,?,?)').run(u.id, 'desk', await sha(key), key.slice(0, 14), Date.now());
+  const mine = t.DB.raw.prepare("INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?)").run(u.id, "a", Date.now()).lastInsertRowid;
+  const other = t.DB.raw.prepare("INSERT INTO chats (user_id,title,created_at) VALUES (?,?,?)").run(o.id, "b", Date.now()).lastInsertRowid;
+  const call = body => t.json('/v1/agent/notify', { method: 'POST', body, headers: { authorization: 'Bearer ' + key } });
+  const ok = await call({ chat_id: Number(mine), ok: true, body: 'เสร็จ' }); assert.equal(ok.status, 200); assert.equal(ok.data.ok, true); assert.equal(ok.data.sent, 0);
+  assert.equal((await call({ chat_id: Number(other), ok: true })).status, 404, 'cannot notify about another account chat');
+});
