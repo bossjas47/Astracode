@@ -449,7 +449,7 @@ function planTiles(plans, sel, period) { // UI 2.0: รายการแนว�
     <div class="pl-more">
       ${period === 'year' && p.price_year ? `<div class="ok pl-li">${ic('check', 'sm')} ประหยัด ${Math.round((1 - p.price_year / (p.price * 12)) * 100)}% เทียบรายเดือน</div>` : ''}
       ${p.description ? `<p class="pl-desc">${esc(p.description)}</p>` : ''}
-      ${p.compare ? `<div class="pl-li">${ic('trend', 'sm')}<span>${esc(p.compare)}<sup>*</sup></span></div>` : ''}
+      ${p.compare ? `<div class="pl-li">${ic('trend', 'sm')}<span>${esc(p.compare)}</span></div>` : ''}
       ${p.seats > 1 ? `<div class="pl-li">${ic('users', 'sm')}<span>สูงสุด ${p.seats} คน · ${p.shared_pool ? 'งบรวมทั้งทีม' : 'แยกโควตาต่อคน'}</span></div>` : ''}
       ${p.price >= 1490 && !p.once && !(p.days > 0 && p.days <= 7) ? `<div class="pl-li">${ic('sparkles', 'sm')}<span>แถม Claude Eco เทียบเท่า $100 ทุกเดือน <small class="muted">(ตามราคา API ทางการ · สมาชิกใหม่ · ใช้ได้ 25 วัน)</small></span></div>` : ''}
       ${p.api_limit ? `<div class="pl-li">${ic('check', 'sm')}<span>ใช้ API Key หักจากลิมิตแพลน</span></div>` : ''}
@@ -458,7 +458,6 @@ function planTiles(plans, sel, period) { // UI 2.0: รายการแนว�
       <div class="pm-chips">${p.models.slice(0, PLAN_TOP).map(m => pmChip(m)).join('')}${p.models.length > PLAN_TOP ? `<button type="button" class="pm-more">+${p.models.length - PLAN_TOP} โมเดล</button>${p.models.slice(PLAN_TOP).map(m => pmChip(m, true)).join('')}` : ''}</div>
       ${shop ? (sel === p.id ? '' : `<button type="button" class="btn ${p.featured ? 'blue' : 'out'} pl-cta pl-pick">เลือก ${esc(p.name)}</button>`) : `<a class="btn ${p.featured ? 'blue' : 'out'} pl-cta" href="${!(p.price > 0) ? (me ? '/chat' : '/login') : me ? `/plans?plan=${p.id}` : '/login?next=' + encodeURIComponent('/plans?plan=' + p.id)}">${p.price > 0 ? 'เลือก ' + esc(p.name) : 'เริ่มใช้ฟรี'}</a>`}
     </div></div>`).join('')}</div>
-    ${plans.some(p => p.compare) ? `<p class="muted cmp-note">* ค่าประมาณจากต้นทุนจริง: แชต 1 ข้อความ = ขนาดสั้นถึงกลาง (~3K token เข้า / 700 ออก) · งาน Agent 1 งาน = ฿3.6–8.8 จากผลทดสอบจริง (Claude Opus 5.5 Agent) · บทสนทนายาว แนบไฟล์ หรือคิดลึก ใช้ลิมิตมากขึ้น · ดูการใช้จริงได้ที่หน้าลิมิต</p>` : ''}
     <p class="muted pl-foot">ทุกโมเดลในแพลนใช้ลิมิตก้อนเดียวกัน โมเดลที่เก่งกว่าใช้ลิมิตเร็วกว่า</p>`;
 }
 // แตะแถวแพลนเพื่อกาง/หุบ (หน้า /plans ผูก onclick เลือกแพลนเพิ่มเอง)

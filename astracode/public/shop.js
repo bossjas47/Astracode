@@ -8,19 +8,10 @@ const cmpTable = ps => ps.length < 2 ? '' : `<details class="faq" style="max-wid
   ${[['ราคา/เดือน', p => p.price ? '฿' + baht(p.price) : 'ฟรี'], ['รายปี', p => p.price_year ? '฿' + baht(p.price_year) : '-'], ['จำนวนโมเดล', p => p.models?.length || 0],
     ['ใช้ได้มากกว่า Free', p => p.x_free > 1 ? p.x_free.toLocaleString(LOC) + ' เท่า' : '-'], ['API key', p => p.price > 0 ? ic('check', 'sm ok') : '-'], ['API หักจากลิมิตแพลน', p => p.api_limit ? ic('check', 'sm ok') : '-'],
     ['ที่นั่ง', p => p.seats || 1], ['งบรวมทั้งทีม', p => p.shared_pool ? ic('check', 'sm ok') : '-']].map(([l, f]) => `<tr><th scope="row">${l}</th>${ps.map(p => `<td>${f(p)}</td>`).join('')}</tr>`).join('')}</table></div></details>`;
-// เทียบความคุ้ม: จ่ายแยกหลายเจ้า vs แพลนเดียวที่นี่ (ราคาต่างประเทศโดยประมาณ $20/เดือน × 35 บาท)
-function valueCard(plans) {
-  const cheap = plans.filter(x => x.price > 0 && !x.once && (x.seats || 1) <= 1).sort((a, b) => a.price - b.price)[0]; if (!cheap) return '';
-  const sep = [['ChatGPT Plus', 700], ['Claude Pro', 700], ['Gemini Advanced', 700]], sum = sep.reduce((s, x) => s + x[1], 0), save = sum - cheap.price;
-  if (save <= 0) return '';
-  return `<div class="card value-card"><div class="vc-cols"><div><small class="muted">สมัครแยกทีละเจ้า</small>${sep.map(([n, v]) => `<div class="vc-r"><span>${n}</span><s>฿${v.toLocaleString()}</s></div>`).join('')}<div class="vc-r vc-t"><span>รวม / เดือน</span><s>฿${sum.toLocaleString()}</s></div></div>
-    <div class="vc-us"><small class="muted">Kyber ${esc(cheap.name)}</small><b>฿${cheap.price.toLocaleString()}</b><span>ได้ทุกเจ้าในที่เดียว</span><em>ประหยัด ฿${save.toLocaleString()} / เดือน</em></div></div>
-    <p class="muted" style="font-size:12px;margin:8px 0 0">ราคาต่างประเทศโดยประมาณ $20 ต่อเดือน คิดที่ 35 บาท/ดอลลาร์ · ลิมิตการใช้งานขึ้นกับแพลน</p></div>`;
-}
 async function plansPage() {
   const plans = await api('/plans');
   const hasYear = plans.some(p => p.price_year > 0);
-  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${valueCard(plans)}${planTiles(plans.filter(x => x.seats <= 1))}${plans.some(x => x.seats > 1) ? `<h2 style="text-align:center;margin:36px 0 4px">Team</h2><p class="muted" style="text-align:center;margin:0 0 16px">หนึ่งแพ็กเกจ ใช้ร่วมกันหลายคน</p>${planTiles(plans.filter(x => x.seats > 1))}` : ''}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}<p style="text-align:center;margin:8px 0 0"><button type="button" class="btn out" id="quote">ขอใบเสนอราคาสำหรับองค์กร</button></p></div>${footer()}</div>`); $('#quote')?.addEventListener('click', () => quoteSheet(plans)); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
+  if (!me) { page(nav() + `<div class="wrap"><section class="hero" style="padding-bottom:24px"><h1>เลือกแพลน</h1><div style="margin-top:12px">${curSegHTML()}</div></section>${planTiles(plans.filter(x => x.seats <= 1))}${plans.some(x => x.seats > 1) ? `<h2 style="text-align:center;margin:36px 0 4px">Team</h2><p class="muted" style="text-align:center;margin:0 0 16px">หนึ่งแพ็กเกจ ใช้ร่วมกันหลายคน</p>${planTiles(plans.filter(x => x.seats > 1))}` : ''}<p style="text-align:center;margin:28px"><a class="btn blue" href="/login">Sign up</a></p><div class="band"><h2>เทียบแพลน</h2>${compareTable(plans)}<p style="text-align:center;margin:8px 0 0"><button type="button" class="btn out" id="quote">ขอใบเสนอราคาสำหรับองค์กร</button></p></div>${footer()}</div>`); $('#quote')?.addEventListener('click', () => quoteSheet(plans)); app.querySelectorAll('[data-cur]').forEach(b => b.onclick = () => { localStorage.setItem('cur', b.dataset.cur); plansPage(); }); return; }
   const pays = await api('/pay');
   const hasTeam = plans.some(x => x.seats > 1), wantPlan = +qs().get('plan') || null;
   const renewSub = me.subs?.find(x => x.id === +qs().get('sub') && x.plan_id === wantPlan) || null; // หลายแพลน: ต่ออายุใบนี้ (ไม่ใช่ซื้อใบใหม่)
@@ -45,7 +36,7 @@ async function plansPage() {
       <a class="shop-link" href="/pricing">${ic('tag', 'sm')} ดูราคาต่อ token ของแต่ละโมเดล</a></section>
       ${tab === 'plan' ? `
         ${aud === 'team' ? '<p class="muted" style="text-align:center;margin:-4px 0 16px">แพ็กเกจเดียว ใช้ร่วมกันหลายคน ซื้อแล้วคุณเป็นหัวหน้าทีม เชิญสมาชิกได้ที่หน้าบัญชี</p>' : ''}
-        ${aud === 'solo' ? valueCard(plans) : ''}
+        
         ${planTiles(plans.filter(x => x.price > 0 && (aud === 'team' ? x.seats > 1 : x.seats <= 1) && (period === 'month' || x.price_year > 0)), sel, period)}
         ${cmpTable(plans.filter(x => aud === 'team' ? x.seats > 1 : x.seats <= 1))}
         ${p ? `<div class="card pay" id="pay" style="text-align:center">${renewSub && renewSub.plan_id === p.id ? `<p class="sub-note">${ic('refresh', 'sm')}<span>ต่ออายุใบ <b>${esc(renewSub.name)}</b> (หมดอายุ ${when(renewSub.expires)}) · เพิ่มวันให้ใบเดิม ไม่ได้ซื้อใบใหม่</span></p>` : me.subs?.length ? `<p class="sub-note">${ic('layers', 'sm')}<span>คุณมีแพลน ${me.subs.length} ใบ · ใบนี้เป็น<b>ใบใหม่</b> ลิมิตแยก ใช้พร้อมกันได้ · อยากต่อเวลาใบเดิม กด "ต่ออายุใบนี้" ที่หน้าบัญชี</span></p>` : ''}<div style="font:600 24px var(--display)">${esc(p.name)} · ${period === 'year' ? '1 ปี' : (p.days || 30) + ' วัน'}</div>${p.per_seat ? `<div class="seat-row"><span>จำนวนที่นั่ง</span><button type="button" class="btn out sm" data-seat="-1">−</button><b id="seatn">${seatsOf(p)}</b><button type="button" class="btn out sm" data-seat="1">+</button><small class="muted">฿${baht(period === 'year' && p.price_year ? p.price_year : p.price)} / คน · ขั้นต่ำ ${p.seats || 3} คน</small></div>` : ''}
