@@ -133,7 +133,7 @@ async function chatView(id) {
   const sideMode = curMode();
   app.innerHTML = `<div class="chat view"><aside class="side" id="side">
       <div class="side-top">
-        <a class="logo" href="/">Kyber</a>
+        <a class="logo" href="/">Kyber<span class="v25">2.5</span></a>
         <span class="side-top-acts">
           <a class="icon-btn sm ghost" href="/chat" data-chat="" aria-label="New chat" title="New chat">${ic('newchat')}</a>
           <button type="button" class="icon-btn sm ghost" id="sbtn" aria-label="Search chats">${ic('search')}</button>
@@ -147,12 +147,13 @@ async function chatView(id) {
         <button type="button" data-mode="cowork" class="${sideMode === 'cowork' ? 'on' : ''}" aria-pressed="${sideMode === 'cowork'}" title="Kyber Harness">${ic('layers', 'sm')}<span>Harness</span></button>
       </div>
       <div class="side-pane" id="paneChat" ${sideMode === 'chat' ? '' : 'hidden'}>
+        <a class="side-new25" href="/chat" data-chat="">${ic('plus', 'sm')}<span>งานใหม่</span></a>
         <div class="work-tiles${me?.plan?.artifacts ? '' : ' one'}">
           <button type="button" id="spc" class="wtile">${ic('folder')}<b>Workspace</b><small id="spcN">เครื่องมือ + โฟลเดอร์งาน</small></button>
           ${me?.plan?.artifacts ? `<button type="button" id="arts" class="wtile">${ic('code')}<b>Artifacts</b><small>Pages built by AI</small></button>` : ''}
         </div>
         ${deskLink() ? `<nav class="side-nav">${deskLink()}</nav>` : ''}
-        <div class="side-sec"><span>Chats</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
+        <div class="side-sec"><span>แชต</span><button type="button" class="icon-btn xs ghost" id="newc" aria-label="New chat" title="New chat">${ic('plus')}</button></div>
         <div class="list" id="list"></div>
       </div>
       <div class="side-pane" id="paneCowork" ${sideMode === 'cowork' ? '' : 'hidden'}></div>
@@ -165,13 +166,13 @@ async function chatView(id) {
       <div class="side-foot">
         <button type="button" class="side-user" id="acct" aria-haspopup="menu" aria-expanded="false" title="${esc(me.email)}">
           <span class="av sm">${esc((me.email || 'A')[0].toUpperCase())}</span>
-          <span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan.name)} · <span class="su-pct">${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}</span>% used</small></span>
+          <span class="su-t"><b>${esc(me.email.split('@')[0])}</b><small>${esc(me.plan.name)} · <span class="su-pct">${Math.round(Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}</span>% used</small><span class="su-bar"><i style="width:${Math.min(100, Math.max(me.usage?.pct4h || 0, me.usage?.pctWeek || 0))}%"></i></span></span>
           ${ic('up', 'sm')}
         </button>
       </div>
     </aside>
     <div class="main" ${sideMode !== 'chat' ? 'hidden' : ''}><div class="bar"><button class="menu-btn" id="menu" aria-label="เมนู">${ic('menu')}</button>
-      <div class="ctitle"><b id="ctl">Chat</b><small id="ctok"></small></div>
+      <div class="ctitle"><b id="ctl">Chat</b><small id="ctok"></small></div><button type="button" class="mpill" id="mpill" hidden aria-label="โมเดลที่ใช้และสถานะ"></button>
       <button class="lim" id="lim" aria-label="ลิมิตการใช้งาน"></button>
       <a class="icon-btn sm" href="/chat" data-new aria-label="แชตใหม่">${ic('newchat')}</a>
       <select id="model" hidden>${me.models.length > 1 ? `<option value="auto" ${saved === 'auto' || !saved ? 'selected' : ''}>อัตโนมัติ</option>` : ''}${opt(saved)}</select>
@@ -184,7 +185,7 @@ async function chatView(id) {
             <button type="button" class="cb pick" id="mdl" aria-haspopup="dialog"></button>
             <button type="button" class="cb pick" id="eff" aria-haspopup="dialog"></button>
             
-            <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form></div>
+            <button class="send" id="go" aria-label="ส่ง">${ic('up')}</button></div></form><div class="c25-hint">Kyber 2.5 · งานวิ่งต่อแม้สลับแชต · โมเดลขัดข้องสลับตัวสำรองให้อัตโนมัติ</div></div>
       </div>
     <aside class="canvas" id="canvas" hidden>
       <div class="cv-h"><b id="cv-t">Canvas</b><select id="cv-v" class="cv-v" hidden aria-label="เวอร์ชัน"></select><div class="seg" style="margin:0"><button type="button" data-cv="prev" class="on">Preview</button><button type="button" data-cv="code">Code</button></div><span class="sp"></span><button type="button" class="btn out sm" id="cv-sh" hidden>แชร์</button><button type="button" class="btn out sm" id="cv-cp">Copy</button><button type="button" class="icon-btn sm ghost" id="cv-dl" aria-label="ดาวน์โหลด .html">${ic('download')}</button><button type="button" class="btn out sm" id="cv-tc">ส่งไป Code</button><button type="button" class="icon-btn sm ghost" id="cv-x" aria-label="ปิด Canvas">${ic('x')}</button></div>
@@ -408,9 +409,18 @@ function openCanvas(code) {
 
 // คำทักหน้าแชตว่าง: สุ่มทุกครั้งที่เปิด
 const HELLO = ['How can I help today?', 'What are we working on?', 'Ask me anything', 'Ready when you are', 'What’s on your mind?'];
+// ป้ายโมเดลบนแถบหัว: ชื่อ + สถานะจริงจากหน้าสถานะระบบ (โหลดทุก 5 นาที) · แตะ = เปิดหน้าเลือกโมเดล
+let _stat = null, _statAt = 0;
+function mpill(m) {
+  const el = $('#mpill'); if (!el) return; if (!m || m.id === 'auto' || isImgMode()) { el.hidden = true; return; }
+  const s = _stat?.models?.find(x => x.name === m.name), st = s?.routed || s?.state === 'down' ? 'bad' : s?.down ? 'warn' : '';
+  el.hidden = false; el.className = 'mpill ' + st; el.innerHTML = `<i></i>${esc(m.name)} · ${st === 'bad' ? 'ใช้ตัวสำรองชั่วคราว' : st === 'warn' ? 'ไม่เสถียร' : 'ปกติ'}`;
+  el.onclick = () => $('#mdl')?.click();
+  if (Date.now() - _statAt > 300e3) { _statAt = Date.now(); api('/status').then(d => { _stat = d; mpill(curModel()); }).catch(() => {}); }
+}
 function modelUI() {
   const m = curModel();
-  estSoon();
+  estSoon(); mpill(m);
   const mw = $('#mwarn'); if (mw) mw.innerHTML = isImgMode() ? '' : modelWarnHTML(m, { harness: agentOn(), flagged: chat.agQ || [] }); // Uncen กำลังปรับคุณภาพ · โหมด Agent + โมเดลไม่เหมาะ = เตือน
   $('#mdl').innerHTML = `${m ? vendorLogo(m.name, 'xs') : ''}<span>${esc(m?.name || 'เลือกโมเดล')}</span>${ic('down', 'sm')}`;
   const efs = modelEfforts(m);
@@ -753,10 +763,12 @@ function drawSide() {
     <button data-cmenu="${c.id}" aria-label="Chat options">${ic('more')}</button></div>`;
   const shown = chat.chats.filter(c => c.title.toLowerCase().includes(q)), open = JSON.parse(localStorage.getItem('fopen') || '{}');
   const inSpace = c => !q && chat.folders.some(f => f.id === c.folder_id); // แชตใน Space แสดงเฉพาะในหน้า Spaces (ค้นหายังเจอ)
-  const pinned = shown.filter(c => c.pinned && !inSpace(c));
-  const recent = shown.filter(c => !c.pinned && !inSpace(c));
-  list.innerHTML = (pinned.length ? `<div class="side-sub">Bookmarked</div>${pinned.map(item).join('')}` : '')
-    + (recent.length && pinned.length ? '<div class="side-sub">Recents</div>' : '') + (recent.map(item).join('') || (chat.chats.length ? '' : '<p class="muted" style="padding:8px 12px">No chats yet</p>'))
+  const running = shown.filter(c => AGBG.has(c.id) || (c.id === chat.id && chat.busy)), isRun = c => running.includes(c); // งานที่ AI กำลังทำ (สลับแชตแล้วยังวิ่งต่อ)
+  const pinned = shown.filter(c => c.pinned && !inSpace(c) && !isRun(c));
+  const recent = shown.filter(c => !c.pinned && !inSpace(c) && !isRun(c));
+  list.innerHTML = (running.length ? `<div class="side-sub run">กำลังทำงาน</div>${running.map(c => item(c).replace('class="item ', 'class="item running ')).join('')}` : '')
+    + (pinned.length ? `<div class="side-sub">ปักหมุด</div>${pinned.map(item).join('')}` : '')
+    + (recent.length && (pinned.length || running.length) ? '<div class="side-sub">ล่าสุด</div>' : '') + (recent.map(item).join('') || (chat.chats.length ? '' : '<p class="muted" style="padding:8px 12px">No chats yet</p>'))
     + (q && chat.hits?.length ? `<div class="side-sub">ในข้อความ</div>${chat.hits.map(h => `<div class="item hit"><a href="/chat?id=${h.chat_id}" data-chat="${h.chat_id}">${ic('msg', 'sm ci')}<span><b>${esc(h.title)}</b><small>${esc(h.snippet)}</small></span></a></div>`).join('')}` : '');
   list.querySelectorAll('details.folder').forEach(d => d.ontoggle = () => { const o = JSON.parse(localStorage.getItem('fopen') || '{}'); o[d.dataset.f] = d.open; localStorage.setItem('fopen', JSON.stringify(o)); });
   list.onclick = async e => {
@@ -1111,7 +1123,7 @@ function chatWorkTick() {
   el.hidden = false; el.innerHTML = `<span class="cw-dot"></span><span>${esc(String(what).slice(0, 80))}…</span><span class="muted">${sec >= 60 ? Math.floor(sec / 60) + ' นาที ' : ''}${sec % 60} วิ</span>`;
 }
 setInterval(chatWorkTick, 500);
-function setBusy(b) { chat.busy = b; goIcon(); qDraw(); }
+function setBusy(b) { const ch = chat.busy !== b; chat.busy = b; goIcon(); qDraw(); const t = $('#t'); if (t && !isImgMode()) t.placeholder = b ? 'สั่งงานเพิ่ม หรือพิมพ์แทรก… (Enter = เข้าคิว)' : 'Ask anything · type / for Skills'; if (ch && chat.chats) drawSide(); }
 function goIcon() { const g = $('#go'); if (!g) return; const q = chat.busy && !!$('#t')?.value.trim(); g.innerHTML = ic(!chat.busy ? 'up' : q ? 'clock' : 'stop'); g.setAttribute('aria-label', !chat.busy ? 'ส่ง' : q ? 'เข้าคิว (ส่งเมื่องานนี้เสร็จ)' : 'หยุด'); g.title = q ? 'เข้าคิว: ส่งให้เองเมื่องานนี้เสร็จ' : ''; g.classList.toggle('stop', chat.busy && !q); }
 // ---------- คิวข้อความ: สั่งงานถัดไปไว้รอระหว่างที่งานเดิมยังทำ (ต่อแชต) ----------
 const CQ = new Map(), cqKey = () => chat.id || 0;
@@ -1444,19 +1456,34 @@ const vslug = m => m.name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-
 const AG_ICON = { read_file: 'filetext', write_file: 'pen', edit_file: 'pen', list_dir: 'folder', glob: 'search', grep: 'search', bash: 'terminal', bash_output: 'terminal', kill_bash: 'stop', web_fetch: 'globe', web_search: 'globe', screenshot_url: 'camera', task: 'users', todo_write: 'check', sub: 'users', make_document: 'filetext', read_document: 'filetext', ask_user: 'msg', computer: 'camera' };
 const agArg = s => { const a = s.args || {}; return a.command || a.path || a.pattern || a.url || a.query || a.description || a.id || ''; };
 const diffPre = t => esc(t).split('\n').map(l => /^\+ /.test(l) ? `<span class="dadd">${l}</span>` : /^- /.test(l) ? `<span class="ddel">${l}</span>` : l).join('\n');
+// ---------- การ์ดงาน Agent (UI 2.5): หัวการ์ดสด · แผนงาน · ขั้นตอน · โค้ดที่เพิ่งแก้ ----------
+const AG_TH = { read_file: 'อ่าน', write_file: 'เขียนไฟล์', edit_file: 'แก้ไฟล์', multi_edit: 'แก้ไฟล์', list_dir: 'ดูโฟลเดอร์', glob: 'หาไฟล์', grep: 'ค้นหา', bash: 'รันคำสั่ง', bash_output: 'ดูผลคำสั่ง', kill_bash: 'หยุดคำสั่ง', web_fetch: 'เปิดเว็บ', web_search: 'ค้นเว็บ', screenshot_url: 'แคปหน้าเว็บ', check_page: 'ตรวจหน้าเว็บ', check_syntax: 'ตรวจโค้ด', task: 'ผู้ช่วย', todo_write: 'วางแผน', ask_user: 'ถามคุณ', make_document: 'สร้างเอกสาร', read_document: 'อ่านเอกสาร', computer: 'ใช้คอม' };
+const agDur = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const agDiffN = p => { const l = String(p || '').split('\n'); const a = l.filter(x => /^\+ /.test(x)).length, d = l.filter(x => /^- /.test(x)).length; return a || d ? `+${a} −${d}` : ''; };
 function agentHTML(m, i) {
-  const st = s => s.st === 'run' ? '<span class="agsp" aria-label="กำลังทำ"></span>' : s.st === 'bad' ? '<b class="bad">✕</b>' : '<b class="ok">✓</b>';
   const done = !m.streaming, last = i === chat.msgs.length - 1;
-  const steps = (m.steps || []).map(s => s.name === 'info' ? `<div class="agstep muted">${esc(s.text)}</div>` : s.name === 'sub' ? `<div class="agstep sub">↳ ${ic(AG_ICON[s.tool] || 'search', 'sm')} <small>${esc(s.title)}</small> ${esc(s.tool)} <code>${esc(String(agArg(s)).slice(0, 100))}</code></div>`
-    : `<details class="agstep"><summary>${st(s)} ${ic(AG_ICON[s.name] || 'server', 'sm')} <b>${esc(s.name)}</b> <code>${esc(String(agArg(s)).slice(0, 140))}</code>${done && last && s.step && ['edit_file', 'write_file'].includes(s.name) && s.st === 'ok' && m.changed?.length ? `<button type="button" class="agback" data-agstep="${s.step}" title="ย้อนไฟล์กลับไปก่อนขั้นนี้">${ic('undo', 'sm')}</button>` : ''}</summary>${s.preview ? `<pre>${diffPre(s.preview)}</pre>` : ''}</details>`).join('');
-  const todos = m.todos?.length ? `<div class="agtodo">${m.todos.map(t => `<div class="${t.status}">${t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '▶' : '☐'} ${esc(t.content)}</div>`).join('')}</div>` : '';
-  const n = (m.steps || []).filter(s => !['info', 'sub'].includes(s.name)).length, cost = m.cost ? ` · ${m.cost.charge ? '฿' + m.cost.charge.toFixed(2) : ''}${m.cost.charge && m.cost.pct ? ' + ' : ''}${m.cost.pct ? 'ลิมิต ' + m.cost.pct.toFixed(2) + '%' : ''}` : '';
-  return `<div class="agent">${todos}${steps ? `<details class="agsteps" ${m.streaming ? 'open' : ''}><summary>${ic('sparkles', 'sm')} Agent ${n} ขั้นตอน${m.tin ? ` · ↑${kTok(m.tin)} ↓${kTok(m.tout)} token` : ''}${cost}</summary>${steps}</details>` : m.streaming ? `<div class="agstep muted"><span class="agsp"></span> Agent กำลังเริ่ม…</div>` : ''}
+  const spin = '<span class="agsp" aria-label="กำลังทำ"></span>', stIc = s => s.st === 'run' ? spin : s.st === 'bad' ? '<b class="bad">✕</b>' : '<b class="ok">✓</b>';
+  const tools = (m.steps || []).filter(s => !['info', 'sub'].includes(s.name)), n = tools.length, cur = [...tools].reverse().find(s => s.st === 'run');
+  const cost = m.cost ? `${m.cost.charge ? '฿' + m.cost.charge.toFixed(2) : ''}${m.cost.charge && m.cost.pct ? ' + ' : ''}${m.cost.pct ? 'ลิมิต ' + m.cost.pct.toFixed(2) + '%' : ''}` : '';
+  const state = !done ? 'run' : m.error ? 'bad' : 'ok', title = { run: 'Agent กำลังทำงาน', bad: 'Agent หยุด', ok: 'Agent ทำงานเสร็จ' }[state];
+  const sub = !done ? (cur ? `ขั้นที่ ${n} · ${AG_TH[cur.name] || cur.name}` : n ? `ขั้นที่ ${n} · กำลังคิด` : 'กำลังเริ่ม…') : `${n} ขั้นตอน`;
+  const time = m.t0 ? `<span${done ? '' : ` data-t0="${m.t0}"`}><b>${agDur((done ? m.dur || 0 : Date.now() - m.t0))}</b> นาที</span>` : '';
+  const head = `<div class="agh ${state}">${state === 'run' ? spin : state === 'bad' ? '<b class="bad">✕</b>' : '<b class="ok">✓</b>'}<b>${title}</b><span class="m">${esc(sub)}</span><span class="k">${time}${m.tin ? `<span>↑<b>${kTok(m.tin)}</b> ↓<b>${kTok(m.tout)}</b></span>` : ''}${cost ? `<span>${cost}</span>` : ''}</span></div>`;
+  const plan = m.todos?.length ? `<div class="agplan">${m.todos.map(t => `<span class="${t.status === 'completed' ? 'd' : t.status === 'in_progress' ? 'n' : ''}">${t.status === 'completed' ? '✓ ' : t.status === 'in_progress' ? '● ' : ''}${esc(t.content)}</span>`).join('')}</div>` : '';
+  const row = s => s.name === 'info' ? `<div class="agi">${esc(s.text)}</div>` : s.name === 'sub' ? `<div class="agi sub">↳ ${esc(s.title)} · ${esc(AG_TH[s.tool] || s.tool)} <code>${esc(String(agArg(s)).slice(0, 90))}</code></div>`
+    : `<details class="agr${s.st === 'run' ? ' now' : ''}"><summary><span class="ic">${stIc(s)}</span><span class="tag">${esc(AG_TH[s.name] || s.name)}</span><code>${esc(String(agArg(s)).slice(0, 160))}</code><em>${['edit_file', 'write_file', 'multi_edit'].includes(s.name) ? agDiffN(s.preview) : ''}</em>${done && last && s.step && ['edit_file', 'write_file', 'multi_edit'].includes(s.name) && s.st === 'ok' && m.changed?.length ? `<button type="button" class="agback" data-agstep="${s.step}" title="ย้อนไฟล์กลับไปก่อนขั้นนี้">${ic('undo', 'sm')}</button>` : ''}</summary>${s.preview ? `<pre>${diffPre(s.preview)}</pre>` : ''}</details>`;
+  const all = m.steps || [], SHOW = 8, hidden = all.length > SHOW ? all.slice(0, all.length - SHOW) : [];
+  const steps = all.length ? `<div class="agrows">${hidden.length ? `<details class="agmore"><summary>ดูขั้นตอนก่อนหน้า ${hidden.length} รายการ</summary>${hidden.map(row).join('')}</details>` : ''}${all.slice(-SHOW).map(row).join('')}</div>` : '';
+  const lastEdit = !done ? [...tools].reverse().find(s => ['edit_file', 'write_file', 'multi_edit'].includes(s.name) && s.preview) : null;
+  const diff = lastEdit ? `<pre class="agdiff"><span class="h">@@ ${esc(String(agArg(lastEdit)).slice(0, 120))}</span>\n${diffPre(String(lastEdit.preview).split('\n').slice(0, 14).join('\n'))}</pre>` : '';
+  return `<div class="agent ag25"><div class="agcard">${head}${plan}${steps}${diff}</div>
     ${m.ask ? `<div class="agask"><b>${esc(m.ask.question)}</b><div class="row" style="flex-wrap:wrap">${m.ask.options.map(o => `<button type="button" class="btn out sm" data-agans="${esc(o)}">${esc(o)}</button>`).join('')}</div><form class="row" data-agansf style="flex-wrap:nowrap"><input placeholder="หรือพิมพ์คำตอบ…" style="flex:1"><button class="btn blue sm">ตอบ</button></form></div>` : ''}
     ${m.error ? `<p class="bad" style="margin:6px 0">${esc(m.error)}</p>` : ''}
     ${m.outputs?.length ? `<div class="agout">${m.outputs.map(p => `<button type="button" class="fchip" data-agopen="${esc(p)}">${ic('filetext', 'sm')}<span>${esc(p.split('/').pop())}</span><small>เปิด</small></button>`).join('')}</div>` : ''}
     ${done && last ? `<div class="acts">${m.mode === 'plan' && !m.error ? `<button class="btn blue sm" data-agplan>${ic('play', 'sm')} อนุมัติแผน ลงมือเลย</button>` : ''}${m.changed?.length ? `<span class="muted">แก้ ${m.changed.length} ไฟล์: ${m.changed.slice(0, 6).map(esc).join(', ')}${m.changed.length > 6 ? '…' : ''}</span><button data-agundo="${i}">${ic('undo', 'sm')} ย้อนทั้งรอบ</button>` : ''}<button data-aggit="status">${ic('branch', 'sm')} Git</button></div>` : ''}</div>`;
 }
+// นาฬิกาของการ์ดที่กำลังทำงาน: อัปเดตทุกวินาทีโดยไม่ต้องวาดการ์ดใหม่
+if (typeof document !== 'undefined') setInterval(() => document.querySelectorAll('[data-t0]').forEach(e => { const b = e.querySelector('b'); if (b) b.textContent = agDur(Date.now() - +e.dataset.t0); }), 1000);
 // งาน Agent ที่วิ่งอยู่ต่อแชต: สลับไปแชตอื่นแล้วงานไม่หยุด กลับมาเห็นสดต่อ · แอปรันหลายแชตพร้อมกันได้ (แยก session ต่อแชต)
 const AGBG = new Map(); // chatId → { ai, ctrl }
 function agDetach() { chat.agentBusy = false; chat.ctrl = null; chat.busy = false; } // ออกจากแชตที่ Agent กำลังทำ: ไม่หยุดงาน
@@ -1512,7 +1539,7 @@ async function agentSend(text0, { mode = agMode() } = {}) {
   try { const r = await api('/chats/append', { method: 'POST', body: { chat_id: chat.id, title: text0, messages: [{ role: 'user', content: text0 }] } }); if (!chat.id) { chat.id = r.chat_id; setUrl('/chat?id=' + r.chat_id, true); loadSide(); } }
   catch (x) { chat.msgs.pop(); renderAll(); t.value = text0; return showErr('บันทึกแชตไม่ได้: ' + x.message); }
   const text = await agentExpand(text0);
-  const ai = { role: 'assistant', content: '', thinking: '', model: m.name + ' · Agent', streaming: true, agent: true, mode, steps: [], todos: null, tin: 0, tout: 0 }; chat.msgs.push(ai); appendMsg(ai);
+  const ai = { role: 'assistant', content: '', thinking: '', model: m.name + ' · Agent', streaming: true, agent: true, mode, steps: [], todos: null, tin: 0, tout: 0, t0: Date.now() }; chat.msgs.push(ai); appendMsg(ai);
   const cid = chat.id, sid = 'c' + cid, t0 = Date.now(); let rid = '', raf = 0, held = false, userStop = false; // rid = รหัสงานรอบนี้ · held = กำลังหยุดงานเดิมที่ค้าง (ไม่รับเหตุการณ์ของมัน)
   const here = () => chat.id === cid && chat.msgs.at(-1) === ai; // ลูกค้าสลับไปแชตอื่นได้ งานยังวิ่งต่อเบื้องหลัง (วาดหน้าจอเฉพาะตอนเปิดแชตนี้อยู่)
   const ctrl = { abort: () => { userStop = true; PCD.agent.stop(sid); } }; AGBG.set(cid, { ai, ctrl });
@@ -1565,12 +1592,12 @@ async function agentSend(text0, { mode = agMode() } = {}) {
     await new Promise(r => setTimeout(r, w * 1000)); if (userStop) { ai.error = 'หยุดแล้ว'; break; }
     await attempt(AG_CONT);
   }
-  unsub?.(); cancelAnimationFrame(raf); AGBG.delete(cid); ai.streaming = false; ai.content = ai.content.trim();
+  unsub?.(); cancelAnimationFrame(raf); AGBG.delete(cid); ai.streaming = false; ai.dur = Date.now() - ai.t0; ai.content = ai.content.trim();
   for (const s of ai.steps) if (s.st === 'run') s.st = 'bad';
   const did = ai.steps.filter(s => !['info', 'sub'].includes(s.name)), sum = did.length ? `> Agent ${did.length} ขั้นตอน: ${[...new Set(did.map(s => s.name))].join(', ')}${ai.changed?.length ? ' · แก้ ' + ai.changed.slice(0, 10).join(', ') : ''}\n\n` : '';
   api('/chats/append', { method: 'POST', body: { chat_id: cid, messages: [{ role: 'assistant', content: sum + (ai.content || ai.error || '(ไม่มีข้อความ)') }] } }).then(() => loadSide()).catch(() => {});
   if (chat.id === cid) { setBusy(false); chat.agentBusy = false; chat.ctrl = null; renderAll(); }
-  else toast(`Agent ในแชต "${String(text0).slice(0, 30)}" ${ai.error ? 'หยุดแล้ว' : 'ทำงานเสร็จแล้ว'} · แตะเพื่อเปิด`, ai.error ? 'bad' : 'ok', { ms: 15000, onClick: () => openChat(cid) });
+  else { drawSide(); } if (chat.id !== cid) toast(`Agent ในแชต "${String(text0).slice(0, 30)}" ${ai.error ? 'หยุดแล้ว' : 'ทำงานเสร็จแล้ว'} · แตะเพื่อเปิด`, ai.error ? 'bad' : 'ok', { ms: 15000, onClick: () => openChat(cid) });
   api('/me').then(d => { me = d; setUsage(d.usage); }).catch(() => {});
   if (Date.now() - t0 > 15000) PCD.notify('Agent ทำงานเสร็จแล้ว', (ai.content || ai.error || '').replace(/[#*`>]/g, '').slice(0, 140));
   if (!ai.error && !userStop) setTimeout(() => qNext(cid), 800); else if (chat.id === cid) qDraw(); // งานเสร็จ: ส่งข้อความถัดไปในคิว (หยุด/ผิดพลาด = คิวรอไว้ให้ลูกค้าตัดสินใจ)
@@ -2083,7 +2110,7 @@ async function mdPdf(src, name, raw = false) {
 
 // ---------- โหมดงาน (แบบ Kyber Harness): สั่งงานใหญ่ครั้งเดียว AI วางแผน (checklist) แล้วทำเองจนจบบนเซิร์ฟเวอร์ แม้ปิดหน้าเว็บ · ผลงานอยู่ใน "โฟลเดอร์งาน" ----------
 const isTask = () => !!(chat.taskNew && !chat.id) || !!chat.chats?.find(c => c.id === chat.id)?.task || chat.taskId === chat.id && !!chat.id;
-const taskTodoHTML = m => m.todos?.length ? `<div class="task-todo"><b>${ic('check', 'sm')} แผนงาน · ${m.todos.filter(x => x.status === 'completed').length}/${m.todos.length}</b>${m.todos.map(x => `<div class="tt ${x.status}">${x.status === 'completed' ? '✓' : x.status === 'in_progress' ? '●' : '○'} ${esc(x.content)}</div>`).join('')}</div>` : '';
+const taskTodoHTML = m => m.todos?.length && !m.agent ? `<div class="task-todo"><b>${ic('check', 'sm')} แผนงาน · ${m.todos.filter(x => x.status === 'completed').length}/${m.todos.length}</b>${m.todos.map(x => `<div class="tt ${x.status}">${x.status === 'completed' ? '✓' : x.status === 'in_progress' ? '●' : '○'} ${esc(x.content)}</div>`).join('')}</div>` : '';
 const TASK_TPL = [
   ['sheet', 'ปิดยอดรายเดือน', 'สรุปยอดขาย/รายจ่ายจากไฟล์ที่แนบ ทำ Excel สรุปรายเดือน (มีสูตรรวม กำไร % เติบโต) และรายงาน Word 1 หน้า สรุปตัวเลขสำคัญและข้อสังเกต'],
   ['filetext', 'ใบเสนอราคา', 'ทำใบเสนอราคาเป็น Excel จากรายการสินค้าในไฟล์/ข้อความนี้ (ราคาต่อหน่วย จำนวน รวม ส่วนลด VAT 7% ยอดสุทธิ เป็นสูตร) และ PDF ส่งลูกค้า'],

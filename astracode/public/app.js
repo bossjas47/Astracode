@@ -777,7 +777,7 @@ document.addEventListener('click', e => { const b = e.target.closest('.dl-code')
 const subSel = () => { try { return +localStorage.getItem('subSel') || 0; } catch { return 0; } };
 const curSub = () => { const s = me?.subs; if (!s || s.length < 2) return null; return s.find(x => x.id === subSel()) || s.find(x => x.primary) || s[0]; };
 // limHTML อัปเดตตัวเลข % used มุมล่างซ้ายด้วย (เดิมค้างค่าตอนเปิดหน้า)
-const limHTML = u0 => { const cs = curSub(), u = cs || u0, p = Math.max(u.pct4h, u.pctWeek); queueMicrotask(() => document.querySelectorAll('.su-pct').forEach(e => { e.textContent = Math.round(p); })); return (cs ? `<span class="lname">${esc(cs.name)}</span>` : '') + limHTML0(u, p); };
+const limHTML = u0 => { const cs = curSub(), u = cs || u0, p = Math.max(u.pct4h, u.pctWeek); queueMicrotask(() => { document.querySelectorAll('.su-pct').forEach(e => { e.textContent = Math.round(p); }); document.querySelectorAll('.su-bar i').forEach(e => { e.style.width = Math.min(100, p) + '%'; }); }); return (cs ? `<span class="lname">${esc(cs.name)}</span>` : '') + limHTML0(u, p); };
 const limHTML0 = (u, p) => { return `<i class="lmini ${p >= 100 ? 'full' : p >= 80 ? 'hi' : ''}" style="--p:${Math.min(100, p)}"><b></b></i>${Math.round(p)}%${me?.reset_credits > 0 ? '<i class="gdot" title="มีสิทธิ์รีเซ็ตลิมิต"></i>' : ''}`; };
 const EFFORT_INFO = {
   '': ['Instant', 'ตอบทันที ไม่คิดก่อน · เร็วและประหยัดลิมิตที่สุด'],

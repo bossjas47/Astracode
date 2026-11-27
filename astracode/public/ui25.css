@@ -1,0 +1,72 @@
+/* ================= Kyber UI 2.5 =================
+   ชั้นปรับหน้าตาทับ style.css: แถบข้างแยกงานที่กำลังทำ · การ์ดงาน Agent แบบใหม่ · กล่องพิมพ์ · ป้ายสถานะโมเดล
+   ใช้ token เดิมของระบบทั้งหมด จึงรองรับธีมมืด/สว่างอัตโนมัติ */
+
+/* ---------- พื้นผิวลึกขึ้นเล็กน้อย (ธีมมืด) ---------- */
+:root:not([data-theme="light"]) { --obsidian: #0b0c11; --graphite: #12141b; --carbon: #171a23; }
+
+/* ---------- โลโก้ + ป้าย 2.5 ---------- */
+.logo .v25 { display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: var(--spectrum); color: #fff; font: 700 10.5px/1.4 var(--font); letter-spacing: .3px; vertical-align: 3px; }
+
+/* ---------- แถบข้าง ---------- */
+.side-new25 { display: flex; align-items: center; gap: 10px; min-height: 42px; margin: 0 0 10px; padding: 0 14px; border-radius: 12px; background: var(--porcelain); color: var(--on-porcelain); font: 600 14px var(--font); text-decoration: none; }
+.side-new25:hover { color: var(--on-porcelain); filter: brightness(.95); }
+.side-new25:active { transform: scale(.98); }
+.side-sub.run { color: var(--accent); }
+.list .item.running > a::before { content: ""; flex: none; width: 8px; height: 8px; margin: 0 2px 0 2px; border-radius: 50%; background: #22c3e6; box-shadow: 0 0 0 4px rgba(34, 195, 230, .16); animation: run25 1.6s ease-in-out infinite; }
+.list .item.running > a > svg:first-child { display: none; }
+@keyframes run25 { 50% { box-shadow: 0 0 0 7px rgba(34, 195, 230, 0); } }
+.su-bar { display: block; width: 100%; height: 4px; margin-top: 4px; border-radius: 3px; background: rgba(var(--ov), .1); overflow: hidden; }
+.su-bar i { display: block; height: 100%; border-radius: 3px; background: var(--spectrum); }
+
+/* ---------- แถบบน: ป้ายโมเดล + โฟลเดอร์ ---------- */
+.mpill { display: inline-flex; align-items: center; gap: 6px; max-width: 46vw; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--hair); color: var(--ash); font: 500 12.5px var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: none; cursor: pointer; }
+.mpill i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.mpill.warn i { background: var(--yellow); } .mpill.bad i { background: var(--red); }
+@media (max-width: 720px) { .mpill { display: none; } }
+
+/* ---------- การ์ดงาน Agent ---------- */
+.ag25 .agcard { border: 1px solid var(--hair); border-radius: 16px; overflow: hidden; background: linear-gradient(180deg, var(--accent-tint), rgba(var(--ov), .01) 120px); margin: 2px 0 10px; }
+.agh { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--hair); font-size: 13.5px; flex-wrap: wrap; }
+.agh > b { font-weight: 600; }
+.agh .m { color: var(--ash); }
+.agh .k { margin-left: auto; display: flex; gap: 14px; color: var(--ash); font-size: 12.5px; }
+.agh .k b { color: var(--porcelain); font-weight: 600; }
+.agh .ok, .agr .ok { color: var(--green); } .agh .bad, .agr .bad { color: var(--red); }
+.ag25 .agsp { width: 13px; height: 13px; border-width: 2px; border-color: rgba(34, 195, 230, .25); border-top-color: #22c3e6; }
+.agplan { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 4px; }
+.agplan span { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--hair); color: var(--ash); }
+.agplan .d { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.agplan .n { color: var(--porcelain); border-color: rgba(34, 195, 230, .55); background: rgba(34, 195, 230, .08); }
+.agrows { padding: 4px 14px 10px; }
+.agr { border-top: 1px dashed rgba(var(--ov), .06); }
+.agr:first-child, .agmore + .agr { border-top: 0; }
+.agr > summary { display: grid; grid-template-columns: 18px 78px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 7px 0; list-style: none; cursor: pointer; font-size: 13.5px; }
+.agr > summary::-webkit-details-marker { display: none; }
+.agr .ic { display: grid; place-items: center; }
+.agr .tag { font-weight: 600; white-space: nowrap; }
+.agr.now .tag { color: #22c3e6; }
+.agr code { color: var(--ash); font-size: 12.5px; background: none; padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agr em { font-style: normal; font-size: 12px; color: var(--ash); white-space: nowrap; }
+.agr pre { white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; font-size: 12px; margin: 2px 0 8px 28px; background: var(--carbon); padding: 8px 10px; border-radius: 8px; }
+.agr .agback { border: 0; background: none; color: var(--ash); cursor: pointer; padding: 2px; }
+.agi { font-size: 12.5px; color: var(--ash); padding: 5px 0 5px 28px; }
+.agi.sub code { font-size: 12px; background: none; }
+.agmore > summary { font-size: 12.5px; color: var(--ash); cursor: pointer; padding: 6px 0; list-style: none; }
+.agmore > summary::before { content: "▸ "; } .agmore[open] > summary::before { content: "▾ "; }
+.agdiff { margin: 0 14px 12px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--hair); background: #0c0e13; color: #d6d9e2; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: hidden; }
+.agdiff .h { color: #8b91a1; }
+.agdiff .dadd { color: #7ee2b8; } .agdiff .ddel { color: #f19ab0; }
+@media (max-width: 600px) { .agr > summary { grid-template-columns: 18px 64px minmax(0, 1fr) auto; } .agr em { display: none; } .agh .k { margin-left: 0; width: 100%; } }
+
+/* ---------- กล่องพิมพ์ ---------- */
+.compose .cbox { border-radius: 20px; }
+.cbox .send { background: var(--spectrum); color: #fff; }
+.cbox .send.stop { background: var(--porcelain); color: var(--on-porcelain); }
+.cq-item { border-style: dashed; border-radius: 12px; }
+.cq-item button[data-cqnow] { color: #22c3e6; font-weight: 600; }
+.c25-hint { max-width: 760px; margin: 6px auto 0; text-align: center; font-size: 11.5px; color: var(--ash); }
+@media (max-width: 600px) { .c25-hint { display: none; } }
+.ag25 .agr code, .ag25 .agi code { background: none; padding: 0; border: 0; }
+.compose .cbox textarea:focus, .compose .cbox textarea:focus-visible { outline: none; box-shadow: none; }
+:root[data-theme="light"] .agr.now .tag { color: #0b7f9c; } :root[data-theme="light"] .side-sub.run, :root[data-theme="light"] .cq-item button[data-cqnow] { color: #0b7f9c; }
