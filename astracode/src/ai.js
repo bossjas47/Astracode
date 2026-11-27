@@ -76,9 +76,11 @@ export const toAnthropicPart = p => {
 // ผู้ให้บริการบางรายปฏิเสธระดับ effort ที่เราเลือก (เช่น "does not support reasoning effort \"minimal\"; use low, medium, high, xhigh or max") → อ่านรายการที่รองรับแล้วเลือกระดับที่ใกล้ที่สุด (เท่ากันเลือกอันที่สูงกว่า) เพื่อลองใหม่ 1 ครั้ง
 // ผู้ให้บริการล่ม/คนแน่นชั่วคราว (429/5xx ก่อนเริ่มตอบ): ลองใหม่เอง 2 ครั้ง รอ 1.5 และ 4 วินาที ไม่ให้ลูกค้าเห็น "ตอบไม่ได้" ทันที
 // ผู้ให้บริการคนเยอะ/ล่มชั่วคราว: ลองใหม่เอง 3 ครั้ง (ใช้เวลาจาก retry-after ถ้าบอกมา แต่ไม่เกิน 10 วินาที) ก่อนแจ้งผู้ใช้
+// error ที่ลองซ้ำแล้วไม่หาย (channel ถูกปิด / key ไม่ผูก / ไม่มีโมเดล) → ไม่ลองซ้ำ สลับตัวสำรองทันที
+export const UPSTREAM_DEAD = /disabled by the administrator|not bound to this Channel|unavailable on the selected Channel|model_not_found|Requested resource or model is not available/i;
 export async function busyRetry(post, waits = [1500, 4000, 8000]) {
   let res = await post();
-  for (const w of waits) { if (![429, 500, 502, 503, 504, 529].includes(res.status)) break; const ra = +res.headers?.get?.('retry-after'); await res.body?.cancel().catch(() => {}); await new Promise(ok => setTimeout(ok, ra > 0 ? Math.min(ra * 1000, 10000) : w)); res = await post(); }
+  for (const w of waits) { if (![429, 500, 502, 503, 504, 529].includes(res.status)) break; if (res.status === 503 && UPSTREAM_DEAD.test(await res.clone().text().catch(() => ''))) break; /* channel ถูกปิด: ลองซ้ำไม่หาย ส่งต่อให้สลับตัวสำรองเลย */ const ra = +res.headers?.get?.('retry-after'); await res.body?.cancel().catch(() => {}); await new Promise(ok => setTimeout(ok, ra > 0 ? Math.min(ra * 1000, 10000) : w)); res = await post(); }
   return res;
 }
 export const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];

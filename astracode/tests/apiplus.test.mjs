@@ -118,3 +118,15 @@ test('callModel: ข้อความปกติไม่โดนกั้น
   assert.ok(!UPSTREAM_REFUSAL.test('สวัสดีครับ วันนี้ช่วยอะไรได้บ้าง'));
   assert.ok(!UPSTREAM_REFUSAL.test('你好，我可以帮你写代码'));
 });
+
+test('channel ถูกปิด (503 disabled by the administrator): ไม่ลองซ้ำ สลับตัวสำรองทันที', async () => {
+  const { t, fm, m, v1 } = await setup((q, res) => { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { type: 'service_unavailable', message: 'This Channel is currently disabled by the administrator.' } })); });
+  const good = await fakeModel((q, res) => good.sse(res, 'ตอบจากตัวสำรอง'));
+  const fb = addModel(t.DB, { name: 'Backup2', base_url: good.url, cost_in: 1, cost_out: 2 });
+  t.DB.raw.prepare('UPDATE models SET fallback_id=? WHERE id=?').run(fb.id, m.id);
+  t.DB.raw.prepare('INSERT INTO plan_models (plan_id, model_id) SELECT plan_id, ? FROM plan_models WHERE model_id=?').run(fb.id, m.id);
+  const t0 = Date.now(), r = await v1({ model: 'chat-one', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(r.status, 200, r.txt); assert.match(r.d.choices[0].message.content, /ตัวสำรอง/);
+  assert.equal(fm.hits.length, 1, 'ยิงโมเดลที่ปิดแค่ครั้งเดียว'); assert.ok(Date.now() - t0 < 5000, 'สลับภายในไม่กี่วินาที');
+  fm.close(); good.close();
+});

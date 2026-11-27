@@ -1,6 +1,6 @@
 import { claudeCreditLeft, isClaudeEco, modelCreditIds, useClaudeCredit, useModelCredit } from './credits.js';
 import { pickBucket, BKK, DAY, capHit, reqCapHit, err, estTokens, ip, json, limited, limitedInfo, planOf, rand, sha, unlimit, usageStatus, WALLET_MIN } from './core.js';
-import { SSE, callModel, chat, logFallback, logUsage, slimTools, webSearch } from './ai.js';
+import { SSE, UPSTREAM_DEAD, callModel, chat, logFallback, logUsage, slimTools, webSearch } from './ai.js';
 import { HEAL_TRIES, MEM_SYS, bumpMemory, burnCheck, healReason, loadMemory, memoryBlock, projectOf } from './apiplus.js';
 import { connCall, connTools } from './connectors.js';
 import { unseal } from './projects.js';
@@ -344,7 +344,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
         } catch (e0) {
           wd.done(); const e = wd.err(e0);
           await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
-          if (!content && !reasoning && !tcs.size && healN < HEAL_TRIES && !/upstream 4(0[0-3]|04|13|22)\b/.test(e.message)) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
+          if (!content && !reasoning && !tcs.size && healN < HEAL_TRIES && !/upstream 4(0[0-3]|04|13|22)\b/.test(e.message) && !UPSTREAM_DEAD.test(e.message)) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
           const fb = attempt === 0 && !content && !reasoning && !tcs.size ? await nextFallback(activeModel) : null;
           if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
           if (content || reasoning || tcs.size) await finish(usage, content.length + reasoning.length + 2, 'part'); // พังกลางคำตอบ: ผู้ให้บริการคิดเงินส่วนที่ทำไปแล้ว
@@ -404,7 +404,7 @@ export async function v1core(req, env, ctx, path, lg = {}) {
             wd.done(); const e = wd.err(e0);
             if (gone) break;
             await event(env, 'error', activeModel.id, 'api: ' + e.message.slice(0, 200));
-            if (!sentAny && healN < HEAL_TRIES && !/upstream 4(0[0-3]|04|13|22)\b/.test(e.message)) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
+            if (!sentAny && healN < HEAL_TRIES && !/upstream 4(0[0-3]|04|13|22)\b/.test(e.message) && !UPSTREAM_DEAD.test(e.message)) { await healLog(/no response/.test(e.message) ? 'timeout' : 'error'); attempt--; continue; } // Self-Heal: ลองโมเดลเดิมซ้ำก่อน
             const fb = attempt === 0 && !sentAny ? await nextFallback(activeModel) : null;
             if (fb && (!hist.some(x => hasImg(x.content)) || fb.vision)) { await logFallback(env, activeModel, fb, 'error: ' + e.message.slice(0, 120), 'api', k.id); activeModel = fb; continue; }
             throw e;
