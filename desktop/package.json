@@ -1,6 +1,6 @@
 {
   "name": "astracode-desktop",
-  "version": "0.12.0",
+  "version": "0.12.2",
   "description": "Kyber Desktop (formerly AstraCode Desktop) by Hypatia: the Kyber website in an app window, with access to files, commands and MCP tools on your computer",
   "main": "main.js",
   "author": "Hypatia",
