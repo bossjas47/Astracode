@@ -258,3 +258,20 @@ h1, h2, .hero h1, .shop-hero h1 { letter-spacing: -.025em; text-wrap: balance; }
 :root:not([data-theme="light"]) [data-page=home] .hero::after { display: none; }
 :root:not([data-theme="light"]) .acc-av { background: #1a1a1a; color: var(--porcelain); border: 1px solid rgba(255, 255, 255, .14); }
 :root:not([data-theme="light"]) .pl-bar > i { background: var(--porcelain); }
+
+/* พื้นหลังแชต (bg.js): ภาพ/3D อยู่ชั้นล่างสุด เนื้อหาอยู่บน · แถบบนโปร่งแสงให้อ่านง่าย */
+#kbg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+#kbg .kbg-img, #kbg .kbg-dim { position: absolute; inset: 0; }
+#kbg canvas { display: block; }
+html.has-kbg { background: #000; }
+html.has-kbg body { background: transparent; }
+html.has-kbg .chat { position: relative; z-index: 1; }
+html.has-kbg .main .bar { background: rgba(0, 0, 0, .42); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+html.has-kbg .compose { background: transparent; }
+.bgp { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.bgp button { position: relative; height: 64px; border-radius: 12px; border: 1px solid var(--hair, rgba(255, 255, 255, .14)); overflow: hidden; color: #fff; font: 600 12px/1.2 inherit; display: flex; align-items: flex-end; padding: 6px 8px; text-align: left; cursor: pointer; background: #111; }
+.bgp button span { position: relative; text-shadow: 0 1px 3px rgba(0, 0, 0, .8); }
+.bgp button.on { outline: 2px solid var(--porcelain, #f2f2f2); outline-offset: 2px; }
+.bgp button small { position: absolute; top: 6px; right: 8px; font: 700 10px/1 'JetBrains Mono', monospace; opacity: .85; }
+.bgr { display: grid; grid-template-columns: 90px 1fr 42px; align-items: center; gap: 10px; margin: 4px 0; }
+.bgr input[type=range] { width: 100%; }

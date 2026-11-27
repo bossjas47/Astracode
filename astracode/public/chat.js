@@ -125,6 +125,7 @@ const curModel = () => $('#model')?.value === 'auto' ? AUTO() : me.models.find(m
 
 async function chatView(id) {
   if (!me) return go('/login?next=' + encodeURIComponent(here()));
+  window.kbg?.sync(me.bg); // พื้นหลังแชตที่ตั้งไว้ในบัญชี (ตั้งจากอีกเครื่องก็ตามมา)
   const keep = $('#cmain'); keep?.remove(); // โหมด Code ที่เปิดค้างไว้ อยู่ต่อเมื่อวาดแชตใหม่
   chat = { ...chat, id: id ? +id : null, msgs: id ? await api('/chats/' + id).catch(() => []) : [], busy: false, images: [], files: [], agSid: null };
   autoRetry = 0;

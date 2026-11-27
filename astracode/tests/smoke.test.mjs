@@ -73,3 +73,18 @@ test('share target: text goes to the chat URL, files are kept once in R2 and ser
   assert.equal((await t.call(`/api/shared/${tok}/0`, { cookie: u.cookie })).status, 404, 'served once');
 });
 
+
+test('chat background: presets/3D/own image are saved to the account, others and bad values are refused', async () => {
+  const t = await makeEnv(), u = await t.user(), o = await t.user();
+  const put = (who, bg) => t.json('/api/me', { method: 'PUT', body: { bg }, headers: { cookie: who.cookie } });
+  assert.equal((await put(u, { kind: '3d', id: 'stars', dim: 200, blur: 5 })).status, 200);
+  assert.deepEqual(JSON.parse((await t.json('/api/me', { headers: { cookie: u.cookie } })).data.bg), { kind: '3d', id: 'stars', dim: 85, blur: 5 });
+  const png = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]).toString('base64');
+  const up = await t.json('/api/me/bg', { method: 'POST', body: { image: png }, headers: { cookie: u.cookie } });
+  assert.equal(up.status, 200); assert.match(up.data.url, new RegExp(`^/api/img/${u.id}/`));
+  assert.equal((await put(u, { kind: 'img', id: up.data.url })).status, 200);
+  assert.equal((await put(o, { kind: 'img', id: up.data.url })).status, 400, 'cannot use another account image');
+  assert.equal((await put(u, { kind: 'img', id: 'https://evil.test/x.jpg' })).status, 400);
+  assert.equal((await t.json('/api/me/bg', { method: 'POST', body: { image: 'data:image/svg+xml;base64,AAAA' }, headers: { cookie: u.cookie } })).status, 400);
+  assert.equal((await put(u, null)).status, 200); assert.equal((await t.json('/api/me', { headers: { cookie: u.cookie } })).data.bg, null);
+});

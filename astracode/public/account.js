@@ -117,6 +117,12 @@ PAGES.account = async function account() {
       <label>เอฟเฟกต์กระจก (เบลอ) · Auto ปิดเองบนเครื่องสเปกต่ำ</label><div class="seg" id="seg-fx" role="group" aria-label="เอฟเฟกต์กระจก">${[['auto', 'Auto'], ['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button type="button" data-x="${k}" class="${(localStorage.getItem('fx') || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <label>ขนาดตัวอักษรในแชต</label><div class="seg" id="seg-fs" role="group" aria-label="ขนาดตัวอักษร">${[['s', 'S'], ['m', 'M'], ['l', 'L']].map(([k, l]) => `<button type="button" data-f="${k}" class="${(localStorage.getItem('fsize') || 'm') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
 
+    <div class="card acc-c" id="sec-bg">${h3('พื้นหลังแชต')}<p class="muted" style="margin:0 0 6px">ใช้ในหน้าแชตทั้งบนเว็บและแอปบนคอม · ภาพ 3D เคลื่อนไหวช้า ๆ และหยุดเองเมื่อไม่ได้เปิดหน้าแชต</p>
+      <div class="bgp" id="bgp"></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn out sm" id="bgup">อัปโหลดรูปของคุณ</button><input type="file" id="bgfile" accept="image/jpeg,image/png,image/webp" hidden><span class="muted" style="font-size:12.5px">JPG/PNG/WebP · ระบบย่อให้อัตโนมัติ</span></div>
+      <div class="bgr"><label for="bgdim" style="margin:0">ความมืด</label><input type="range" id="bgdim" min="0" max="85" step="5"><span id="bgdimv" class="muted"></span></div>
+      <div class="bgr"><label for="bgblur" style="margin:0">ความเบลอ</label><input type="range" id="bgblur" min="0" max="20" step="1"><span id="bgblurv" class="muted"></span></div></div>
+
     <div class="card acc-c" id="sec-ai">${h3('ปรับ AI ให้เป็นของคุณ')}
       <label>คำสั่งส่วนตัว (ส่งไปกับทุกแชต)</label><textarea id="ins" rows="4" maxlength="3000" placeholder="เช่น ตอบสั้นๆ เป็นภาษาไทย ฉันเป็นนักพัฒนา Python">${esc(me.instructions || '')}</textarea>
       <button class="btn out sm" id="insave">Save</button> <span id="insok"></span>
@@ -175,6 +181,29 @@ PAGES.account = async function account() {
   pb.onclick = async () => { pb.disabled = true; try { if (await pushState()) { await disablePush(); pdraw(false); toast('ปิดแจ้งเตือนแล้ว'); } else { await enablePush(); pdraw(true); toast('เปิดแจ้งเตือนแล้ว', 'ok'); } } catch (x) { toast(x.message, 'bad'); } pb.disabled = false; };
   pt.onclick = () => api('/push/test', { method: 'POST' }).then(() => toast('ส่งแล้ว ดูที่แถบแจ้งเตือน', 'ok')).catch(x => toast(x.message, 'bad'));
   pickSeg('#seg-theme', 't', 'theme'); pickSeg('#seg-fs', 'f', 'fsize'); pickSeg('#seg-fx', 'x', 'fx');
+  // พื้นหลังแชต: เลือกแล้วบันทึกเข้าบัญชีทันที (เว็บกับแอปบนคอมใช้ค่าเดียวกัน)
+  if (window.kbg) {
+    let bg = (() => { try { return typeof me.bg === 'string' ? JSON.parse(me.bg) : me.bg || null; } catch { return null; } })() || window.kbg.get();
+    const K = window.kbg, tiles = [['', '', 'ไม่มี', '#000'], ...Object.entries(K.PRESETS).map(([id, p]) => ['preset', id, p.name, p.css]),
+      ...Object.entries(K.P3D).map(([id, n]) => ['3d', id, n, { stars: 'radial-gradient(circle at 30% 40%, #fff 0 1px, transparent 2px) 0 0/22px 22px, radial-gradient(circle at 70% 70%, #6b6ff5 0 1px, transparent 2px) 0 0/31px 31px, #02030a', waves: 'repeating-linear-gradient(170deg, transparent 0 9px, rgba(107,111,245,.55) 10px 11px), linear-gradient(90deg, #0b1b2b, #2a0f2f)', shapes: 'conic-gradient(from 30deg at 40% 45%, transparent 0 60deg, rgba(20,184,217,.5) 60deg 62deg, transparent 62deg), radial-gradient(circle at 40% 45%, rgba(107,111,245,.35), transparent 50%), #04040a', mesh: 'radial-gradient(circle at 20% 30%, rgba(20,184,217,.6), transparent 55%), radial-gradient(circle at 80% 70%, rgba(224,80,159,.6), transparent 55%), #070710' }[id]])];
+    const save = async g => { const prev = bg; bg = g; draw(); try { await api('/me', { method: 'PUT', body: { bg: g } }); me.bg = g; K.apply(g); } catch (x) { bg = prev; draw(); toast(x.message, 'bad'); } };
+    const draw = () => {
+      $('#bgp').innerHTML = tiles.map(([k, id, n, css]) => `<button type="button" data-k="${k}" data-id="${id}" class="${(bg?.kind || '') === k && (bg?.id || '') === id ? 'on' : ''}" style="background:${css}" aria-label="พื้นหลัง ${esc(n)}">${k === '3d' ? '<small>3D</small>' : ''}<span>${esc(n)}</span></button>`).join('')
+        + (bg?.kind === 'img' ? `<button type="button" class="on" style="background:url('${esc(bg.id)}') center/cover"><span>รูปของคุณ</span></button>` : '');
+      $('#bgdim').value = bg?.dim ?? 35; $('#bgdimv').textContent = ($('#bgdim').value) + '%'; $('#bgblur').value = bg?.blur ?? 0; $('#bgblurv').textContent = $('#bgblur').value + 'px';
+      $('#bgdim').disabled = !bg; $('#bgblur').disabled = !bg || bg.kind === '3d';
+    };
+    $('#bgp').onclick = e => { const b = e.target.closest('button[data-k]'); if (!b) return; save(b.dataset.k ? { kind: b.dataset.k, id: b.dataset.id, dim: bg?.dim ?? 35, blur: b.dataset.k === '3d' ? 0 : bg?.blur ?? 0 } : null); };
+    for (const [id, key] of [['#bgdim', 'dim'], ['#bgblur', 'blur']]) { $(id).oninput = e => { $(id + 'v').textContent = e.target.value + (key === 'dim' ? '%' : 'px'); }; $(id).onchange = e => bg && save({ ...bg, [key]: +e.target.value }); }
+    $('#bgup').onclick = () => $('#bgfile').click();
+    $('#bgfile').onchange = async e => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; const btn = $('#bgup'); btn.disabled = true; btn.textContent = 'กำลังอัปโหลด…';
+      try {
+        const im = await createImageBitmap(f), k = Math.min(1, 2560 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        let q = .86, d = c.toDataURL('image/jpeg', q); while (d.length > 3.8e6 && q > .4) d = c.toDataURL('image/jpeg', q -= .12);
+        const r = await api('/me/bg', { method: 'POST', body: { image: d } }); await save({ kind: 'img', id: r.url, dim: bg?.dim ?? 35, blur: bg?.blur ?? 0 }); toast('ตั้งพื้นหลังแล้ว เปิดหน้าแชตเพื่อดู', 'ok');
+      } catch (x) { toast(x.message || 'อัปโหลดไม่สำเร็จ', 'bad'); } finally { btn.disabled = false; btn.textContent = 'อัปโหลดรูปของคุณ'; } };
+    draw();
+  }
   const toggle = (id, key) => $(id)?.addEventListener('change', async e => { try { await api('/me', { method: 'PUT', body: { [key]: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; toast(x.message, 'bad'); } });
   $('#dcap')?.addEventListener('submit', async e => { e.preventDefault(); try { await api('/me', { method: 'PUT', body: { wallet_day_cap: +new FormData(e.target).get('cap') || 0 } }); await loadMe(); toast('บันทึกเพดานแล้ว', 'ok'); } catch (x) { toast(x.message, 'bad'); } });
   toggle('#overflow', 'wallet_overflow'); toggle('#renew', 'auto_renew'); toggle('#digest', 'digest');

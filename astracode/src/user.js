@@ -81,6 +81,13 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     const b = await req.json();
     await DB.prepare('UPDATE users SET instructions=COALESCE(?,instructions), wallet_overflow=COALESCE(?,wallet_overflow), auto_renew=COALESCE(?,auto_renew) WHERE id=?')
       .bind(typeof b.instructions === 'string' ? b.instructions.slice(0, 3000) : null, 'wallet_overflow' in b ? (b.wallet_overflow ? 1 : 0) : null, 'auto_renew' in b ? (b.auto_renew ? 1 : 0) : null, u.id).run();
+    if ('bg' in b) { // พื้นหลังแชต: none / ภาพสำเร็จรูป (preset) / 3D / รูปที่ผู้ใช้อัปโหลด (ของตัวเองเท่านั้น)
+      const g = b.bg && typeof b.bg === 'object' ? b.bg : null, kind = ['preset', '3d', 'img'].includes(g?.kind) ? g.kind : null;
+      const id = kind === 'img' ? (new RegExp(`^/api/img/${u.id}/[\\w-]+\\.(jpg|png)$`).test(String(g.id)) ? String(g.id) : null) : /^[a-z0-9-]{1,24}$/.test(String(g?.id || '')) ? String(g.id) : null;
+      if (kind && !id) return err('พื้นหลังไม่ถูกต้อง');
+      const v = kind ? JSON.stringify({ kind, id, dim: Math.min(85, Math.max(0, Math.round(+g.dim || 0))), blur: Math.min(20, Math.max(0, Math.round(+g.blur || 0))) }) : null;
+      await DB.prepare('UPDATE users SET bg=? WHERE id=?').bind(v, u.id).run();
+    }
     if ('auto_compact' in b) await DB.prepare('UPDATE users SET auto_compact=? WHERE id=?').bind(b.auto_compact ? 1 : 0, u.id).run();
     if ('cc_first' in b) await DB.prepare('UPDATE users SET cc_first=? WHERE id=?').bind(b.cc_first ? 1 : null, u.id).run(); // เครดิต Claude ที่แถม: ใช้ก่อนลิมิตหรือไม่
     if ('auto_memory' in b) await DB.prepare('UPDATE users SET auto_memory=? WHERE id=?').bind(b.auto_memory ? 1 : 0, u.id).run();
@@ -94,6 +101,13 @@ export async function userRoutes(req, env, ctx, url, path, M, u) {
     if ('auto_renew' in b && await multiOn(env)) await DB.prepare('UPDATE subscriptions SET auto_renew=? WHERE id=(SELECT primary_sub_id FROM users WHERE id=?)').bind(b.auto_renew ? 1 : 0, u.id).run().catch(() => {}); // หลายแพลน: สวิตช์เดิมของบัญชี = ใบหลัก
     if (b.auto_renew === false && typeof b.reason === 'string' && b.reason.trim()) await event(env, 'cancel', null, `${u.email}: ${b.reason.trim().slice(0, 300)}`); // เหตุผลที่ปิดต่ออายุ ให้แอดมินดูในเหตุการณ์ระบบ
     return json({ ok: true });
+  }
+  if (path === '/api/me/bg' && M === 'POST') { // อัปโหลดรูปพื้นหลังแชต (หน้าเว็บย่อเป็น JPEG ≤ 2560px ก่อนส่ง)
+    if (await limited(env, 'bgup:' + u.id, 20, 3600e3)) return err('อัปโหลดบ่อยเกินไป ลองใหม่ภายหลัง', 429);
+    const d = String((await req.json().catch(() => ({}))).image || ''), m = d.match(/^data:(image\/(?:jpeg|png));base64,/);
+    if (!m) return err('รองรับรูป JPG หรือ PNG'); const b64s = d.slice(m[0].length);
+    if (b64s.length > 4e6) return err('รูปใหญ่เกิน 3MB');
+    return json({ url: await putImage(env, u.id, m[1], b64s) });
   }
   if (path === '/api/memories/import' && M === 'POST') { // นำเข้าความจำจาก ChatGPT/Claude: วางข้อความ แยกเป็นข้อ ๆ ข้ามที่ซ้ำ เติมจนครบ 50
     const raw = String((await req.json().catch(() => ({}))).text || '').slice(0, 30000);

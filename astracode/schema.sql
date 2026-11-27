@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
   , auto_memory INTEGER                    -- 1 = ให้ AI บันทึกความจำเอง (ค่าเริ่มต้นปิด)
   , agent_pack_from INTEGER, agent_pack_until INTEGER, agent_pack_units REAL -- แพ็กเสริม Agent ที่ซื้อด้วย Wallet
   , primary_sub_id INTEGER                  -- หลายแพลน: ใบหลัก (subscriptions.id)
+,
+  bg TEXT                                   -- พื้นหลังแชต (JSON: kind/id/dim/blur) ซิงก์เว็บกับแอปบนคอม
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
