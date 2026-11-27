@@ -88,3 +88,10 @@ test('scanFolder skips Electron .asar bundles and unreadable files instead of fa
   const r = await require('../localfs').scanFolder(root);
   assert.deepEqual(r.files.map(f => f.path), ['index.html']); assert.ok(r.skipped.includes('resources/app.asar'));
 });
+
+test('isDanger: read-only PowerShell (Format-List/Table) and names like kill_bash.py or \\rd\\ folders are not dangerous; Move-Item/Rename-Item are', () => {
+  for (const c of ['powershell -NoProfile -Command "Get-Process -Id 1 | Select-Object Id | Format-List"', 'dir | Format-Table', 'Get-CimInstance Win32_Process | Format-Wide', 'python kill_bash.py', 'type C:\\a\\rd\\x.txt'])
+    assert.ok(!isDanger(c), c);
+  for (const c of ['format c:', 'powershell Move-Item a b', 'powershell Rename-Item a b', 'rd /s /q out', 'npm test && rm -r dist', 'kill 123'])
+    assert.ok(isDanger(c), c);
+});
