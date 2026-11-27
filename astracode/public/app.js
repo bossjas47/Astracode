@@ -458,7 +458,7 @@ function planTiles(plans, sel, period) { // UI 2.0: รายการแนว�
       <div class="pm-chips">${p.models.slice(0, PLAN_TOP).map(m => pmChip(m)).join('')}${p.models.length > PLAN_TOP ? `<button type="button" class="pm-more">+${p.models.length - PLAN_TOP} โมเดล</button>${p.models.slice(PLAN_TOP).map(m => pmChip(m, true)).join('')}` : ''}</div>
       ${shop ? (sel === p.id ? '' : `<button type="button" class="btn ${p.featured ? 'blue' : 'out'} pl-cta pl-pick">เลือก ${esc(p.name)}</button>`) : `<a class="btn ${p.featured ? 'blue' : 'out'} pl-cta" href="${!(p.price > 0) ? (me ? '/chat' : '/login') : me ? `/plans?plan=${p.id}` : '/login?next=' + encodeURIComponent('/plans?plan=' + p.id)}">${p.price > 0 ? 'เลือก ' + esc(p.name) : 'เริ่มใช้ฟรี'}</a>`}
     </div></div>`).join('')}</div>
-    ${plans.some(p => p.compare) ? `<p class="muted cmp-note">* เทียบจำนวนครั้งที่ใช้ได้ต่อ 5 ชม. กับแพลนของ Claude และ ChatGPT ระดับราคาเดียวกันรวมกัน · นับงานเขียนโค้ดด้วย Claude Opus 5.5 Eco · ค่าประมาณ ตัวเลขของคู่แข่งมาจากข้อมูลสาธารณะ ไม่ใช่ตัวเลขทางการ</p>` : ''}
+    ${plans.some(p => p.compare) ? `<p class="muted cmp-note">* ค่าประมาณจากต้นทุนจริง: แชต 1 ข้อความ = ขนาดสั้นถึงกลาง (~3K token เข้า / 700 ออก) · งาน Agent 1 งาน = ฿3.6–8.8 จากผลทดสอบจริง (Claude Opus 5.5 Agent) · บทสนทนายาว แนบไฟล์ หรือคิดลึก ใช้ลิมิตมากขึ้น · ดูการใช้จริงได้ที่หน้าลิมิต</p>` : ''}
     <p class="muted pl-foot">ทุกโมเดลในแพลนใช้ลิมิตก้อนเดียวกัน โมเดลที่เก่งกว่าใช้ลิมิตเร็วกว่า</p>`;
 }
 // แตะแถวแพลนเพื่อกาง/หุบ (หน้า /plans ผูก onclick เลือกแพลนเพิ่มเอง)
