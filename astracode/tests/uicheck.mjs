@@ -41,7 +41,7 @@ const srv = createServer(async (rq, res) => {
 await new Promise(r => srv.listen(0, r));
 const base = 'http://localhost:' + srv.address().port, sid = u.cookie.split('=')[1];
 
-const PAGES = ['/chat', '/chat?id=' + chat, '/chat?mode=cowork', '/chat?mode=cowork&task=1', ...(proj ? ['/code?p=' + proj] : []), '/developers', '/account', '/plans', '/pricing', '/status', '/'];
+const PAGES = ['/chat', '/chat?id=' + chat, '/chat?mode=cowork', '/chat?mode=cowork&task=1', ...(proj ? ['/code?p=' + proj] : []), '/developers', '/account', '/plans', '/pricing', '/status', '/kyber25', '/'];
 const THEMES = ['light', 'dark'], SIZES = [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]];
 
 // ในหน้า: หาข้อความที่มองเห็นได้แต่สีตัวอักษรกลืนกับพื้นหลังจริง (เดินขึ้นหาพื้นหลังทึบ · ข้ามพื้นรูป/ไล่สีเพราะคำนวณไม่ได้)

@@ -643,3 +643,31 @@ PAGES.translate = async () => {
   $('#tfile').onchange = e => { go1(e.target.files); e.target.value = ''; };
   const z = $('#tdrop'); z.ondragover = e => { e.preventDefault(); z.classList.add('on'); }; z.ondragleave = () => z.classList.remove('on'); z.ondrop = e => { e.preventDefault(); z.classList.remove('on'); go1(e.dataTransfer.files); };
 };
+
+// ---------- หน้าเปิดตัว Kyber 2.5 ----------
+PAGES.kyber25 = async () => {
+  const f = (t, d) => `<div class="k25-f"><b>${t}</b><p>${d}</p></div>`;
+  page(nav() + `<div class="k25">
+  <section class="k25-hero"><span class="k25-tag">ใหม่ · Kyber 2.5</span>
+    <h1>เร็วขึ้น เสถียรขึ้น<br><span>และโปร่งใสกว่าเดิม</span></h1>
+    <p class="k25-sub">อัปเดตใหญ่ทั้งเว็บ แอปบนคอม และ API: Agent ที่ฟังคุณทันที งานไม่หยุดแม้สลับแชต และโมเดลขัดข้องเมื่อไหร่ ระบบสลับตัวสำรองให้ก่อนคุณจะเห็น error</p>
+    <div class="k25-cta"><a class="btn blue" href="/chat">เริ่มใช้ Kyber 2.5</a><a class="btn out" href="/status">ดูสถานะระบบแบบสด</a></div></section>
+  <section class="k25-shot"><img src="/img/k25-agent.png" alt="การ์ดงาน Agent ของ Kyber 2.5 แสดงแผนงาน ขั้นตอน และโค้ดที่แก้แบบสด" width="1532" height="880" loading="lazy"></section>
+  <section class="k25-sec"><h2>Agent ที่ทำงานเหมือนเพื่อนร่วมทีม</h2><div class="k25-grid">
+    ${f('เห็นทุกขั้นตอนแบบสด', 'แผนงาน ขั้นตอนที่ทำ โค้ดที่เพิ่งแก้ เวลาที่ใช้ และลิมิตที่กิน อยู่ในการ์ดเดียว')}
+    ${f('พิมพ์แทรกแล้วมีผลทันที', 'สั่งเปลี่ยนกลางทาง AI หยุดสิ่งที่กำลังพิมพ์แล้วอ่านคำสั่งใหม่ทันที แนบรูปไปด้วยได้')}
+    ${f('สั่งงานถัดไปไว้ในคิว', 'พิมพ์ระหว่างที่ AI ทำงาน ข้อความเข้าคิวและส่งให้เองเมื่องานเสร็จ')}
+    ${f('สลับแชตได้ งานไม่หยุด', 'เปิดหลายงานพร้อมกัน งานเดิมทำต่อเบื้องหลัง เสร็จแล้วแจ้งเตือน')}
+    ${f('หลุดกลางทาง ทำต่อเอง', 'การเชื่อมต่อกับโมเดลขาด ระบบทำต่อจากจุดเดิมให้อัตโนมัติ ไม่ต้องกดทำต่อ')}
+    ${f('ถามเฉพาะที่ควรถาม', 'โหมดทำเองทั้งหมดถามเฉพาะคำสั่งที่อันตรายจริง เช่น ลบไฟล์ ไม่ถามรัวๆ อีกต่อไป')}</div></section>
+  <section class="k25-sec"><h2>เสถียรขึ้นในจุดที่คุณไม่ต้องเห็น</h2><div class="k25-grid">
+    ${f('สลับตัวสำรองตั้งแต่ครั้งแรก', 'ถ้าต้นทางปิดช่องทางหรือเครดิตหมด คำขอถัดไปไปตัวสำรองทันที ไม่ต้องรอ error ซ้ำ')}
+    ${f('API ใช้กับโปรแกรมเขียนโค้ดได้ครบ', 'Cline, OpenCode, Claude Code และโปรแกรมที่ส่งค่า temperature ใช้ได้ทุกโมเดล')}
+    ${f('งานใหญ่ไม่โดนตัดกลางทาง', 'โมเดลรุ่น Agent รอคิดได้นานขึ้นสำหรับงานใหญ่ เช่น เขียนบอทเทรดทั้งไฟล์')}</div></section>
+  <section class="k25-sec"><h2>ทดสอบจริง เปิดเผยตัวเลข</h2>
+    <p class="muted">Opus 5.5 Agent เทียบ Opus 5.5 Eco ทำแอป Kanban 4 ไฟล์ แล้วสั่งแก้ต่อ 3 รอบ ผ่าน Kyber Harness ตรวจด้วยเบราว์เซอร์จริง 16 ข้อ</p>
+    <div class="k25-stats"><div><b>16/16</b><small>ผ่านการตรวจทั้งคู่</small></div><div><b>1.6 เท่า</b><small>Agent เร็วกว่า (5.1 เทียบ 8.4 นาที)</small></div><div><b>62%</b><small>cache ติด เทียบกับ 20%</small></div><div><b>−15%</b><small>ต้นทุนรวมต่องาน</small></div></div>
+    <p class="muted" style="font-size:13px">ดูตัวเลขทั้งหมดและอัตราสำเร็จของทุกโมเดลแบบสดได้ที่ <a href="/status">หน้าสถานะระบบ</a> ซึ่งคำนวณจากการใช้งานจริงของลูกค้าทุกคน</p></section>
+  <section class="k25-end"><h2>ลอง Kyber 2.5 วันนี้</h2><p class="muted">แอปบนคอมจะอัปเดตเอง หรือโหลดรุ่นล่าสุดได้เลย</p><div class="k25-cta"><a class="btn blue" href="/chat">เปิดแชต</a><a class="btn out" href="/download/desktop?os=win">ดาวน์โหลดแอปคอม</a><a class="btn out" href="/plans">ดูแพลน</a></div></section>
+  ${footer()}</div>`);
+};
