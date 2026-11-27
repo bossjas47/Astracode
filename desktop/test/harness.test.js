@@ -128,7 +128,8 @@ test('harness: compaction keeps the todo list, changed files and open errors, pl
   await compact({ post: async b => { asked = b; return { ok: true, json: async () => ({ choices: [{ message: { content: 'สรุปเก่า' } }] }) }; }, model: 'm', messages, onEvent: () => {}, state });
   assert.equal(asked.stream, false); assert.equal(messages[0].content, 'sys');
   assert.match(messages[1].content, /สรุปเก่า[\s\S]*\[in_progress\] แก้ login[\s\S]*src\/a\.js[\s\S]*2 failing/);
-  assert.equal(messages.filter(m => m.role === 'assistant' && m.tool_calls).length, 4); // 4 รอบล่าสุดเต็มข้อความ
+  assert.equal(messages.filter(m => m.role === 'assistant' && m.tool_calls).length, 6); // 6 รอบล่าสุดเต็มข้อความ
+  assert.match(asked.messages[0].content, /already found[\s\S]*URLs/); // สรุปต้องเก็บสิ่งที่ค้นเจอแล้ว ไม่ให้ค้นซ้ำหลังหยุด/สั่งต่อ
   assert.equal(messages[3].role, 'assistant'); // ไม่เริ่มด้วย tool ที่ไม่มีคู่
 });
 

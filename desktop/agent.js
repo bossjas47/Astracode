@@ -65,7 +65,7 @@ function repairHistory(messages) {
     const have = new Set(); let j = i + 1;
     for (; j < messages.length && messages[j].role === 'tool'; j++) have.add(messages[j].tool_call_id);
     const miss = m.tool_calls.filter(tc => !have.has(tc.id));
-    if (miss.length) { messages.splice(j, 0, ...miss.map(tc => ({ role: 'tool', tool_call_id: tc.id, content: `Error: interrupted (the app or sandbox restarted before ${tc.function?.name || 'this tool'} finished). Check the current state of files before redoing it; do not blindly rewrite.` }))); fixed += miss.length; }
+    if (miss.length) { messages.splice(j, 0, ...miss.map(tc => ({ role: 'tool', tool_call_id: tc.id, content: `Error: interrupted before ${tc.function?.name || 'this tool'} finished (the user pressed stop, or the app restarted). Earlier results in this conversation are still valid; reuse them. Redo this one call only if it is still needed; for file edits, check the file first.` }))); fixed += miss.length; }
   }
   return fixed;
 }
@@ -330,13 +330,13 @@ function track(state, name, args, out, ok) {
 async function compact({ post, model, messages, onEvent, state = null, pinned = null }) {
   const sys = messages[0]?.role === 'system' ? messages[0] : null, body = messages.slice(sys ? 1 : 0);
   const asst = body.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0);
-  let start = asst.length >= 4 ? asst[asst.length - 4] : Math.max(0, body.length - 8);
+  let start = asst.length >= 6 ? asst[asst.length - 6] : Math.max(0, body.length - 8); // เก็บ 6 รอบล่าสุดเต็ม ๆ (เดิม 4): ลูกค้าหยุดแล้วสั่งต่อบ่อย ส่วนที่เพิ่งทำต้องยังอยู่ครบ
   if (start === 0) start = Math.max(1, body.length - 8); // ต้องมีส่วนเก่าให้ย่ออย่างน้อย 1 ข้อความ
   let keep = body.slice(start); while (keep.length && keep[0].role === 'tool') keep = keep.slice(1);
   const old = body.slice(0, body.length - keep.length); if (!old.length) return;
   const text = old.map(m => `[${m.role}] ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? m.tool_calls ?? '')}`.slice(0, 4000)).join('\n').slice(-200000);
   onEvent({ type: 'info', text: 'บทสนทนายาวแล้ว กำลังย่อส่วนเก่า…' });
-  const r = await post({ model, stream: false, max_tokens: 2000, messages: [{ role: 'system', content: 'Summarize this agent work log so the agent can continue: the user goal, files read and changed (with paths), commands run and their results, decisions, and what is left to do. Bullet points, at most 400 words, same language as the user.' }, { role: 'user', content: text }] }).catch(() => null);
+  const r = await post({ model, stream: false, max_tokens: 3500, messages: [{ role: 'system', content: 'Summarize this agent work log so the agent can continue WITHOUT redoing any work: the user goal and every later instruction or correction from the user; what was already found (search results, sources with URLs, facts, numbers, answers, conclusions); files read and changed (with paths); commands run and their results; decisions; and what is left to do. Keep concrete findings verbatim enough to reuse them. Bullet points, at most 800 words, same language as the user.' }, { role: 'user', content: text }] }).catch(() => null);
   const d = r ? await r.json().catch(() => ({})) : {}, sum = d.choices?.[0]?.message?.content;
   if (!r?.ok || !sum) return; // ย่อไม่สำเร็จ (รวมเน็ตหลุด): ทำต่อแบบเดิม ไม่ทิ้งงาน
   const s = state ? snapshot(state) : null;
