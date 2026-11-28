@@ -478,6 +478,13 @@ test('helper model: cheapest text model by plan multiplier for side jobs; none c
   assert.match(agentSystem({ root: '/p', os: 'x', rules: '' }), /start 2-3 helpers in ONE reply/);
 });
 
+test('system prompt: new visual work aims for a polished piece; "smallest change" stays for edits', () => {
+  const s = agentSystem({ root: '/p', os: 'x', rules: '' });
+  assert.match(s, /Visual and creative work[\s\S]*quality comes first/);
+  assert.match(s, /Never shrink, simplify or remove detail while fixing/);
+  assert.match(s, /Make the smallest change that fully does the task/);
+});
+
 test('last round: tools are switched off so the AI must write the summary', async () => {
   const s = script([...Array.from({ length: 9 }, () => ({ calls: [['read_file', { path: 'a.js' }]] })), { text: 'สรุป: แก้แล้ว' }]);
   const r = await run(s, { callTool: async () => 'x', maxRounds: 10 });
