@@ -1097,7 +1097,7 @@ export const SMART_PLAN_SYS = 'You are the planner. Read the conversation and wr
 export const SMART_EXEC_SYS = 'A senior model already planned this answer. Follow the plan closely (improve it only if it is clearly wrong), then give the complete final answer yourself. Do not mention the plan.\n<plan>\n';
 export const SMART_REVIEW_SYS = 'You are a strict senior reviewer. Check the answer against the task for real bugs, wrong facts or missing requirements. If it is correct and complete, reply with exactly: OK. Otherwise list only the concrete problems and the exact fix for each (code snippets if needed), at most 200 words, in the same language as the task.';
 export const BON_SYS = 'Several models already answered the user\'s last message (below). Write the single best final answer: take the strongest ideas, fix any mistakes you find, drop weak parts. Answer directly as yourself, do not mention candidates or other models.\n';
-export const compactAt = m => isClaudeEco(m) ? 60e3 : 120e3;
+export const compactAt = m => isClaudeEco(m) ? 60e3 : 300e3; // token: ย่อแชตเมื่อ context ถึง 300K (เดิม 120K) · Claude Eco คงไว้ 60K เพราะแคชติดน้อย
 
 // ---------- ลดต้นทุน: เลือกโมเดลอัตโนมัติ + ย่อแชตยาว ----------
 export const BUILD_RE = /\b(game|website|web ?app|landing page|dashboard|3d|three\.?js|webgl|canvas|animation|html|css|tailwind|ui|ux|app|api|database|deploy|script|bot)\b|เกม|เว็บ|แอป|หน้าเว็บ|ฉาก|แอนิเมชัน|ออกแบบ|สร้าง(ระบบ|โปรแกรม|บอท|ไฟล์|สไลด์|เอกสาร)|ทำ(ระบบ|โปรแกรม|บอท)|สไลด์|พรีเซนต์|สัญญา|แผนการ|แปลเอกสาร/i;

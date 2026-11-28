@@ -3,7 +3,7 @@
 // ส่วนที่คุมให้ทำงานได้นานโดยไม่เปลือง: ลองใหม่แบบ backoff+jitter · ตรวจวนซ้ำ · เพดานรอบ/เวลา/token · ตรวจ argument กับ schema · อ่านพร้อมกัน/เขียนทีละอัน · ผลยาวเก็บลงไฟล์ · ย่อบทสนทนาแบบไม่ทิ้งงาน · บันทึก checkpoint
 const TOOL_OUT_MAX = 60000; // ผลเครื่องมือยาวสุดที่ส่งเข้า context (กรณีไม่มีที่เก็บไฟล์)
 const SPILL_AT = 12000; // ผลยาวกว่านี้: เก็บเต็มลงไฟล์ (.kyber-tmp) แล้วส่งให้โมเดลแค่หัว + ท้าย + path
-const COMPACT_AT = 600000; // เดิม 350K (~100K token): งาน Agent ยาว ๆ ถูกย่อบ่อยจนลืมของต้นงาน · โมเดลหลักรับได้ 1M token และส่วนเก่าติดแคช (ถูก) // ตัวอักษรรวมของบทสนทนา (~100k token) เกินนี้ → ย่อส่วนเก่าก่อนรอบถัดไป
+const COMPACT_AT = 1050000; // ~300K token · เดิม 350K (~100K token): งาน Agent ยาว ๆ ถูกย่อบ่อยจนลืมของต้นงาน · โมเดลหลักรับได้ 1M token และส่วนเก่าติดแคช (ถูก) // ตัวอักษรรวมของบทสนทนา (~100k token) เกินนี้ → ย่อส่วนเก่าก่อนรอบถัดไป
 const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
 // เครื่องมือที่อ่านอย่างเดียว: รันพร้อมกันได้ในรอบเดียว · ที่เหลือ (แก้ไฟล์/รันคำสั่ง/ถามผู้ใช้) รันทีละอันตามลำดับ กันไฟล์ชนกัน
 const READ_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax', 'web_search', 'web_fetch', 'task', 'read_document', 'screenshot_url']);
@@ -280,7 +280,7 @@ async function runAgent({ base, key, model, messages, tools = [], callTool, onEv
 // ลดขนาดบริบท (ทำทุกรอบ ไม่ต้องเรียกโมเดล): ของเก่าที่โมเดลไม่ต้องเห็นซ้ำทุกรอบ
 // 1) เนื้อหาไฟล์ใน write_file/edit_file ที่เขียนไปแล้ว (ไฟล์อยู่บนดิสก์ อ่านใหม่ได้) 2) ผลเครื่องมือยาว ๆ ของรอบเก่า 3) ภาพหน้าเว็บเก่า (เหลือภาพล่าสุด)
 // เดิมไฟล์ 50K ตัวอักษรที่เขียนตอนต้นถูกส่งซ้ำทุกรอบ = โทเคนขาเข้าหลักของงาน · แก้ในที่เดิมครั้งเดียว ข้อความเก่าไม่เปลี่ยนอีก (prompt cache ส่วนต้นยังใช้ได้)
-const SLIM_MIN = 240000, SLIM_KEEP = 3, SLIM_STEP = 4, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'], CODE_ARGS = ['code', 'script', 'source', 'command', 'luau', 'lua', 'python', 'query']; // CODE_ARGS: โค้ดที่ส่งไปรันแล้ว (เช่น MCP Roblox run_code, bash)
+const SLIM_MIN = 700000, SLIM_KEEP = 3, SLIM_STEP = 4, SLIM_OUT = 1500, SLIM_ARG = 400, BIG_ARGS = ['content', 'new_string', 'old_string', 'edits', 'patch'], CODE_ARGS = ['code', 'script', 'source', 'command', 'luau', 'lua', 'python', 'query']; // CODE_ARGS: โค้ดที่ส่งไปรันแล้ว (เช่น MCP Roblox run_code, bash)
 // วัดจริง (Roblox, DeepSeek): ย่อบทสนทนาเล็ก ๆ ทำให้แคชหลุดทุกครั้งที่ย่อ (ผู้ให้บริการจำแคชจากต้นบทสนทนา) แพงกว่าส่งต่อแบบแคช → ย่อเมื่อยาวเกิน ~40K token เท่านั้น
 function slim(messages, min = SLIM_MIN, editing = null) { // editing = ไฟล์ที่งานนี้แก้อยู่: ผลอ่านไฟล์เหล่านี้ไม่ตัด (โมเดลต้องเห็นข้อความจริงเพื่อแก้ต่อ ไม่งั้นต้องอ่านซ้ำทุกไม่กี่รอบ)
   if (min && JSON.stringify(messages).length < min) return 0;

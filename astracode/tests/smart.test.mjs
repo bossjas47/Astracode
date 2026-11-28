@@ -89,10 +89,10 @@ test('model stats: reliability and limit multiple per model', async () => {
   assert.equal(r2[b.id].ag, 30); assert.equal(r2[b.id].agn, 10); assert.equal(r2[b.id].ok, 80, 'agent stats merge with reliability');
 });
 
-test('compact threshold: 60K for Claude Eco, 120K for others', async () => {
+test('compact threshold: 60K for Claude Eco, 300K for others', async () => {
   const { compactAt } = await import('../src/ai.js');
   assert.equal(compactAt({ name: 'Claude Opus 5.5 Eco' }), 60e3);
-  assert.equal(compactAt({ name: 'ChatGPT 6.2 Sol' }), 120e3);
+  assert.equal(compactAt({ name: 'ChatGPT 6.2 Sol' }), 300e3);
 });
 
 test('chat with a folder on the user computer: no cloud run_python, the AI is told to RUN python locally', async () => {
