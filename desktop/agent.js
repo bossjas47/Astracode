@@ -3,7 +3,7 @@
 // ส่วนที่คุมให้ทำงานได้นานโดยไม่เปลือง: ลองใหม่แบบ backoff+jitter · ตรวจวนซ้ำ · เพดานรอบ/เวลา/token · ตรวจ argument กับ schema · อ่านพร้อมกัน/เขียนทีละอัน · ผลยาวเก็บลงไฟล์ · ย่อบทสนทนาแบบไม่ทิ้งงาน · บันทึก checkpoint
 const TOOL_OUT_MAX = 60000; // ผลเครื่องมือยาวสุดที่ส่งเข้า context (กรณีไม่มีที่เก็บไฟล์)
 const SPILL_AT = 12000; // ผลยาวกว่านี้: เก็บเต็มลงไฟล์ (.kyber-tmp) แล้วส่งให้โมเดลแค่หัว + ท้าย + path
-const COMPACT_AT = 350000; // ตัวอักษรรวมของบทสนทนา (~100k token) เกินนี้ → ย่อส่วนเก่าก่อนรอบถัดไป
+const COMPACT_AT = 600000; // เดิม 350K (~100K token): งาน Agent ยาว ๆ ถูกย่อบ่อยจนลืมของต้นงาน · โมเดลหลักรับได้ 1M token และส่วนเก่าติดแคช (ถูก) // ตัวอักษรรวมของบทสนทนา (~100k token) เกินนี้ → ย่อส่วนเก่าก่อนรอบถัดไป
 const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
 // เครื่องมือที่อ่านอย่างเดียว: รันพร้อมกันได้ในรอบเดียว · ที่เหลือ (แก้ไฟล์/รันคำสั่ง/ถามผู้ใช้) รันทีละอันตามลำดับ กันไฟล์ชนกัน
 const READ_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_inspect', 'check_syntax', 'web_search', 'web_fetch', 'task', 'read_document', 'screenshot_url']);
@@ -341,7 +341,8 @@ async function compact({ post, model, messages, onEvent, state = null, pinned = 
   if (!r?.ok || !sum) return; // ย่อไม่สำเร็จ (รวมเน็ตหลุด): ทำต่อแบบเดิม ไม่ทิ้งงาน
   const s = state ? snapshot(state) : null;
   const facts = s ? [s.todos?.length ? 'Current todo list:\n' + s.todos.map(t => `- [${t.status}] ${t.content}`).join('\n') : '', s.changed.length ? 'Files already changed in this task: ' + s.changed.join(', ') : '', s.errors.length ? 'Unresolved errors:\n' + s.errors.map(e => '- ' + e).join('\n') : '', pinned?.() || ''].filter(Boolean).join('\n\n') : '';
-  messages.splice(0, messages.length, ...(sys ? [sys] : []), { role: 'user', content: '[สรุปงานก่อนหน้า]\n' + sum + (facts ? '\n\n[สถานะงานที่ต้องคงไว้]\n' + facts : '') }, { role: 'assistant', content: 'รับทราบ ทำงานต่อจากสรุปนี้' }, ...keep);
+  const goal = body.find(m => m.role === 'user' && typeof m.content === 'string' && !m.content.startsWith('[')); // คำสั่งแรกของผู้ใช้: เก็บคำต่อคำ ไม่ให้สรุปจนเพี้ยน
+  messages.splice(0, messages.length, ...(sys ? [sys] : []), { role: 'user', content: (goal && !keep.includes(goal) ? '[คำสั่งแรกของผู้ใช้ (ตัวจริง)]\n' + goal.content.slice(0, 6000) + '\n\n' : '') + '[สรุปงานก่อนหน้า]\n' + sum + (facts ? '\n\n[สถานะงานที่ต้องคงไว้]\n' + facts : '') }, { role: 'assistant', content: 'รับทราบ ทำงานต่อจากสรุปนี้' }, ...keep);
 }
 
 // อ่าน SSE แบบ OpenAI: ต่อข้อความและ tool_calls ที่มาเป็นชิ้น ๆ (ชิ้นแรกมี id/name ชิ้นต่อไปมีแต่ arguments) · onFirst = ได้ token/เครื่องมือแรก (วัด TTFT)

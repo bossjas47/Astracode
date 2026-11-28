@@ -546,3 +546,10 @@ test('harness: steer cuts the answer being typed and restarts the round with the
   assert.equal(last.role, 'user'); assert.match(JSON.stringify(last.content), /สีแดง/); assert.match(JSON.stringify(last.content), /image_url/);
   assert.ok(ev.some(e => e.type === 'info' && /แทรก/.test(e.text)));
 });
+
+test('harness: compaction keeps the user\'s first request word for word above the summary', async () => {
+  const messages = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'ย้ายไฟล์ทั้งหมดใน docs/ ไป archive/ แล้วสรุปตัวเลขในเอกสาร' }];
+  for (let i = 0; i < 10; i++) messages.push({ role: 'assistant', content: null, tool_calls: [{ id: 'g' + i, type: 'function', function: { name: 'read_file', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'g' + i, content: 'x'.repeat(50) });
+  await compact({ post: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: 'สรุป' } }] }) }), model: 'm', messages, onEvent: () => {} });
+  assert.match(messages[1].content, /คำสั่งแรกของผู้ใช้[\s\S]*ย้ายไฟล์ทั้งหมดใน docs\/ ไป archive\/[\s\S]*สรุปงานก่อนหน้า/);
+});
