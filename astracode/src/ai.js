@@ -322,8 +322,9 @@ async function* callModelRaw(env, m, msgs, { effort, images = [], system = SYSTE
     if (m.effort === 'openai' && userId) body.prompt_cache_key = 'astra-' + userId; // ให้คำขอของผู้ใช้คนเดิมไปเครื่องที่มี cache อยู่
     if (m.effort === 'gemini') body.reasoning_effort = effort ? ({ xhigh: 'high', max: 'high', on: 'medium' }[effort] || effort) : 'none';
     if (m.effort === 'deepseek') { // DeepSeek เปิดคิดเป็นค่าเริ่มต้น จึงต้องปิดเองเมื่อเลือก Instant
-      body.thinking = { type: effort ? 'enabled' : 'disabled' };
-      if (effort) body.reasoning_effort = { on: 'medium', xhigh: 'max', minimal: 'low' }[effort] || effort;
+      const ef = effort || (flat(m) ? 'high' : null); // ช่องคิดเหมาต่อ request (เช่น Codely): คิดลึกไม่เสียเพิ่ม · ปิดคิดแล้วตอบเอกสารยาวพลาด (ทดสอบ 28 พ.ย.: 1/4 → High 4/4)
+      body.thinking = { type: ef ? 'enabled' : 'disabled' };
+      if (ef) body.reasoning_effort = { on: 'medium', xhigh: 'max', minimal: 'low' }[ef] || ef;
     }
     if (m.effort === 'kimi') body.thinking = { type: effort ? 'enabled' : 'disabled' }; // Kimi K2.5+: เปิด/ปิดคิดอย่างเดียว ไม่มีระดับ
     const thinking = body.reasoning_effort || body.thinking?.type === 'enabled'; // โหมดคิดไม่รับพารามิเตอร์สุ่ม

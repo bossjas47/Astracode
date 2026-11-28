@@ -166,6 +166,19 @@ test('free plan without wallet money cannot create API keys and old keys stop wo
   assert.equal((await v1('/v1/models')).status, 200); void key; fm.close();
 });
 
+test('a flat-priced DeepSeek channel thinks at High when the caller sets no effort (thinking costs nothing extra there)', async () => {
+  const { fm, t, m, v1 } = await setup({ balance: 3 });
+  t.DB.raw.prepare("UPDATE models SET effort='deepseek' WHERE id=?").run(m.id);
+  await v1('/v1/chat/completions', msg);
+  assert.equal(globalThis.__lastBody.thinking?.type, 'disabled', 'token-priced: no effort = thinking off as before');
+  t.DB.raw.prepare("UPDATE models SET bill='request', req_cost=0.03, req_price=0.09 WHERE id=?").run(m.id);
+  await v1('/v1/chat/completions', msg);
+  assert.equal(globalThis.__lastBody.thinking?.type, 'enabled'); assert.equal(globalThis.__lastBody.reasoning_effort, 'high');
+  await v1('/v1/chat/completions', { ...msg, reasoning_effort: 'max' });
+  assert.equal(globalThis.__lastBody.reasoning_effort, 'max', 'an explicit effort is kept');
+  fm.close();
+});
+
 test('a model with a flat per-request price charges that price whatever the token count', async () => {
   const { fm, t, m, v1, bal } = await setup({ balance: 3 });
   t.DB.raw.prepare('UPDATE models SET req_cost=0.5, req_price=1.2 WHERE id=?').run(m.id);
